@@ -355,8 +355,10 @@ b { font-weight: 600; }
 /* ---------- the load sequence overlay ------------------------------------ */
 
 /* the hero's own entrance waits for the intro, and keeps waiting after the
-   overlay is gone so nothing restarts or jumps mid-slide */
-html.intro-on, html.intro-done { --intro-o: 1620ms; }
+   overlay is gone so nothing restarts or jumps mid-slide. The intro is also the
+   page's loader, so it can run long: main.js rewrites --intro-o to the real
+   collapse moment. This value is the no-JS-yet default. */
+html.intro-on, html.intro-done { --intro-o: 5100ms; }
 
 .intro { display: none; }
 html.intro-on .intro, html.intro-reduced .intro {
@@ -370,24 +372,59 @@ html.intro-on .intro, html.intro-reduced .intro {
   transform-origin: 0 0;
   will-change: transform;
 }
-/* the same 44px module as the hero field, lined up on it by --gx / --gy */
-.intro__rule { position: absolute; inset: 0; }
-.intro__rule--v {
-  background-image: repeating-linear-gradient(to right, rgba(255,255,255,.12) 0 1px, transparent 1px 44px);
-  background-position: var(--gx, 0px) 0;
+/* The same 44px module as the hero field. One <line> per grid line, built and
+   animated by main.js so each one can draw on its own clock, centre outward. */
+.intro__grid {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  overflow: visible;
 }
-.intro__rule--h {
-  background-image: repeating-linear-gradient(to bottom, rgba(255,255,255,.12) 0 1px, transparent 1px 44px);
-  background-position: 0 var(--gy, 0px);
+.intro__grid line {
+  stroke: rgba(255, 255, 255, .14);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }
 
-@keyframes rule-v { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
-@keyframes rule-h { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+/* ---------- the loader's hold state ------------------------------------- */
+/* Shown only if the page is still loading when the animation reaches its
+   collapse point. --markr is half the lit mark's height, set by main.js. */
+.intro__load {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + var(--markr, 180px) + 40px);
+  transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  opacity: 0;
+  transition: opacity 320ms linear;
+}
+.intro.is-loading .intro__load { opacity: 1; }
+.intro__caption {
+  margin: 0;
+  font-family: var(--f-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .62);
+}
+.intro__bar {
+  width: 132px; height: 1px;
+  background: rgba(255, 255, 255, .16);
+  overflow: hidden;
+}
+.intro__bar i {
+  display: block; height: 100%; width: 100%;
+  background: var(--arc);
+  transform: scaleX(var(--load, 0));
+  transform-origin: 0 50%;
+  transition: transform 260ms var(--ease-out);
+}
 
 @media (prefers-reduced-motion: no-preference) {
-  /* the grid draws itself onto the navy, left to right then top to bottom */
-  html.intro-on .intro__rule--v { animation: rule-v 420ms var(--ease-out) 60ms both; }
-  html.intro-on .intro__rule--h { animation: rule-h 440ms var(--ease-out) 160ms both; }
+  /* the teal arc breathes while the loader waits, so the held G is not frozen.
+     The arc is the only .mg that is a direct child of the monogram. */
+  html.intro-on .monogram.is-waiting > .mg {
+    animation: mg-breathe 1600ms var(--ease-in-out) infinite;
+  }
 
   /* the hero is below the overlay, the mark alone rises above it */
   html.intro-on .hero, html.intro-on .hero__wrap { z-index: auto; }
@@ -399,30 +436,46 @@ html.intro-on .intro, html.intro-reduced .intro {
     will-change: transform;
   }
   html.intro-on .monogram.is-lit { opacity: 1; }
-  /* 150ms - 1700ms compressed into 500ms - 1700ms, so the mark draws after
-     the grid and finishes exactly as the field starts to collapse */
-  html.intro-on .mg {
-    animation-duration: calc(var(--t) * 0.774);
-    animation-delay: calc(var(--d) * 0.774 + 384ms);
-  }
+  /* Under the intro every stroke is driven from main.js instead, on the same
+     clock as the grid and the collapse, so no phase can drift into the next. */
+  html.intro-on .mg { animation: none; stroke-dashoffset: var(--len); }
   html.intro-on .hero__eyebrow, html.intro-on .hero__tagline, html.intro-on .hero__lede,
   html.intro-on .cta, html.intro-on .cta__note, html.intro-on .cue,
   html.intro-done .hero__eyebrow, html.intro-done .hero__tagline, html.intro-done .hero__lede,
   html.intro-done .cta, html.intro-done .cta__note, html.intro-done .cue { animation-name: rise-t; }
   /* the wordmark is not raised in, it is written: see .write below */
   html.intro-on .wordmark, html.intro-done .wordmark { animation: none; }
-  html.intro-on .intro.is-closing .intro__rule { opacity: 0; transition: opacity 260ms linear; }
+  html.intro-on .intro.is-closing .intro__grid,
+  html.intro-on .intro.is-closing .intro__load { opacity: 0; transition: opacity 260ms linear; }
 }
+@keyframes mg-breathe { 0%, 100% { opacity: .7; } 50% { opacity: 1; } }
+
+/* Reduced motion: the field holds the static, already-drawn mark and the
+   progress line, then fades. Nothing draws, nothing collapses. The hero's own
+   stacking context has to stand down, or the mark cannot rise above the field. */
+html.intro-reduced .hero, html.intro-reduced .hero__wrap { z-index: auto; }
+html.intro-reduced .monogram { position: relative; z-index: 210; }
+html.intro-reduced .crosshair { display: none; }
+
 /* the mark is drawn once per session, never again on the way back */
 html.intro-done .mg { animation: none; stroke-dashoffset: 0; }
 
 /* ---------- the wordmark, written -------------------------------------- */
 
+/* The outline is a child of the wordmark's own box, sized 100% x 100% with a
+   1:1 viewBox, so it cannot be positioned from stale metrics: whatever moves
+   the heading moves the outline with it. The real text is hidden, not
+   recoloured, so the two can never both paint. */
 .hero__h1 { position: relative; }
+.wordmark { position: relative; }
 .write {
   position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   overflow: visible;
   pointer-events: none;
+  visibility: visible;
 }
 .write text { fill: var(--navy); stroke: var(--navy); }
 .write tspan {
@@ -431,12 +484,12 @@ html.intro-done .mg { animation: none; stroke-dashoffset: 0; }
   stroke-linejoin: round;
   stroke-dasharray: var(--len);
   stroke-dashoffset: var(--len);
-  animation: wm-draw 340ms linear calc(var(--i) * 140ms) forwards,
-             wm-fill 250ms var(--ease-out) calc(var(--i) * 140ms + 340ms) forwards;
+  animation: wm-draw 600ms var(--ease-out) calc(var(--i) * 150ms) forwards,
+             wm-fill 200ms var(--ease-out) calc(var(--i) * 150ms + 600ms) forwards;
 }
 @keyframes wm-draw { to { stroke-dashoffset: 0; } }
 @keyframes wm-fill { to { fill-opacity: 1; stroke-opacity: 0; } }
-html.intro-writing .wordmark { color: transparent; }
+html.intro-writing .wordmark { visibility: hidden; }
 
 /* ---------- section tag (a dimension string) ----------------------------- */
 
