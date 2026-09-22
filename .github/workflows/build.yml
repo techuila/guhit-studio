@@ -89,6 +89,10 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Everyday builds are unsigned check builds. Only tagged releases
+          # (release.yml) sign updater artifacts with the private key.
+          args: --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Upload macOS installers
         if: runner.os == 'macOS'
