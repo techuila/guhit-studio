@@ -39,8 +39,10 @@
   try { if (new URLSearchParams(location.search).get("intro") === "0") done = true; } catch (e) {}
   if (done) return;
   h.className += matchMedia("(prefers-reduced-motion: reduce)").matches ? " intro-reduced" : " intro-on";
-  /* if the module never runs, the page still uncovers itself */
-  setTimeout(function () {
+  /* If the module never runs, the page still uncovers itself. main.js clears
+     this the moment it takes over and keeps its own, longer guard, because the
+     loader may legitimately hold the field past this point. */
+  window.__introGuard = setTimeout(function () {
     h.classList.remove("intro-on", "intro-reduced");
     var n = document.getElementById("intro");
     if (n) n.remove();
@@ -54,14 +56,19 @@
 <body>
 <a class="skip" href="#draw">Skip to the product tour</a>
 
-<!-- Load sequence: a navy field, the drafting grid drawn onto it, the mark
-     drawn stroke by stroke, then the field collapses into the hero's mark. -->
+<!-- Load sequence, and the page's loader: a navy field, the drafting grid drawn
+     line by line from the centre out, the mark drawn stroke by stroke, then the
+     field collapses into the hero's mark once the page is also ready. -->
 <div class="intro" id="intro" aria-hidden="true" inert>
   <div class="intro__field" id="introField">
-    <div class="intro__rule intro__rule--v"></div>
-    <div class="intro__rule intro__rule--h"></div>
+    <svg class="intro__grid" id="introGrid" focusable="false" preserveAspectRatio="none"></svg>
+  </div>
+  <div class="intro__load" id="introLoad">
+    <p class="intro__caption">Loading</p>
+    <div class="intro__bar"><i id="introBar"></i></div>
   </div>
 </div>
+<p class="vh" role="status" aria-live="polite" id="introStatus"></p>
 
 <div class="sheet-grid" aria-hidden="true"><div class="sheet-grid__cols"></div></div>
 <div class="crosshair" id="crosshair" aria-hidden="true"><i></i><i></i><b></b></div>
