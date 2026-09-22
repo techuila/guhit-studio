@@ -337,16 +337,106 @@ b { font-weight: 600; }
   .hero__eyebrow, .wordmark, .hero__tagline, .hero__lede, .cta, .cta__note, .cue {
     animation: rise 700ms var(--ease-out) both;
   }
-  .hero__eyebrow { animation-delay: 380ms; }
-  .wordmark { animation-delay: 120ms; }
-  .hero__tagline { animation-delay: 260ms; }
-  .hero__lede { animation-delay: 360ms; }
-  .cta { animation-delay: 440ms; }
-  .cta__note { animation-delay: 500ms; }
-  .cue { animation-delay: 620ms; }
+  .hero__eyebrow { animation-delay: calc(380ms + var(--intro-o, 0ms)); }
+  .wordmark { animation-delay: calc(120ms + var(--intro-o, 0ms)); }
+  .hero__tagline { animation-delay: calc(260ms + var(--intro-o, 0ms)); }
+  .hero__lede { animation-delay: calc(360ms + var(--intro-o, 0ms)); }
+  .cta { animation-delay: calc(440ms + var(--intro-o, 0ms)); }
+  .cta__note { animation-delay: calc(500ms + var(--intro-o, 0ms)); }
+  .cue { animation-delay: calc(620ms + var(--intro-o, 0ms)); }
 }
 @keyframes draw { to { stroke-dashoffset: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
+/* Under the intro the hero is painted from the first frame and simply hidden
+   behind the navy field, so it only slides: no opacity, nothing to delay the
+   largest contentful paint. */
+@keyframes rise-t { from { transform: translateY(20px); } to { transform: none; } }
+
+/* ---------- the load sequence overlay ------------------------------------ */
+
+/* the hero's own entrance waits for the intro, and keeps waiting after the
+   overlay is gone so nothing restarts or jumps mid-slide */
+html.intro-on, html.intro-done { --intro-o: 1620ms; }
+
+.intro { display: none; }
+html.intro-on .intro, html.intro-reduced .intro {
+  display: block;
+  position: fixed; inset: 0; z-index: 200;
+  pointer-events: none;
+}
+.intro__field {
+  position: absolute; inset: 0;
+  background: var(--navy);
+  transform-origin: 0 0;
+  will-change: transform;
+}
+/* the same 44px module as the hero field, lined up on it by --gx / --gy */
+.intro__rule { position: absolute; inset: 0; }
+.intro__rule--v {
+  background-image: repeating-linear-gradient(to right, rgba(255,255,255,.12) 0 1px, transparent 1px 44px);
+  background-position: var(--gx, 0px) 0;
+}
+.intro__rule--h {
+  background-image: repeating-linear-gradient(to bottom, rgba(255,255,255,.12) 0 1px, transparent 1px 44px);
+  background-position: 0 var(--gy, 0px);
+}
+
+@keyframes rule-v { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes rule-h { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* the grid draws itself onto the navy, left to right then top to bottom */
+  html.intro-on .intro__rule--v { animation: rule-v 420ms var(--ease-out) 60ms both; }
+  html.intro-on .intro__rule--h { animation: rule-h 440ms var(--ease-out) 160ms both; }
+
+  /* the hero is below the overlay, the mark alone rises above it */
+  html.intro-on .hero, html.intro-on .hero__wrap { z-index: auto; }
+  html.intro-on .crosshair { display: none; }
+  html.intro-on .monogram {
+    position: relative; z-index: 210;
+    opacity: 0;
+    transition: opacity 140ms linear;
+    will-change: transform;
+  }
+  html.intro-on .monogram.is-lit { opacity: 1; }
+  /* 150ms - 1700ms compressed into 500ms - 1700ms, so the mark draws after
+     the grid and finishes exactly as the field starts to collapse */
+  html.intro-on .mg {
+    animation-duration: calc(var(--t) * 0.774);
+    animation-delay: calc(var(--d) * 0.774 + 384ms);
+  }
+  html.intro-on .hero__eyebrow, html.intro-on .hero__tagline, html.intro-on .hero__lede,
+  html.intro-on .cta, html.intro-on .cta__note, html.intro-on .cue,
+  html.intro-done .hero__eyebrow, html.intro-done .hero__tagline, html.intro-done .hero__lede,
+  html.intro-done .cta, html.intro-done .cta__note, html.intro-done .cue { animation-name: rise-t; }
+  /* the wordmark is not raised in, it is written: see .write below */
+  html.intro-on .wordmark, html.intro-done .wordmark { animation: none; }
+  html.intro-on .intro.is-closing .intro__rule { opacity: 0; transition: opacity 260ms linear; }
+}
+/* the mark is drawn once per session, never again on the way back */
+html.intro-done .mg { animation: none; stroke-dashoffset: 0; }
+
+/* ---------- the wordmark, written -------------------------------------- */
+
+.hero__h1 { position: relative; }
+.write {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.write text { fill: var(--navy); stroke: var(--navy); }
+.write tspan {
+  fill-opacity: 0;
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+  stroke-dasharray: var(--len);
+  stroke-dashoffset: var(--len);
+  animation: wm-draw 340ms linear calc(var(--i) * 140ms) forwards,
+             wm-fill 250ms var(--ease-out) calc(var(--i) * 140ms + 340ms) forwards;
+}
+@keyframes wm-draw { to { stroke-dashoffset: 0; } }
+@keyframes wm-fill { to { fill-opacity: 1; stroke-opacity: 0; } }
+html.intro-writing .wordmark { color: transparent; }
 
 /* ---------- section tag (a dimension string) ----------------------------- */
 
@@ -429,21 +519,37 @@ b { font-weight: 600; }
 
 /* ---------- see: css 3d -------------------------------------------------- */
 
+/* The stage is sized from the model, not guessed. Rotated, scaled and seen
+   through a 1600px perspective, the house projects at most --ext times its
+   floor plate in both axes (the widest moment is mid-scroll, walls up and the
+   roof still in the air). So the plate is derived from the room available,
+   the stage gets the whole projection plus air, and nothing is ever clipped.
+   The projection sits higher above the plate the further the model has
+   rotated, so --drop tracks that with scroll and the figure stays optically
+   centred at every position. Measured with .devdata/site2/probe-extent.mjs. */
 .stage3d {
-  perspective: 1600px;
+  --plate: min(340px, 22vw, 27svh);
+  --ext: 1.76;
+  perspective: calc(var(--plate) * 5.2);
   perspective-origin: 50% 46%;
-  height: clamp(220px, 34svh, 340px);
+  height: calc(var(--plate) * var(--ext));
   display: grid; place-items: center;
-  overflow: clip;
+  overflow: visible;
+}
+@supports (container-type: inline-size) {
+  .art--iso { container-type: inline-size; }
+  .stage3d { --plate: min(340px, calc((100cqw - 28px) / var(--ext)), 27svh); }
 }
 .house {
-  --w: min(360px, 28vw);
+  --w: var(--plate);
   --d: calc(var(--w) * 0.75);
   --h: calc(var(--w) * 0.34);
+  --drop: calc(1.029 * var(--p, 1) - 0.881 * var(--p, 1) * var(--p, 1) - 0.014);
   width: var(--w); height: var(--d);
   position: relative;
   transform-style: preserve-3d;
   transform:
+    translateY(calc(var(--plate) * var(--drop)))
     scale(calc(1 + var(--p, 1) * 0.12))
     rotateX(calc(var(--p, 1) * 56deg))
     rotateZ(calc(var(--p, 1) * -32deg));
@@ -484,7 +590,7 @@ b { font-weight: 600; }
   left: -5%; top: -5%; width: 110%; height: 110%;
   background: linear-gradient(145deg, #e9e5db, #d9d4c7);
   border: 1px solid var(--navy);
-  transform: translateZ(calc(var(--h) * (1 + (1 - var(--v)) * 2.6)));
+  transform: translateZ(calc(var(--h) * (1 + (1 - var(--v)) * 1.6)));
   opacity: var(--v);
 }
 .ridge { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--navy); opacity: .55; }
@@ -759,8 +865,10 @@ kbd {
   .plan, .plan--ghost { max-height: none; }
   .art--iso .shot { max-height: none; }
   .art--iso .shot img { height: auto; object-fit: fill; }
-  .stage3d { height: clamp(240px, 52vw, 400px); }
-  .house { --w: min(400px, 62vw); }
+  .stage3d { --plate: min(400px, 51vw); }
+  @supports (container-type: inline-size) {
+    .stage3d { --plate: min(400px, calc((100cqw - 20px) / var(--ext))); }
+  }
   .block__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .art--plan { transform: none; }
 }
@@ -792,5 +900,5 @@ kbd {
   .art--plan { transform: none; }
   .crosshair { display: none; }
   .cue__rail i { display: none; }
-  .house { transform: rotateX(56deg) rotateZ(-34deg); }
+  /* --p falls back to 1, so .house already renders its end state here. */
 }
