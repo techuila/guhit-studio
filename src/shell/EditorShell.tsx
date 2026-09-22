@@ -16,6 +16,7 @@ import { ShortcutsDialog, useGlobalShortcuts } from "./shortcuts";
 import { StatusBar } from "./StatusBar";
 import { ToolRail } from "./ToolRail";
 import { TopBar } from "./TopBar";
+import { UpdateNotice } from "./UpdateNotice";
 import { VersionsPanel } from "./VersionsPanel";
 import { saveThumbnail } from "./actions";
 import { useShell, type DockTab } from "./shellStore";
@@ -280,6 +281,7 @@ export function EditorShell() {
         <RightColumn />
       </div>
       <StatusBar />
+      <UpdateNotice />
 
       <Presence open={overlay !== null} exit={lastOverlay === "palette" ? "base" : "panel"}>
         {(stage) => {

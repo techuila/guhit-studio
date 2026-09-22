@@ -1,5 +1,7 @@
 name: build
 
+# Branches and pull requests only. A `v*` tag push is not a branch push, so
+# this workflow does not run on tags: release.yml builds those, once.
 on:
   push:
     branches: [main]

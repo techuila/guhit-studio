@@ -1,0 +1,142 @@
+/* Update notice. One calm card in the bottom right corner, above everything
+   except dialogs. Enters and leaves through usePresence (docs/MOTION.md rules
+   6 and 7: it rises from its own edge and leaves faster than it arrives). */
+
+.card {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 780;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  color: var(--ink);
+  /* Idle state. The enter and exit stages below transition to and from it. */
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition:
+    opacity var(--dur-panel) var(--ease-out),
+    transform var(--dur-panel) var(--ease-out);
+}
+
+.card[data-stage="enter"] {
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+}
+
+.card[data-stage="exit"] {
+  opacity: 0;
+  transform: translateY(6px) scale(0.99);
+  pointer-events: none;
+  transition:
+    opacity calc(var(--dur-panel) * 0.7) var(--ease-in),
+    transform calc(var(--dur-panel) * 0.7) var(--ease-in);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.icon {
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.detail {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.progressRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.track {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.bar {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+/* No content length in the response: a slow indeterminate sweep instead of a
+   fake percentage. */
+.barUnknown {
+  width: 40%;
+  animation: update-sweep 1.4s var(--ease-in-out) infinite;
+}
+
+@keyframes update-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+.pct {
+  min-width: 68px;
+  text-align: right;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .bar {
+    transition-duration: 0.01ms;
+  }
+
+  .card[data-stage="enter"],
+  .card[data-stage="exit"] {
+    opacity: 1;
+    transform: none;
+  }
+
+  .barUnknown {
+    animation: none;
+  }
+}

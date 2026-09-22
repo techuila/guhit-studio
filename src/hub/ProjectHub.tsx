@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import type { IpcError, ProjectMeta } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
 import { useShell } from "../shell/shellStore";
+import { UpdateNotice } from "../shell/UpdateNotice";
 import { useApp } from "../state/store";
 import { ConfirmDialog, Dialog, Menu } from "../ui/Dialog";
 import { Button, IconButton, Spinner, cx } from "../ui/controls";
@@ -195,6 +196,8 @@ export function ProjectHub() {
           )}
         </div>
       </main>
+
+      <UpdateNotice />
 
       <Presence open={creating !== null} exit="panel">
         {(stage) => {
