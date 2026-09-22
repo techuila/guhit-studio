@@ -84,6 +84,9 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | `render_capture` | `camera`, `png` | `RenderRecord` | Tier 1 capture, tied to revision |
 | `render_data` | `id` | data URL | |
 | `render_delete` | `id` | `null` | |
+| `render_ai_settings_get` | | `RenderAiSettings` | |
+| `render_ai_settings_set` | `api_key?`, `model?` | `RenderAiSettings` | `""` removes the key |
+| `render_ai_generate` | `request` | `RenderAiResult` | 10 to 60 s; writes a `RenderRecord` with source `ai_visualization` and `source_render_id` |
 | `ai_settings_get` | | `AiSettings` | |
 | `ai_settings_set` | `api_key?`, `model?` | `AiSettings` | `""` removes the key |
 | `ai_chat` | `request` | `AiTurn` | may hold one pending proposal |

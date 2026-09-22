@@ -1,30 +1,31 @@
-// "Visuals" panel. Tier 1 captures of the live 3D view, tied to the model
-// revision and camera they came from, plus the (not yet wired) AI
-// visualization styles. Geometry is the authority, images are derived from it.
+// "Visuals" panel: the render studio. Tier 1 captures of the live 3D view,
+// tied to the model revision and camera they came from, and Tier 2 AI
+// visualizations made from a capture (DECISIONS D17), always offered next to
+// the model view in a compare slider.
+//
+// Geometry is the authority, imagery is derived from it. Nothing here writes
+// back into the model.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { RenderRecord, RenderStyle } from "../contract/bindings";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type { RenderAiSettings, RenderRecord, RenderStyle } from "../contract/bindings";
 import { ipc, isTauri, toIpcError } from "../contract/ipc";
 import { bus } from "../state/bus";
+import { useShell } from "../shell/shellStore";
 import { useApp } from "../state/store";
 import { usePresence } from "../ui/motion";
-import { collapseOut, flip, growIn, originTransform, play, settled } from "../ui/motionWaapi";
+import { collapseOut } from "../ui/motionWaapi";
+import { RenderLightbox } from "./render/RenderLightbox";
+import { RenderStudio } from "./render/RenderStudio";
+import { formatResolution, useRenderUi } from "./render/renderStore";
 import { useViewer } from "./viewerStore";
 import styles from "./RenderPanel.module.css";
-
-function formatTime(rfc3339: string): string {
-  const d = new Date(rfc3339);
-  if (Number.isNaN(d.getTime())) return rfc3339;
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
-function sourceLabel(r: RenderRecord): string {
-  return r.source === "model_view" ? "Model view" : "AI visualization";
-}
+import rs from "./render/render.module.css";
 
 function fileName(r: RenderRecord): string {
   const base = (r.camera?.name || "view").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return `${base || "view"}-rev${r.revision}`;
+  const kind = r.source === "ai_visualization" ? "ai" : "view";
+  return `${base || "view"}-${kind}-rev${r.revision}`;
 }
 
 export function RenderPanel() {
@@ -37,28 +38,42 @@ export function RenderPanel() {
   const [records, setRecords] = useState<RenderRecord[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [renderStyles, setRenderStyles] = useState<RenderStyle[]>([]);
-  const [styleKey, setStyleKey] = useState<string | null>(null);
+  const [settings, setSettings] = useState<RenderAiSettings | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [capturing, setCapturing] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [resolution, setResolution] = useState("");
+
+  const fullOpen = useRenderUi((s) => s.fullOpen);
+  const setFullOpen = useRenderUi((s) => s.setFullOpen);
+  const compareId = useRenderUi((s) => s.compareId);
+  const setCompareId = useRenderUi((s) => s.setCompareId);
+  const sourceId = useRenderUi((s) => s.sourceId);
+  const lightboxId = useRenderUi((s) => s.lightboxId);
+  const setLightboxId = useRenderUi((s) => s.setLightboxId);
+  const focusSettings = useRenderUi((s) => s.focusSettings);
+
   const alive = useRef(true);
   const requested = useRef(new Set<string>());
   const rootRef = useRef<HTMLDivElement>(null);
-  const gridRef = useRef<HTMLUListElement>(null);
-  /** Card rectangles before the last change, for the FLIP when one is added. */
-  const cardRects = useRef(new Map<string, DOMRect>());
-  /** Thumbnail the large preview grew from, so it can shrink back into it. */
-  const openOrigin = useRef<DOMRect | null>(null);
-  const figureRef = useRef<HTMLElement>(null);
-  const lightbox = usePresence(openId !== null, "base");
+  const overlay = usePresence(fullOpen, "panel");
 
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
     };
+  }, []);
+
+  // Dev only: the AI commands can be faked with ?renderai=mock while the
+  // backend provider is being built. Guarded so it never ships.
+  const [mockReady, setMockReady] = useState(!import.meta.env.DEV);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    void import("./render/renderMock")
+      .then((m) => m.installRenderMock())
+      .finally(() => setMockReady(true));
   }, []);
 
   const reload = useCallback(async () => {
@@ -87,13 +102,11 @@ export function RenderPanel() {
       requested.current.clear();
       setThumbs({});
     }
-    void reload();
-  }, [projectId, rendersVersion, reload]);
+    if (mockReady) void reload();
+  }, [projectId, rendersVersion, reload, mockReady]);
 
-  // The panel stays mounted but hidden (`hidden` attribute) while another
-  // dock tab is active, so a capture made while this tab was out of view
-  // (a hub thumbnail capture, a future AI-triggered render, and so on) would
-  // otherwise show a stale list. Reload whenever it becomes visible again.
+  // The panel stays mounted but hidden while another dock tab is active, so a
+  // capture made out of view would leave a stale list. Reload when it shows.
   useEffect(() => {
     const el = rootRef.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
@@ -117,6 +130,30 @@ export function RenderPanel() {
       .catch(() => alive.current && setRenderStyles([]));
   }, []);
 
+  const loadSettings = useCallback(() => {
+    ipc
+      .renderAiSettingsGet()
+      .then((s) => {
+        if (!alive.current) return;
+        setSettings(s);
+        setSettingsError(null);
+      })
+      .catch((e) => {
+        if (!alive.current) return;
+        const err = toIpcError(e);
+        setSettings(null);
+        setSettingsError(
+          err.code === "unknown_command"
+            ? "This build's backend has no AI rendering yet. Captures and comparing still work."
+            : err.message,
+        );
+      });
+  }, []);
+
+  useEffect(() => {
+    if (mockReady) loadSettings();
+  }, [loadSettings, mockReady]);
+
   // Thumbnails load one by one. A failed image does not break the list.
   useEffect(() => {
     for (const r of records) {
@@ -127,15 +164,6 @@ export function RenderPanel() {
         .then((url) => alive.current && setThumbs((t) => ({ ...t, [r.id]: url })))
         .catch(() => alive.current && setThumbs((t) => ({ ...t, [r.id]: "" })));
     }
-  }, [records]);
-
-  // Cards slide to their new place when one is added or removed. Measured
-  // before React paints, animated after.
-  useLayoutEffect(() => {
-    const grid = gridRef.current;
-    if (!grid) return;
-    const items = [...grid.querySelectorAll<HTMLElement>("[data-card-id]")];
-    cardRects.current = flip(items, cardRects.current, (el) => el.dataset.cardId);
   }, [records]);
 
   const capture = useCallback(async () => {
@@ -151,29 +179,28 @@ export function RenderPanel() {
       requested.current.add(record.id);
       setThumbs((t) => ({ ...t, [record.id]: png }));
       setRecords((list) => [record, ...list.filter((r) => r.id !== record.id)]);
-      // The new card grows into the gallery once it is in the DOM.
-      requestAnimationFrame(() => growIn(gridRef.current?.querySelector<HTMLElement>(`[data-card-id="${record.id}"]`) ?? null));
+      useRenderUi.getState().setSourceId(record.id);
+      setCompareId(record.id);
       setError(null);
       app.toast("success", "View captured");
-      // Re-sync with the backend list rather than trusting only the local
-      // splice above, so the gallery reflects this capture for certain.
       void reload();
     } catch (e) {
       app.reportError(e);
     } finally {
       if (alive.current) setCapturing(false);
     }
-  }, [capturing, reload]);
+  }, [capturing, reload, setCompareId]);
 
   const goToCamera = useCallback((r: RenderRecord) => {
     const app = useApp.getState();
     if (app.viewMode === "2d") app.setViewMode("3d");
     if (app.activeCameraId) app.setActiveCamera(null);
-    // Let a freshly shown viewer mount before it receives the request.
+    useRenderUi.getState().setFullOpen(false);
+    useRenderUi.getState().setLightboxId(null);
     requestAnimationFrame(() => bus.emit("apply_camera", r.camera));
   }, []);
 
-  const saveImage = useCallback(
+  const download = useCallback(
     async (r: RenderRecord) => {
       const app = useApp.getState();
       try {
@@ -196,65 +223,103 @@ export function RenderPanel() {
     [thumbs],
   );
 
-  const remove = useCallback(async (r: RenderRecord) => {
-    try {
-      await ipc.renderDelete(r.id);
-      if (!alive.current) return;
-      // The card collapses before it leaves the list, so the gallery closes
-      // the gap instead of snapping shut.
-      const card = gridRef.current?.querySelector<HTMLElement>(`[data-card-id="${r.id}"]`) ?? null;
-      if (card) {
-        cardRects.current.delete(r.id);
-        await collapseOut(card);
+  const remove = useCallback(
+    async (r: RenderRecord) => {
+      try {
+        await ipc.renderDelete(r.id);
+        if (!alive.current) return;
+        // The card collapses before it leaves the list, so the strip closes
+        // the gap instead of snapping shut.
+        const card = document.querySelector<HTMLElement>(`[data-card-id="${r.id}"]`);
+        if (card) await collapseOut(card);
+        if (!alive.current) return;
+        setRecords((list) => list.filter((x) => x.id !== r.id));
+        const ui = useRenderUi.getState();
+        if (ui.compareId === r.id) ui.setCompareId(null);
+        if (ui.sourceId === r.id) ui.setSourceId(null);
+        if (ui.lightboxId === r.id) ui.setLightboxId(null);
+        void reload();
+      } catch (e) {
+        useApp.getState().reportError(e);
       }
-      if (!alive.current) return;
-      setRecords((list) => list.filter((x) => x.id !== r.id));
-      setConfirmDelete(null);
-      setOpenId((id) => (id === r.id ? null : id));
-    } catch (e) {
-      useApp.getState().reportError(e);
-    }
-  }, []);
+    },
+    [reload],
+  );
 
-  const openCard = useCallback((r: RenderRecord, e: { currentTarget: HTMLElement }) => {
-    openOrigin.current = e.currentTarget.getBoundingClientRect();
-    setOpenId(r.id);
-  }, []);
+  const onGenerated = useCallback(
+    (record: RenderRecord) => {
+      requested.current.add(record.id);
+      ipc
+        .renderData(record.id)
+        .then((url) => alive.current && setThumbs((t) => ({ ...t, [record.id]: url })))
+        .catch(() => alive.current && setThumbs((t) => ({ ...t, [record.id]: "" })));
+      setRecords((list) => [record, ...list.filter((r) => r.id !== record.id)]);
+      useApp.getState().toast("success", "AI visualization ready");
+      void reload();
+    },
+    [reload],
+  );
 
-  const live = records.find((r) => r.id === openId) ?? null;
-  const lastOpened = useRef<RenderRecord | null>(null);
-  if (live) lastOpened.current = live;
-  // Kept while the closing animation plays.
-  const opened = live ?? lastOpened.current;
+  // Escape closes the full size studio, unless the lightbox is on top of it.
+  useEffect(() => {
+    if (!fullOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || useRenderUi.getState().lightboxId !== null) return;
+      e.stopPropagation();
+      setFullOpen(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [fullOpen, setFullOpen]);
 
-  // The large preview grows out of its thumbnail and shrinks back into it.
-  useLayoutEffect(() => {
-    const figure = figureRef.current;
-    if (!figure || !lightbox.mounted) return;
-    const to = figure.getBoundingClientRect();
-    const from = originTransform(openOrigin.current, to);
-    if (lightbox.stage === "exit") {
-      void settled(play(figure, [{ transform: "none", opacity: 1 }, { transform: from, opacity: 0 }], "base", "in", { scale: 0.7, fill: "forwards" }));
-      return;
-    }
-    if (lightbox.stage === "enter") {
-      play(figure, [{ transform: from, opacity: 0 }, { transform: "none", opacity: 1 }], "base", "out");
-    }
-  }, [lightbox.mounted, lightbox.stage]);
+  const addKey = useCallback(() => {
+    focusSettings();
+    useShell.getState().open("settings");
+  }, [focusSettings]);
+
+  // What the lightbox shows: an AI image against its source, or a capture alone.
+  const lightboxRecord = records.find((r) => r.id === lightboxId) ?? null;
+  const lightboxBefore = lightboxRecord
+    ? lightboxRecord.source === "ai_visualization"
+      ? (thumbs[lightboxRecord.source_render_id ?? ""] ?? "")
+      : (thumbs[lightboxRecord.id] ?? "")
+    : "";
+  const lightboxAfter = lightboxRecord?.source === "ai_visualization" ? (thumbs[lightboxRecord.id] ?? "") : "";
 
   useEffect(() => {
-    if (!live) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpenId(null);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [live]);
+    const r = records.find((x) => x.id === (compareId ?? sourceId));
+    if (!r) return;
+    const src = thumbs[r.id];
+    if (!src) return;
+    const img = new Image();
+    img.onload = () => alive.current && setResolution(formatResolution(img.naturalWidth, img.naturalHeight));
+    img.src = src;
+  }, [compareId, sourceId, records, thumbs]);
+
+  const studioProps = {
+    records,
+    thumbs,
+    renderStyles,
+    settings,
+    settingsError,
+    revision,
+    canCapture,
+    capturing,
+    onCapture: () => void capture(),
+    onGenerated,
+    onGoToCamera: goToCamera,
+    onDownload: (r: RenderRecord) => void download(r),
+    onDelete: (r: RenderRecord) => void remove(r),
+    onEnlarge: (id: string) => setLightboxId(id),
+    onAddKey: addKey,
+  };
 
   return (
     <div className={styles.root} data-testid="render-panel" ref={rootRef}>
       <header className={styles.header}>
         <div>
           <h2 className={styles.title}>Visuals</h2>
-          <p className={styles.sub}>Captures of the live model. Each one keeps its revision and camera.</p>
+          <p className={styles.sub}>Capture the model, then render it with AI and compare the two.</p>
         </div>
         <button
           type="button"
@@ -262,7 +327,7 @@ export function RenderPanel() {
           data-testid="capture-view"
           disabled={!hasDoc || !canCapture || capturing}
           title={canCapture ? "Save the current 3D view at 1920 x 1080" : "Open the 3D view to capture it"}
-          onClick={capture}
+          onClick={() => void capture()}
         >
           {capturing ? "Capturing..." : "Capture view"}
         </button>
@@ -273,145 +338,55 @@ export function RenderPanel() {
       {error && (
         <div className={styles.error} role="alert" data-testid="render-error">
           <span>Visuals could not be loaded: {error}</span>
-          <button type="button" className={styles.link} onClick={() => void reload()}>
+          <button type="button" className={styles.link} onClick={() => void reload()} disabled={loading}>
             Try again
           </button>
         </div>
       )}
 
-      <section className={styles.section}>
-        <div className={styles.sectionHead}>
-          <h3>Model views</h3>
-          <span className={styles.count}>{records.length}</span>
-          <button type="button" className={styles.link} onClick={() => void reload()} disabled={loading}>
-            Refresh
-          </button>
-        </div>
+      {hasDoc ? (
+        <RenderStudio variant="dock" {...studioProps} onOpenFull={() => setFullOpen(true)} />
+      ) : (
+        <p className={styles.empty}>Open a project to see its visuals.</p>
+      )}
 
-        {records.length === 0 && !error && (
-          <p className={styles.empty}>
-            {hasDoc ? "No captures yet. Set up a view in 3D, then press Capture view." : "Open a project to see its visuals."}
-          </p>
+      {/* The panel is a size container, which would trap a fixed overlay
+          inside the dock, so the studio and the lightbox mount on the body. */}
+      {overlay.mounted &&
+        createPortal(
+          <div
+          className={rs.overlay}
+          data-stage={overlay.stage}
+          data-testid="render-studio-overlay"
+          role="dialog"
+          aria-label="Render studio"
+          onPointerDown={(e) => e.target === e.currentTarget && setFullOpen(false)}
+        >
+          <div className={rs.overlayPanel}>
+            <div className={rs.overlayHead}>
+              <div>
+                <h3 className={rs.overlayTitle}>Render studio</h3>
+                <p className={rs.overlaySub}>
+                  The model view on the left, the AI visualization on the right. Drag the divider to compare.
+                </p>
+              </div>
+            </div>
+            <RenderStudio variant="full" {...studioProps} onCloseFull={() => setFullOpen(false)} />
+          </div>
+          </div>,
+          document.body,
         )}
 
-        <ul className={styles.grid} ref={gridRef}>
-          {records.map((r) => {
-            const stale = r.revision < revision;
-            const thumb = thumbs[r.id];
-            return (
-              <li key={r.id} className={styles.card} data-testid="render-card" data-card-id={r.id}>
-                <button type="button" className={styles.thumb} onClick={(e) => openCard(r, e)} title="Open large">
-                  {thumb ? <img src={thumb} alt={`${sourceLabel(r)}: ${r.camera?.name ?? "view"}`} /> : <span className={styles.thumbWait}>{thumb === "" ? "Image missing" : "Loading"}</span>}
-                  <span className={styles.badge} data-ai={r.source !== "model_view"}>
-                    {sourceLabel(r)}
-                  </span>
-                </button>
-                <div className={styles.meta}>
-                  <div className={styles.metaTop}>
-                    <span className={styles.camName} title={r.camera?.name}>
-                      {r.camera?.name || "View"}
-                    </span>
-                    <span className={styles.rev}>rev {r.revision}</span>
-                  </div>
-                  <div className={styles.time}>{formatTime(r.created_at)}</div>
-                  {stale && (
-                    <div className={styles.stale} data-testid="render-stale">
-                      Model changed since this capture
-                    </div>
-                  )}
-                </div>
-                <div className={styles.actions}>
-                  <button type="button" className={styles.link} onClick={(e) => openCard(r, e)}>
-                    Open
-                  </button>
-                  <button type="button" className={styles.link} onClick={() => goToCamera(r)} data-testid="render-goto">
-                    Go to camera
-                  </button>
-                  <button type="button" className={styles.link} onClick={() => void saveImage(r)} data-testid="render-save">
-                    Save image
-                  </button>
-                  {confirmDelete === r.id ? (
-                    <span className={styles.confirm}>
-                      Delete?
-                      <button type="button" className={styles.linkDanger} onClick={() => void remove(r)} data-testid="render-delete-yes">
-                        Yes
-                      </button>
-                      <button type="button" className={styles.link} onClick={() => setConfirmDelete(null)}>
-                        No
-                      </button>
-                    </span>
-                  ) : (
-                    <button type="button" className={styles.linkDanger} onClick={() => setConfirmDelete(r.id)} data-testid="render-delete">
-                      Delete
-                    </button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-
-      <section className={styles.section} aria-disabled="true">
-        <div className={styles.sectionHead}>
-          <h3>AI visualization</h3>
-          <span className={styles.off}>Not available</span>
-        </div>
-        <p className={styles.notice} data-testid="ai-disabled">
-          AI rendering needs an image provider, and none is configured in this build. AI images are visualizations, not
-          construction documents. They never change the model.
-        </p>
-        <div className={styles.styleGrid}>
-          {renderStyles.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              className={styles.style}
-              data-selected={styleKey === s.key}
-              onClick={() => setStyleKey(s.key)}
-              disabled
-              title="Needs an image provider"
-            >
-              <span className={styles.styleName}>{s.name}</span>
-              <span className={styles.styleDesc}>{s.description}</span>
-            </button>
-          ))}
-        </div>
-        <textarea
-          className={styles.prompt}
-          rows={3}
-          disabled
-          placeholder="Describe the mood, materials or time of day. Available once an image provider is configured."
-        />
-        <button type="button" className={styles.primary} disabled>
-          Generate AI visualization
-        </button>
-      </section>
-
-      {lightbox.mounted && opened && (
-        <div className={styles.lightbox} data-stage={lightbox.stage} role="dialog" aria-label="Capture" onClick={() => setOpenId(null)}>
-          <figure className={styles.figure} ref={figureRef} onClick={(e) => e.stopPropagation()}>
-            {thumbs[opened.id] ? <img src={thumbs[opened.id]} alt={opened.camera?.name ?? "Capture"} /> : <div className={styles.thumbWait}>Loading</div>}
-            <figcaption>
-              <span>
-                <strong>{sourceLabel(opened)}</strong> - {opened.camera?.name || "View"} - rev {opened.revision} - {formatTime(opened.created_at)}
-                {opened.revision < revision ? " - model changed since this capture" : ""}
-              </span>
-              <span className={styles.figActions}>
-                <button type="button" className={styles.linkLight} onClick={() => goToCamera(opened)}>
-                  Go to camera
-                </button>
-                <button type="button" className={styles.linkLight} onClick={() => void saveImage(opened)}>
-                  Save image
-                </button>
-                <button type="button" className={styles.linkLight} onClick={() => setOpenId(null)}>
-                  Close
-                </button>
-              </span>
-            </figcaption>
-          </figure>
-        </div>
-      )}
+      <RenderLightbox
+        open={lightboxId !== null}
+        record={lightboxRecord}
+        beforeSrc={lightboxBefore}
+        afterSrc={lightboxAfter}
+        resolution={resolution}
+        onClose={() => setLightboxId(null)}
+        onDownload={(r) => void download(r)}
+        onGoToCamera={goToCamera}
+      />
     </div>
   );
 }

@@ -26,6 +26,9 @@ import type {
   ProjectMeta,
   ProjectSettings,
   Query,
+  RenderAiRequest,
+  RenderAiResult,
+  RenderAiSettings,
   RenderRecord,
   RenderStyle,
   SnapshotMeta,
@@ -185,6 +188,14 @@ export const ipc = {
   dwgStatus: () => call<DwgConverterStatus>("dwg_status"),
   /** Sets the ODA File Converter path. Empty string clears it. */
   dwgSetPath: (path: string) => call<DwgConverterStatus>("dwg_set_path", { path }),
+
+  // AI visualization (Tier 2). Every result is labelled and tied to its source capture.
+  renderAiSettingsGet: () => call<RenderAiSettings>("render_ai_settings_get"),
+  /** `apiKey` "" removes the key; null leaves it. */
+  renderAiSettingsSet: (apiKey: string | null, model: string | null) =>
+    call<RenderAiSettings>("render_ai_settings_set", { api_key: apiKey, model }),
+  /** Long call (10 to 60 s). The UI shows progress and may abandon the promise. */
+  renderAiGenerate: (request: RenderAiRequest) => call<RenderAiResult>("render_ai_generate", { request }),
 
   // AI copilot
   aiSettingsGet: () => call<AiSettings>("ai_settings_get"),

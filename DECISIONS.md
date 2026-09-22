@@ -79,3 +79,9 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - Export: DXF 2D and 3D, IFC4, glTF/GLB, OBJ, Collada DAE, PDF/SVG, and a `.guhit` bundle. Import: DXF/DWG as recognized walls or as linework, glTF/GLB/OBJ as reference models, `.guhit` bundles.
 - DWG: read and written only through the free ODA File Converter that the user installs; the app detects it. Rejected: libredwg (GPL, would force the app open source) and the Autodesk RealDWG SDK (paid licence, Windows only).
 - SketchUp `.skp`: not written or read directly (proprietary SDK, no Rust binding). SketchUp reads DAE, OBJ, glTF, DXF and IFC, which the app writes.
+
+### D17. AI visualization provider: Google Gemini image models first, behind a provider abstraction
+- Chosen by: Axl (asked for a realistic render with a before/after slider, showing a Gemini-made app as the reference) and Claude (the provider).
+- Gemini 3.1 Flash Image by default ($0.045 to $0.151 per image), Gemini 3 Pro Image as the high setting. The user brings a Google AI Studio API key, stored like the Claude key (D13). SynthID watermark stays.
+- Every AI image is a `RenderRecord` with `source_render_id` pointing at the exact model capture it was conditioned on, and the UI always offers the side by side slider. The model is never edited from an image (research section 10).
+- Rejected for now: Higgsfield API (a second account for the same models), running our own GPU (research section 9).
