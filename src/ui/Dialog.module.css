@@ -1,0 +1,219 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(12, 26, 43, 0.38);
+  opacity: 1;
+  transition: opacity var(--dur-panel) var(--ease-out);
+}
+
+.backdrop[data-stage="enter"] {
+  opacity: 0;
+}
+
+.backdrop[data-stage="exit"] {
+  opacity: 0;
+  pointer-events: none;
+  transition-duration: calc(var(--dur-panel) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.place_top {
+  align-items: flex-start;
+  padding-top: 14vh;
+}
+
+.place_side {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  max-height: 100%;
+  border: 1px solid rgba(20, 40, 63, 0.14);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 18px 60px rgba(12, 26, 43, 0.32);
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--dur-panel) var(--ease-out),
+    transform var(--dur-panel) var(--ease-out);
+  overflow: hidden;
+}
+
+.panel[data-stage="enter"] {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.panel[data-stage="exit"] {
+  opacity: 0;
+  transform: translateY(6px);
+  transition-duration: calc(var(--dur-panel) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.panel:focus,
+.panel:focus-visible {
+  outline: none;
+}
+
+.place_side .panel {
+  border-radius: 0;
+  border-width: 0 0 0 1px;
+  transform: translateX(0);
+}
+
+.place_side .panel[data-stage="enter"] {
+  opacity: 0;
+  transform: translateX(24px);
+}
+
+.place_side .panel[data-stage="exit"] {
+  opacity: 0;
+  transform: translateX(16px);
+  transition-duration: calc(var(--dur-panel) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  height: 44px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.head h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.bareBody {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: none;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.message {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+
+.message strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* menu */
+.menu {
+  position: absolute;
+  z-index: 300;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 168px;
+  padding: 4px;
+  border: 1px solid rgba(20, 40, 63, 0.16);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  transform-origin: top right;
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-out);
+}
+
+.menuStart {
+  transform-origin: top left;
+}
+
+.menu[data-stage="enter"] {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+.menu[data-stage="exit"] {
+  opacity: 0;
+  transform: scale(0.97);
+  pointer-events: none;
+  transition-duration: calc(var(--dur-hover) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.menu:focus,
+.menu:focus-visible {
+  outline: none;
+}
+
+.menuStart {
+  right: auto;
+  left: 0;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: default;
+  transition: background var(--dur-press) var(--ease-out), color var(--dur-press) var(--ease-out);
+}
+
+.menuItemActive {
+  background: var(--accent);
+  color: #fff;
+}
+
+.menuItemDanger {
+  color: var(--danger);
+}
+
+.menuItemDanger.menuItemActive {
+  background: var(--danger);
+  color: #fff;
+}

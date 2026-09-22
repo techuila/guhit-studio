@@ -1,0 +1,15 @@
+[package]
+name = "guhit-import"
+description = "Guhit Studio interchange import: DXF to walls or linework. Pure, no file I/O."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+guhit-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# dxf: reads ASCII and binary DXF into typed entities. Already used by
+# guhit-export's tests, so the workspace pins one version.
+dxf = "0.6"

@@ -1,0 +1,304 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--surface-2);
+  animation: ui-scene-in var(--dur-scene) var(--ease-out);
+}
+
+.middle {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* canvas area */
+.canvasArea {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-3);
+}
+
+.canvasDragging {
+  cursor: col-resize;
+}
+
+.pane {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  background: var(--paper);
+  overflow: hidden;
+  /* Panels fill this box. isolation keeps their z-indexes below the chrome. */
+  isolation: isolate;
+  /* View mode change (not a drag) resizes the panes; a newly appearing pane
+     fades in on mount. Disabled during the divider drag (paneDragging), which
+     must track the pointer 1:1 with zero lag. */
+  transition: flex-basis var(--dur-panel) var(--ease-in-out);
+  animation: ui-fade-in var(--dur-panel) var(--ease-out);
+}
+
+.paneDragging {
+  transition: none;
+}
+
+.pane3d {
+  background: #e9eef3;
+}
+
+.divider {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 6px;
+  background: var(--surface-3);
+  border-left: 1px solid var(--line-strong);
+  border-right: 1px solid var(--line-strong);
+  cursor: col-resize;
+  touch-action: none;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.divider::before {
+  /* wider hit target than the visible bar */
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+}
+
+.divider:hover,
+.dividerActive {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+}
+
+.divider:focus-visible {
+  outline-offset: 0;
+}
+
+.dividerGrip {
+  width: 2px;
+  height: 28px;
+  border-radius: 1px;
+  background: var(--line-strong);
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.divider:hover .dividerGrip,
+.dividerActive .dividerGrip {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.dragShield {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+/* right column */
+.right {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 var(--inspector-w);
+  width: var(--inspector-w);
+  min-height: 0;
+  border-left: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+
+.inspectorWrap {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 44%;
+  min-height: 0;
+  border-top: 1px solid var(--line-strong);
+  background: var(--surface);
+  transition: flex-basis var(--dur-panel) var(--ease-in-out);
+}
+
+.dockDragging {
+  transition: none;
+}
+
+.dockCollapsed {
+  flex: 0 0 33px;
+}
+
+.dockResize {
+  position: absolute;
+  z-index: 4;
+  top: -4px;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.dockResize::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.dockResize:hover::after,
+.dockResize.dividerActive::after {
+  background: var(--accent);
+}
+
+.dockHead {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  height: 32px;
+  padding: 0 4px 0 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.dockCollapsed .dockHead {
+  border-bottom-color: transparent;
+}
+
+.dockTabs {
+  position: relative;
+  display: flex;
+  flex: 1;
+  gap: 2px;
+}
+
+.dockTab {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: default;
+  transition: color var(--dur-hover) var(--ease-out);
+}
+
+.dockTab:hover {
+  color: var(--ink);
+}
+
+.dockTabOn {
+  color: var(--ink);
+}
+
+/* Purple is reserved for AI: only the copilot tab carries it. */
+.dockTabAi.dockTabOn svg {
+  color: var(--ai);
+}
+
+/* One element that slides and resizes under the active tab (motionDom.ts).
+   Positioned by `transform`, sized to the button's own width/height. */
+.dockTabIndicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dur-base) var(--ease-in-out),
+    width var(--dur-base) var(--ease-in-out),
+    height var(--dur-base) var(--ease-in-out);
+}
+
+.dockTabIndicator::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.dockTabIndicatorAi::after {
+  background: var(--ai);
+}
+
+.instant {
+  transition-duration: 0.01ms;
+}
+
+.dockTab:focus-visible {
+  outline-offset: -2px;
+}
+
+.dockCollapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
+}
+
+.dockCollapse:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.dockBody {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.dockBody[hidden] {
+  display: none;
+}
+
+.dockPanel {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.dockPanel[hidden] {
+  display: none;
+}
+
+.panelLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--ink-3);
+}

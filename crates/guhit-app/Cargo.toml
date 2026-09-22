@@ -1,0 +1,36 @@
+[package]
+name = "guhit-app"
+description = "Guhit Studio application service: project store, session, exports, AI. No Tauri dependency."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+guhit-model.workspace = true
+guhit-core.workspace = true
+guhit-export.workspace = true
+guhit-import.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { version = "1", features = ["sync", "fs", "rt", "macros", "time"] }
+
+# --- backend agent deps below this line ---
+# base64: PNG/JPEG data URLs cross IPC and are stored as files.
+base64 = "0.22"
+# zip: the `.guhit` project bundle. Pure Rust deflate only, so a Windows build
+# needs no C toolchain.
+zip = { version = "1.1", default-features = false, features = ["deflate"] }
+
+# --- ai agent deps below this line ---
+# reqwest: HTTPS client for the Claude Messages API. rustls with the ring
+# provider and the OS trust store, so Windows builds need no OpenSSL or NASM.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# keyring: API key in macOS Keychain / Windows Credential Manager (default
+# `v1` feature covers both, plus Secret Service on Linux).
+keyring = "4.2"
+
+[dev-dependencies]
+# tempfile: throwaway data dirs for the AI tests.
+tempfile = "3"

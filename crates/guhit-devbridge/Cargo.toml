@@ -1,0 +1,15 @@
+[package]
+name = "guhit-devbridge"
+description = "Dev-only HTTP transport over guhit-app, so the UI runs in a plain browser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+guhit-app.workspace = true
+guhit-mcp.workspace = true
+guhit-model.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["full"] }
+# axum: small HTTP server for POST /ipc/<cmd>. CORS is hand-written, no tower-http.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }

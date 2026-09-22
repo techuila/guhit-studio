@@ -1,0 +1,631 @@
+{
+  "version": 1,
+  "generated_at": "2026-09-22T08:19:42.341Z",
+  "hdri": {
+    "id": "alps_field",
+    "name": "Alps Field",
+    "license": "CC0 1.0",
+    "sourceUrl": "https://polyhaven.com/a/alps_field",
+    "sun_direction": "unknown (Poly Haven's API does not publish sun azimuth/altitude; tags: sun, high-contrast, partly-cloudy)",
+    "file": "hdri/sky.hdr",
+    "preview_file": "hdri/sky-preview.jpg",
+    "resolution": "1k",
+    "source_download_url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/alps_field_1k.hdr",
+    "bytes": 1614313,
+    "preview_bytes": 26155
+  },
+  "materials": {
+    "mat-chb-painted": {
+      "id": "mat-chb-painted",
+      "name": "CHB, plastered and painted",
+      "source_url": "https://ambientcg.com/a/PaintedPlaster017",
+      "source_asset_id": "PaintedPlaster017",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        1000,
+        1000
+      ],
+      "maps": [
+        "materials/mat-chb-painted/color.jpg",
+        "materials/mat-chb-painted/normal.jpg",
+        "materials/mat-chb-painted/roughness.jpg"
+      ],
+      "bytes": 227449,
+      "note": "Seamless swatch; no fixed module (flat painted finish)."
+    },
+    "mat-chb-bare": {
+      "id": "mat-chb-bare",
+      "name": "CHB, bare",
+      "source_url": "https://ambientcg.com/a/Bricks032",
+      "source_asset_id": "Bricks032",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        800,
+        400
+      ],
+      "maps": [
+        "materials/mat-chb-bare/color.jpg",
+        "materials/mat-chb-bare/normal.jpg",
+        "materials/mat-chb-bare/roughness.jpg"
+      ],
+      "bytes": 635847,
+      "note": "Grey masonry block texture (ambientCG has no dedicated concrete-hollow-block asset; the only 'cinder block' tagged one, Bricks088, is fired red clay, wrong color for grey CHB). A single CHB block is 400x200mm (two courses per tile, matching the app's procedural chb pattern)."
+    },
+    "mat-concrete-fairface": {
+      "id": "mat-concrete-fairface",
+      "name": "Concrete, fair-faced",
+      "source_url": "https://ambientcg.com/a/Concrete030",
+      "source_asset_id": "Concrete030",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        1200,
+        600
+      ],
+      "maps": [
+        "materials/mat-concrete-fairface/color.jpg",
+        "materials/mat-concrete-fairface/normal.jpg",
+        "materials/mat-concrete-fairface/roughness.jpg"
+      ],
+      "bytes": 435653,
+      "note": "Formwork panel scale, matching the app's procedural concrete pattern."
+    },
+    "mat-floor-concrete": {
+      "id": "mat-floor-concrete",
+      "name": "Polished concrete",
+      "source_url": "https://ambientcg.com/a/Concrete048",
+      "source_asset_id": "Concrete048",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        1200,
+        600
+      ],
+      "maps": [
+        "materials/mat-floor-concrete/color.jpg",
+        "materials/mat-floor-concrete/normal.jpg",
+        "materials/mat-floor-concrete/roughness.jpg"
+      ],
+      "bytes": 492238,
+      "note": "Same tile scale as fair-faced concrete for a consistent pattern key."
+    },
+    "mat-tile-ceramic": {
+      "id": "mat-tile-ceramic",
+      "name": "Ceramic tile 600 x 600",
+      "source_url": "https://ambientcg.com/a/Tiles107",
+      "source_asset_id": "Tiles107",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        4800,
+        4800
+      ],
+      "maps": [
+        "materials/mat-tile-ceramic/color.jpg",
+        "materials/mat-tile-ceramic/normal.jpg",
+        "materials/mat-tile-ceramic/roughness.jpg"
+      ],
+      "bytes": 181620
+    },
+    "mat-tile-granite": {
+      "id": "mat-tile-granite",
+      "name": "Granite tile",
+      "source_url": "https://ambientcg.com/a/Granite001A",
+      "source_asset_id": "Granite001A",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        600,
+        600
+      ],
+      "maps": [
+        "materials/mat-tile-granite/color.jpg",
+        "materials/mat-tile-granite/normal.jpg",
+        "materials/mat-tile-granite/roughness.jpg"
+      ],
+      "bytes": 606243
+    },
+    "mat-floor-laminate": {
+      "id": "mat-floor-laminate",
+      "name": "Wood laminate (wood plank floor)",
+      "source_url": "https://ambientcg.com/a/WoodFloor051",
+      "source_asset_id": "WoodFloor051",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        1800,
+        600
+      ],
+      "maps": [
+        "materials/mat-floor-laminate/color.jpg",
+        "materials/mat-floor-laminate/normal.jpg",
+        "materials/mat-floor-laminate/roughness.jpg"
+      ],
+      "bytes": 306987
+    },
+    "mat-wood-cladding": {
+      "id": "mat-wood-cladding",
+      "name": "Wood cladding",
+      "source_url": "https://ambientcg.com/a/Wood092",
+      "source_asset_id": "Wood092",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        1800,
+        600
+      ],
+      "maps": [
+        "materials/mat-wood-cladding/color.jpg",
+        "materials/mat-wood-cladding/normal.jpg",
+        "materials/mat-wood-cladding/roughness.jpg"
+      ],
+      "bytes": 205947
+    },
+    "mat-roof-longspan": {
+      "id": "mat-roof-longspan",
+      "name": "Long-span pre-painted metal roof (corrugated)",
+      "source_url": "https://ambientcg.com/a/CorrugatedSteel009",
+      "source_asset_id": "CorrugatedSteel009",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        15000,
+        7500
+      ],
+      "maps": [
+        "materials/mat-roof-longspan/color.jpg",
+        "materials/mat-roof-longspan/normal.jpg",
+        "materials/mat-roof-longspan/roughness.jpg"
+      ],
+      "bytes": 235546
+    },
+    "mat-roof-gi": {
+      "id": "mat-roof-gi",
+      "name": "GI corrugated sheet",
+      "source_url": "https://ambientcg.com/a/CorrugatedSteel005",
+      "source_asset_id": "CorrugatedSteel005",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        760,
+        760
+      ],
+      "maps": [
+        "materials/mat-roof-gi/color.jpg",
+        "materials/mat-roof-gi/normal.jpg",
+        "materials/mat-roof-gi/roughness.jpg"
+      ],
+      "bytes": 405524
+    },
+    "mat-roof-clay-tile": {
+      "id": "mat-roof-clay-tile",
+      "name": "Clay roof tile",
+      "source_url": "https://ambientcg.com/a/RoofingTiles006",
+      "source_asset_id": "RoofingTiles006",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        600,
+        660
+      ],
+      "maps": [
+        "materials/mat-roof-clay-tile/color.jpg",
+        "materials/mat-roof-clay-tile/normal.jpg",
+        "materials/mat-roof-clay-tile/roughness.jpg"
+      ],
+      "bytes": 395420,
+      "note": "Flat modern clay tile look (RoofingTiles013A, the barrel/Spanish-profile option, is a near-black underexposed photo unsuitable as-is)."
+    },
+    "mat-paint-warm-white": {
+      "id": "mat-paint-warm-white",
+      "name": "Paint, warm white",
+      "source_url": null,
+      "license": null,
+      "physical_size_mm": null,
+      "maps": [],
+      "bytes": 0,
+      "note": "No texture: flat MeshStandardMaterial color #faf6ee (pattern \"none\" in crates/guhit-model/src/defaults.rs)."
+    },
+    "mat-paint-sage": {
+      "id": "mat-paint-sage",
+      "name": "Paint, sage green",
+      "source_url": null,
+      "license": null,
+      "physical_size_mm": null,
+      "maps": [],
+      "bytes": 0,
+      "note": "No texture: flat MeshStandardMaterial color #b7c4ae (pattern \"none\" in crates/guhit-model/src/defaults.rs)."
+    },
+    "mat-aluminum-frame": {
+      "id": "mat-aluminum-frame",
+      "name": "Aluminum frame, powder coated",
+      "source_url": null,
+      "license": null,
+      "physical_size_mm": null,
+      "maps": [],
+      "bytes": 0,
+      "note": "No texture: flat MeshStandardMaterial color #3b3f45 (pattern \"none\" in crates/guhit-model/src/defaults.rs)."
+    },
+    "mat-steel": {
+      "id": "mat-steel",
+      "name": "Steel, painted",
+      "source_url": null,
+      "license": null,
+      "physical_size_mm": null,
+      "maps": [],
+      "bytes": 0,
+      "note": "No texture: flat MeshStandardMaterial color #4a4f57 (pattern \"none\" in crates/guhit-model/src/defaults.rs)."
+    },
+    "mat-wood-door": {
+      "id": "mat-wood-door",
+      "name": "Wood door, mahogany finish",
+      "source_url": null,
+      "license": null,
+      "physical_size_mm": null,
+      "maps": [],
+      "bytes": 0,
+      "note": "No texture: flat MeshStandardMaterial color #6e4428 (pattern \"none\" in crates/guhit-model/src/defaults.rs). Reuse mat-wood-cladding's texture set if a textured door is needed later."
+    },
+    "mat-roof-concrete-deck": {
+      "id": "mat-roof-concrete-deck",
+      "name": "Concrete roof deck",
+      "source_url": null,
+      "license": null,
+      "physical_size_mm": null,
+      "maps": [],
+      "bytes": 0,
+      "note": "No texture: flat MeshStandardMaterial color #c4c2bc (pattern \"none\" in crates/guhit-model/src/defaults.rs). Reuse mat-floor-concrete / mat-concrete-fairface's texture set if needed."
+    },
+    "mat-glass-clear": {
+      "id": "mat-glass-clear",
+      "name": "Clear glass",
+      "source_url": null,
+      "license": null,
+      "physical_size_mm": null,
+      "maps": [],
+      "bytes": 0,
+      "note": "No texture: flat MeshStandardMaterial color #bfe3ee (pattern \"none\" in crates/guhit-model/src/defaults.rs). Glass has no texture map: transparency + roughness only."
+    }
+  },
+  "models": {
+    "bed-single": {
+      "file": "models/bed-single.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "bedSingle.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 920,
+        "depth": 1900,
+        "height": 500
+      },
+      "triangles": 214,
+      "bytes": 7780
+    },
+    "bed-double": {
+      "file": "models/bed-double.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "bedDouble.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1370,
+        "depth": 1900,
+        "height": 500
+      },
+      "triangles": 264,
+      "bytes": 8424
+    },
+    "bed-queen": {
+      "file": "models/bed-queen.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "bedDouble.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1520,
+        "depth": 2030,
+        "height": 500
+      },
+      "triangles": 264,
+      "bytes": 8436
+    },
+    "wardrobe": {
+      "file": "models/wardrobe.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "bookcaseClosedWide.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1200,
+        "depth": 600,
+        "height": 2100
+      },
+      "triangles": 372,
+      "bytes": 5200
+    },
+    "sofa-3": {
+      "file": "models/sofa-3.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "loungeSofaLong.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 2100,
+        "depth": 900,
+        "height": 800
+      },
+      "triangles": 186,
+      "bytes": 4920
+    },
+    "sofa-2": {
+      "file": "models/sofa-2.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "loungeSofa.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1500,
+        "depth": 900,
+        "height": 800
+      },
+      "triangles": 128,
+      "bytes": 4348
+    },
+    "armchair": {
+      "file": "models/armchair.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/modern_arm_chair_01",
+      "source_asset_id": "modern_arm_chair_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 850,
+        "depth": 850,
+        "height": 800
+      },
+      "triangles": 7029,
+      "bytes": 722124
+    },
+    "coffee-table": {
+      "file": "models/coffee-table.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/modern_coffee_table_01",
+      "source_asset_id": "modern_coffee_table_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1100,
+        "depth": 600,
+        "height": 420
+      },
+      "triangles": 3832,
+      "bytes": 292296
+    },
+    "tv-console": {
+      "file": "models/tv-console.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "cabinetTelevision.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1600,
+        "depth": 450,
+        "height": 500
+      },
+      "triangles": 154,
+      "bytes": 3280
+    },
+    "dining-4": {
+      "file": "models/dining-4.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "table.glb + 4x chair.glb (composed)",
+      "license": "CC0 1.0",
+      "back_axis": "n/a (symmetric table and chairs, no single front/back)",
+      "composed_from": [
+        "table.glb",
+        "chair.glb x4"
+      ],
+      "bbox_mm": {
+        "width": 1200,
+        "depth": 920,
+        "height": 880
+      },
+      "triangles": 800,
+      "bytes": 8844
+    },
+    "dining-6": {
+      "file": "models/dining-6.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "table.glb + 6x chair.glb (composed)",
+      "license": "CC0 1.0",
+      "back_axis": "n/a (symmetric table and chairs, no single front/back)",
+      "composed_from": [
+        "table.glb",
+        "chair.glb x6"
+      ],
+      "bbox_mm": {
+        "width": 1800,
+        "depth": 1020,
+        "height": 880
+      },
+      "triangles": 1140,
+      "bytes": 11792
+    },
+    "desk": {
+      "file": "models/desk.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "desk.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1200,
+        "depth": 600,
+        "height": 750
+      },
+      "triangles": 198,
+      "bytes": 5124
+    },
+    "wc": {
+      "file": "models/wc.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "toilet.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 400,
+        "depth": 700,
+        "height": 780
+      },
+      "triangles": 226,
+      "bytes": 8112
+    },
+    "lavatory": {
+      "file": "models/lavatory.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "bathroomSink.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 500,
+        "depth": 420,
+        "height": 200
+      },
+      "triangles": 316,
+      "bytes": 7072
+    },
+    "shower": {
+      "file": "models/shower.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "shower.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 900,
+        "depth": 900,
+        "height": 50
+      },
+      "triangles": 806,
+      "bytes": 12760
+    },
+    "bathtub": {
+      "file": "models/bathtub.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "bathtub.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1500,
+        "depth": 750,
+        "height": 550
+      },
+      "triangles": 602,
+      "bytes": 9868
+    },
+    "kitchen-counter": {
+      "file": "models/kitchen-counter.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "kitchenCabinet.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1800,
+        "depth": 600,
+        "height": 900
+      },
+      "triangles": 114,
+      "bytes": 5388
+    },
+    "kitchen-sink": {
+      "file": "models/kitchen-sink.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "kitchenSink.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1200,
+        "depth": 600,
+        "height": 900
+      },
+      "triangles": 318,
+      "bytes": 5856
+    },
+    "range": {
+      "file": "models/range.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "kitchenStove.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 600,
+        "depth": 600,
+        "height": 900
+      },
+      "triangles": 830,
+      "bytes": 12408
+    },
+    "refrigerator": {
+      "file": "models/refrigerator.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "kitchenFridge.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 700,
+        "depth": 700,
+        "height": 1750
+      },
+      "triangles": 228,
+      "bytes": 7792
+    },
+    "washing-machine": {
+      "file": "models/washing-machine.glb",
+      "source": "kenney",
+      "source_url": "https://kenney.nl/assets/furniture-kit",
+      "source_file": "washer.glb",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 600,
+        "depth": 600,
+        "height": 850
+      },
+      "triangles": 720,
+      "bytes": 12612
+    },
+    "plant-pot": {
+      "file": "models/plant-pot.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/potted_plant_01",
+      "source_asset_id": "potted_plant_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 500,
+        "depth": 500,
+        "height": 1187
+      },
+      "triangles": 44055,
+      "bytes": 1402940
+    },
+    "tree": {
+      "file": null,
+      "source": "none",
+      "note": "Kenney Furniture Kit has no tree; Poly Haven's tree models (e.g. island_tree_01) carry a ~58 MB shared .bin far outside budget."
+    },
+    "car-sedan": {
+      "file": null,
+      "source": "none",
+      "note": "None of the three approved sources publish a CC0 vehicle model."
+    }
+  }
+}

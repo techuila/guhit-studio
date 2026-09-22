@@ -1,0 +1,260 @@
+.inspector {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.previewBanner {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--ai-soft);
+  color: var(--ai);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.inspectorBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.inspectorBody[inert] {
+  opacity: 0.6;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+  height: 44px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.headIcon {
+  color: var(--accent-strong);
+}
+
+.headText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.headText strong {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.headText span {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Selection change cross-fade: fade + 4px slide (MOTION.md, Inspector row). */
+.fieldsEnter {
+  animation: ui-fade-in var(--dur-base) var(--ease-out), fields-slide-in var(--dur-base) var(--ease-out);
+}
+
+@keyframes fields-slide-in {
+  from {
+    transform: translateY(4px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.group:last-child {
+  border-bottom: 0;
+}
+
+.note {
+  margin: 2px 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.actionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.inlineSwitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.north {
+  flex: none;
+  color: var(--blueprint);
+  transition: transform var(--dur-base) var(--ease-in-out);
+}
+
+.sectionAside {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+/* totals strip */
+.totals {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.totals div {
+  padding: 8px 0 8px 10px;
+}
+
+.totals div:first-child {
+  padding-left: 12px;
+}
+
+.totals div + div {
+  border-left: 1px solid var(--line);
+}
+
+.totals dt {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.totals dd {
+  margin: 1px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+/* layers */
+.layers {
+  margin: 0 -6px;
+  padding: 0;
+  list-style: none;
+}
+
+.layer {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 0 0 6px;
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.layer:hover {
+  background: var(--surface-2);
+}
+
+.layerName {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  transition: color var(--dur-hover) var(--ease-out);
+}
+
+.layerHidden .layerName {
+  color: var(--ink-3);
+}
+
+.layerButton {
+  width: 24px;
+  height: 24px;
+}
+
+/* review */
+.issues {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -6px;
+  padding: 0;
+  list-style: none;
+}
+
+.issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  text-align: left;
+  cursor: default;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.issue:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.issue:active:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.issueIcon {
+  margin-top: 1px;
+  color: var(--blueprint);
+}
+
+.issue_warning .issueIcon {
+  color: var(--warn);
+}
+
+.issue_error .issueIcon {
+  color: var(--danger);
+}
+
+.disclaimer {
+  margin: 4px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}

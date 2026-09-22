@@ -1,0 +1,193 @@
+.root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--paper);
+  touch-action: none;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  outline: none;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--ink-3);
+  font-size: var(--text-md);
+  pointer-events: none;
+}
+
+/* Type-to-precise box that follows the cursor. Driven by key events, not focus.
+   It grows out of the cursor and shrinks back into it on the way out. */
+.typed {
+  position: absolute;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  transform-origin: top left;
+  will-change: transform, opacity;
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.typed[data-stage="enter"] {
+  opacity: 0;
+  transform: scale(0.92) translate(-4px, -3px);
+}
+
+.typed[data-stage="exit"] {
+  opacity: 0;
+  transform: scale(0.96) translate(-2px, -2px);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  min-width: 74px;
+  padding: 2px 6px 3px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  color: var(--ink-2);
+}
+
+.fieldActive {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.fieldLabel {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.fieldValue {
+  min-height: 16px;
+}
+
+.caret {
+  display: inline-block;
+  width: 1px;
+  height: 12px;
+  margin-left: 1px;
+  vertical-align: -2px;
+  background: var(--accent-strong);
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* The caret is the only loop here. Reduced motion keeps it steady. */
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    animation: none;
+  }
+}
+
+.typedHelp {
+  align-self: center;
+  padding: 0 6px 0 2px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--ink-3);
+}
+
+.editor {
+  position: absolute;
+  margin: 0;
+  padding: 2px 6px;
+  min-width: 90px;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-2);
+  outline: none;
+  will-change: transform, opacity;
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.editor[data-stage="enter"] {
+  opacity: 0;
+  transform: scale(0.94);
+}
+
+/* The exit copy is a plain div, never focusable, never clickable. */
+.editor[data-stage="exit"] {
+  opacity: 0;
+  transform: scale(0.97);
+  pointer-events: none;
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.hint {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  max-width: calc(100% - 24px);
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(20, 40, 63, 0.86);
+  color: #fff;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  will-change: transform, opacity;
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+/* The pill rises from its own edge, and leaves back toward it. */
+.hint[data-stage="enter"] {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px) scale(0.96);
+}
+
+.hint[data-stage="exit"] {
+  opacity: 0;
+  transform: translateX(-50%) translateY(4px) scale(0.98);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
