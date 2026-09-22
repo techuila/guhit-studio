@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/guhit-model",
+  "crates/guhit-core",
+  "crates/guhit-export",
+  "crates/guhit-import",
+  "crates/guhit-app",
+  "crates/guhit-mcp",
+  "crates/guhit-devbridge",
+  "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+ts-rs = { version = "12", features = ["serde-json-impl"] }
+guhit-model = { path = "crates/guhit-model" }
+guhit-core = { path = "crates/guhit-core" }
+guhit-export = { path = "crates/guhit-export" }
+guhit-import = { path = "crates/guhit-import" }
+guhit-app = { path = "crates/guhit-app" }
+guhit-mcp = { path = "crates/guhit-mcp" }
+
+# See https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

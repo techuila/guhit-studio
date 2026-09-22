@@ -1,0 +1,12 @@
+[package]
+name = "guhit-model"
+description = "Guhit Studio contract types: model, commands, derived data, IPC payloads"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+ts-rs.workspace = true

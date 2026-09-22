@@ -1,0 +1,228 @@
+/* App-wide behaviour that tokens.css does not cover: focus ring, tooltips,
+   scrollbars, shared keyframes. Owned by the shell. */
+
+html,
+body {
+  overscroll-behavior: none;
+}
+
+img,
+svg {
+  -webkit-user-drag: none;
+}
+
+:focus {
+  /* Kept 2px wide always so only color and offset transition (outline can't
+     animate from a discrete "none"). Transparent reads as no ring. */
+  outline: 2px solid transparent;
+  outline-offset: -1px;
+  transition:
+    outline-color var(--dur-hover) var(--ease-out),
+    outline-offset var(--dur-hover) var(--ease-out);
+}
+
+:focus-visible {
+  outline-color: var(--accent);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* Thin, quiet scrollbars inside panels. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/* Tooltips: put data-tip on any positioned or static element.
+   data-tip-side: bottom (default), right, top, left. data-tip-key shows a shortcut. */
+[data-tip] {
+  position: relative;
+}
+
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 900;
+  top: calc(100% + 7px);
+  left: 50%;
+  transform: translate(-50%, -2px);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: #0c1a2b;
+  color: #eef3f8;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: var(--shadow-2);
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-out);
+}
+
+[data-tip][data-tip-side="right"]::after {
+  top: 50%;
+  left: calc(100% + 9px);
+  transform: translate(-2px, -50%);
+}
+
+[data-tip][data-tip-side="top"]::after {
+  top: auto;
+  bottom: calc(100% + 7px);
+  transform: translate(-50%, 2px);
+}
+
+[data-tip][data-tip-side="top-start"]::after {
+  top: auto;
+  bottom: calc(100% + 7px);
+  left: 0;
+  transform: translate(0, 2px);
+}
+
+[data-tip][data-tip-side="top-end"]::after {
+  top: auto;
+  bottom: calc(100% + 7px);
+  left: auto;
+  right: 0;
+  transform: translate(0, 2px);
+}
+
+[data-tip][data-tip-side="bottom-start"]::after {
+  left: 0;
+  transform: translate(0, -2px);
+}
+
+[data-tip][data-tip-side="bottom-end"]::after {
+  left: auto;
+  right: 0;
+  transform: translate(0, -2px);
+}
+
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after {
+  opacity: 1;
+  transition-delay: 350ms;
+}
+
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after {
+  transform: translate(-50%, 0);
+}
+
+[data-tip][data-tip-side="right"]:hover::after,
+[data-tip][data-tip-side="right"]:focus-visible::after {
+  transform: translate(0, -50%);
+}
+
+[data-tip][data-tip-side="top-start"]:hover::after,
+[data-tip][data-tip-side="top-end"]:hover::after,
+[data-tip][data-tip-side="bottom-start"]:hover::after,
+[data-tip][data-tip-side="bottom-end"]:hover::after,
+[data-tip][data-tip-side="top-start"]:focus-visible::after,
+[data-tip][data-tip-side="top-end"]:focus-visible::after,
+[data-tip][data-tip-side="bottom-start"]:focus-visible::after,
+[data-tip][data-tip-side="bottom-end"]:focus-visible::after {
+  transform: translate(0, 0);
+}
+
+[data-tip=""]::after,
+[data-tip-off="true"]::after {
+  display: none;
+}
+
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ui-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* An invalid entry shakes once (MOTION.md, Inspector row). */
+@keyframes ui-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(3px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(1px);
+  }
+}
+
+/* A committed number field flashes teal briefly (MOTION.md, Inspector row). */
+@keyframes ui-commit-flash {
+  0% {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+  100% {
+    background: var(--surface);
+    border-color: var(--line);
+  }
+}
+
+/* Rare: hub <-> editor and other full-screen mounts (--dur-scene). */
+@keyframes ui-scene-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* First-appearance list stagger (cards, palette groups): fade + 6px rise. */
+@keyframes ui-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}

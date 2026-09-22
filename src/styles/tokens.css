@@ -1,0 +1,124 @@
+/* Design tokens. CONTRACT FILE - owned by the orchestrator.
+   Brand direction (research section 16): technical but not intimidating.
+   Off-white canvas, deep blueprint navy, restrained teal accents, thin
+   geometric linework. No "sparkle AI" styling. */
+
+:root {
+  /* surfaces */
+  --paper: #f7f5f0; /* drawing canvas */
+  --surface: #ffffff;
+  --surface-2: #f1efe9;
+  --surface-3: #e7e4dc;
+  --chrome: #14283f; /* top bar, left rail */
+  --chrome-2: #1d3653;
+  --chrome-text: #dfe7f0;
+  --chrome-muted: #8ea2b8;
+
+  /* ink */
+  --ink: #14283f;
+  --ink-2: #44566b;
+  --ink-3: #7b8896;
+  --line: #d9d5cb;
+  --line-strong: #b9b4a8;
+
+  /* accents */
+  --accent: #0e8a8f; /* teal: interaction, selection */
+  --accent-strong: #0a6d71;
+  --accent-soft: #d8eeee;
+  --blueprint: #1f5f99;
+  --ai: #6b4fbb; /* AI proposals and ghost previews only */
+  --ai-soft: #ebe6f8;
+  --ok: #2e8b57;
+  --warn: #c07a12;
+  --danger: #c0392b;
+
+  /* drawing */
+  --draw-wall: #14283f;
+  --draw-wall-fill: #2b3f57;
+  --draw-grid: #e6e2d8;
+  --draw-grid-major: #d5d0c4;
+  --draw-room-fill: rgba(14, 138, 143, 0.05);
+  --draw-dimension: #1f5f99;
+  --draw-selection: #0e8a8f;
+  --draw-preview: #6b4fbb;
+
+  /* type */
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 20px;
+
+  /* shape */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --shadow-1: 0 1px 2px rgba(20, 40, 63, 0.08);
+  --shadow-2: 0 6px 24px rgba(20, 40, 63, 0.14);
+
+  /* layout */
+  --topbar-h: 44px;
+  --rail-w: 52px;
+  --inspector-w: 296px;
+  --statusbar-h: 26px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* motion. See docs/MOTION.md. Durations scale with how rare the action is. */
+  --dur-press: 80ms; /* pointer down feedback */
+  --dur-hover: 120ms; /* hover, focus ring, small state changes */
+  --dur-base: 180ms; /* popovers, flyouts, tabs, toggles, sliding indicators */
+  --dur-panel: 240ms; /* dialogs, dock and inspector sections, view mode change */
+  --dur-scene: 360ms; /* rare: open project, AI proposal arrives, fit view */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* entering, responding to input */
+  --ease-in: cubic-bezier(0.55, 0, 0.8, 0.3); /* leaving */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* moving between two places */
+  /* small settle overshoot for things that land: placed objects, toggles */
+  --ease-spring: linear(0, 0.35 12%, 0.72 24%, 0.96 36%, 1.06 48%, 1.05 58%, 1.01 72%, 0.995 86%, 1);
+  --press-scale: 0.97;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-press: 0.01ms;
+    --dur-hover: 0.01ms;
+    --dur-base: 0.01ms;
+    --dur-panel: 0.01ms;
+    --dur-scene: 0.01ms;
+    --ease-spring: linear;
+    --press-scale: 1;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  color: var(--ink);
+  background: var(--surface-2);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+input,
+textarea {
+  user-select: text;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}

@@ -1,0 +1,21 @@
+[package]
+name = "guhit-export"
+description = "Guhit Studio plan export: scaled SVG, PDF and DXF"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+guhit-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# SVG to vector PDF. Brings usvg (SVG parsing, text layout) and fontdb
+# (system font discovery) as re-exports, so the versions always match.
+svg2pdf = { version = "0.13", default-features = false, features = ["text"] }
+
+[dev-dependencies]
+# Rasterize the sheet to PNG for visual checks. Must match svg2pdf's usvg.
+resvg = "0.45"
+# Parse our own DXF output in tests.
+dxf = "0.6"

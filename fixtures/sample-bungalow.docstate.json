@@ -1,0 +1,801 @@
+{
+  "project": {
+    "schema_version": 1,
+    "id": "00000000-0000-4000-8000-000000000001",
+    "name": "Sample Bungalow",
+    "created_at": "2026-09-22T00:00:00Z",
+    "updated_at": "2026-09-22T00:00:00Z",
+    "settings": {
+      "display_unit": "mm",
+      "scale_denominator": 100,
+      "north_angle_deg": 0.0,
+      "paper": "a3",
+      "default_wall_thickness_mm": 150.0,
+      "grid_mm": 100.0,
+      "client_name": "Sample Client",
+      "location": "Quezon City",
+      "designer": ""
+    },
+    "levels": [
+      {
+        "id": "00000000-0000-4000-8000-0000000000a1",
+        "name": "Ground Floor",
+        "elevation_mm": 0.0,
+        "height_mm": 3000.0
+      }
+    ],
+    "layers": [
+      {
+        "key": "walls",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "openings",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "rooms",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "columns",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "stairs",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "assets",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "annotations",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "dimensions",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "underlays",
+        "visible": true,
+        "locked": false
+      }
+    ],
+    "materials": [
+      {
+        "id": "mat-chb-painted",
+        "name": "CHB, plastered and painted",
+        "category": "wall",
+        "color": "#f2efe8",
+        "roughness": 0.9,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "none",
+        "builtin": true
+      },
+      {
+        "id": "mat-chb-bare",
+        "name": "CHB, bare",
+        "category": "wall",
+        "color": "#a9a9a4",
+        "roughness": 0.95,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "chb",
+        "builtin": true
+      },
+      {
+        "id": "mat-concrete-fairface",
+        "name": "Concrete, fair-faced",
+        "category": "wall",
+        "color": "#bdbdb8",
+        "roughness": 0.85,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "concrete",
+        "builtin": true
+      },
+      {
+        "id": "mat-paint-warm-white",
+        "name": "Paint, warm white",
+        "category": "wall",
+        "color": "#faf6ee",
+        "roughness": 0.9,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "none",
+        "builtin": true
+      },
+      {
+        "id": "mat-paint-sage",
+        "name": "Paint, sage green",
+        "category": "wall",
+        "color": "#b7c4ae",
+        "roughness": 0.9,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "none",
+        "builtin": true
+      },
+      {
+        "id": "mat-wood-cladding",
+        "name": "Wood cladding",
+        "category": "wood",
+        "color": "#9a6b43",
+        "roughness": 0.7,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "wood_plank",
+        "builtin": true
+      },
+      {
+        "id": "mat-tile-ceramic",
+        "name": "Ceramic tile 600 x 600",
+        "category": "floor",
+        "color": "#e4e0d8",
+        "roughness": 0.35,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "tile",
+        "builtin": true
+      },
+      {
+        "id": "mat-tile-granite",
+        "name": "Granite tile",
+        "category": "floor",
+        "color": "#6f6f73",
+        "roughness": 0.25,
+        "metalness": 0.05,
+        "opacity": 1.0,
+        "pattern": "tile",
+        "builtin": true
+      },
+      {
+        "id": "mat-floor-laminate",
+        "name": "Wood laminate",
+        "category": "floor",
+        "color": "#b98d5f",
+        "roughness": 0.55,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "wood_plank",
+        "builtin": true
+      },
+      {
+        "id": "mat-floor-concrete",
+        "name": "Polished concrete",
+        "category": "floor",
+        "color": "#b3b1ab",
+        "roughness": 0.4,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "concrete",
+        "builtin": true
+      },
+      {
+        "id": "mat-roof-longspan",
+        "name": "Long-span pre-painted metal roof",
+        "category": "roof",
+        "color": "#7a3b33",
+        "roughness": 0.45,
+        "metalness": 0.6,
+        "opacity": 1.0,
+        "pattern": "roof_sheet",
+        "builtin": true
+      },
+      {
+        "id": "mat-roof-gi",
+        "name": "GI corrugated sheet",
+        "category": "roof",
+        "color": "#aab0b5",
+        "roughness": 0.4,
+        "metalness": 0.8,
+        "opacity": 1.0,
+        "pattern": "roof_sheet",
+        "builtin": true
+      },
+      {
+        "id": "mat-roof-clay-tile",
+        "name": "Clay roof tile",
+        "category": "roof",
+        "color": "#b0583a",
+        "roughness": 0.8,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "roof_tile",
+        "builtin": true
+      },
+      {
+        "id": "mat-roof-concrete-deck",
+        "name": "Concrete roof deck",
+        "category": "roof",
+        "color": "#c4c2bc",
+        "roughness": 0.85,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "concrete",
+        "builtin": true
+      },
+      {
+        "id": "mat-glass-clear",
+        "name": "Clear glass",
+        "category": "glass",
+        "color": "#bfe3ee",
+        "roughness": 0.05,
+        "metalness": 0.0,
+        "opacity": 0.35,
+        "pattern": "glass",
+        "builtin": true
+      },
+      {
+        "id": "mat-wood-door",
+        "name": "Wood door, mahogany finish",
+        "category": "wood",
+        "color": "#6e4428",
+        "roughness": 0.6,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "wood_plank",
+        "builtin": true
+      },
+      {
+        "id": "mat-aluminum-frame",
+        "name": "Aluminum frame, powder coated",
+        "category": "metal",
+        "color": "#3b3f45",
+        "roughness": 0.4,
+        "metalness": 0.8,
+        "opacity": 1.0,
+        "pattern": "none",
+        "builtin": true
+      },
+      {
+        "id": "mat-steel",
+        "name": "Steel, painted",
+        "category": "metal",
+        "color": "#4a4f57",
+        "roughness": 0.5,
+        "metalness": 0.7,
+        "opacity": 1.0,
+        "pattern": "none",
+        "builtin": true
+      }
+    ],
+    "elements": [
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000000101",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "start": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "end": {
+          "x": 8000.0,
+          "y": 0.0
+        },
+        "thickness_mm": 150.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000000102",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "start": {
+          "x": 8000.0,
+          "y": 0.0
+        },
+        "end": {
+          "x": 8000.0,
+          "y": 6000.0
+        },
+        "thickness_mm": 150.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000000103",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "start": {
+          "x": 8000.0,
+          "y": 6000.0
+        },
+        "end": {
+          "x": 0.0,
+          "y": 6000.0
+        },
+        "thickness_mm": 150.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000000104",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "start": {
+          "x": 0.0,
+          "y": 6000.0
+        },
+        "end": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "thickness_mm": 150.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000000105",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "start": {
+          "x": 5000.0,
+          "y": 0.0
+        },
+        "end": {
+          "x": 5000.0,
+          "y": 6000.0
+        },
+        "thickness_mm": 100.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000000201",
+        "wall_id": "00000000-0000-4000-8000-000000000101",
+        "opening_type": "door",
+        "style": "swing_single",
+        "offset_mm": 1500.0,
+        "width_mm": 900.0,
+        "height_mm": 2100.0,
+        "sill_mm": 0.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000000202",
+        "wall_id": "00000000-0000-4000-8000-000000000105",
+        "opening_type": "door",
+        "style": "swing_single",
+        "offset_mm": 3000.0,
+        "width_mm": 800.0,
+        "height_mm": 2100.0,
+        "sill_mm": 0.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000000203",
+        "wall_id": "00000000-0000-4000-8000-000000000101",
+        "opening_type": "window",
+        "style": "sliding",
+        "offset_mm": 3500.0,
+        "width_mm": 1500.0,
+        "height_mm": 1200.0,
+        "sill_mm": 900.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000000204",
+        "wall_id": "00000000-0000-4000-8000-000000000102",
+        "opening_type": "window",
+        "style": "casement",
+        "offset_mm": 3000.0,
+        "width_mm": 1200.0,
+        "height_mm": 1200.0,
+        "sill_mm": 900.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000000205",
+        "wall_id": "00000000-0000-4000-8000-000000000103",
+        "opening_type": "window",
+        "style": "jalousie",
+        "offset_mm": 5500.0,
+        "width_mm": 1200.0,
+        "height_mm": 1200.0,
+        "sill_mm": 900.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "room",
+        "id": "00000000-0000-4000-8000-000000000301",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "name": "Living / Dining",
+        "usage": "living",
+        "seed": {
+          "x": 2500.0,
+          "y": 3000.0
+        },
+        "floor_material_id": "mat-tile-ceramic",
+        "auto_named": false
+      },
+      {
+        "kind": "room",
+        "id": "00000000-0000-4000-8000-000000000302",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "name": "Bedroom",
+        "usage": "bedroom",
+        "seed": {
+          "x": 6500.0,
+          "y": 3000.0
+        },
+        "floor_material_id": "mat-tile-ceramic",
+        "auto_named": false
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000000401",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "catalog_key": "bed-double",
+        "name": "Double bed",
+        "category": "furniture",
+        "position": {
+          "x": 6900.0,
+          "y": 4800.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 1370.0,
+        "depth_mm": 1900.0,
+        "height_mm": 500.0,
+        "elevation_mm": 0.0
+      },
+      {
+        "kind": "dimension",
+        "id": "00000000-0000-4000-8000-000000000501",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "a": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "b": {
+          "x": 8000.0,
+          "y": 0.0
+        },
+        "offset_mm": -900.0,
+        "text_override": null
+      },
+      {
+        "kind": "camera",
+        "id": "00000000-0000-4000-8000-000000000601",
+        "name": "Exterior corner",
+        "preset": "exterior_corner",
+        "position": {
+          "x": -5000.0,
+          "y": -7000.0,
+          "z": 4500.0
+        },
+        "target": {
+          "x": 4000.0,
+          "y": 3000.0,
+          "z": 1200.0
+        },
+        "fov_deg": 50.0
+      }
+    ],
+    "roof": {
+      "kind": "gable",
+      "pitch_deg": 20.0,
+      "overhang_mm": 600.0,
+      "thickness_mm": 150.0,
+      "ridge_axis": "x",
+      "material_id": "mat-roof-longspan"
+    }
+  },
+  "derived": {
+    "walls": [
+      {
+        "wall_id": "00000000-0000-4000-8000-000000000101",
+        "length_mm": 8000.0,
+        "outline": [
+          {
+            "x": -75.0,
+            "y": -75.0
+          },
+          {
+            "x": 8075.0,
+            "y": -75.0
+          },
+          {
+            "x": 7925.0,
+            "y": 75.0
+          },
+          {
+            "x": 75.0,
+            "y": 75.0
+          }
+        ],
+        "exterior": true,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000000104"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000000102"
+        ]
+      },
+      {
+        "wall_id": "00000000-0000-4000-8000-000000000102",
+        "length_mm": 6000.0,
+        "outline": [
+          {
+            "x": 8075.0,
+            "y": -75.0
+          },
+          {
+            "x": 8075.0,
+            "y": 6075.0
+          },
+          {
+            "x": 7925.0,
+            "y": 5925.0
+          },
+          {
+            "x": 7925.0,
+            "y": 75.0
+          }
+        ],
+        "exterior": true,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000000101"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000000103"
+        ]
+      },
+      {
+        "wall_id": "00000000-0000-4000-8000-000000000103",
+        "length_mm": 8000.0,
+        "outline": [
+          {
+            "x": 8075.0,
+            "y": 6075.0
+          },
+          {
+            "x": -75.0,
+            "y": 6075.0
+          },
+          {
+            "x": 75.0,
+            "y": 5925.0
+          },
+          {
+            "x": 7925.0,
+            "y": 5925.0
+          }
+        ],
+        "exterior": true,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000000102"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000000104"
+        ]
+      },
+      {
+        "wall_id": "00000000-0000-4000-8000-000000000104",
+        "length_mm": 6000.0,
+        "outline": [
+          {
+            "x": -75.0,
+            "y": 6075.0
+          },
+          {
+            "x": -75.0,
+            "y": -75.0
+          },
+          {
+            "x": 75.0,
+            "y": 75.0
+          },
+          {
+            "x": 75.0,
+            "y": 5925.0
+          }
+        ],
+        "exterior": true,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000000103"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000000101"
+        ]
+      },
+      {
+        "wall_id": "00000000-0000-4000-8000-000000000105",
+        "length_mm": 6000.0,
+        "outline": [
+          {
+            "x": 5050.0,
+            "y": 75.0
+          },
+          {
+            "x": 5050.0,
+            "y": 5925.0
+          },
+          {
+            "x": 4950.0,
+            "y": 5925.0
+          },
+          {
+            "x": 4950.0,
+            "y": 75.0
+          }
+        ],
+        "exterior": false,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000000101"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000000103"
+        ]
+      }
+    ],
+    "rooms": [
+      {
+        "room_id": "00000000-0000-4000-8000-000000000301",
+        "polygon": [
+          {
+            "x": 75.0,
+            "y": 75.0
+          },
+          {
+            "x": 4950.0,
+            "y": 75.0
+          },
+          {
+            "x": 4950.0,
+            "y": 5925.0
+          },
+          {
+            "x": 75.0,
+            "y": 5925.0
+          }
+        ],
+        "centerline_polygon": [
+          {
+            "x": 0.0,
+            "y": 0.0
+          },
+          {
+            "x": 5000.0,
+            "y": 0.0
+          },
+          {
+            "x": 5000.0,
+            "y": 6000.0
+          },
+          {
+            "x": 0.0,
+            "y": 6000.0
+          }
+        ],
+        "area_mm2": 28518750.0,
+        "perimeter_mm": 21450.0,
+        "label_point": {
+          "x": 2512.5,
+          "y": 3000.0
+        },
+        "wall_ids": [
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104"
+        ]
+      },
+      {
+        "room_id": "00000000-0000-4000-8000-000000000302",
+        "polygon": [
+          {
+            "x": 5050.0,
+            "y": 75.0
+          },
+          {
+            "x": 7925.0,
+            "y": 75.0
+          },
+          {
+            "x": 7925.0,
+            "y": 5925.0
+          },
+          {
+            "x": 5050.0,
+            "y": 5925.0
+          }
+        ],
+        "centerline_polygon": [
+          {
+            "x": 5000.0,
+            "y": 0.0
+          },
+          {
+            "x": 8000.0,
+            "y": 0.0
+          },
+          {
+            "x": 8000.0,
+            "y": 6000.0
+          },
+          {
+            "x": 5000.0,
+            "y": 6000.0
+          }
+        ],
+        "area_mm2": 16818750.0,
+        "perimeter_mm": 17450.0,
+        "label_point": {
+          "x": 6487.5,
+          "y": 3000.0
+        },
+        "wall_ids": [
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000105"
+        ]
+      }
+    ],
+    "footprints": [
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "polygon": [
+          {
+            "x": -75.0,
+            "y": -75.0
+          },
+          {
+            "x": 8075.0,
+            "y": -75.0
+          },
+          {
+            "x": 8075.0,
+            "y": 6075.0
+          },
+          {
+            "x": -75.0,
+            "y": 6075.0
+          }
+        ],
+        "area_mm2": 50122500.0
+      }
+    ],
+    "totals": {
+      "floor_area_m2": 45.3375,
+      "gross_area_m2": 50.1225,
+      "wall_length_m": 34.0,
+      "room_count": 2,
+      "door_count": 2,
+      "window_count": 3
+    },
+    "issues": []
+  },
+  "revision": 0,
+  "can_undo": false,
+  "can_redo": false,
+  "undo_label": null,
+  "redo_label": null
+}

@@ -1,0 +1,24 @@
+[package]
+name = "guhit-studio"
+description = "Guhit Studio desktop shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# The `_lib` suffix avoids a bin/lib name clash on Windows (cargo#8519).
+name = "guhit_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+guhit-app = { workspace = true }
+guhit-mcp = { workspace = true }
+guhit-model = { workspace = true }

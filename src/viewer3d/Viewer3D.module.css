@@ -1,0 +1,247 @@
+.root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: linear-gradient(#9cc4ea, #e6f0f7 62%, #d9ddd0);
+  container-type: inline-size;
+}
+
+/* The canvas fades in once the engine reports its first frame, so switching
+   to Split or 3D never flashes empty sky before the model. */
+.canvasHost {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity var(--dur-panel) var(--ease-out);
+}
+
+.canvasHost[data-ready="true"] {
+  opacity: 1;
+}
+
+/* A capture grabs the frame: a quick white flash over the 3D view. */
+.flash {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  animation: captureFlash var(--dur-hover) var(--ease-out);
+}
+
+@keyframes captureFlash {
+  0% {
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.toolbar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.group {
+  position: relative;
+  display: flex;
+  gap: 1px;
+  padding: 3px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+
+.group:last-child {
+  margin-left: auto;
+}
+
+/* One pill slides between camera presets instead of the background jumping. */
+.indicator {
+  position: absolute;
+  left: 0;
+  top: 3px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  pointer-events: none;
+  transition:
+    transform var(--dur-base) var(--ease-in-out),
+    width var(--dur-base) var(--ease-in-out);
+}
+
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+  transition-duration: var(--dur-press);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    outline-offset var(--dur-hover) var(--ease-out);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn[data-active="true"] {
+  color: var(--accent-strong);
+}
+
+
+.btn[data-active="true"] {
+  background: var(--accent-soft);
+}
+
+/* In the preset group the sliding pill carries the tint, so the button
+   itself stays clear and only one thing moves. */
+.group[data-slider="true"] .btn[data-active="true"] {
+  background: transparent;
+}
+
+.btn svg {
+  transition: transform var(--dur-hover) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) svg {
+  transform: translateY(-1px);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.4px solid var(--ink-3);
+  background: transparent;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    transform var(--dur-base) var(--ease-spring);
+}
+
+.btn[data-active="true"] .dot {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.15);
+}
+
+@container (max-width: 640px) {
+  .label {
+    display: none;
+  }
+  .btn {
+    padding: 0 7px;
+  }
+}
+
+.notice {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 320px;
+  padding: 14px 18px;
+  text-align: center;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  pointer-events: none;
+  animation: noticeIn var(--dur-panel) var(--ease-out);
+}
+
+@keyframes noticeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 8px));
+  }
+}
+
+.notice strong {
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.hint {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  padding: 3px 8px;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border-radius: var(--radius-sm);
+  opacity: 0.65;
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    background var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-out);
+}
+
+.hint:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash,
+  .notice {
+    animation: none;
+  }
+}

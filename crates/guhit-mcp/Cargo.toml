@@ -1,0 +1,25 @@
+[package]
+name = "guhit-mcp"
+description = "Model Context Protocol server over guhit-app, so Claude Code and other MCP clients can drive Guhit Studio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+guhit-app.workspace = true
+guhit-core.workspace = true
+guhit-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt", "macros", "sync", "net"] }
+# rmcp: the official Rust MCP SDK. Only the server half and the streamable
+# HTTP transport, which is a tower service we mount on an axum router.
+rmcp = { version = "3.4", default-features = false, features = [
+  "server",
+  "transport-streamable-http-server",
+] }
+# axum: same server the dev bridge uses, so /mcp can share its port.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+
+[dev-dependencies]
+tempfile = "3"
