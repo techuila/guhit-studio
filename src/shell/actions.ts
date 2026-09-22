@@ -8,6 +8,7 @@ import { bus } from "../state/bus";
 import { useApp, type Tool } from "../state/store";
 import type { IconName } from "../ui/icons";
 import { useShell } from "./shellStore";
+import { checkForUpdates } from "./UpdateNotice";
 
 // ---------------------------------------------------------------- tools
 
@@ -310,6 +311,7 @@ export function paletteActions(): PaletteAction[] {
     { id: "hub", title: "Back to all projects", group: "Project", icon: "home", keywords: "hub close home", run: () => void leaveEditor() },
     { id: "shortcuts", title: "Show keyboard shortcuts", group: "Project", icon: "keyboard", keywords: "keys help", shortcut: "?", run: () => shell.open("shortcuts") },
     { id: "settings", title: "Settings", group: "Project", icon: "settings", keywords: "preferences interchange dwg converter oda", run: () => shell.open("settings") },
+    { id: "check-updates", title: "Check for updates", group: "Project", icon: "import", keywords: "update upgrade version new release download", run: () => void checkForUpdates(true) },
     { id: "dock-copilot", title: "Ask the copilot", group: "Panels", icon: "copilot", keywords: "ai chat assistant settings", shortcut: `${MOD},`, run: () => shell.setDockTab("copilot") },
     { id: "dock-visuals", title: "Open visuals", group: "Panels", icon: "visuals", keywords: "render capture gallery image", run: () => shell.setDockTab("visuals") },
     { id: "dock-toggle", title: shell.dockCollapsed ? "Expand the side dock" : "Collapse the side dock", group: "Panels", icon: "panelRight", keywords: "dock hide show panel", run: () => shell.setDockCollapsed(!shell.dockCollapsed) },

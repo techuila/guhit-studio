@@ -54,7 +54,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            // Auto-update from GitHub releases. The frontend drives it
+            // (src/shell/UpdateNotice.tsx); this only registers the plugin.
+            // Desktop only: there is no updater on mobile targets.
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let service = AppService::new(data_dir.clone());

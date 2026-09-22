@@ -17,8 +17,14 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-process = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 guhit-app = { workspace = true }
 guhit-mcp = { workspace = true }
 guhit-model = { workspace = true }
+
+# The updater only exists on desktop. Mobile targets skip it, as the plugin
+# docs prescribe, so the crate still builds there.
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2"

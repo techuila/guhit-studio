@@ -93,14 +93,18 @@ export function Icon({ name, size = 18, className, style, title }: IconProps) {
   );
 }
 
-/** The GUHIT mark: a plan corner with a door swing. */
+/** The GUHIT mark (assets/brand/logo-mark.svg): a plan frame with a door swing forming a G. */
 export function BrandMark({ size = 28 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" aria-hidden style={{ flex: "none", display: "block" }}>
-      <path d="M4 4h20v20H4z" stroke="currentColor" strokeWidth={1.5} />
-      <path d="M4 15h9v9" stroke="currentColor" strokeWidth={1.5} />
-      <path d="M13 15a7 7 0 0 1 7-7" stroke="var(--accent)" strokeWidth={1.5} />
-      <path d="M20 8v7" stroke="var(--accent)" strokeWidth={1.5} />
+    <svg width={size} height={size} viewBox="200 200 624 624" fill="none" aria-hidden style={{ flex: "none", display: "block" }}>
+      <g stroke="currentColor" strokeWidth={34} strokeLinecap="square">
+        <path d="M220 220H740V290" />
+        <path d="M220 220V804H804V540" />
+        <path d="M220 540H500M500 540V804" />
+        <path d="M804 540H640" />
+        <path d="M660 380V470" />
+      </g>
+      <path d="M500 540A160 160 0 0 1 660 380" stroke="#8fc9cf" strokeWidth={34} strokeLinecap="square" />
     </svg>
   );
 }

@@ -1,0 +1,87 @@
+name: release
+
+# Cutting a release is one push of a tag. Steps and the required secret:
+# docs/RELEASING.md.
+#
+# build.yml stays on branch pushes and pull requests only, so a tag push
+# builds here and nowhere else.
+on:
+  push:
+    tags: ["v*"]
+
+# tauri-action creates the GitHub release and uploads the bundles to it.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: release (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon and Intel are separate bundles. The updater picks the
+          # right one by target and arch from latest.json.
+          - os: macos-latest
+            label: macos-arm64
+            target: aarch64-apple-darwin
+            args: "--target aarch64-apple-darwin"
+          - os: macos-latest
+            label: macos-x64
+            target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin"
+          - os: windows-latest
+            label: windows-x64
+            target: ""
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.label }}
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Builds, signs the update artifacts with the minisign private key, then
+      # creates the release and uploads the bundles, the .sig files and
+      # latest.json. The app itself is not code signed: no Developer ID or
+      # Windows certificate is configured yet (docs/RELEASING.md).
+      - name: Build and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # The key was generated with --ci, so it has no password. The
+          # variable must still be set, to an empty string.
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Guhit Studio ${{ github.ref_name }}
+          releaseDraft: false
+          prerelease: false
+          # Writes latest.json next to the bundles. This is the file the
+          # updater endpoint in tauri.conf.json points at.
+          uploadUpdaterJson: true
+          # Windows: update through the NSIS setup.exe rather than the MSI.
+          # An MSI update cannot replace a running installation cleanly.
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}
