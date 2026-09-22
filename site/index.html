@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GUHIT Studio - floor plans, live 3D and AI revisions on your desktop</title>
+<meta name="description" content="A desktop drafting studio for Philippine architects. Draw a real floor plan in minutes, see it in 3D as you draw, ask AI for revisions you approve, and export to AutoCAD, SketchUp, IFC and PDF. macOS and Windows.">
+<link rel="canonical" href="https://techuila.github.io/guhit-studio/">
+<meta name="theme-color" content="#1f2d44">
+<meta name="color-scheme" content="light">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="GUHIT Studio">
+<meta property="og:title" content="GUHIT Studio - draw, see, build the idea">
+<meta property="og:description" content="Draw a real floor plan in minutes, see it in 3D instantly, ask AI to make revisions, export to AutoCAD, SketchUp, IFC and PDF. A desktop app for macOS and Windows.">
+<meta property="og:url" content="https://techuila.github.io/guhit-studio/">
+<meta property="og:image" content="https://techuila.github.io/guhit-studio/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="GUHIT Studio, a floor plan drawn in thin navy linework on an off-white sheet.">
+<meta property="og:locale" content="en_PH">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="GUHIT Studio - draw, see, build the idea">
+<meta name="twitter:description" content="Floor plans, live 3D and AI revisions on your own machine. macOS and Windows.">
+<meta name="twitter:image" content="https://techuila.github.io/guhit-studio/og.png">
+
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-256.png">
+
+<link rel="preload" as="font" type="font/woff2" href="assets/fonts/archivo-latin.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="assets/fonts/jetbrains-mono-latin.woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"GUHIT Studio","applicationCategory":"DesignApplication","operatingSystem":"macOS 12+, Windows 10+","description":"A desktop drafting studio for Philippine architects: floor plans, live 3D, AI revisions and open exports.","url":"https://techuila.github.io/guhit-studio/","offers":{"@type":"Offer","price":"0","priceCurrency":"PHP"}}
+</script>
+</head>
+<body>
+<a class="skip" href="#draw">Skip to the product tour</a>
+<div class="sheet-grid" aria-hidden="true"><div class="sheet-grid__cols"></div></div>
+<div class="crosshair" id="crosshair" aria-hidden="true"><i></i><i></i><b></b></div>
+
+<header class="hero" id="top">
+  <div class="hero__field" aria-hidden="true"><div class="hero__field-inner" id="heroField"></div></div>
+
+  <div class="wrap hero__wrap">
+    <div class="hero__mark">
+      <svg class="monogram" viewBox="0 0 1024 1024" role="img"
+           aria-label="The GUHIT Studio mark: a floor plan frame whose door swing forms the letter G.">
+        <rect width="1024" height="1024" fill="var(--navy)"/>
+        <g fill="none" stroke="#ffffff" stroke-width="30" stroke-linecap="square" stroke-linejoin="miter">
+          <path class="mg" style="--len:590;--d:150ms;--t:250ms"   d="M 220 220 H 740 V 290"/>
+          <path class="mg" style="--len:1432;--d:400ms;--t:600ms"  d="M 220 220 V 804 H 804 V 540"/>
+          <path class="mg" style="--len:544;--d:1000ms;--t:230ms"  d="M 220 540 H 500 M 500 540 V 804"/>
+          <path class="mg" style="--len:164;--d:1230ms;--t:80ms"   d="M 804 540 H 640"/>
+          <path class="mg" style="--len:90;--d:1310ms;--t:70ms"    d="M 660 380 V 470"/>
+        </g>
+        <path class="mg" style="--len:252;--d:1400ms;--t:300ms" d="M 500 540 A 160 160 0 0 1 660 380"
+              fill="none" stroke="var(--arc)" stroke-width="30" stroke-linecap="square"/>
+      </svg>
+      <p class="hero__eyebrow">Desktop app for macOS and Windows</p>
+    </div>
+
+    <h1 class="hero__h1">
+      <span class="wordmark">Guhit</span>
+      <span class="hero__tagline">Draw. See. Build the idea.</span>
+    </h1>
+
+    <p class="hero__lede">A drafting studio for Philippine architects. Draw a real floor plan in
+      minutes, watch it stand up in 3D as you draw, and ask for revisions you approve before
+      anything changes. Files stay on your machine.</p>
+
+    <div class="cta" id="heroCta">
+      <a class="btn btn--solid" data-os="mac" href="https://github.com/techuila/guhit-studio/releases/latest">
+        <svg class="btn__os" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M11 1.2c.1.9-.3 1.8-.8 2.4-.6.6-1.4 1.1-2.2 1-.1-.9.3-1.8.8-2.4.6-.6 1.5-1 2.2-1zm2.6 11c-.4.9-.6 1.3-1.1 2.1-.7 1.1-1.7 2.5-3 2.5-1.1 0-1.4-.7-3-.7-1.5 0-1.8.7-3 .7-1.2 0-2.1-1.2-2.9-2.3C-1 11.8-1.3 8.2.2 6.3c1-1.3 2.5-2 3.9-2 1.4 0 2.3.8 3.5.8 1.1 0 1.8-.8 3.5-.8 1.2 0 2.5.7 3.4 1.8-3 1.6-2.5 5.9.1 6.9z"/></svg>
+        Download for macOS</a>
+      <a class="btn btn--solid" data-os="win" href="https://github.com/techuila/guhit-studio/releases/latest">
+        <svg class="btn__os" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M0 2.3 6.5 1.4v6.2H0zM7.3 1.3 16 0v7.6H7.3zM0 8.4h6.5v6.2L0 13.7zm7.3 0H16V16l-8.7-1.2z"/></svg>
+        Download for Windows</a>
+    </div>
+    <p class="cta__note">Free while in development. <span id="relLine">No public release published yet.</span></p>
+
+    <a class="cue" href="#draw"><span class="cue__label">Scroll</span><span class="cue__rail"><i></i></span></a>
+  </div>
+</header>
+
+<main>
+
+<!-- ===================== 02 DRAW ===================== -->
+<div class="tag"><span class="tag__no">01</span><span class="tag__name">Draw</span></div>
+<section class="act" id="draw" aria-labelledby="draw-h" style="--len:4">
+  <div class="act__stage">
+    <div class="wrap act__grid">
+      <div class="act__copy">
+        <h2 id="draw-h" class="h2">Type the length.<br>The wall obeys.</h2>
+        <p>Pick the wall tool, click a start point, then type <b class="num">4000</b> and press
+          Enter. The wall is exactly four metres. No dragging until it looks right, no
+          cleanup pass later.</p>
+        <p>Close a loop and the room inside names itself and measures itself. Move any wall
+          afterwards and the area follows, along with every dimension that was snapped to it.</p>
+        <dl class="facts">
+          <div><dt>Default wall</dt><dd class="num">150 mm CHB</dd></div>
+          <div><dt>Default door</dt><dd class="num">900 x 2100</dd></div>
+          <div><dt>Default window</dt><dd class="num">1200 x 1200, 900 sill</dd></div>
+        </dl>
+      </div>
+
+      <div class="act__art art--plan">
+        <svg class="plan" viewBox="-1500 -700 5900 4900" role="img"
+             aria-label="A four by three metre room drawing itself: four walls, a 4000 and a 3000 dimension, a door with its swing arc, then the room label Sala 10.97 square metres.">
+          <defs>
+            <pattern id="pg" width="500" height="500" patternUnits="userSpaceOnUse">
+              <path d="M500 0 L0 0 0 500" fill="none" stroke="var(--line)" stroke-width="8"/>
+            </pattern>
+          </defs>
+          <rect x="-1500" y="-700" width="5900" height="4900" fill="url(#pg)" opacity=".85"/>
+
+          <!-- room fill + labels -->
+          <g class="seq" style="--a:.76;--k:6">
+            <rect x="75" y="75" width="3850" height="2850" fill="var(--teal)" opacity="calc(var(--v) * .07)"/>
+            <text class="p-room" x="2000" y="1400" opacity="var(--v)">Sala</text>
+            <text class="p-area num" x="2000" y="1720" opacity="var(--v)">10.97 m²</text>
+          </g>
+
+          <!-- walls -->
+          <g class="walls" fill="var(--navy)" stroke="var(--navy)" stroke-width="18">
+            <rect class="seq w-n" style="--a:0;--k:14"    x="-75" y="-75" width="4150" height="150"/>
+            <rect class="seq w-e" style="--a:.07;--k:14"  x="3925" y="-75" width="150" height="3150"/>
+            <rect class="seq w-s" style="--a:.14;--k:14"  x="-75" y="2925" width="4150" height="150"/>
+            <rect class="seq w-w" style="--a:.21;--k:14"  x="-75" y="-75" width="150" height="3150"/>
+          </g>
+
+          <!-- door opening + swing -->
+          <g class="door">
+            <rect class="seq door-gap" style="--a:.58;--k:12" x="750" y="2915" width="900" height="170" fill="var(--paper)"/>
+            <g class="seq" style="--a:.6;--k:5">
+              <path class="door-arc" d="M1650 2925 A 900 900 0 0 0 750 2025" fill="none"
+                    stroke="var(--navy)" stroke-width="16" stroke-dasharray="1414"
+                    stroke-dashoffset="calc(1414 * (1 - var(--v)))"/>
+              <g class="door-leaf" style="transform: rotate(calc((1 - var(--v)) * 88deg)); transform-origin: 750px 2925px">
+                <rect x="700" y="2025" width="100" height="900" fill="var(--navy)" opacity="var(--v)"/>
+              </g>
+              <rect x="740" y="2905" width="20" height="190" fill="var(--navy)" opacity="var(--v)"/>
+              <rect x="1640" y="2905" width="20" height="190" fill="var(--navy)" opacity="var(--v)"/>
+            </g>
+          </g>
+
+          <!-- 4000 dimension -->
+          <g class="dim seq" style="--a:.3;--k:9" opacity="var(--v)">
+            <path d="M-75 3150 L-75 3800 M4075 3150 L4075 3800 M-75 3650 L4075 3650"
+                  fill="none" stroke="var(--blue)" stroke-width="12"/>
+            <path d="M-175 3750 L25 3550 M3975 3750 L4175 3550" fill="none" stroke="var(--blue)" stroke-width="16"/>
+            <text class="p-dim num" x="2000" y="3560" text-anchor="middle">
+              <tspan class="ch" style="--a:.33;--k:60">4</tspan><tspan class="ch" style="--a:.35;--k:60">0</tspan><tspan class="ch" style="--a:.37;--k:60">0</tspan><tspan class="ch" style="--a:.39;--k:60">0</tspan>
+            </text>
+          </g>
+
+          <!-- 3000 dimension -->
+          <g class="dim seq" style="--a:.44;--k:9" opacity="var(--v)">
+            <path d="M-150 -75 L-800 -75 M-150 3075 L-800 3075 M-650 -75 L-650 3075"
+                  fill="none" stroke="var(--blue)" stroke-width="12"/>
+            <path d="M-750 -175 L-550 25 M-750 2975 L-550 3175" fill="none" stroke="var(--blue)" stroke-width="16"/>
+            <text class="p-dim num" x="-710" y="1500" text-anchor="middle" transform="rotate(-90 -710 1500)">
+              <tspan class="ch" style="--a:.47;--k:60">3</tspan><tspan class="ch" style="--a:.49;--k:60">0</tspan><tspan class="ch" style="--a:.51;--k:60">0</tspan><tspan class="ch" style="--a:.53;--k:60">0</tspan>
+            </text>
+          </g>
+        </svg>
+        <p class="art__caption num">Plan 1:100 · millimetres · +x east</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 02 SEE ===================== -->
+<div class="tag"><span class="tag__no">02</span><span class="tag__name">See</span></div>
+<section class="act" id="see" aria-labelledby="see-h" style="--len:4">
+  <div class="act__stage">
+    <div class="wrap act__grid act__grid--flip">
+      <div class="act__copy">
+        <h2 id="see-h" class="h2">The same walls,<br>standing up.</h2>
+        <p>There is no export step and no second model to keep in sync. The 3D view is the plan,
+          read the other way. Draw a wall and it is already there, three metres tall, with the
+          light falling on it.</p>
+        <p>Materials and furniture come from a built-in library of CC0 assets from Poly Haven,
+          Kenney and ambientCG. Lift the roof, cut the model at eye level, or walk a camera
+          through a room to check a sightline.</p>
+        <dl class="facts">
+          <div><dt>Level height</dt><dd class="num">3000 mm</dd></div>
+          <div><dt>Roof presets</dt><dd>Gable, shed, flat</dd></div>
+          <div><dt>Views</dt><dd>Plan, split, 3D</dd></div>
+        </dl>
+      </div>
+
+      <div class="act__art art--iso">
+        <div class="stage3d" role="img" aria-label="A floor plan tilting into an isometric view: walls rise from the plan and a roof plate settles onto them.">
+          <div class="house">
+            <div class="floor">
+              <div class="floor__grid"></div>
+            </div>
+            <div class="wall wall--n seq" style="--a:.2;--k:2.6"></div>
+            <div class="wall wall--s seq" style="--a:.24;--k:2.6"><span class="op op--door"></span><span class="op op--win"></span></div>
+            <div class="wall wall--w seq" style="--a:.28;--k:2.6"><span class="op op--win"></span></div>
+            <div class="wall wall--e seq" style="--a:.32;--k:2.6"><span class="op op--win"></span></div>
+            <div class="wall wall--p seq" style="--a:.36;--k:2.6"></div>
+            <div class="roof seq" style="--a:.5;--k:2.4"><span class="ridge"></span></div>
+          </div>
+        </div>
+        <figure class="shot seq" style="--a:.72;--k:4">
+          <img src="assets/app-3d.webp" width="1200" height="750" loading="lazy" decoding="async"
+               alt="GUHIT Studio on screen: a bungalow in the 3D view with a red metal roof, beside the project inspector and the copilot panel.">
+          <figcaption>The live 3D view, mid-session.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 03 ASK ===================== -->
+<div class="tag"><span class="tag__no">03</span><span class="tag__name">Ask</span></div>
+<section class="act" id="ask" aria-labelledby="ask-h" style="--len:4">
+  <div class="act__stage">
+    <div class="wrap act__grid">
+      <div class="act__copy">
+        <h2 id="ask-h" class="h2">It proposes.<br>You approve.</h2>
+        <p>Ask in English or Taglish. The copilot turns the request into the same typed commands
+          the toolbar produces, runs them through the engine, and shows you the result as a ghost
+          on the plan. Nothing is committed until you press Apply, and one undo reverts it.</p>
+        <p>It answers questions from the model itself, never from a guess. Ask for the floor area
+          and you get the number the engine computed.</p>
+        <dl class="facts">
+          <div><dt>Preview</dt><dd>Ghost diff on the plan</dd></div>
+          <div><dt>Commit</dt><dd>Only on Apply</dd></div>
+          <div><dt>Revert</dt><dd class="num">1 undo step</dd></div>
+        </dl>
+      </div>
+
+      <div class="act__art art--ask">
+        <div class="ask-demo">
+          <div class="bubble seq" style="--a:.02;--k:8">
+            <span class="bubble__who num">You</span>
+            <p class="typed">
+              <span class="w" style="--a:.06;--k:80">Palakihin</span> <span class="w" style="--a:.09;--k:80">ang</span>
+              <span class="w" style="--a:.11;--k:80">bedroom</span> <span class="w" style="--a:.14;--k:80">300</span>
+              <span class="w" style="--a:.16;--k:80">mm</span> <span class="w" style="--a:.18;--k:80">sa</span>
+              <span class="w" style="--a:.2;--k:80">east</span><i class="caret seq" style="--a:.24;--k:14"></i>
+            </p>
+          </div>
+
+          <svg class="plan plan--ghost" viewBox="-750 -700 10450 8100" role="img"
+               aria-label="The east wall of an eight by six metre plan shifting 300 millimetres east as a purple preview. The overall dimension changes from 8000 to 8300 and the bedroom area from 16.82 to 18.57 square metres.">
+            <rect x="75" y="75" width="4875" height="5850" fill="var(--teal)" opacity=".06"/>
+            <rect class="seq grow-x" style="--a:.3;--k:3" x="5050" y="75" height="5850"
+                  width="2875" fill="var(--ai)" opacity=".07"/>
+            <g fill="var(--navy)">
+              <rect x="-75" y="-75" width="8150" height="150"/>
+              <rect x="-75" y="5925" width="8150" height="150"/>
+              <rect x="-75" y="-75" width="150" height="6150"/>
+              <rect x="4950" y="75" width="100" height="5850"/>
+            </g>
+            <!-- the east wall the copilot proposes to move -->
+            <g class="seq" style="--a:.3;--k:3">
+              <rect x="7925" y="-75" width="150" height="6150" fill="var(--navy)" opacity="calc(1 - var(--v) * .8)"/>
+              <g style="transform: translateX(calc(var(--v) * 300px))">
+                <rect x="7925" y="-75" width="150" height="6150" fill="var(--ai)" opacity="calc(.4 + var(--v) * .5)"/>
+                <path d="M7925 -75 L8375 -75 M7925 6075 L8375 6075" stroke="var(--ai)" stroke-width="22"
+                      fill="none" opacity="calc(var(--v) * .5)"/>
+              </g>
+            </g>
+            <g class="seq" style="--a:.34;--k:4" opacity="var(--v)">
+              <path d="M8250 2700 L8800 2700 M8700 2610 L8810 2700 L8700 2790"
+                    stroke="var(--ai)" stroke-width="22" fill="none"/>
+              <text x="8530" y="2510" text-anchor="middle" fill="var(--ai)" font-size="330">300</text>
+            </g>
+            <text x="2512" y="2850" text-anchor="middle" font-size="400">Living / Dining</text>
+            <text x="2512" y="3350" text-anchor="middle" font-size="330" fill="var(--ink-2)">28.52 m²</text>
+            <g class="seq" style="--a:.3;--k:3; transform: translateX(calc(var(--v) * 150px))">
+              <text x="6487" y="2850" text-anchor="middle" font-size="400">Bedroom</text>
+              <text class="seq" style="--a:.3;--k:6" x="6487" y="3350" text-anchor="middle"
+                    font-size="330" fill="var(--ink-2)" opacity="calc(1 - var(--v))">16.82 m²</text>
+              <text class="seq" style="--a:.34;--k:6" x="6487" y="3350" text-anchor="middle"
+                    font-size="330" fill="var(--ai)" opacity="var(--v)">18.57 m²</text>
+            </g>
+            <g class="dim">
+              <path d="M-75 6150 L-75 7000 M8375 6150 L8375 7000 M-75 6850 L8375 6850"
+                    fill="none" stroke="var(--blue)" stroke-width="18" opacity=".9"/>
+              <path d="M-215 7000 L65 6700 M8235 7000 L8515 6700" fill="none" stroke="var(--blue)" stroke-width="24"/>
+              <text x="4150" y="6700" text-anchor="middle" font-size="380" fill="var(--blue)">
+                <tspan class="seq" style="--a:.3;--k:6" opacity="calc(1 - var(--v))">8000</tspan>
+                <tspan class="seq" style="--a:.34;--k:6" opacity="var(--v)" x="4150">8300</tspan>
+              </text>
+            </g>
+          </svg>
+
+          <div class="proposal seq" style="--a:.42;--k:5">
+            <p class="proposal__head num">Proposed change</p>
+            <ul class="proposal__list num">
+              <li><span class="pill pill--ok">0</span> added</li>
+              <li><span class="pill">5</span> changed</li>
+              <li><span class="pill">0</span> removed</li>
+            </ul>
+            <div class="proposal__row num">Wall, 8,300 mm <span>Changed</span></div>
+            <div class="proposal__cta">
+              <span class="applied seq" style="--a:.62;--k:6">
+                <span class="applied__label" style="opacity: calc(1 - var(--v))">Apply</span>
+                <svg class="applied__check" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 12.5 L10 17.5 L19 7" fill="none" stroke="currentColor" stroke-width="2.4"
+                        stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="24"
+                        stroke-dashoffset="calc(24 * (1 - var(--v)))"/>
+                </svg>
+              </span>
+              <span class="proposal__note">One undo reverts it.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band--mcp" aria-labelledby="mcp-h">
+  <div class="wrap mcp">
+    <div class="mcp__copy">
+      <h2 id="mcp-h" class="h3">Or drive it from Claude Code.</h2>
+      <p>The app serves an MCP endpoint on localhost while it runs. Add it once and your MCP client
+        can open projects, draw rooms, hang doors, read areas and export a sheet, with the desktop
+        window updating as it works. The model runs inside your client on your own subscription.
+        GUHIT never sees a key and never calls a model.</p>
+      <p class="mcp__foot">Every call is translated into the same validated command the toolbar
+        uses, is one undo step in the app, and is refused outright if the plan moved on.</p>
+    </div>
+    <div class="mcp__code">
+      <div class="code">
+        <code id="mcpCmd">claude mcp add --transport http guhit http://localhost:1450/mcp</code>
+        <button class="copy" type="button" data-copy="#mcpCmd">
+          <span class="copy__label">Copy</span>
+        </button>
+      </div>
+      <p class="code__hint num">Cursor and Codex read the same endpoint.</p>
+      <figure class="shot">
+        <img src="assets/app-copilot.webp" width="1120" height="700" loading="lazy" decoding="async"
+             alt="The in-app copilot showing a proposed change in Taglish, with the affected walls previewed in purple on the plan and Apply and Discard buttons.">
+        <figcaption>A proposal on the plan, before Apply.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 04 HAND OFF ===================== -->
+<div class="tag"><span class="tag__no">04</span><span class="tag__name">Hand off</span></div>
+<section class="band" id="handoff" aria-labelledby="ho-h">
+  <div class="wrap">
+    <div class="band__head">
+      <h2 id="ho-h" class="h2 rise">Your drawing leaves<br>the way it came in.</h2>
+      <p class="band__lede rise">Open formats first. A project is a folder you can read, and every
+        drawing goes out in something another program already understands. Nothing is locked in a
+        format only this app can open.</p>
+    </div>
+
+    <ul class="formats">
+      <li class="fmt rise"><span class="fmt__ext num">DXF</span><span class="fmt__for">AutoCAD, SketchUp, Revit</span><span class="fmt__dir num">2D and 3D</span></li>
+      <li class="fmt rise"><span class="fmt__ext num">DWG</span><span class="fmt__for">AutoCAD</span><span class="fmt__dir num">via ODA converter</span></li>
+      <li class="fmt rise"><span class="fmt__ext num">IFC</span><span class="fmt__for">Revit, ArchiCAD, BIM</span><span class="fmt__dir num">IFC4 out</span></li>
+      <li class="fmt rise"><span class="fmt__ext num">PDF</span><span class="fmt__for">Print, clients, permits desk</span><span class="fmt__dir num">titled sheet</span></li>
+      <li class="fmt rise"><span class="fmt__ext num">SVG</span><span class="fmt__for">Illustrator, Figma, InDesign</span><span class="fmt__dir num">vector plan</span></li>
+      <li class="fmt rise"><span class="fmt__ext num">glTF</span><span class="fmt__for">Blender, Unreal, web viewers</span><span class="fmt__dir num">in and out</span></li>
+      <li class="fmt rise"><span class="fmt__ext num">OBJ</span><span class="fmt__for">Blender, 3ds Max, Cinema 4D</span><span class="fmt__dir num">in and out</span></li>
+      <li class="fmt rise"><span class="fmt__ext num">DAE</span><span class="fmt__for">SketchUp</span><span class="fmt__dir num">out</span></li>
+      <li class="fmt fmt--own rise"><span class="fmt__ext num">.guhit</span><span class="fmt__for">A whole project as one file</span><span class="fmt__dir num">a plain zip</span></li>
+    </ul>
+
+    <figure class="shot shot--wide rise">
+      <img src="assets/app-sheet.webp" width="1440" height="1018" loading="lazy" decoding="async"
+           alt="An A3 landscape ground floor plan exported by GUHIT Studio, with dimensions, room areas, a graphic scale, a north arrow and a filled title block.">
+      <figcaption>An A3 sheet out of the export dialog. Scale 1:75, graphic scale and title block included.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ===================== 05 SECURE ===================== -->
+<div class="tag tag--dark"><span class="tag__no">05</span><span class="tag__name">Secure by design</span></div>
+<section class="band band--dark" id="secure" aria-labelledby="sec-h">
+  <div class="wrap">
+    <h2 id="sec-h" class="h2 rise">Nothing leaves without you.</h2>
+    <div class="cells">
+      <article class="cell rise">
+        <h3>Files stay local</h3>
+        <p>A project is a folder on your disk with a readable JSON model, snapshots, renders and
+          underlays. There is no account, no sync and no server holding your drawings. Back it up
+          the way you back up everything else.</p>
+      </article>
+      <article class="cell rise">
+        <h3>Your key, your machine</h3>
+        <p>If you use the in-app copilot, the Claude API key is stored in a private file on your
+          computer and is never handed to the interface. Through MCP there is no key at all: your
+          own client does the thinking.</p>
+      </article>
+      <article class="cell rise">
+        <h3>Every AI edit is checked</h3>
+        <p>The language model cannot touch geometry. It emits typed commands that the Rust engine
+          validates and can refuse, with a plain reason. A door that does not fit its wall is not
+          drawn, it is rejected.</p>
+      </article>
+      <article class="cell rise">
+        <h3>Loopback only</h3>
+        <p>The MCP server binds 127.0.0.1 and refuses any request whose Host header is not local,
+          so a web page cannot reach it. Exports can only be written inside the app's own
+          exports folder.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 06 PHILIPPINES ===================== -->
+<div class="tag"><span class="tag__no">06</span><span class="tag__name">Built for the Philippines</span></div>
+<section class="band" id="ph" aria-labelledby="ph-h">
+  <div class="wrap ph">
+    <div class="ph__copy">
+      <h2 id="ph-h" class="h2 rise">Set up the way<br>you already work.</h2>
+      <p class="rise">Most drafting software asks a Filipino architect to undo its defaults before
+        the first wall goes down. This one starts where local residential practice starts.</p>
+      <ul class="ph__list">
+        <li class="rise"><b>Metric first.</b> Millimetres everywhere in the model, square metres for
+          areas. Feet and inches are never guessed on import.</li>
+        <li class="rise"><b>CHB defaults.</b> 150 mm hollow block walls, 900 x 2100 doors,
+          1200 x 1200 windows on a 900 sill, 3000 mm levels.</li>
+        <li class="rise"><b>Tropical roofs.</b> Gable, shed and flat presets with deep eaves, and a
+          ridge you can turn to either axis.</li>
+        <li class="rise"><b>Local materials.</b> Metal roofing, CHB render, plain cement finish and
+          clay tile in the built-in library.</li>
+        <li class="rise"><b>Taglish copilot.</b> "Ilan ang kwarto at ano ang total floor area?"
+          works as well as the English version.</li>
+        <li class="rise"><b>Peso pricing to come.</b> Free while the app is in development. Pricing,
+          when it arrives, will be in PHP.</li>
+      </ul>
+    </div>
+    <div class="ph__motif rise" aria-hidden="true">
+      <svg viewBox="0 0 320 420">
+        <g stroke="var(--line-2)" stroke-width="1" fill="none">
+          <path d="M0 60H320M0 120H320M0 180H320M0 240H320M0 300H320M0 360H320"/>
+          <path d="M60 0V420M120 0V420M180 0V420M240 0V420"/>
+        </g>
+        <g fill="none" stroke="var(--navy)" stroke-width="1.5">
+          <path d="M150 30 L150 50 M150 30 L144 44 L150 40 L156 44 Z" fill="var(--navy)"/>
+          <circle cx="150" cy="44" r="18"/>
+        </g>
+        <g class="num" font-size="9" fill="var(--ink-3)">
+          <text x="140" y="80">N</text>
+        </g>
+        <g stroke="var(--navy)" stroke-width="1.2" fill="none">
+          <path d="M40 390H280M40 384v12M100 384v12M160 384v12M220 384v12M280 384v12"/>
+          <rect x="40" y="386" width="60" height="8" fill="var(--navy)"/>
+          <rect x="160" y="386" width="60" height="8" fill="var(--navy)"/>
+        </g>
+        <g class="num" font-size="9" fill="var(--ink-3)"><text x="36" y="376">0</text><text x="272" y="376">4 m</text></g>
+        <g stroke="var(--teal)" stroke-width="1.5" fill="none" opacity=".8">
+          <path d="M70 140 L110 140 L110 190 L170 190 L170 130 L230 130 L230 240 L70 240 Z"/>
+          <path d="M110 190 L110 240 M170 190 L170 240"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 07 SHORTCUTS ===================== -->
+<section class="band band--keys" id="shortcuts" aria-labelledby="kb-h">
+  <div class="wrap">
+    <h2 id="kb-h" class="h3">One key per tool. No modifier.</h2>
+    <ul class="keys">
+      <li class="key" style="--i:0"><kbd>V</kbd><span>Select</span></li>
+      <li class="key" style="--i:1"><kbd>W</kbd><span>Wall</span></li>
+      <li class="key" style="--i:2"><kbd>R</kbd><span>Room</span></li>
+      <li class="key" style="--i:3"><kbd>D</kbd><span>Door</span></li>
+      <li class="key" style="--i:4"><kbd>N</kbd><span>Window</span></li>
+      <li class="key" style="--i:5"><kbd>C</kbd><span>Column</span></li>
+      <li class="key" style="--i:6"><kbd>S</kbd><span>Stair</span></li>
+      <li class="key" style="--i:7"><kbd>M</kbd><span>Dimension</span></li>
+      <li class="key" style="--i:8"><kbd>T</kbd><span>Text</span></li>
+      <li class="key" style="--i:9"><kbd>K</kbd><span>Camera</span></li>
+    </ul>
+    <p class="keys__foot num">1 plan · 2 split · 3 three-d · F fit · Z zoom to selection ·
+      <span class="kbd-inline">Mod</span>+K command palette · ? for the full sheet</p>
+  </div>
+</section>
+
+<!-- ===================== 08 DOWNLOAD ===================== -->
+<section class="band band--get" id="download" aria-labelledby="dl-h">
+  <div class="wrap get">
+    <h2 id="dl-h" class="h2 rise">Draw. See. Build the idea.</h2>
+    <div class="cta cta--big rise" id="footCta">
+      <a class="btn btn--solid" data-os="mac" href="https://github.com/techuila/guhit-studio/releases/latest">
+        <svg class="btn__os" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M11 1.2c.1.9-.3 1.8-.8 2.4-.6.6-1.4 1.1-2.2 1-.1-.9.3-1.8.8-2.4.6-.6 1.5-1 2.2-1zm2.6 11c-.4.9-.6 1.3-1.1 2.1-.7 1.1-1.7 2.5-3 2.5-1.1 0-1.4-.7-3-.7-1.5 0-1.8.7-3 .7-1.2 0-2.1-1.2-2.9-2.3C-1 11.8-1.3 8.2.2 6.3c1-1.3 2.5-2 3.9-2 1.4 0 2.3.8 3.5.8 1.1 0 1.8-.8 3.5-.8 1.2 0 2.5.7 3.4 1.8-3 1.6-2.5 5.9.1 6.9z"/></svg>
+        Download for macOS</a>
+      <a class="btn btn--solid" data-os="win" href="https://github.com/techuila/guhit-studio/releases/latest">
+        <svg class="btn__os" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M0 2.3 6.5 1.4v6.2H0zM7.3 1.3 16 0v7.6H7.3zM0 8.4h6.5v6.2L0 13.7zm7.3 0H16V16l-8.7-1.2z"/></svg>
+        Download for Windows</a>
+      <a class="btn btn--ghost" href="https://github.com/techuila/guhit-studio">Open source on GitHub</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="block" aria-labelledby="ft-h">
+  <h2 id="ft-h" class="vh">Project details</h2>
+  <div class="wrap">
+    <div class="block__grid">
+      <div class="bf bf--wide"><span class="bf__k num">Project</span><span class="bf__v">GUHIT Studio</span></div>
+      <div class="bf"><span class="bf__k num">Version</span><span class="bf__v num" id="relTag">unreleased</span></div>
+      <div class="bf"><span class="bf__k num">Built with</span><span class="bf__v num">Rust · Tauri 2 · React</span></div>
+      <div class="bf"><span class="bf__k num">macOS</span><span class="bf__v num">12 Monterey or newer</span></div>
+      <div class="bf"><span class="bf__k num">Windows</span><span class="bf__v num">10 or newer</span></div>
+      <div class="bf bf--wide"><span class="bf__k num">Source</span><span class="bf__v"><a href="https://github.com/techuila/guhit-studio">github.com/techuila/guhit-studio</a></span></div>
+      <div class="bf bf--wide"><span class="bf__k num">Download</span><span class="bf__v"><a href="https://github.com/techuila/guhit-studio/releases/latest">Open source on GitHub, latest release</a></span></div>
+      <div class="bf bf--wide"><span class="bf__k num">Made in</span><span class="bf__v">the Philippines</span></div>
+    </div>
+    <p class="block__note">Renders and AI visuals are illustrations, not construction documents.
+      Design review items are suggestions, never permit approval, structural certification or code
+      compliance.</p>
+  </div>
+</footer>
+
+<script src="main.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="640" height="160" role="img" aria-label="Guhit Studio">
+  <g transform="translate(0 8) scale(0.14)" fill="none" stroke="currentColor" stroke-width="30" stroke-linecap="square">
+    <path d="M 220 220 H 740 V 290"/><path d="M 220 220 V 804 H 804 V 540"/><path d="M 220 540 H 500 M 500 540 V 804"/><path d="M 804 540 H 640"/><path d="M 660 380 V 470"/>
+    <path d="M 500 540 A 160 160 0 0 1 660 380" stroke="#8fc9cf"/>
+  </g>
+  <text x="150" y="100" font-family="Inter, system-ui, sans-serif" font-size="64" font-weight="700" letter-spacing="14" fill="currentColor">GUHIT</text>
+  <text x="418" y="100" font-family="Inter, system-ui, sans-serif" font-size="52" font-weight="400" fill="currentColor">Studio</text>
+</svg>
