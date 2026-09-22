@@ -30,12 +30,39 @@
 <link rel="preload" as="font" type="font/woff2" href="assets/fonts/archivo-latin.woff2" crossorigin>
 <link rel="preload" as="font" type="font/woff2" href="assets/fonts/jetbrains-mono-latin.woff2" crossorigin>
 <link rel="stylesheet" href="styles.css">
+<script>
+/* Decide the load sequence before the first paint, so the page never flashes
+   the hero and then covers it. No JS, no class, no overlay. */
+(function () {
+  var h = document.documentElement, done = false;
+  try { done = sessionStorage.getItem("guhit:intro") === "done"; } catch (e) {}
+  try { if (new URLSearchParams(location.search).get("intro") === "0") done = true; } catch (e) {}
+  if (done) return;
+  h.className += matchMedia("(prefers-reduced-motion: reduce)").matches ? " intro-reduced" : " intro-on";
+  /* if the module never runs, the page still uncovers itself */
+  setTimeout(function () {
+    h.classList.remove("intro-on", "intro-reduced");
+    var n = document.getElementById("intro");
+    if (n) n.remove();
+  }, 4000);
+})();
+</script>
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"SoftwareApplication","name":"GUHIT Studio","applicationCategory":"DesignApplication","operatingSystem":"macOS 12+, Windows 10+","description":"A desktop drafting studio for Philippine architects: floor plans, live 3D, AI revisions and open exports.","url":"https://techuila.github.io/guhit-studio/","offers":{"@type":"Offer","price":"0","priceCurrency":"PHP"}}
 </script>
 </head>
 <body>
 <a class="skip" href="#draw">Skip to the product tour</a>
+
+<!-- Load sequence: a navy field, the drafting grid drawn onto it, the mark
+     drawn stroke by stroke, then the field collapses into the hero's mark. -->
+<div class="intro" id="intro" aria-hidden="true" inert>
+  <div class="intro__field" id="introField">
+    <div class="intro__rule intro__rule--v"></div>
+    <div class="intro__rule intro__rule--h"></div>
+  </div>
+</div>
+
 <div class="sheet-grid" aria-hidden="true"><div class="sheet-grid__cols"></div></div>
 <div class="crosshair" id="crosshair" aria-hidden="true"><i></i><i></i><b></b></div>
 

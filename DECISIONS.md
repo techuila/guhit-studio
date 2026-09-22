@@ -85,3 +85,9 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - Gemini 3.1 Flash Image by default ($0.045 to $0.151 per image), Gemini 3 Pro Image as the high setting. The user brings a Google AI Studio API key, stored like the Claude key (D13). SynthID watermark stays.
 - Every AI image is a `RenderRecord` with `source_render_id` pointing at the exact model capture it was conditioned on, and the UI always offers the side by side slider. The model is never edited from an image (research section 10).
 - Rejected for now: Higgsfield API (a second account for the same models), running our own GPU (research section 9).
+
+### D18. Landing page and its intro
+- Chosen by: Axl. Public site on GitHub Pages from `site/` in this repo, no build step, no framework. Theme: clean, secure, minimalist, a visible drafting grid, scroll acts that explain the app with real numbers and real screenshots.
+- Intro on first visit (2.9 s, skippable, once per session, off under reduced motion): navy field, the grid draws, the logo draws stroke by stroke so the G reads, the field shrinks into the mark's place while the word GUHIT is outlined from G to T and filled behind the stroke.
+- Rule from a real bug: the act 02 3D house stage never clips (`overflow: visible`), its size derives from the projected model extent, and every plane must clear the stage edge at every scroll position and width (checked by script).
+- Copy states only what the app does. Rejected: percentage "geometry accuracy" claims, a hip roof preset the app does not have.

@@ -9,6 +9,212 @@ const narrow = matchMedia("(max-width: 860px)");
 const fine = matchMedia("(hover: hover) and (pointer: fine)");
 const clamp01 = (n) => (n < 0 ? 0 : n > 1 ? 1 : n);
 
+/* ---------- 0. the load sequence ---------------------------------------- */
+/* The class is already on <html> from the inline head script, so the first
+   paint is navy. Here: place the mark, collapse the field into the hero mark
+   with one FLIP transform, write the wordmark, then get out of the way.
+   Any click, key or wheel jumps to the end state; the end state is the hero
+   exactly as it renders without the intro. */
+
+const introEl = document.getElementById("intro");
+const EASE_IN_OUT = "cubic-bezier(0.65, 0, 0.35, 1)";
+const COLLAPSE = 700;
+
+function introSeen() {
+  try {
+    sessionStorage.setItem("guhit:intro", "done");
+  } catch {
+    /* private mode, or storage blocked: the intro simply plays again */
+  }
+}
+
+if (introEl && root.classList.contains("intro-reduced")) {
+  introSeen();
+  const fade = introEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: "linear" });
+  fade.finished.then(() => introEl.remove()).catch(() => introEl.remove());
+} else if (introEl && root.classList.contains("intro-on")) {
+  runIntro();
+} else if (introEl) {
+  /* skipped before the first paint: take the empty overlay out of the page */
+  introEl.remove();
+}
+
+function runIntro() {
+  const mono = document.querySelector(".hero__mark .monogram");
+  const field = document.getElementById("introField");
+  const h1 = document.querySelector(".hero__h1");
+  const word = document.querySelector(".wordmark");
+  const arc = document.querySelector(".monogram > .mg");
+  if (!mono || !field) {
+    root.classList.remove("intro-on");
+    introEl.remove();
+    return;
+  }
+
+  /* line the intro grid up with the hero's own 44px field */
+  const hf = document.getElementById("heroField");
+  if (hf) {
+    const r = hf.getBoundingClientRect();
+    const mod = (n, m) => ((n % m) + m) % m;
+    introEl.style.setProperty("--gx", `${mod(r.left, 44).toFixed(2)}px`);
+    introEl.style.setProperty("--gy", `${mod(r.top, 44).toFixed(2)}px`);
+  }
+
+  /* the mark's own navy field would punch a hole in the grid while it is the
+     size of the screen, so it only fills once the collapse starts */
+  const plate = mono.querySelector("rect");
+  if (plate) plate.style.fill = "transparent";
+
+  /* the mark, large and centred: a transform, so the hero never reflows */
+  let big = "none";
+  function placeMark() {
+    mono.style.transform = "";
+    const r = mono.getBoundingClientRect();
+    const vw = innerWidth, vh = innerHeight;
+    const s = (Math.min(vw, vh) * 0.4) / r.width;
+    const dx = vw / 2 - (r.left + r.width / 2);
+    const dy = vh / 2 - (r.top + r.height / 2);
+    big = `translate(${dx.toFixed(2)}px, ${dy.toFixed(2)}px) scale(${s.toFixed(4)})`;
+    mono.style.transform = big;
+    return r;
+  }
+  placeMark();
+  mono.classList.add("is-lit");
+
+  let closed = false;
+  const live = [];
+
+  function collapse() {
+    if (closed) return;
+    /* measure the real target now: the mark's own place in the hero */
+    if (plate) plate.style.fill = "";
+    mono.style.transform = "";
+    const t = mono.getBoundingClientRect();
+    const vw = innerWidth, vh = innerHeight;
+    const opts = { duration: COLLAPSE, easing: EASE_IN_OUT, fill: "both" };
+
+    live.push(
+      field.animate(
+        [
+          { transform: "none" },
+          {
+            transform: `translate(${t.left.toFixed(2)}px, ${t.top.toFixed(2)}px) scale(${(t.width / vw).toFixed(5)}, ${(t.height / vh).toFixed(5)})`,
+          },
+        ],
+        opts
+      )
+    );
+    const flip = mono.animate([{ transform: big }, { transform: "none" }], opts);
+    live.push(flip);
+    introEl.classList.add("is-closing");
+    writeWordmark();
+
+    flip.finished.then(endIntro).catch(() => {});
+  }
+
+  /* the arc is the last stroke of the mark: when it lands, the field goes */
+  if (arc) arc.addEventListener("animationend", collapse, { once: true });
+  const guard = setTimeout(collapse, 2600);
+
+  function endIntro() {
+    if (closed) return;
+    closed = true;
+    clearTimeout(guard);
+    for (const a of live) {
+      try { a.cancel(); } catch { /* already gone */ }
+    }
+    live.length = 0;
+    if (plate) plate.style.fill = "";
+    mono.style.transform = "";
+    mono.classList.remove("is-lit");
+    root.classList.remove("intro-on");
+    root.classList.add("intro-done");
+    introEl.remove();
+    introSeen();
+  }
+
+  /* skip: anything the visitor does jumps to the end state */
+  function skip() {
+    if (closed) return;
+    root.style.setProperty("--intro-o", "0ms");
+    endIntro();
+    if (wordSvg) {
+      wordSvg.remove();
+      wordSvg = null;
+    }
+    root.classList.remove("intro-writing");
+  }
+  for (const ev of ["pointerdown", "keydown", "wheel", "touchstart"]) {
+    addEventListener(ev, skip, { once: true, passive: true, capture: true });
+  }
+
+  /* ---- the wordmark, drawn then filled, one letter behind the other ---- */
+
+  let wordSvg = null;
+  /* rough outline length per letter, in ems of the cap height: enough that a
+     letter finishes its stroke as its window closes */
+  const LEN = { G: 4.6, U: 4.4, H: 5.4, I: 1.8, T: 3.4 };
+
+  function writeWordmark() {
+    if (!word || !h1) return;
+    const cs = getComputedStyle(word);
+    const size = parseFloat(cs.fontSize);
+    if (!size) return;
+
+    /* the baseline: an empty inline-block sits on it */
+    const probe = document.createElement("span");
+    probe.style.cssText = "display:inline-block;width:0;height:0;overflow:hidden";
+    word.appendChild(probe);
+    const pr = probe.getBoundingClientRect();
+    const wr = word.getBoundingClientRect();
+    const hr = h1.getBoundingClientRect();
+    probe.remove();
+    const baseline = pr.bottom;
+
+    const pad = 12;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "write");
+    svg.setAttribute("aria-hidden", "true");
+    svg.style.left = `${wr.left - hr.left - pad}px`;
+    svg.style.top = `${wr.top - hr.top - pad}px`;
+    svg.style.width = `${wr.width + pad * 2}px`;
+    svg.style.height = `${wr.height + pad * 2}px`;
+
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", String(pad));
+    text.setAttribute("y", String(baseline - wr.top + pad));
+    text.setAttribute("xml:space", "preserve");
+    for (const prop of [
+      "fontFamily", "fontSize", "fontWeight", "fontStyle", "fontStretch",
+      "letterSpacing", "fontVariationSettings", "fontFeatureSettings",
+      "fontKerning", "textRendering",
+    ]) {
+      if (cs[prop]) text.style[prop] = cs[prop];
+    }
+
+    const letters = (word.textContent || "").trim().toUpperCase();
+    letters.split("").forEach((ch, i) => {
+      const ts = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+      ts.textContent = ch;
+      ts.style.setProperty("--i", String(i));
+      ts.style.setProperty("--len", `${((LEN[ch] || 4.4) * size).toFixed(0)}`);
+      text.appendChild(ts);
+    });
+    svg.appendChild(text);
+    h1.appendChild(svg);
+    wordSvg = svg;
+    root.classList.add("intro-writing");
+
+    /* 5 letters x 140ms apart, 340ms of stroke, 250ms of fill after the last */
+    setTimeout(() => {
+      if (!wordSvg) return;
+      wordSvg.remove();
+      wordSvg = null;
+      root.classList.remove("intro-writing");
+    }, (letters.length - 1) * 140 + 340 + 250 + 40);
+  }
+}
+
 /* ---------- 1. scroll-driven enter animations, with a fallback ---------- */
 
 const hasSDA =
