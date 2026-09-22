@@ -5,11 +5,13 @@
 //!
 //! The command list is in `docs/CONTRACT.md`.
 //!
-//! The backend agent owns this crate except `src/ai/`, which the AI agent owns.
+//! The backend agent owns this crate except `src/ai/` (the copilot) and
+//! `src/render_ai/` (Tier 2 image generation), which the AI agents own.
 
 pub mod ai;
 pub mod files;
 pub mod interop;
+pub mod render_ai;
 pub mod renders;
 pub mod snapshots;
 pub mod store;
@@ -62,6 +64,9 @@ pub struct DocChange {
 pub struct AppService {
     pub session: Arc<Mutex<Session>>,
     pub ai: Arc<ai::AiState>,
+    /// Tier 2 image provider and its key (DECISIONS D17). Separate from `ai`:
+    /// the copilot and the visualizer use different vendors and keys.
+    pub render_ai: Arc<render_ai::RenderAiState>,
     /// True when a caller may name the export file itself. The desktop app
     /// says yes: the path comes from the native save dialog. The dev bridge
     /// says no, because any local program can post to it.
@@ -218,6 +223,7 @@ impl AppService {
         let (changes, _) = watch::channel(DocChange { revision: 0, project_id: None, seq: 0 });
         Self {
             ai: Arc::new(ai::AiState::for_data_dir(&data_dir)),
+            render_ai: Arc::new(render_ai::RenderAiState::for_data_dir(&data_dir)),
             session: Arc::new(Mutex::new(Session {
                 data_dir,
                 doc: None,
@@ -291,6 +297,11 @@ impl AppService {
 
     /// Single entry point for every IPC call.
     pub async fn handle(&self, cmd: &str, args: Value) -> IpcResult {
+        // Checked before the `ai_` prefix: `render_ai_*` is the image
+        // provider, not the copilot.
+        if render_ai::OWNS.contains(&cmd) {
+            return render_ai::handle(self, cmd, args).await;
+        }
         if cmd.starts_with("ai_") {
             return ai::handle(self, cmd, args).await;
         }

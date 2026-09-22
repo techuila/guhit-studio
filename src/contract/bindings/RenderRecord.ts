@@ -9,4 +9,13 @@ export type RenderRecord = { id: string, created_at: string, source: RenderSourc
 /**
  * Absolute path of the PNG inside the project folder.
  */
-image_path: string, };
+image_path: string, 
+/**
+ * For an AI visualization: the model-view capture it was made from, so
+ * the UI can show the two side by side.
+ */
+source_render_id: string | null, 
+/**
+ * For an AI visualization: provider and model, for example "gemini/gemini-3.1-flash-image".
+ */
+provider: string | null, };

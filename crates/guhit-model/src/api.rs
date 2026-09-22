@@ -322,4 +322,58 @@ pub struct RenderRecord {
     pub prompt: String,
     /// Absolute path of the PNG inside the project folder.
     pub image_path: String,
+    /// For an AI visualization: the model-view capture it was made from, so
+    /// the UI can show the two side by side.
+    #[serde(default)]
+    pub source_render_id: Option<Id>,
+    /// For an AI visualization: provider and model, for example "gemini/gemini-3.1-flash-image".
+    #[serde(default)]
+    pub provider: Option<String>,
+}
+
+// ------------------------------------------------------- AI visualization
+
+/// Which hosted image model renders visualizations. Keys never reach the frontend.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RenderAiSettings {
+    /// "gemini" for now; the abstraction allows others later.
+    pub provider: String,
+    pub has_api_key: bool,
+    pub model: String,
+    /// Plain wording of the cost per image at the current model, for the UI.
+    pub cost_hint: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum RenderQuality {
+    /// About 0.5K, cheapest, for quick looks.
+    Draft,
+    /// 1K to 2K, for client images.
+    Standard,
+    /// 4K where the model allows it.
+    High,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RenderAiRequest {
+    /// The Tier 1 capture (source ModelView) to condition on.
+    pub source_render_id: Id,
+    pub style_key: Option<String>,
+    /// Free text: building type, materials, mood, time of day.
+    pub prompt: String,
+    pub quality: RenderQuality,
+    /// True keeps geometry, camera and composition strictly (the default).
+    pub keep_geometry: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RenderAiResult {
+    pub record: RenderRecord,
+    /// Seconds the provider took.
+    pub seconds: f64,
 }

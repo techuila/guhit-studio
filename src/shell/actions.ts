@@ -6,6 +6,7 @@ import { rectIsEmpty } from "../editor2d/geom";
 import { boundsOfIds, buildIndex, layerOf, levelOf } from "../editor2d/model";
 import { bus } from "../state/bus";
 import { useApp, type Tool } from "../state/store";
+import { openRenderCompare, openRenderStudio } from "../viewer3d/render/renderStore";
 import type { IconName } from "../ui/icons";
 import { useShell } from "./shellStore";
 import { checkForUpdates } from "./UpdateNotice";
@@ -314,6 +315,28 @@ export function paletteActions(): PaletteAction[] {
     { id: "check-updates", title: "Check for updates", group: "Project", icon: "import", keywords: "update upgrade version new release download", run: () => void checkForUpdates(true) },
     { id: "dock-copilot", title: "Ask the copilot", group: "Panels", icon: "copilot", keywords: "ai chat assistant settings", shortcut: `${MOD},`, run: () => shell.setDockTab("copilot") },
     { id: "dock-visuals", title: "Open visuals", group: "Panels", icon: "visuals", keywords: "render capture gallery image", run: () => shell.setDockTab("visuals") },
+    {
+      id: "render-ai",
+      title: "Render with AI",
+      group: "Panels",
+      icon: "visuals",
+      keywords: "ai render visualization gemini realistic image studio",
+      run: () => {
+        shell.setDockTab("visuals");
+        openRenderStudio();
+      },
+    },
+    {
+      id: "render-compare",
+      title: "Compare renders",
+      group: "Panels",
+      icon: "split",
+      keywords: "compare before after slider ai visualization model view",
+      run: () => {
+        shell.setDockTab("visuals");
+        openRenderCompare();
+      },
+    },
     { id: "dock-toggle", title: shell.dockCollapsed ? "Expand the side dock" : "Collapse the side dock", group: "Panels", icon: "panelRight", keywords: "dock hide show panel", run: () => shell.setDockCollapsed(!shell.dockCollapsed) },
   );
 
