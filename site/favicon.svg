@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Guhit Studio mark: a plan frame with a door swing forming a G. Navy field, white linework, teal arc. -->
+  <rect width="1024" height="1024" fill="#1f2d44"/>
+  <g fill="none" stroke="#ffffff" stroke-width="30" stroke-linecap="square" stroke-linejoin="miter">
+    <!-- outer frame: the top line ends in a short tick, the right side starts at the G bar -->
+    <path d="M 220 220 H 740 V 290"/>
+    <path d="M 220 220 V 804 H 804 V 540"/>
+    <!-- partition: horizontal at mid height to the door jamb, then the wall down -->
+    <path d="M 220 540 H 500 M 500 540 V 804"/>
+    <!-- G bar: from the right frame inward -->
+    <path d="M 804 540 H 640"/>
+    <!-- door leaf: hangs from the top of the swing toward the bar, stopping short -->
+    <path d="M 660 380 V 470"/>
+  </g>
+  <!-- door swing: teal quarter arc from the jamb up to the leaf -->
+  <path d="M 500 540 A 160 160 0 0 1 660 380" fill="none" stroke="#8fc9cf" stroke-width="30" stroke-linecap="square"/>
+</svg>

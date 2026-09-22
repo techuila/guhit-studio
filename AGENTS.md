@@ -35,6 +35,7 @@ Stop:
 | `src/viewer3d` | Three.js live 3D | |
 | `src/ai` | Copilot dock | |
 | `fixtures/` | Golden sample project | Regenerate: `cargo run -p guhit-core --example gen_fixture` |
+| `site/` | Website: the public landing page, plain HTML/CSS/JS, no build step, no dependencies | Deployed to GitHub Pages by `.github/workflows/pages.yml` on a push to main that touches `site/**`. Serve locally with `python3 -m http.server 8090 --directory site`. Brand assets come from `assets/brand/`; app screenshots are optimized WebP copies under `site/assets/`. |
 
 ## Standing constraints
 
