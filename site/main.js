@@ -588,6 +588,10 @@ if (crosshair && fine.matches && !reduced.matches) {
 
 /* ---------- 4. put the visitor's platform first ------------------------- */
 
+const DL_BASE = "https://github.com/techuila/guhit-studio/releases/latest/download/";
+const MAC_ARM = "Guhit-Studio-mac-apple-silicon.dmg";
+const MAC_INTEL = "Guhit-Studio-mac-intel.dmg";
+
 function detectOS() {
   const d = navigator.userAgentData;
   const p = (d && d.platform) || navigator.platform || "";
@@ -603,6 +607,32 @@ if (os === "win") {
     const win = cta.querySelector('[data-os="win"]');
     if (win && win !== cta.firstElementChild) cta.prepend(win);
   });
+}
+
+/* Only Chromium tells a page the CPU. Safari and Firefox always say Intel,
+   so the main button stays Apple silicon, the common case since late 2020,
+   and the Intel build sits one link below it. */
+function preferIntelMac() {
+  document.querySelectorAll('.btn[data-dl="mac"]').forEach((a) => {
+    a.dataset.file = MAC_INTEL;
+    a.href = DL_BASE + MAC_INTEL;
+  });
+  document.querySelectorAll("[data-dl-alt]").forEach((alt) => {
+    const a = alt.querySelector("a");
+    if (!a) return;
+    a.dataset.file = MAC_ARM;
+    a.href = DL_BASE + MAC_ARM;
+    a.textContent = "Get the Apple silicon build";
+    alt.firstChild.textContent = "Mac with Apple silicon? ";
+  });
+}
+if (os === "mac" && navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+  navigator.userAgentData
+    .getHighEntropyValues(["architecture"])
+    .then((v) => {
+      if (v && v.architecture === "x86") preferIntelMac();
+    })
+    .catch(() => {});
 }
 
 /* ---------- 5. copy the MCP command ------------------------------------- */
@@ -644,6 +674,29 @@ document.querySelectorAll("[data-copy]").forEach((btn) => {
 
 const relTag = document.getElementById("relTag");
 const relLine = document.getElementById("relLine");
+let releaseMissing = false;
+
+/* Releases published before the fixed download names existed only carry the
+   versioned bundle names, so each fixed name has a pattern to fall back on. */
+const FALLBACK = {
+  [MAC_ARM]: /_aarch64\.dmg$/i,
+  [MAC_INTEL]: /_x64\.dmg$/i,
+  "Guhit-Studio-windows-setup.exe": /-setup\.exe$/i,
+};
+
+function applyAssets(release) {
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  document.querySelectorAll("a[data-file]").forEach((a) => {
+    const want = a.dataset.file;
+    let asset = assets.find((x) => x.name === want);
+    if (!asset && FALLBACK[want]) {
+      asset = assets.find((x) => FALLBACK[want].test(x.name));
+      if (asset) a.href = asset.browser_download_url;
+    }
+    const meta = a.querySelector("[data-size]");
+    if (meta) meta.textContent = asset && asset.size ? `${Math.max(1, Math.round(asset.size / 1e6))} MB` : "";
+  });
+}
 
 /* The list endpoint answers 200 with [] before the first release, so a repo with
    no release yet does not log a 404 in anyone's console. */
@@ -652,8 +705,13 @@ fetch("https://api.github.com/repos/techuila/guhit-studio/releases?per_page=5", 
 })
   .then((r) => (r.ok ? r.json() : null))
   .then((list) => {
-    const d = Array.isArray(list) ? list.find((r) => r && !r.draft && r.tag_name) : null;
-    if (!d) return;
+    if (!Array.isArray(list)) return;
+    const d = list.find((r) => r && !r.draft && !r.prerelease && r.tag_name);
+    if (!d) {
+      releaseMissing = true;
+      if (relLine) relLine.textContent = "The first build is on its way.";
+      return;
+    }
     if (relTag) relTag.textContent = d.tag_name;
     if (relLine) {
       const when = d.published_at ? new Date(d.published_at) : null;
@@ -665,7 +723,77 @@ fetch("https://api.github.com/repos/techuila/guhit-studio/releases?per_page=5", 
           })}.`
         : `Latest release ${d.tag_name}.`;
     }
+    applyAssets(d);
   })
   .catch(() => {
-    /* offline, rate limited, or no release yet: the page keeps its own words */
+    /* offline or rate limited: the fixed download links still work */
   });
+
+/* ---------- 7. after a download starts: how to open it the first time ---- */
+
+function helpFor(link) {
+  const scope = link.closest(".hero, .get") || document;
+  return scope.querySelector("[data-dl-help]");
+}
+
+function showHelp(panel, kind, waiting) {
+  const title = panel.querySelector("[data-dl-title]");
+  if (title) {
+    title.textContent = waiting
+      ? "The first build is still being made. Try again in a few minutes."
+      : "Your download has started. Then:";
+  }
+  panel.querySelectorAll("[data-for]").forEach((el) => {
+    el.hidden = waiting || el.dataset.for !== kind;
+  });
+  const opening = panel.hidden;
+  panel.hidden = false;
+  if (opening && !reduced.matches) {
+    panel.animate(
+      [
+        { opacity: 0, transform: "translateY(10px) scale(0.98)" },
+        { opacity: 1, transform: "none" },
+      ],
+      { duration: 240, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    );
+  }
+  if (title) title.focus({ preventScroll: true });
+}
+
+function hideHelp(panel) {
+  if (panel.hidden) return;
+  if (reduced.matches) {
+    panel.hidden = true;
+    return;
+  }
+  const out = panel.animate(
+    [
+      { opacity: 1, transform: "none" },
+      { opacity: 0, transform: "translateY(6px)" },
+    ],
+    { duration: 160, easing: "cubic-bezier(0.55, 0, 0.8, 0.3)" },
+  );
+  out.onfinish = () => {
+    panel.hidden = true;
+  };
+}
+
+document.querySelectorAll("a[data-file]").forEach((a) => {
+  a.addEventListener("click", (e) => {
+    const panel = helpFor(a);
+    const kind = a.dataset.dl === "win" ? "win" : "mac";
+    if (releaseMissing) {
+      e.preventDefault();
+      if (panel) showHelp(panel, kind, true);
+      return;
+    }
+    if (panel) showHelp(panel, kind, false);
+  });
+});
+
+document.querySelectorAll("[data-dl-close]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const panel = btn.closest("[data-dl-help]");
+    if (panel) hideHelp(panel);
+  });
+});
