@@ -5,6 +5,7 @@ import type { P, Rect } from "./geom";
 import { dist, distToSegment, pointInPolygon, shapeInsideRect, shapeIntersectsRect } from "./geom";
 import type { DocIndex } from "./model";
 import { dimensionGeometry, elementShape, isLocked } from "./model";
+import { hitsPipe } from "./pipe";
 
 export interface HitOptions {
   /** Pick radius in mm. */
@@ -13,9 +14,14 @@ export interface HitOptions {
   labelHeightMm: number;
   /** Include elements on locked layers (used for hover-free lookups). */
   includeLocked?: boolean;
+  /** Size of one screen pixel in mm. Pipes use it for their drawn width. Default: tol / 6. */
+  pxMm?: number;
 }
 
 const ORDER: Element["kind"][] = [
+  // Pipes draw over the building, openings included, and their pick band is
+  // thin: they pick before what they run along or through.
+  "pipe",
   "opening",
   "dimension",
   "annotation",
@@ -43,6 +49,10 @@ export function hitsElement(p: P, el: Element, index: DocIndex, opt: HitOptions)
   }
   if (el.kind === "column" && el.shape === "round") {
     return dist(p, el.center) <= el.width_mm / 2 + opt.tol * 0.3;
+  }
+  if (el.kind === "pipe") {
+    // Near the centerline, not by area: a click between two runs misses both.
+    return hitsPipe(p, el, opt.pxMm ?? opt.tol / 6, opt.tol);
   }
   if (el.kind === "linework") {
     // Selectable by clicking near a segment, not by area: each polyline is

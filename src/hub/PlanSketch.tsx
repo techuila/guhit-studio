@@ -28,6 +28,17 @@ function hash(text: string): number {
   return h;
 }
 
+function PlanLines({ v }: { v: (typeof VARIANTS)[number] }) {
+  return (
+    <>
+      <path d={v.walls} fill="none" stroke="var(--ink-3)" strokeWidth="2.5" strokeLinejoin="miter" opacity="0.75" />
+      <path d={v.windows} fill="none" stroke="var(--paper)" strokeWidth="3.5" />
+      <path d={v.windows} fill="none" stroke="var(--blueprint)" strokeWidth="1" opacity="0.7" />
+      <path d={v.swings} fill="none" stroke="var(--accent)" strokeWidth="1" opacity="0.8" />
+    </>
+  );
+}
+
 /** Placeholder thumbnail. `seed` keeps the same drawing for the same project. */
 export function PlanSketch({ seed, className }: { seed: string; className?: string }) {
   const v = VARIANTS[hash(seed) % VARIANTS.length];
@@ -39,10 +50,32 @@ export function PlanSketch({ seed, className }: { seed: string; className?: stri
         </pattern>
       </defs>
       <rect width="270" height="200" fill={`url(#g-${hash(seed) % 997})`} />
-      <path d={v.walls} fill="none" stroke="var(--ink-3)" strokeWidth="2.5" strokeLinejoin="miter" opacity="0.75" />
-      <path d={v.windows} fill="none" stroke="var(--paper)" strokeWidth="3.5" />
-      <path d={v.windows} fill="none" stroke="var(--blueprint)" strokeWidth="1" opacity="0.7" />
-      <path d={v.swings} fill="none" stroke="var(--accent)" strokeWidth="1" opacity="0.8" />
+      <PlanLines v={v} />
+    </svg>
+  );
+}
+
+/**
+ * The plumbing template's preview: the sample bungalow's sketch (the same
+ * drawing as seed "b") with a run in each pipe system color.
+ */
+export function PlumbingSketch({ className }: { className?: string }) {
+  const v = VARIANTS[hash("b") % VARIANTS.length];
+  return (
+    <svg viewBox="0 0 270 200" className={className} preserveAspectRatio="xMidYMid meet" aria-hidden>
+      <defs>
+        <pattern id="g-plumbing" width="10" height="10" patternUnits="userSpaceOnUse">
+          <path d="M10 0H0v10" fill="none" stroke="var(--draw-grid)" strokeWidth="1" />
+        </pattern>
+      </defs>
+      <rect width="270" height="200" fill="url(#g-plumbing)" />
+      <PlanLines v={v} />
+      <g fill="none" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M262 130H206V74H186" stroke="var(--pipe-cold)" strokeWidth="1.7" />
+        <path d="M226 130V82H194" stroke="var(--pipe-hot)" strokeWidth="1.7" />
+        <path d="M186 62H236V164H262" stroke="var(--pipe-drain)" strokeWidth="2.3" />
+        <circle cx="236" cy="62" r="3.4" stroke="var(--pipe-vent)" strokeWidth="1.7" fill="var(--paper)" />
+      </g>
     </svg>
   );
 }

@@ -13,6 +13,7 @@ import type { Command, DocState, IpcError, ProjectMeta, SnapshotMeta } from "../
 import { ipc } from "../contract/ipc";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
+import { useViewer } from "../viewer3d/viewerStore";
 import { useShell } from "./shellStore";
 
 async function loadFixture(): Promise<DocState> {
@@ -96,9 +97,10 @@ async function installMock(empty: boolean) {
     hub_create: (a) => {
       doc = structuredClone(fixture);
       doc.project.name = String(a.name);
-      if (a.template !== "sample-bungalow") {
+      // The mock has no plumbing: "plumbing-demo" opens as the plain sample.
+      if (a.template !== "sample-bungalow" && a.template !== "plumbing-demo") {
         doc.project.elements = [];
-        doc.derived = { walls: [], rooms: [], footprints: [], totals: { floor_area_m2: 0, gross_area_m2: 0, wall_length_m: 0, room_count: 0, door_count: 0, window_count: 0 }, issues: [] };
+        doc.derived = { walls: [], rooms: [], footprints: [], totals: { floor_area_m2: 0, gross_area_m2: 0, wall_length_m: 0, room_count: 0, door_count: 0, window_count: 0 }, issues: [], pipes: { fittings: [], penetrations: [], takeoff: [], total_length_m: 0, elbow_count: 0, tee_count: 0, sleeve_count: 0 } };
       }
       return structuredClone(doc);
     },
@@ -106,8 +108,8 @@ async function installMock(empty: boolean) {
       doc = structuredClone(fixture);
       doc.project.name = metas.find((m) => m.id === a.id)?.name ?? doc.project.name;
       doc.derived.issues = [
-        { id: "i-1", severity: "warning", code: "room_no_window", message: "Bedroom has no window. Consider adding one for light and air.", element_ids: doc.project.elements.filter((e) => e.kind === "room").slice(0, 1).map((e) => e.id) },
-        { id: "i-2", severity: "info", code: "door_narrow", message: "A door is narrower than 800 mm. Check that furniture can pass.", element_ids: doc.project.elements.filter((e) => e.kind === "opening").slice(0, 1).map((e) => e.id) },
+        { id: "i-1", severity: "warning", code: "room_no_window", message: "Bedroom has no window. Consider adding one for light and air.", element_ids: doc.project.elements.filter((e) => e.kind === "room").slice(0, 1).map((e) => e.id), location: null },
+        { id: "i-2", severity: "info", code: "door_narrow", message: "A door is narrower than 800 mm. Check that furniture can pass.", element_ids: doc.project.elements.filter((e) => e.kind === "opening").slice(0, 1).map((e) => e.id), location: null },
       ];
       return structuredClone(doc);
     },
@@ -221,4 +223,5 @@ export async function installDevHarness() {
   (window as unknown as { __ipc: typeof ipc }).__ipc = ipc;
   (window as unknown as { __shell: typeof useShell }).__shell = useShell;
   (window as unknown as { __bus: typeof bus }).__bus = bus;
+  (window as unknown as { __viewer: typeof useViewer }).__viewer = useViewer;
 }

@@ -12,10 +12,22 @@ import { BrandMark, Icon } from "../ui/icons";
 import type { PresenceStage } from "../ui/motion";
 import { Presence, useLastTruthy } from "../ui/motionDom";
 import { formatArea, relativeTime } from "../ui/units";
-import { BlankSketch, BrandDrawing, PlanSketch } from "./PlanSketch";
+import { BlankSketch, BrandDrawing, PlanSketch, PlumbingSketch } from "./PlanSketch";
 import s from "./ProjectHub.module.css";
 
-type Template = "blank" | "sample-bungalow";
+type Template = "blank" | "sample-bungalow" | "plumbing-demo";
+
+const TEMPLATES: Array<{ value: Template; name: string; defaultName: string; hint: string }> = [
+  { value: "blank", name: "Blank", defaultName: "Untitled house", hint: "An empty sheet at 1:100. Draw your own walls." },
+  { value: "sample-bungalow", name: "Sample bungalow", defaultName: "Sample bungalow", hint: "A small furnished house with a gable roof, to explore and edit." },
+  { value: "plumbing-demo", name: "Bungalow with plumbing", defaultName: "Bungalow with plumbing", hint: "The sample bungalow with water, drainage and vent pipes laid out." },
+];
+
+function TemplateArt({ template }: { template: Template }) {
+  if (template === "blank") return <BlankSketch />;
+  if (template === "plumbing-demo") return <PlumbingSketch />;
+  return <PlanSketch seed="b" />;
+}
 
 export function ProjectHub() {
   const openProject = useApp((st) => st.openProject);
@@ -158,6 +170,9 @@ export function ProjectHub() {
                   New project
                 </Button>
                 <Button onClick={() => setCreating("sample-bungalow")}>Start from the sample bungalow</Button>
+                <Button icon="pipe" onClick={() => setCreating("plumbing-demo")}>
+                  Bungalow with plumbing
+                </Button>
               </div>
             </div>
           ) : shown.length === 0 ? (
@@ -403,7 +418,7 @@ function CreateDialog({
   stage?: PresenceStage;
 }) {
   const [template, setTemplate] = useState<Template>(initialTemplate);
-  const defaultName = (t: Template) => uniqueName(t === "blank" ? "Untitled house" : "Sample bungalow", existingNames);
+  const defaultName = (t: Template) => uniqueName(TEMPLATES.find((x) => x.value === t)?.defaultName ?? "Untitled house", existingNames);
   const [name, setName] = useState(() => defaultName(initialTemplate));
   const [touched, setTouched] = useState(false);
   const valid = name.trim() !== "";
@@ -417,7 +432,7 @@ function CreateDialog({
     <Dialog
       title="New project"
       onClose={onClose}
-      width={520}
+      width={640}
       stage={stage}
       footer={
         <>
@@ -453,32 +468,22 @@ function CreateDialog({
 
         <span className={s.createLabel}>Start from</span>
         <div className={s.templates} role="radiogroup" aria-label="Template">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={template === "blank"}
-            className={cx(s.template, template === "blank" && s.templateOn)}
-            onClick={() => pick("blank")}
-          >
-            <span className={s.templateArt}>
-              <BlankSketch />
-            </span>
-            <span className={s.templateName}>Blank</span>
-            <span className={s.templateHint}>An empty sheet at 1:100. Draw your own walls.</span>
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={template === "sample-bungalow"}
-            className={cx(s.template, template === "sample-bungalow" && s.templateOn)}
-            onClick={() => pick("sample-bungalow")}
-          >
-            <span className={s.templateArt}>
-              <PlanSketch seed="b" />
-            </span>
-            <span className={s.templateName}>Sample bungalow</span>
-            <span className={s.templateHint}>A small furnished house with a gable roof, to explore and edit.</span>
-          </button>
+          {TEMPLATES.map((x) => (
+            <button
+              key={x.value}
+              type="button"
+              role="radio"
+              aria-checked={template === x.value}
+              className={cx(s.template, template === x.value && s.templateOn)}
+              onClick={() => pick(x.value)}
+            >
+              <span className={s.templateArt}>
+                <TemplateArt template={x.value} />
+              </span>
+              <span className={s.templateName}>{x.name}</span>
+              <span className={s.templateHint}>{x.hint}</span>
+            </button>
+          ))}
         </div>
       </form>
     </Dialog>

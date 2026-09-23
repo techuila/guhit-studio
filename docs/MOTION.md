@@ -50,6 +50,10 @@ Every interaction in Guhit Studio has a microanimation (DECISIONS D11). This fil
 | 3D view | roof, cutaway, shadows | roof lifts and fades, cutaway height animates down from full height, shadow strength fades |
 | 3D view | camera | presets and fit already ease; keep them interruptible |
 | 3D view | model change | new meshes rise from the floor a few centimeters with opacity, removed meshes sink and fade |
+| 3D view | walk and fly | entering and leaving blends the camera (`--dur-scene`); movement tracks the keys 1:1 with a short velocity ease; the minimap, crosshair and key hint fade in (`--dur-base`), the hint fades back after a few seconds |
+| 3D view | solid, X-ray, hidden | each part of the building fades to its own opacity (`--dur-panel`), pipes stay solid, the shadow fades with the shell |
+| 3D view | pipe layer on or off | the runs of that system fade out or in like any model change |
+| 2D canvas | pipe tool | a placed point rings once, a finished run settles, point handles grow on hover and settle on drop, a refused drop eases back |
 | View mode | 2D / Split / 3D | panes resize with `--dur-panel`, the entering pane fades in |
 | Copilot | messages, busy, proposal | messages rise and fade in, a three-dot busy indicator, the proposal card expands in, Apply morphs into a check mark, the canvas ghost breathes (opacity 0.55 to 0.85, 1.6 s) |
 | Visuals | capture | a quick white flash over the 3D view (120 ms), the new card grows into the gallery |

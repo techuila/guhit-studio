@@ -113,7 +113,7 @@ export type FileSource = { path: string } | { file_name: string; data: string };
 export const ipc = {
   // project hub
   hubList: () => call<ProjectMeta[]>("hub_list"),
-  /** Creates and opens a project. `template`: "blank" | "sample-bungalow". */
+  /** Creates and opens a project. `template`: "blank" | "sample-bungalow" | "plumbing-demo". */
   hubCreate: (name: string, settings?: ProjectSettings, template?: string) =>
     call<DocState>("hub_create", { name, settings: settings ?? null, template: template ?? null }),
   hubOpen: (id: string) => call<DocState>("hub_open", { id }),

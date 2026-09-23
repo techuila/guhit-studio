@@ -5,6 +5,13 @@ function mm(v: number): string {
   return `${Math.round(v).toLocaleString("en-US")} mm`;
 }
 
+const PIPE_SYSTEM_LABEL: Record<Extract<Element, { kind: "pipe" }>["system"], string> = {
+  cold_water: "Cold water",
+  hot_water: "Hot water",
+  drainage: "Drainage",
+  vent: "Vent",
+};
+
 const USAGE_LABEL: Record<string, string> = {
   master_bedroom: "master bedroom",
   powder_room: "powder room",
@@ -36,6 +43,8 @@ export function elementName(el: Element): string {
       return el.name;
     case "reference_model":
       return el.name;
+    case "pipe":
+      return el.name || `${PIPE_SYSTEM_LABEL[el.system]} pipe, ${Math.round(el.diameter_mm)} mm`;
   }
 }
 

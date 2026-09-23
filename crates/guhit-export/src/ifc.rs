@@ -35,6 +35,12 @@
 //!   context and a wrong one is worse than none.
 //! - Linework, ReferenceModel, Underlay and Camera elements are skipped. They
 //!   are tracing and viewing aids, not building elements.
+//! - A pipe run is one IfcPipeSegment (.RIGIDSEGMENT.) per straight segment:
+//!   a circle of the pipe size swept along the segment, contained in the
+//!   storey of its level and assigned to one IfcDistributionSystem per
+//!   system, which serves the building. Bends are where two segments meet;
+//!   elbows and tees are not written as IfcPipeFitting. Sizes are as drawn:
+//!   Guhit coordinates pipes, it does not size them.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -45,6 +51,7 @@ use guhit_model::{
 
 use crate::geom::*;
 use crate::model3d::*;
+use crate::pipes;
 use crate::ExportError;
 
 // ------------------------------------------------------------------ IFC GUID
@@ -288,6 +295,7 @@ enum Val {
     Text(String),
     Area(f64),
     Length(f64),
+    PositiveLength(f64),
     Count(i64),
 }
 
@@ -298,6 +306,7 @@ impl Val {
             Val::Text(t) => format!("IFCLABEL({})", s(t)),
             Val::Area(a) => format!("IFCAREAMEASURE({})", r(*a)),
             Val::Length(l) => format!("IFCLENGTHMEASURE({})", r(*l)),
+            Val::PositiveLength(l) => format!("IFCPOSITIVELENGTHMEASURE({})", r(*l)),
             Val::Count(c) => format!("IFCCOUNTMEASURE({c})"),
         }
     }
@@ -427,9 +436,18 @@ pub struct Counts {
     pub stairs: usize,
     pub furnishings: usize,
     pub annotations: usize,
+    pub pipe_segments: usize,
+    pub pipe_systems: usize,
 }
 
 impl<'a> Build<'a> {
+    fn material_named(&mut self, name: &str, elements: &[Ref]) {
+        match self.materials.iter_mut().find(|(n, _)| n == name) {
+            Some((_, list)) => list.extend_from_slice(elements),
+            None => self.materials.push((name.to_string(), elements.to_vec())),
+        }
+    }
+
     fn material_for(&mut self, id: Option<&String>, fallback: &str, element: Ref) {
         let name = id
             .and_then(|m| self.project.materials.iter().find(|x| &x.id == m))
@@ -490,6 +508,7 @@ pub fn write_with_counts(
             || !l.columns.is_empty()
             || !l.stairs.is_empty()
             || !l.assets.is_empty()
+            || !l.pipes.is_empty()
     });
     if !has_geometry {
         return Err(ExportError::Empty("the model has nothing to export".into()));
@@ -588,6 +607,8 @@ pub fn write_with_counts(
     // ---------------------------------------------------------- elements
     let mut spaces_per_storey: Vec<Vec<Ref>> = vec![Vec::new(); scene.levels.len()];
     let mut wall_refs: HashMap<&str, Ref> = HashMap::new();
+    // Pipe segments per system, for the distribution systems.
+    let mut system_members: Vec<(guhit_model::PipeSystem, Vec<Ref>)> = Vec::new();
 
     for (i, ls) in scene.levels.iter().enumerate() {
         let place_parent = storey_places[i];
@@ -975,6 +996,41 @@ pub fn write_with_counts(
                 &[anno],
             );
         }
+
+        // ------------------------------------------------------- pipes
+        for p in &ls.pipes {
+            let segments = pipe_segments(&mut build, p, body_ctx, place_parent);
+            if segments.is_empty() {
+                continue;
+            }
+            build.contained[i].extend_from_slice(&segments);
+            build.counts.pipe_segments += segments.len();
+            build.material_named(pipes::material_label(p.material), &segments);
+            match system_members.iter_mut().find(|(s, _)| *s == p.system) {
+                Some((_, list)) => list.extend_from_slice(&segments),
+                None => system_members.push((p.system, segments.clone())),
+            }
+            build.pset(
+                "Pset_PipeSegmentTypeCommon",
+                &p.id,
+                &[("NominalDiameter", Val::PositiveLength(p.diameter_mm))],
+                &segments,
+            );
+            build.pset(
+                "Guhit_Pset_Pipe",
+                &p.id,
+                &[
+                    ("System", Val::Text(pipes::label(p.system).to_string())),
+                    (
+                        "Material",
+                        Val::Text(pipes::material_label(p.material).to_string()),
+                    ),
+                    ("PipeId", Val::Text(p.id.clone())),
+                    ("SegmentCount", Val::Count(segments.len() as i64)),
+                ],
+                &segments,
+            );
+        }
     }
 
     // --------------------------------------------------------------- roof
@@ -1085,6 +1141,36 @@ pub fn write_with_counts(
         }
     }
 
+    // ------------------------------------------------------- pipe systems
+    // One IfcDistributionSystem per system present, in the contract order,
+    // holding its segments and serving the building.
+    for system in pipes::SYSTEMS {
+        let Some((_, members)) = system_members.iter().find(|(s, _)| *s == system) else {
+            continue;
+        };
+        let key = pipes::slug(system);
+        let sys = build.step.add(&format!(
+            "IFCDISTRIBUTIONSYSTEM({},$,{},{},$,$,{})",
+            s(&guid_for(&format!("pipe-system-{key}"), &project.id)),
+            s(pipes::label(system)),
+            s("Coordination model from Guhit Studio. Pipe sizes as drawn, not a plumbing design."),
+            pipes::ifc_system(system)
+        ));
+        build.step.add(&format!(
+            "IFCRELASSIGNSTOGROUP({},$,$,$,{},$,{sys})",
+            s(&guid_for(
+                &format!("pipe-system-members-{key}"),
+                &project.id
+            )),
+            list(members)
+        ));
+        build.step.add(&format!(
+            "IFCRELSERVICESBUILDINGS({},$,$,$,{sys},({building}))",
+            s(&guid_for(&format!("pipe-system-serves-{key}"), &project.id))
+        ));
+        build.counts.pipe_systems += 1;
+    }
+
     // ---------------------------------------------------------- materials
     let materials = std::mem::take(&mut build.materials);
     for (name, elements) in materials {
@@ -1125,6 +1211,59 @@ pub fn write_with_counts(
     Ok((out, build.counts))
 }
 
+/// One IfcPipeSegment per straight segment of a pipe: a circle of the pipe
+/// size swept from the segment start along its direction, in storey local
+/// coordinates. Named after the pipe; the GlobalId comes from the pipe id and
+/// the segment index.
+fn pipe_segments(
+    build: &mut Build,
+    p: &guhit_model::Pipe,
+    body_ctx: Ref,
+    place_parent: Ref,
+) -> Vec<Ref> {
+    let Some(d) = pipes::diameter(p) else {
+        return Vec::new();
+    };
+    let pts = pipes::points(p);
+    if pts.len() < 2 {
+        return Vec::new();
+    }
+    let name = pipes::display_name(p);
+    let total = pts.len() - 1;
+    let mut out = Vec::with_capacity(total);
+    for (k, w) in pts.windows(2).enumerate() {
+        let (a, b) = (w[0], w[1]);
+        let Some(dir) = (b - a).unit() else { continue };
+        let length = (b - a).len();
+        let x = pipes::perpendicular(dir);
+        let pos = build
+            .step
+            .axis_rotated((a.x, a.y, a.z), (dir.x, dir.y, dir.z), (x.x, x.y, x.z));
+        let center = build.step.point2(0.0, 0.0);
+        let at = build
+            .step
+            .shared(&format!("IFCAXIS2PLACEMENT2D({center},$)"));
+        let profile = build.step.shared(&format!(
+            "IFCCIRCLEPROFILEDEF(.AREA.,$,{at},{})",
+            r(d / 2.0)
+        ));
+        let solid = build.step.extruded(profile, pos, length);
+        let body = build.step.shape(body_ctx, "Body", "SweptSolid", &[solid]);
+        let shape = build.step.product_shape(&[body]);
+        let place = {
+            let ax = build.step.axis_at(0.0, 0.0, 0.0);
+            build.step.placement(Some(place_parent), ax)
+        };
+        out.push(build.step.add(&format!(
+            "IFCPIPESEGMENT({},$,{},{},$,{place},{shape},$,.RIGIDSEGMENT.)",
+            s(&guid_for(&format!("pipe-segment-{k}"), &p.id)),
+            s(&name),
+            s(&format!("Segment {} of {total}", k + 1))
+        )));
+    }
+    out
+}
+
 fn author_name(project: &Project) -> String {
     let d = project.settings.designer.trim();
     if d.is_empty() {
@@ -1157,6 +1296,8 @@ pub fn count_entities(ifc: &str) -> Counts {
         stairs: n("IFCSTAIR"),
         furnishings: n("IFCFURNISHINGELEMENT"),
         annotations: n("IFCANNOTATION"),
+        pipe_segments: n("IFCPIPESEGMENT"),
+        pipe_systems: n("IFCDISTRIBUTIONSYSTEM"),
     }
 }
 

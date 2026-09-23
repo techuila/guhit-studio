@@ -292,6 +292,25 @@ impl<'a> Ctx<'a> {
                 "name": m.name, "file_name": m.file_name, "position": point(m.position),
                 "rotation_deg": r2(m.rotation_deg), "locked": m.locked,
             }),
+            Element::Pipe(p) => {
+                let length: f64 = p
+                    .points
+                    .windows(2)
+                    .map(|w| {
+                        ((w[1].x - w[0].x).powi(2)
+                            + (w[1].y - w[0].y).powi(2)
+                            + (w[1].z - w[0].z).powi(2))
+                        .sqrt()
+                    })
+                    .sum();
+                json!({
+                    "id": p.id, "kind": "pipe", "level": self.level_name(&p.level_id),
+                    "name": p.name, "label": crate::pipes::pipe_name(p),
+                    "system": enum_str(&p.system), "material": enum_str(&p.material),
+                    "diameter_mm": mm(p.diameter_mm), "length_mm": mm(length),
+                    "points_mm": p.points.iter().map(|v| json!({ "x": mm(v.x), "y": mm(v.y), "z": mm(v.z) })).collect::<Vec<_>>(),
+                })
+            }
         }
     }
 }
@@ -437,19 +456,47 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
                 .issues
                 .iter()
                 .map(|i| {
-                    json!({
+                    let mut item = json!({
                         "id": i.id,
                         "severity": enum_str(&i.severity),
                         "code": i.code,
                         "message": i.message,
                         "element_ids": i.element_ids,
-                    })
+                    });
+                    if let Some(l) = i.location {
+                        // Plan x and y, z above the floor of the first element's level.
+                        item["location_mm"] = json!({ "x": mm(l.x), "y": mm(l.y), "z": mm(l.z) });
+                    }
+                    item
                 })
                 .collect();
             json!({
                 "count": list.len(),
                 "note": "These are design suggestions, not code compliance or permit checks.",
                 "items": list,
+            })
+        }
+        Query::PipeTakeoff => {
+            let pipes = &derived.pipes;
+            json!({
+                "rows": pipes.takeoff.iter().map(|r| json!({
+                    "system": enum_str(&r.system),
+                    "material": enum_str(&r.material),
+                    "diameter_mm": mm(r.diameter_mm),
+                    "length_m": r.length_m,
+                    "run_count": r.run_count,
+                })).collect::<Vec<_>>(),
+                "total_length_m": pipes.total_length_m,
+                "elbow_count": pipes.elbow_count,
+                "tee_count": pipes.tee_count,
+                "sleeve_count": pipes.sleeve_count,
+                "penetrations": pipes.penetrations.iter().map(|p| json!({
+                    "kind": enum_str(&p.kind),
+                    "pipe_id": p.pipe_id,
+                    "host_id": p.host_id,
+                    "position_mm": { "x": mm(p.position.x), "y": mm(p.position.y), "z": mm(p.position.z) },
+                })).collect::<Vec<_>>(),
+                "note": "Centerline lengths from the model, rounded to the millimeter. Pipe heights are above the level floor. Guhit does not size pipes; plumbing design and sizing are for a registered Master Plumber.",
             })
         }
     })

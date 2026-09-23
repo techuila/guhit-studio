@@ -109,7 +109,115 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
         rng.point()
     };
 
-    match rng.below(26) {
+    // Pipe points, often on an existing pipe point so runs join and clash.
+    let pipe_points: Vec<Vec3> = project
+        .elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Pipe(p) => Some(p.points.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let pipe_ids = ids_of(project, ElementKind::Pipe);
+    let height = |rng: &mut Lcg| [-450.0, -300.0, 0.0, 300.0, 1500.0, 2450.0, 3500.0][rng.below(7)];
+    let pipe_point = |rng: &mut Lcg| -> Vec3 {
+        if rng.chance(30) {
+            if let Some(q) = rng.pick(&pipe_points) {
+                return *q;
+            }
+        }
+        let q = rng.point();
+        Vec3 {
+            x: q.x,
+            y: q.y,
+            z: height(rng),
+        }
+    };
+    let systems = [
+        PipeSystem::ColdWater,
+        PipeSystem::HotWater,
+        PipeSystem::Drainage,
+        PipeSystem::Vent,
+    ];
+
+    match rng.below(31) {
+        25 | 26 => {
+            let system = systems[rng.below(4)];
+            let (material, size, _) = defaults::pipe_defaults(system);
+            let n = 2 + rng.below(4);
+            let mut points: Vec<Vec3> = vec![pipe_point(rng)];
+            for _ in 1..n {
+                let last = points[points.len() - 1];
+                // Mostly axis-aligned legs, like drawn pipes.
+                let next = match rng.below(4) {
+                    0 => Vec3 {
+                        x: rng.coord(),
+                        ..last
+                    },
+                    1 => Vec3 {
+                        y: rng.coord(),
+                        ..last
+                    },
+                    2 => Vec3 {
+                        z: height(rng),
+                        ..last
+                    },
+                    _ => pipe_point(rng),
+                };
+                points.push(next);
+            }
+            Command::AddElement {
+                element: Element::Pipe(Pipe {
+                    id: String::new(),
+                    level_id: level,
+                    system,
+                    material,
+                    // Sometimes out of range, to be refused.
+                    diameter_mm: if rng.chance(5) { 5.0 } else { size },
+                    points,
+                    name: if rng.chance(50) {
+                        format!("Run {}", rng.below(9))
+                    } else {
+                        String::new()
+                    },
+                }),
+            }
+        }
+        27 => Command::SetLayer {
+            layer: Layer {
+                key: [
+                    LayerKey::ColdWater,
+                    LayerKey::HotWater,
+                    LayerKey::Drainage,
+                    LayerKey::Vent,
+                ][rng.below(4)],
+                visible: rng.chance(80),
+                locked: rng.chance(25),
+            },
+        },
+        28 => {
+            // Edit a pipe: another system, or one point moved.
+            let id = rng
+                .pick(&pipe_ids)
+                .cloned()
+                .unwrap_or_else(|| "missing-pipe".into());
+            match project.elements.iter().find(|e| e.id() == &id) {
+                Some(Element::Pipe(p)) => {
+                    let mut p = p.clone();
+                    if rng.chance(50) {
+                        p.system = systems[rng.below(4)];
+                    } else {
+                        let i = rng.below(p.points.len());
+                        p.points[i] = pipe_point(rng);
+                    }
+                    Command::UpdateElement {
+                        element: Element::Pipe(p),
+                    }
+                }
+                _ => Command::DeleteElements { ids: vec![id] },
+            }
+        }
         0 | 1 => Command::AddWall {
             start: rng.point(),
             end: rng.point(),
@@ -385,7 +493,10 @@ fn run(seed: u64, steps: usize, start: Project) -> (usize, usize, usize) {
                 if is_wall_edit(&cmd) {
                     let was = dim_points(&before_project);
                     for (id, a, b) in dim_points(&ap.state.project) {
-                        if was.iter().any(|(i, oa, ob)| *i == id && (*oa != a || *ob != b)) {
+                        if was
+                            .iter()
+                            .any(|(i, oa, ob)| *i == id && (*oa != a || *ob != b))
+                        {
                             dragged += 1;
                             assert!(ap.diff.modified.contains(&id), "{ctx}");
                             assert!(ap.diff.summary.contains("dimension"), "{ctx}");
@@ -470,6 +581,21 @@ fn fuzz_from_the_sample_bungalow() {
         dragged > 20,
         "the mix barely made a dimension follow a wall: {dragged}"
     );
+}
+
+#[test]
+fn fuzz_from_the_plumbing_demo() {
+    // Walls, columns, openings and pipes move under each other: fittings,
+    // penetrations and the pipe checks must stay consistent throughout.
+    let (mut ok, mut rejected) = (0, 0);
+    for seed in 200..200 + seed_count() {
+        let (o, r, _) = run(seed, 400, templates::plumbing_demo());
+        ok += o;
+        rejected += r;
+    }
+    println!("plumbing fuzz: {ok} applied, {rejected} rejected");
+    assert!(ok > 800, "{ok}");
+    assert!(rejected > 200, "{rejected}");
 }
 
 /// Timing check on a plan far larger than a house: a 10 x 10 grid of rooms

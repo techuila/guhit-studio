@@ -3,8 +3,17 @@
 //! widely readable DXF there is: AutoCAD, BricsCAD, LibreCAD and QCAD open it.
 //!
 //! Model space, millimeters, 1:1, y north (DXF is y-up like the model).
+//!
+//! Pipes go on one layer per system (`pipes::dxf_layer`). Drainage and vent
+//! layers use the dashed and dash-dot linetypes this file defines, with the
+//! pattern sized to plot at 1:N. Pipe layers and linetypes are only written
+//! when the drawing has pipes, so a project without pipes gives the same file
+//! as before.
+
+use guhit_model::PipeSystem;
 
 use crate::geom::*;
+use crate::pipes::{self, Dash, PlanPipe};
 use crate::plan::{items_bounds, Cat, HAlign, Item, Prim};
 use crate::text::est_width;
 
@@ -55,13 +64,26 @@ pub fn dxf_text(text: &str) -> String {
     out
 }
 
+/// One group code and value, in the layout both writers use.
+fn put(s: &mut String, code: i32, value: &str) {
+    s.push_str(&format!("{code:>3}\n{value}\n"));
+}
+
+fn put_int(s: &mut String, code: i32, value: i64) {
+    put(s, code, &format!("{value:>6}"));
+}
+
+fn put_num(s: &mut String, code: i32, value: f64) {
+    put(s, code, &f(value));
+}
+
 struct Writer {
     s: String,
 }
 
 impl Writer {
     fn pair(&mut self, code: i32, value: &str) {
-        self.s.push_str(&format!("{code:>3}\n{value}\n"));
+        put(&mut self.s, code, value);
     }
 
     fn num(&mut self, code: i32, value: f64) {
@@ -79,11 +101,114 @@ impl Writer {
     }
 }
 
-/// Write the primitives as a complete DXF document. `scale` only goes into
-/// the header comment; geometry is 1:1.
-pub fn write(items: &[Item], scale: u32) -> String {
+// ---------------------------------------------------------------------- pipes
+
+/// The dash styles, beyond CONTINUOUS, that layers of these systems use.
+pub(crate) fn pipe_dashes(systems: &[PipeSystem]) -> Vec<Dash> {
+    [Dash::Dashed, Dash::DashDot]
+        .into_iter()
+        .filter(|d| systems.iter().any(|s| pipes::dash(*s) == *d))
+        .collect()
+}
+
+/// LTYPE entries for the pipe dash styles, sized to plot at 1:`scale`.
+pub(crate) fn write_pipe_linetypes(s: &mut String, dashes: &[Dash], scale: f64) {
+    for d in dashes {
+        let Some((name, description, pattern, count)) = pipes::dxf_linetype(*d) else {
+            continue;
+        };
+        let pattern = &pattern[..count];
+        put(s, 0, "LTYPE");
+        put(s, 2, name);
+        put_int(s, 70, 0);
+        put(s, 3, description);
+        put_int(s, 72, 65);
+        put_int(s, 73, count as i64);
+        put_num(s, 40, pattern.iter().map(|x| x.abs()).sum::<f64>() * scale);
+        for x in pattern {
+            put_num(s, 49, x * scale);
+        }
+    }
+}
+
+/// Linetype name of a pipe layer.
+pub(crate) fn pipe_linetype(system: PipeSystem) -> &'static str {
+    pipes::dxf_linetype(pipes::dash(system))
+        .map(|t| t.0)
+        .unwrap_or("CONTINUOUS")
+}
+
+/// LAYER entries for the pipe systems.
+pub(crate) fn write_pipe_layers(s: &mut String, systems: &[PipeSystem]) {
+    for system in systems {
+        put(s, 0, "LAYER");
+        put(s, 2, pipes::dxf_layer(*system));
+        put_int(s, 70, 0);
+        put_int(s, 62, pipes::dxf_color(*system));
+        put(s, 6, pipe_linetype(*system));
+    }
+}
+
+/// Pipe runs as open polylines and risers as circles, at z = 0, each on its
+/// system layer. Riser circles are sized for plotting at 1:`scale` and stay
+/// continuous on the dashed layers.
+pub(crate) fn write_pipe_entities(s: &mut String, list: &[PlanPipe], scale: f64) {
+    for system in pipes::DRAW_ORDER {
+        let mut group: Vec<&PlanPipe> = list.iter().filter(|p| p.system == system).collect();
+        group.sort_by(|a, b| {
+            b.diameter_mm
+                .partial_cmp(&a.diameter_mm)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let layer = pipes::dxf_layer(system);
+        for p in &group {
+            for run in &p.runs {
+                put(s, 0, "POLYLINE");
+                put(s, 8, layer);
+                put_int(s, 66, 1);
+                put_num(s, 10, 0.0);
+                put_num(s, 20, 0.0);
+                put_num(s, 30, 0.0);
+                put_int(s, 70, 0);
+                for q in run {
+                    put(s, 0, "VERTEX");
+                    put(s, 8, layer);
+                    put_num(s, 10, q.x);
+                    put_num(s, 20, q.y);
+                    put_num(s, 30, 0.0);
+                }
+                put(s, 0, "SEQEND");
+                put(s, 8, layer);
+            }
+        }
+        for p in &group {
+            let r = pipes::riser_radius(p.diameter_mm, scale);
+            for c in &p.risers {
+                put(s, 0, "CIRCLE");
+                put(s, 8, layer);
+                put(s, 6, "CONTINUOUS");
+                put_num(s, 10, c.x);
+                put_num(s, 20, c.y);
+                put_num(s, 30, 0.0);
+                put_num(s, 40, r);
+            }
+        }
+    }
+}
+
+/// Write the primitives as a complete DXF document. `scale` sizes the pipe
+/// linetypes and riser marks and goes into the header comment; geometry is
+/// 1:1.
+pub fn write(items: &[Item], pipe_list: &[PlanPipe], scale: u32) -> String {
     let mut w = Writer { s: String::new() };
-    let bounds = items_bounds(items);
+    let mut bounds = items_bounds(items);
+    if !pipe_list.is_empty() {
+        let pb = pipes::bounds(pipe_list, scale as f64);
+        bounds.add(pb.min);
+        bounds.add(pb.max);
+    }
+    let systems = pipes::systems_present(pipe_list);
+    let dashes = pipe_dashes(&systems);
     let (min, max) = if bounds.is_empty() {
         (v(0.0, 0.0), v(0.0, 0.0))
     } else {
@@ -125,7 +250,7 @@ pub fn write(items: &[Item], scale: u32) -> String {
 
     w.pair(0, "TABLE");
     w.pair(2, "LTYPE");
-    w.int(70, 1);
+    w.int(70, 1 + dashes.len() as i64);
     w.pair(0, "LTYPE");
     w.pair(2, "CONTINUOUS");
     w.int(70, 0);
@@ -133,11 +258,12 @@ pub fn write(items: &[Item], scale: u32) -> String {
     w.int(72, 65);
     w.int(73, 0);
     w.num(40, 0.0);
+    write_pipe_linetypes(&mut w.s, &dashes, scale as f64);
     w.pair(0, "ENDTAB");
 
     w.pair(0, "TABLE");
     w.pair(2, "LAYER");
-    w.int(70, Cat::ALL.len() as i64 + 1);
+    w.int(70, Cat::ALL.len() as i64 + 1 + systems.len() as i64);
     w.pair(0, "LAYER");
     w.pair(2, "0");
     w.int(70, 0);
@@ -150,6 +276,7 @@ pub fn write(items: &[Item], scale: u32) -> String {
         w.int(62, layer_color(cat) as i64);
         w.pair(6, "CONTINUOUS");
     }
+    write_pipe_layers(&mut w.s, &systems);
     w.pair(0, "ENDTAB");
 
     w.pair(0, "TABLE");
@@ -182,6 +309,7 @@ pub fn write(items: &[Item], scale: u32) -> String {
             entity(&mut w, item);
         }
     }
+    write_pipe_entities(&mut w.s, pipe_list, scale as f64);
     w.pair(0, "ENDSEC");
     w.pair(0, "EOF");
     w.s

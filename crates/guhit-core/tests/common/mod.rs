@@ -471,4 +471,80 @@ pub fn assert_invariants(state: &DocState) {
             );
         }
     }
+
+    assert_pipe_invariants(state);
+}
+
+/// Pipes follow the validation rules, and `Derived::pipes` agrees with them.
+pub fn assert_pipe_invariants(state: &DocState) {
+    let project = &state.project;
+    let pipes = &state.derived.pipes;
+    let is_pipe = |id: &str| {
+        project
+            .elements
+            .iter()
+            .any(|e| e.id() == id && e.kind() == ElementKind::Pipe)
+    };
+    let mut pipe_count = 0;
+    for e in &project.elements {
+        let Element::Pipe(p) = e else { continue };
+        pipe_count += 1;
+        assert!(p.points.len() >= 2, "pipe {} has one point", p.id);
+        assert!((10.0..=300.0).contains(&p.diameter_mm));
+        assert!(project.levels.iter().any(|l| l.id == p.level_id));
+        for w in p.points.windows(2) {
+            let d =
+                ((w[1].x - w[0].x).powi(2) + (w[1].y - w[0].y).powi(2) + (w[1].z - w[0].z).powi(2))
+                    .sqrt();
+            assert!(d >= 1.0 - 1e-9, "pipe {} has two points {d} mm apart", p.id);
+        }
+    }
+    let kinds = |k: FittingKind| pipes.fittings.iter().filter(|f| f.kind == k).count() as u32;
+    assert_eq!(pipes.elbow_count, kinds(FittingKind::Elbow));
+    assert_eq!(pipes.tee_count, kinds(FittingKind::Tee));
+    assert_eq!(pipes.sleeve_count as usize, pipes.penetrations.len());
+    for f in &pipes.fittings {
+        assert!(is_pipe(&f.pipe_id), "fitting on a missing pipe");
+        assert_eq!(f.branch_pipe_id.is_some(), f.kind == FittingKind::Tee);
+        if let Some(b) = &f.branch_pipe_id {
+            assert!(is_pipe(b) && b != &f.pipe_id, "tee with a bad branch");
+        }
+        assert!((0.0..=180.0).contains(&f.angle_deg));
+    }
+    for p in &pipes.penetrations {
+        assert!(is_pipe(&p.pipe_id), "penetration of a missing pipe");
+        assert_eq!(p.host_id.is_some(), p.kind == PenetrationKind::Wall);
+        if let Some(h) = &p.host_id {
+            assert!(
+                walls(project).iter().any(|w| &w.id == h),
+                "penetration of a missing wall"
+            );
+        }
+        let len = (p.direction.x.powi(2) + p.direction.y.powi(2) + p.direction.z.powi(2)).sqrt();
+        assert!(
+            (len - 1.0).abs() < 1e-6,
+            "sleeve direction is not a unit vector"
+        );
+    }
+    let runs: u32 = pipes.takeoff.iter().map(|r| r.run_count).sum();
+    assert_eq!(
+        runs as usize, pipe_count,
+        "a pipe is missing from the take-off"
+    );
+    let rows: f64 = pipes.takeoff.iter().map(|r| r.length_m).sum();
+    assert!(
+        (rows - pipes.total_length_m).abs() < 1e-9,
+        "take-off rows do not add up"
+    );
+    for r in &pipes.takeoff {
+        let mm = r.length_m * 1000.0;
+        assert!((mm - mm.round()).abs() < 1e-6, "row not rounded to the mm");
+    }
+    for i in &state.derived.issues {
+        let pipe_item = matches!(
+            i.code.as_str(),
+            "pipe_through_column" | "pipe_across_opening" | "pipes_cross" | "drain_slope_low"
+        );
+        assert_eq!(i.location.is_some(), pipe_item, "{} location", i.code);
+    }
 }

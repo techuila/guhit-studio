@@ -34,7 +34,12 @@ export type SnapType =
   | "face"
   | "extension"
   | "angle"
-  | "grid";
+  | "grid"
+  // Pipe tool targets (pipe.ts): a pipe end or interior point, a tee on a pipe, a fixture.
+  | "pipe_end"
+  | "pipe_joint"
+  | "tee"
+  | "fixture";
 
 export interface SnapGuide {
   from: P;
@@ -48,6 +53,10 @@ export interface SnapResult {
   guides: SnapGuide[];
   /** True when the point lies on a locked angle ray from the anchor. */
   angleLocked: boolean;
+  /** Pipe snaps: the height of the pipe joined there. */
+  z?: number | null;
+  /** Replaces the label of the snap type, for example a fixture name. */
+  label?: string;
 }
 
 export interface SnapScene {

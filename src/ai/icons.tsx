@@ -38,6 +38,7 @@ const KIND_PATH: Record<Element["kind"], string> = {
   underlay: "M3 4h14v12H3zM3 13l4-4 3.5 3.5 2.5-2.5 4 4",
   linework: "M3 14.5l3.5-7 3.5 5 6-8.5",
   reference_model: "M10 2.5l7 4v7l-7 4-7-4v-7zM3 6.5l7 4 7-4M10 10.5v7",
+  pipe: "M3 7h7.5A3.5 3.5 0 0 1 14 10.5V17M3 11h7v6",
 };
 
 export const KindIcon = ({ kind }: { kind: Element["kind"] }) => <Svg d={KIND_PATH[kind]} size={14} />;

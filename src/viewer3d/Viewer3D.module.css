@@ -239,6 +239,146 @@
   transform: translateY(-1px);
 }
 
+/* Walking, the minimap takes this corner: the orbit hint steps aside. */
+.hint[data-hidden="true"] {
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+}
+
+/* Walk and fly: minimap, crosshair, key hint and mouse lock. The overlay
+   rises in with the mode and fades out faster when it ends. */
+.walkOverlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.walkOverlay[data-stage="enter"] {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.walkOverlay[data-stage="exit"] {
+  opacity: 0;
+  transform: translateY(4px);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  opacity: 0.85;
+}
+
+.crosshair::before,
+.crosshair::after {
+  content: "";
+  position: absolute;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 1px rgba(20, 40, 63, 0.35);
+}
+
+.crosshair::before {
+  left: 8px;
+  top: 2px;
+  width: 2px;
+  height: 14px;
+}
+
+.crosshair::after {
+  top: 8px;
+  left: 2px;
+  width: 14px;
+  height: 2px;
+}
+
+.minimap {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 208px;
+  height: 152px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(6px);
+}
+
+/* The hint sits between the minimap and the lock button. */
+.walkHintRow {
+  position: absolute;
+  left: 232px;
+  right: 140px;
+  bottom: 14px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.walkHint {
+  padding: 5px 10px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--chrome) 86%, transparent);
+  color: var(--chrome-text);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  text-align: center;
+  box-shadow: var(--shadow-1);
+  pointer-events: auto;
+  opacity: 1;
+  transition: opacity var(--dur-panel) var(--ease-out);
+}
+
+/* Faded, not gone: pointing at it brings it back. */
+.walkHint[data-on="false"] {
+  opacity: 0;
+  transition-duration: calc(var(--dur-panel) * 2);
+  transition-timing-function: var(--ease-in);
+}
+
+.walkHint kbd {
+  display: inline-block;
+  min-width: 16px;
+  margin: 0 1px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.16);
+  font: 600 10.5px/16px var(--font-mono);
+  text-align: center;
+}
+
+.lockGroup {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+}
+
+@container (max-width: 640px) {
+  .minimap {
+    width: 140px;
+    height: 104px;
+  }
+  .walkHintRow {
+    left: 12px;
+    right: 12px;
+    top: 96px;
+    bottom: auto;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .flash,
   .notice {

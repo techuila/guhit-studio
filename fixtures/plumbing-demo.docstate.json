@@ -1,0 +1,2316 @@
+{
+  "project": {
+    "schema_version": 2,
+    "id": "00000000-0000-4000-8000-000000000002",
+    "name": "Bungalow with plumbing",
+    "created_at": "2026-09-23T00:00:00Z",
+    "updated_at": "2026-09-23T00:00:00Z",
+    "settings": {
+      "display_unit": "mm",
+      "scale_denominator": 100,
+      "north_angle_deg": 0.0,
+      "paper": "a3",
+      "default_wall_thickness_mm": 150.0,
+      "grid_mm": 100.0,
+      "client_name": "Sample Client",
+      "location": "Quezon City",
+      "designer": ""
+    },
+    "levels": [
+      {
+        "id": "00000000-0000-4000-8000-0000000000a2",
+        "name": "Ground Floor",
+        "elevation_mm": 0.0,
+        "height_mm": 3000.0
+      }
+    ],
+    "layers": [
+      {
+        "key": "walls",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "openings",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "rooms",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "columns",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "stairs",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "assets",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "annotations",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "dimensions",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "underlays",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "cold_water",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "hot_water",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "drainage",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "vent",
+        "visible": true,
+        "locked": false
+      }
+    ],
+    "materials": [
+      {
+        "id": "mat-chb-painted",
+        "name": "CHB, plastered and painted",
+        "category": "wall",
+        "color": "#f2efe8",
+        "roughness": 0.9,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "none",
+        "builtin": true
+      },
+      {
+        "id": "mat-chb-bare",
+        "name": "CHB, bare",
+        "category": "wall",
+        "color": "#a9a9a4",
+        "roughness": 0.95,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "chb",
+        "builtin": true
+      },
+      {
+        "id": "mat-concrete-fairface",
+        "name": "Concrete, fair-faced",
+        "category": "wall",
+        "color": "#bdbdb8",
+        "roughness": 0.85,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "concrete",
+        "builtin": true
+      },
+      {
+        "id": "mat-paint-warm-white",
+        "name": "Paint, warm white",
+        "category": "wall",
+        "color": "#faf6ee",
+        "roughness": 0.9,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "none",
+        "builtin": true
+      },
+      {
+        "id": "mat-paint-sage",
+        "name": "Paint, sage green",
+        "category": "wall",
+        "color": "#b7c4ae",
+        "roughness": 0.9,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "none",
+        "builtin": true
+      },
+      {
+        "id": "mat-wood-cladding",
+        "name": "Wood cladding",
+        "category": "wood",
+        "color": "#9a6b43",
+        "roughness": 0.7,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "wood_plank",
+        "builtin": true
+      },
+      {
+        "id": "mat-tile-ceramic",
+        "name": "Ceramic tile 600 x 600",
+        "category": "floor",
+        "color": "#e4e0d8",
+        "roughness": 0.35,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "tile",
+        "builtin": true
+      },
+      {
+        "id": "mat-tile-granite",
+        "name": "Granite tile",
+        "category": "floor",
+        "color": "#6f6f73",
+        "roughness": 0.25,
+        "metalness": 0.05,
+        "opacity": 1.0,
+        "pattern": "tile",
+        "builtin": true
+      },
+      {
+        "id": "mat-floor-laminate",
+        "name": "Wood laminate",
+        "category": "floor",
+        "color": "#b98d5f",
+        "roughness": 0.55,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "wood_plank",
+        "builtin": true
+      },
+      {
+        "id": "mat-floor-concrete",
+        "name": "Polished concrete",
+        "category": "floor",
+        "color": "#b3b1ab",
+        "roughness": 0.4,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "concrete",
+        "builtin": true
+      },
+      {
+        "id": "mat-roof-longspan",
+        "name": "Long-span pre-painted metal roof",
+        "category": "roof",
+        "color": "#7a3b33",
+        "roughness": 0.45,
+        "metalness": 0.6,
+        "opacity": 1.0,
+        "pattern": "roof_sheet",
+        "builtin": true
+      },
+      {
+        "id": "mat-roof-gi",
+        "name": "GI corrugated sheet",
+        "category": "roof",
+        "color": "#aab0b5",
+        "roughness": 0.4,
+        "metalness": 0.8,
+        "opacity": 1.0,
+        "pattern": "roof_sheet",
+        "builtin": true
+      },
+      {
+        "id": "mat-roof-clay-tile",
+        "name": "Clay roof tile",
+        "category": "roof",
+        "color": "#b0583a",
+        "roughness": 0.8,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "roof_tile",
+        "builtin": true
+      },
+      {
+        "id": "mat-roof-concrete-deck",
+        "name": "Concrete roof deck",
+        "category": "roof",
+        "color": "#c4c2bc",
+        "roughness": 0.85,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "concrete",
+        "builtin": true
+      },
+      {
+        "id": "mat-glass-clear",
+        "name": "Clear glass",
+        "category": "glass",
+        "color": "#bfe3ee",
+        "roughness": 0.05,
+        "metalness": 0.0,
+        "opacity": 0.35,
+        "pattern": "glass",
+        "builtin": true
+      },
+      {
+        "id": "mat-wood-door",
+        "name": "Wood door, mahogany finish",
+        "category": "wood",
+        "color": "#6e4428",
+        "roughness": 0.6,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "wood_plank",
+        "builtin": true
+      },
+      {
+        "id": "mat-aluminum-frame",
+        "name": "Aluminum frame, powder coated",
+        "category": "metal",
+        "color": "#3b3f45",
+        "roughness": 0.4,
+        "metalness": 0.8,
+        "opacity": 1.0,
+        "pattern": "none",
+        "builtin": true
+      },
+      {
+        "id": "mat-steel",
+        "name": "Steel, painted",
+        "category": "metal",
+        "color": "#4a4f57",
+        "roughness": 0.5,
+        "metalness": 0.7,
+        "opacity": 1.0,
+        "pattern": "none",
+        "builtin": true
+      }
+    ],
+    "elements": [
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000011001",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "start": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "end": {
+          "x": 8000.0,
+          "y": 0.0
+        },
+        "thickness_mm": 150.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000011002",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "start": {
+          "x": 8000.0,
+          "y": 0.0
+        },
+        "end": {
+          "x": 8000.0,
+          "y": 6000.0
+        },
+        "thickness_mm": 150.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000011003",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "start": {
+          "x": 8000.0,
+          "y": 6000.0
+        },
+        "end": {
+          "x": 0.0,
+          "y": 6000.0
+        },
+        "thickness_mm": 150.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000011004",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "start": {
+          "x": 0.0,
+          "y": 6000.0
+        },
+        "end": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "thickness_mm": 150.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000011005",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "start": {
+          "x": 5000.0,
+          "y": 0.0
+        },
+        "end": {
+          "x": 5000.0,
+          "y": 6000.0
+        },
+        "thickness_mm": 100.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000011006",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "start": {
+          "x": 6000.0,
+          "y": 4200.0
+        },
+        "end": {
+          "x": 8000.0,
+          "y": 4200.0
+        },
+        "thickness_mm": 100.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "wall",
+        "id": "00000000-0000-4000-8000-000000011007",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "start": {
+          "x": 6000.0,
+          "y": 4200.0
+        },
+        "end": {
+          "x": 6000.0,
+          "y": 6000.0
+        },
+        "thickness_mm": 100.0,
+        "height_mm": null,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000012001",
+        "wall_id": "00000000-0000-4000-8000-000000011001",
+        "opening_type": "door",
+        "style": "swing_single",
+        "offset_mm": 1500.0,
+        "width_mm": 900.0,
+        "height_mm": 2100.0,
+        "sill_mm": 0.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000012002",
+        "wall_id": "00000000-0000-4000-8000-000000011001",
+        "opening_type": "window",
+        "style": "sliding",
+        "offset_mm": 3500.0,
+        "width_mm": 1500.0,
+        "height_mm": 1200.0,
+        "sill_mm": 900.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000012003",
+        "wall_id": "00000000-0000-4000-8000-000000011002",
+        "opening_type": "window",
+        "style": "casement",
+        "offset_mm": 2100.0,
+        "width_mm": 1200.0,
+        "height_mm": 1200.0,
+        "sill_mm": 900.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000012004",
+        "wall_id": "00000000-0000-4000-8000-000000011002",
+        "opening_type": "window",
+        "style": "jalousie",
+        "offset_mm": 4950.0,
+        "width_mm": 600.0,
+        "height_mm": 600.0,
+        "sill_mm": 1500.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000012005",
+        "wall_id": "00000000-0000-4000-8000-000000011003",
+        "opening_type": "window",
+        "style": "sliding",
+        "offset_mm": 5800.0,
+        "width_mm": 1000.0,
+        "height_mm": 1000.0,
+        "sill_mm": 1050.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000012006",
+        "wall_id": "00000000-0000-4000-8000-000000011004",
+        "opening_type": "window",
+        "style": "sliding",
+        "offset_mm": 3000.0,
+        "width_mm": 1500.0,
+        "height_mm": 1200.0,
+        "sill_mm": 900.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000012007",
+        "wall_id": "00000000-0000-4000-8000-000000011005",
+        "opening_type": "door",
+        "style": "swing_single",
+        "offset_mm": 2400.0,
+        "width_mm": 800.0,
+        "height_mm": 2100.0,
+        "sill_mm": 0.0,
+        "flip_side": true,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "opening",
+        "id": "00000000-0000-4000-8000-000000012008",
+        "wall_id": "00000000-0000-4000-8000-000000011006",
+        "opening_type": "door",
+        "style": "swing_single",
+        "offset_mm": 500.0,
+        "width_mm": 700.0,
+        "height_mm": 2100.0,
+        "sill_mm": 0.0,
+        "flip_side": false,
+        "flip_hinge": false,
+        "material_id": null
+      },
+      {
+        "kind": "room",
+        "id": "00000000-0000-4000-8000-000000013001",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "name": "Living / Kitchen",
+        "usage": "living",
+        "seed": {
+          "x": 2500.0,
+          "y": 2300.0
+        },
+        "floor_material_id": "mat-tile-ceramic",
+        "auto_named": false
+      },
+      {
+        "kind": "room",
+        "id": "00000000-0000-4000-8000-000000013002",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "name": "Bedroom",
+        "usage": "bedroom",
+        "seed": {
+          "x": 6500.0,
+          "y": 2700.0
+        },
+        "floor_material_id": "mat-tile-ceramic",
+        "auto_named": false
+      },
+      {
+        "kind": "room",
+        "id": "00000000-0000-4000-8000-000000013003",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "name": "T&B",
+        "usage": "bathroom",
+        "seed": {
+          "x": 6600.0,
+          "y": 4750.0
+        },
+        "floor_material_id": "mat-tile-ceramic",
+        "auto_named": false
+      },
+      {
+        "kind": "column",
+        "id": "00000000-0000-4000-8000-000000014001",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "center": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "shape": "rect",
+        "width_mm": 200.0,
+        "depth_mm": 200.0,
+        "rotation_deg": 0.0,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "column",
+        "id": "00000000-0000-4000-8000-000000014002",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "center": {
+          "x": 5000.0,
+          "y": 0.0
+        },
+        "shape": "rect",
+        "width_mm": 200.0,
+        "depth_mm": 200.0,
+        "rotation_deg": 0.0,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "column",
+        "id": "00000000-0000-4000-8000-000000014003",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "center": {
+          "x": 8000.0,
+          "y": 0.0
+        },
+        "shape": "rect",
+        "width_mm": 200.0,
+        "depth_mm": 200.0,
+        "rotation_deg": 0.0,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "column",
+        "id": "00000000-0000-4000-8000-000000014004",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "center": {
+          "x": 0.0,
+          "y": 6000.0
+        },
+        "shape": "rect",
+        "width_mm": 200.0,
+        "depth_mm": 200.0,
+        "rotation_deg": 0.0,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "column",
+        "id": "00000000-0000-4000-8000-000000014005",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "center": {
+          "x": 5000.0,
+          "y": 6000.0
+        },
+        "shape": "rect",
+        "width_mm": 200.0,
+        "depth_mm": 200.0,
+        "rotation_deg": 0.0,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "column",
+        "id": "00000000-0000-4000-8000-000000014006",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "center": {
+          "x": 8000.0,
+          "y": 6000.0
+        },
+        "shape": "rect",
+        "width_mm": 200.0,
+        "depth_mm": 200.0,
+        "rotation_deg": 0.0,
+        "material_id": "mat-chb-painted"
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015001",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "kitchen-sink",
+        "name": "Kitchen sink counter",
+        "category": "kitchen",
+        "position": {
+          "x": 2000.0,
+          "y": 5625.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 1200.0,
+        "depth_mm": 600.0,
+        "height_mm": 900.0,
+        "elevation_mm": 0.0
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015002",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "lavatory",
+        "name": "Lavatory",
+        "category": "sanitary",
+        "position": {
+          "x": 6300.0,
+          "y": 5715.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 500.0,
+        "depth_mm": 420.0,
+        "height_mm": 200.0,
+        "elevation_mm": 650.0
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015003",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "wc",
+        "name": "Water closet",
+        "category": "sanitary",
+        "position": {
+          "x": 6780.0,
+          "y": 5575.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 400.0,
+        "depth_mm": 700.0,
+        "height_mm": 780.0,
+        "elevation_mm": 0.0
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015004",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "shower",
+        "name": "Shower area",
+        "category": "sanitary",
+        "position": {
+          "x": 7475.0,
+          "y": 5475.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 900.0,
+        "depth_mm": 900.0,
+        "height_mm": 50.0,
+        "elevation_mm": 0.0
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015005",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "sofa-3",
+        "name": "Sofa, 3 seater",
+        "category": "furniture",
+        "position": {
+          "x": 550.0,
+          "y": 2600.0
+        },
+        "rotation_deg": 90.0,
+        "width_mm": 2100.0,
+        "depth_mm": 900.0,
+        "height_mm": 800.0,
+        "elevation_mm": 0.0
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015006",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "dining-4",
+        "name": "Dining table, 4 seats",
+        "category": "furniture",
+        "position": {
+          "x": 3300.0,
+          "y": 3900.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 1200.0,
+        "depth_mm": 800.0,
+        "height_mm": 750.0,
+        "elevation_mm": 0.0
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015007",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "bed-double",
+        "name": "Double bed",
+        "category": "furniture",
+        "position": {
+          "x": 6695.0,
+          "y": 1035.0
+        },
+        "rotation_deg": 180.0,
+        "width_mm": 1370.0,
+        "depth_mm": 1900.0,
+        "height_mm": 500.0,
+        "elevation_mm": 0.0
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016001",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "cold_water",
+        "material": "ppr",
+        "diameter_mm": 25.0,
+        "points": [
+          {
+            "x": 600.0,
+            "y": -1800.0,
+            "z": 0.0
+          },
+          {
+            "x": 600.0,
+            "y": -1800.0,
+            "z": -300.0
+          },
+          {
+            "x": 600.0,
+            "y": 5850.0,
+            "z": -300.0
+          },
+          {
+            "x": 2000.0,
+            "y": 5850.0,
+            "z": -300.0
+          },
+          {
+            "x": 2000.0,
+            "y": 6000.0,
+            "z": -300.0
+          },
+          {
+            "x": 2000.0,
+            "y": 6000.0,
+            "z": 300.0
+          }
+        ],
+        "name": "Service line"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016002",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "cold_water",
+        "material": "ppr",
+        "diameter_mm": 20.0,
+        "points": [
+          {
+            "x": 2000.0,
+            "y": 6000.0,
+            "z": 300.0
+          },
+          {
+            "x": 7450.0,
+            "y": 6000.0,
+            "z": 300.0
+          }
+        ],
+        "name": "Cold water chase"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016003",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "cold_water",
+        "material": "ppr",
+        "diameter_mm": 20.0,
+        "points": [
+          {
+            "x": 2000.0,
+            "y": 6000.0,
+            "z": 300.0
+          },
+          {
+            "x": 2000.0,
+            "y": 6000.0,
+            "z": 550.0
+          },
+          {
+            "x": 2000.0,
+            "y": 5925.0,
+            "z": 550.0
+          }
+        ],
+        "name": "Sink supply"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016004",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "cold_water",
+        "material": "ppr",
+        "diameter_mm": 20.0,
+        "points": [
+          {
+            "x": 6300.0,
+            "y": 6000.0,
+            "z": 300.0
+          },
+          {
+            "x": 6300.0,
+            "y": 6000.0,
+            "z": 550.0
+          },
+          {
+            "x": 6300.0,
+            "y": 5925.0,
+            "z": 550.0
+          }
+        ],
+        "name": "Lavatory supply"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016005",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "cold_water",
+        "material": "ppr",
+        "diameter_mm": 20.0,
+        "points": [
+          {
+            "x": 6780.0,
+            "y": 6000.0,
+            "z": 300.0
+          },
+          {
+            "x": 6780.0,
+            "y": 5925.0,
+            "z": 300.0
+          }
+        ],
+        "name": "Water closet supply"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016006",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "cold_water",
+        "material": "ppr",
+        "diameter_mm": 20.0,
+        "points": [
+          {
+            "x": 7450.0,
+            "y": 6000.0,
+            "z": 300.0
+          },
+          {
+            "x": 7450.0,
+            "y": 6000.0,
+            "z": 1100.0
+          },
+          {
+            "x": 7450.0,
+            "y": 5925.0,
+            "z": 1100.0
+          }
+        ],
+        "name": "Shower cold"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016007",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "cold_water",
+        "material": "ppr",
+        "diameter_mm": 20.0,
+        "points": [
+          {
+            "x": 6000.0,
+            "y": 6000.0,
+            "z": 300.0
+          },
+          {
+            "x": 6000.0,
+            "y": 4200.0,
+            "z": 300.0
+          },
+          {
+            "x": 6000.0,
+            "y": 4200.0,
+            "z": 1500.0
+          },
+          {
+            "x": 7500.0,
+            "y": 4200.0,
+            "z": 1500.0
+          },
+          {
+            "x": 7500.0,
+            "y": 4400.0,
+            "z": 1500.0
+          },
+          {
+            "x": 7500.0,
+            "y": 4400.0,
+            "z": 1600.0
+          }
+        ],
+        "name": "Heater feed"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016008",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "hot_water",
+        "material": "ppr",
+        "diameter_mm": 20.0,
+        "points": [
+          {
+            "x": 7550.0,
+            "y": 4400.0,
+            "z": 2200.0
+          },
+          {
+            "x": 7550.0,
+            "y": 4400.0,
+            "z": 2450.0
+          },
+          {
+            "x": 7550.0,
+            "y": 6000.0,
+            "z": 2450.0
+          },
+          {
+            "x": 7550.0,
+            "y": 6000.0,
+            "z": 1100.0
+          },
+          {
+            "x": 7550.0,
+            "y": 5925.0,
+            "z": 1100.0
+          }
+        ],
+        "name": "Hot water to the shower"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016009",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "hot_water",
+        "material": "ppr",
+        "diameter_mm": 20.0,
+        "points": [
+          {
+            "x": 7550.0,
+            "y": 5100.0,
+            "z": 2450.0
+          },
+          {
+            "x": 6230.0,
+            "y": 5100.0,
+            "z": 2450.0
+          },
+          {
+            "x": 6230.0,
+            "y": 6000.0,
+            "z": 2450.0
+          },
+          {
+            "x": 6230.0,
+            "y": 6000.0,
+            "z": 550.0
+          },
+          {
+            "x": 6230.0,
+            "y": 5925.0,
+            "z": 550.0
+          }
+        ],
+        "name": "Hot water to the lavatory"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016010",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "drainage",
+        "material": "upvc",
+        "diameter_mm": 100.0,
+        "points": [
+          {
+            "x": 6300.0,
+            "y": 5650.0,
+            "z": -420.0
+          },
+          {
+            "x": 6780.0,
+            "y": 5650.0,
+            "z": -430.0
+          },
+          {
+            "x": 7500.0,
+            "y": 5650.0,
+            "z": -444.0
+          },
+          {
+            "x": 7800.0,
+            "y": 5650.0,
+            "z": -450.0
+          },
+          {
+            "x": 8600.0,
+            "y": 5650.0,
+            "z": -466.0
+          }
+        ],
+        "name": "Building drain"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016011",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "drainage",
+        "material": "upvc",
+        "diameter_mm": 100.0,
+        "points": [
+          {
+            "x": 6780.0,
+            "y": 5650.0,
+            "z": 20.0
+          },
+          {
+            "x": 6780.0,
+            "y": 5650.0,
+            "z": -430.0
+          }
+        ],
+        "name": "Water closet drain"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016012",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "drainage",
+        "material": "upvc",
+        "diameter_mm": 50.0,
+        "points": [
+          {
+            "x": 6300.0,
+            "y": 5760.0,
+            "z": 650.0
+          },
+          {
+            "x": 6300.0,
+            "y": 5760.0,
+            "z": -410.0
+          },
+          {
+            "x": 6300.0,
+            "y": 5650.0,
+            "z": -420.0
+          }
+        ],
+        "name": "Lavatory waste"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016013",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "drainage",
+        "material": "upvc",
+        "diameter_mm": 50.0,
+        "points": [
+          {
+            "x": 7500.0,
+            "y": 5500.0,
+            "z": 20.0
+          },
+          {
+            "x": 7500.0,
+            "y": 5500.0,
+            "z": -420.0
+          },
+          {
+            "x": 7500.0,
+            "y": 5650.0,
+            "z": -444.0
+          }
+        ],
+        "name": "Shower drain"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016014",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "drainage",
+        "material": "upvc",
+        "diameter_mm": 50.0,
+        "points": [
+          {
+            "x": 2000.0,
+            "y": 5700.0,
+            "z": 850.0
+          },
+          {
+            "x": 2000.0,
+            "y": 5700.0,
+            "z": -300.0
+          },
+          {
+            "x": 6300.0,
+            "y": 5700.0,
+            "z": -334.0
+          },
+          {
+            "x": 6300.0,
+            "y": 5650.0,
+            "z": -420.0
+          }
+        ],
+        "name": "Kitchen sink waste"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016015",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "drainage",
+        "material": "upvc",
+        "diameter_mm": 100.0,
+        "points": [
+          {
+            "x": 10400.0,
+            "y": 4300.0,
+            "z": -520.0
+          },
+          {
+            "x": 11600.0,
+            "y": 4300.0,
+            "z": -545.0
+          }
+        ],
+        "name": "Septic tank outlet"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000016016",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "vent",
+        "material": "upvc",
+        "diameter_mm": 50.0,
+        "points": [
+          {
+            "x": 7800.0,
+            "y": 5650.0,
+            "z": -450.0
+          },
+          {
+            "x": 7800.0,
+            "y": 6000.0,
+            "z": -457.0
+          },
+          {
+            "x": 7800.0,
+            "y": 6000.0,
+            "z": 3450.0
+          }
+        ],
+        "name": "Vent stack"
+      },
+      {
+        "kind": "camera",
+        "id": "00000000-0000-4000-8000-000000017001",
+        "name": "Plumbing overview",
+        "preset": "exterior_corner",
+        "position": {
+          "x": 12300.0,
+          "y": -6800.0,
+          "z": 7400.0
+        },
+        "target": {
+          "x": 4600.0,
+          "y": 3300.0,
+          "z": 300.0
+        },
+        "fov_deg": 42.0
+      }
+    ],
+    "roof": {
+      "kind": "gable",
+      "pitch_deg": 20.0,
+      "overhang_mm": 600.0,
+      "thickness_mm": 100.0,
+      "ridge_axis": "x",
+      "material_id": "mat-roof-longspan"
+    }
+  },
+  "derived": {
+    "walls": [
+      {
+        "wall_id": "00000000-0000-4000-8000-000000011001",
+        "length_mm": 8000.0,
+        "outline": [
+          {
+            "x": -75.0,
+            "y": -75.0
+          },
+          {
+            "x": 8075.0,
+            "y": -75.0
+          },
+          {
+            "x": 7925.0,
+            "y": 75.0
+          },
+          {
+            "x": 75.0,
+            "y": 75.0
+          }
+        ],
+        "exterior": true,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000011004"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000011002"
+        ]
+      },
+      {
+        "wall_id": "00000000-0000-4000-8000-000000011002",
+        "length_mm": 6000.0,
+        "outline": [
+          {
+            "x": 8075.0,
+            "y": -75.0
+          },
+          {
+            "x": 8075.0,
+            "y": 6075.0
+          },
+          {
+            "x": 7925.0,
+            "y": 5925.0
+          },
+          {
+            "x": 7925.0,
+            "y": 75.0
+          }
+        ],
+        "exterior": true,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000011001"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000011003"
+        ]
+      },
+      {
+        "wall_id": "00000000-0000-4000-8000-000000011003",
+        "length_mm": 8000.0,
+        "outline": [
+          {
+            "x": 8075.0,
+            "y": 6075.0
+          },
+          {
+            "x": -75.0,
+            "y": 6075.0
+          },
+          {
+            "x": 75.0,
+            "y": 5925.0
+          },
+          {
+            "x": 7925.0,
+            "y": 5925.0
+          }
+        ],
+        "exterior": true,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000011002"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000011004"
+        ]
+      },
+      {
+        "wall_id": "00000000-0000-4000-8000-000000011004",
+        "length_mm": 6000.0,
+        "outline": [
+          {
+            "x": -75.0,
+            "y": 6075.0
+          },
+          {
+            "x": -75.0,
+            "y": -75.0
+          },
+          {
+            "x": 75.0,
+            "y": 75.0
+          },
+          {
+            "x": 75.0,
+            "y": 5925.0
+          }
+        ],
+        "exterior": true,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000011003"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000011001"
+        ]
+      },
+      {
+        "wall_id": "00000000-0000-4000-8000-000000011005",
+        "length_mm": 6000.0,
+        "outline": [
+          {
+            "x": 5050.0,
+            "y": 75.0
+          },
+          {
+            "x": 5050.0,
+            "y": 5925.0
+          },
+          {
+            "x": 4950.0,
+            "y": 5925.0
+          },
+          {
+            "x": 4950.0,
+            "y": 75.0
+          }
+        ],
+        "exterior": false,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000011001"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000011003"
+        ]
+      },
+      {
+        "wall_id": "00000000-0000-4000-8000-000000011006",
+        "length_mm": 2000.0,
+        "outline": [
+          {
+            "x": 5950.0,
+            "y": 4150.0
+          },
+          {
+            "x": 7925.0,
+            "y": 4150.0
+          },
+          {
+            "x": 7925.0,
+            "y": 4250.0
+          },
+          {
+            "x": 6050.0,
+            "y": 4250.0
+          }
+        ],
+        "exterior": false,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000011007"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000011002"
+        ]
+      },
+      {
+        "wall_id": "00000000-0000-4000-8000-000000011007",
+        "length_mm": 1800.0,
+        "outline": [
+          {
+            "x": 6050.0,
+            "y": 4250.0
+          },
+          {
+            "x": 6050.0,
+            "y": 5925.0
+          },
+          {
+            "x": 5950.0,
+            "y": 5925.0
+          },
+          {
+            "x": 5950.0,
+            "y": 4150.0
+          }
+        ],
+        "exterior": false,
+        "joined_at_start": [
+          "00000000-0000-4000-8000-000000011006"
+        ],
+        "joined_at_end": [
+          "00000000-0000-4000-8000-000000011003"
+        ]
+      }
+    ],
+    "rooms": [
+      {
+        "room_id": "00000000-0000-4000-8000-000000013001",
+        "polygon": [
+          {
+            "x": 75.0,
+            "y": 75.0
+          },
+          {
+            "x": 4950.0,
+            "y": 75.0
+          },
+          {
+            "x": 4950.0,
+            "y": 5925.0
+          },
+          {
+            "x": 75.0,
+            "y": 5925.0
+          }
+        ],
+        "centerline_polygon": [
+          {
+            "x": 0.0,
+            "y": 0.0
+          },
+          {
+            "x": 5000.0,
+            "y": 0.0
+          },
+          {
+            "x": 5000.0,
+            "y": 6000.0
+          },
+          {
+            "x": 0.0,
+            "y": 6000.0
+          }
+        ],
+        "area_mm2": 28518750.0,
+        "perimeter_mm": 21450.0,
+        "label_point": {
+          "x": 2512.5,
+          "y": 3000.0
+        },
+        "wall_ids": [
+          "00000000-0000-4000-8000-000000011001",
+          "00000000-0000-4000-8000-000000011005",
+          "00000000-0000-4000-8000-000000011003",
+          "00000000-0000-4000-8000-000000011004"
+        ]
+      },
+      {
+        "room_id": "00000000-0000-4000-8000-000000013002",
+        "polygon": [
+          {
+            "x": 5050.0,
+            "y": 75.0
+          },
+          {
+            "x": 7925.0,
+            "y": 75.0
+          },
+          {
+            "x": 7925.0,
+            "y": 4150.0
+          },
+          {
+            "x": 5950.0,
+            "y": 4150.0
+          },
+          {
+            "x": 5950.0,
+            "y": 5925.0
+          },
+          {
+            "x": 5050.0,
+            "y": 5925.0
+          }
+        ],
+        "centerline_polygon": [
+          {
+            "x": 5000.0,
+            "y": 0.0
+          },
+          {
+            "x": 8000.0,
+            "y": 0.0
+          },
+          {
+            "x": 8000.0,
+            "y": 4200.0
+          },
+          {
+            "x": 6000.0,
+            "y": 4200.0
+          },
+          {
+            "x": 6000.0,
+            "y": 6000.0
+          },
+          {
+            "x": 5000.0,
+            "y": 6000.0
+          }
+        ],
+        "area_mm2": 13313125.0,
+        "perimeter_mm": 17450.0,
+        "label_point": {
+          "x": 6487.5,
+          "y": 1512.5
+        },
+        "wall_ids": [
+          "00000000-0000-4000-8000-000000011001",
+          "00000000-0000-4000-8000-000000011002",
+          "00000000-0000-4000-8000-000000011006",
+          "00000000-0000-4000-8000-000000011007",
+          "00000000-0000-4000-8000-000000011003",
+          "00000000-0000-4000-8000-000000011005"
+        ]
+      },
+      {
+        "room_id": "00000000-0000-4000-8000-000000013003",
+        "polygon": [
+          {
+            "x": 7925.0,
+            "y": 4250.0
+          },
+          {
+            "x": 7925.0,
+            "y": 5925.0
+          },
+          {
+            "x": 6050.0,
+            "y": 5925.0
+          },
+          {
+            "x": 6050.0,
+            "y": 4250.0
+          }
+        ],
+        "centerline_polygon": [
+          {
+            "x": 8000.0,
+            "y": 4200.0
+          },
+          {
+            "x": 8000.0,
+            "y": 6000.0
+          },
+          {
+            "x": 6000.0,
+            "y": 6000.0
+          },
+          {
+            "x": 6000.0,
+            "y": 4200.0
+          }
+        ],
+        "area_mm2": 3140625.0,
+        "perimeter_mm": 7100.0,
+        "label_point": {
+          "x": 6987.5,
+          "y": 5087.5
+        },
+        "wall_ids": [
+          "00000000-0000-4000-8000-000000011002",
+          "00000000-0000-4000-8000-000000011003",
+          "00000000-0000-4000-8000-000000011007",
+          "00000000-0000-4000-8000-000000011006"
+        ]
+      }
+    ],
+    "footprints": [
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "polygon": [
+          {
+            "x": -75.0,
+            "y": -75.0
+          },
+          {
+            "x": 8075.0,
+            "y": -75.0
+          },
+          {
+            "x": 8075.0,
+            "y": 6075.0
+          },
+          {
+            "x": -75.0,
+            "y": 6075.0
+          }
+        ],
+        "area_mm2": 50122500.0
+      }
+    ],
+    "totals": {
+      "floor_area_m2": 44.9725,
+      "gross_area_m2": 50.1225,
+      "wall_length_m": 37.8,
+      "room_count": 3,
+      "door_count": 3,
+      "window_count": 5
+    },
+    "issues": [
+      {
+        "id": "pipe_across_opening:00000000-0000-4000-8000-000000016007,00000000-0000-4000-8000-000000012008",
+        "severity": "warning",
+        "code": "pipe_across_opening",
+        "message": "Heater feed crosses the T&B door. The 20 mm cold water line runs 1.50 m above the floor through the 700 mm opening. Route it above the door head at 2.10 m or under the slab.",
+        "element_ids": [
+          "00000000-0000-4000-8000-000000016007",
+          "00000000-0000-4000-8000-000000012008"
+        ],
+        "location": {
+          "x": 6500.0,
+          "y": 4200.0,
+          "z": 1500.0
+        }
+      },
+      {
+        "id": "pipe_through_column:00000000-0000-4000-8000-000000016002,00000000-0000-4000-8000-000000014005",
+        "severity": "warning",
+        "code": "pipe_through_column",
+        "message": "Cold water chase runs through a column. The 20 mm cold water line passes through the 200 x 200 mm column 0.30 m above the floor. Keep pipes out of columns: route it around the column or under the slab, or ask the structural engineer first.",
+        "element_ids": [
+          "00000000-0000-4000-8000-000000016002",
+          "00000000-0000-4000-8000-000000014005"
+        ],
+        "location": {
+          "x": 5000.0,
+          "y": 6000.0,
+          "z": 300.0
+        }
+      },
+      {
+        "id": "drain_slope_low:00000000-0000-4000-8000-000000016014",
+        "severity": "warning",
+        "code": "drain_slope_low",
+        "message": "Kitchen sink waste falls 0.8 percent. The 4.30 m run drops 34 mm, under the 2 percent default for 50 mm drainage. Give it more fall: start it higher or connect it lower.",
+        "element_ids": [
+          "00000000-0000-4000-8000-000000016014"
+        ],
+        "location": {
+          "x": 4150.0,
+          "y": 5700.0,
+          "z": -317.0
+        }
+      },
+      {
+        "id": "pipe_penetrations:00000000-0000-4000-8000-000000016001,00000000-0000-4000-8000-000000016011,00000000-0000-4000-8000-000000016012,00000000-0000-4000-8000-000000016013,00000000-0000-4000-8000-000000016014,00000000-0000-4000-8000-000000016016",
+        "severity": "info",
+        "code": "pipe_penetrations",
+        "message": "7 pipe penetrations need sleeves or flashing: 6 through the floor slab, 1 through the roof. Set the sleeves before the pour or the blockwork, and detail the flashing before the roofing.",
+        "element_ids": [
+          "00000000-0000-4000-8000-000000016001",
+          "00000000-0000-4000-8000-000000016011",
+          "00000000-0000-4000-8000-000000016012",
+          "00000000-0000-4000-8000-000000016013",
+          "00000000-0000-4000-8000-000000016014",
+          "00000000-0000-4000-8000-000000016016"
+        ],
+        "location": null
+      }
+    ],
+    "pipes": {
+      "fittings": [
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016001",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 600.0,
+            "y": -1800.0,
+            "z": -300.0
+          },
+          "diameter_mm": 25.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016001",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 600.0,
+            "y": 5850.0,
+            "z": -300.0
+          },
+          "diameter_mm": 25.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016001",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 2000.0,
+            "y": 5850.0,
+            "z": -300.0
+          },
+          "diameter_mm": 25.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016001",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 2000.0,
+            "y": 6000.0,
+            "z": -300.0
+          },
+          "diameter_mm": 25.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "tee",
+          "pipe_id": "00000000-0000-4000-8000-000000016001",
+          "branch_pipe_id": "00000000-0000-4000-8000-000000016002",
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 2000.0,
+            "y": 6000.0,
+            "z": 300.0
+          },
+          "diameter_mm": 25.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "tee",
+          "pipe_id": "00000000-0000-4000-8000-000000016002",
+          "branch_pipe_id": "00000000-0000-4000-8000-000000016007",
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6000.0,
+            "y": 6000.0,
+            "z": 300.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "tee",
+          "pipe_id": "00000000-0000-4000-8000-000000016002",
+          "branch_pipe_id": "00000000-0000-4000-8000-000000016004",
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6300.0,
+            "y": 6000.0,
+            "z": 300.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "tee",
+          "pipe_id": "00000000-0000-4000-8000-000000016002",
+          "branch_pipe_id": "00000000-0000-4000-8000-000000016005",
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6780.0,
+            "y": 6000.0,
+            "z": 300.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016002",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7450.0,
+            "y": 6000.0,
+            "z": 300.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016003",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 2000.0,
+            "y": 6000.0,
+            "z": 550.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016004",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6300.0,
+            "y": 6000.0,
+            "z": 550.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016006",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7450.0,
+            "y": 6000.0,
+            "z": 1100.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016007",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6000.0,
+            "y": 4200.0,
+            "z": 300.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016007",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6000.0,
+            "y": 4200.0,
+            "z": 1500.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016007",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7500.0,
+            "y": 4200.0,
+            "z": 1500.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016007",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7500.0,
+            "y": 4400.0,
+            "z": 1500.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016008",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7550.0,
+            "y": 4400.0,
+            "z": 2450.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "tee",
+          "pipe_id": "00000000-0000-4000-8000-000000016008",
+          "branch_pipe_id": "00000000-0000-4000-8000-000000016009",
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7550.0,
+            "y": 5100.0,
+            "z": 2450.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016008",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7550.0,
+            "y": 6000.0,
+            "z": 2450.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016008",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7550.0,
+            "y": 6000.0,
+            "z": 1100.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016009",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6230.0,
+            "y": 5100.0,
+            "z": 2450.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016009",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6230.0,
+            "y": 6000.0,
+            "z": 2450.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016009",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6230.0,
+            "y": 6000.0,
+            "z": 550.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "tee",
+          "pipe_id": "00000000-0000-4000-8000-000000016010",
+          "branch_pipe_id": "00000000-0000-4000-8000-000000016012",
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6300.0,
+            "y": 5650.0,
+            "z": -420.0
+          },
+          "diameter_mm": 100.0,
+          "angle_deg": 89.891954
+        },
+        {
+          "kind": "tee",
+          "pipe_id": "00000000-0000-4000-8000-000000016010",
+          "branch_pipe_id": "00000000-0000-4000-8000-000000016011",
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6780.0,
+            "y": 5650.0,
+            "z": -430.0
+          },
+          "diameter_mm": 100.0,
+          "angle_deg": 88.806511
+        },
+        {
+          "kind": "tee",
+          "pipe_id": "00000000-0000-4000-8000-000000016010",
+          "branch_pipe_id": "00000000-0000-4000-8000-000000016013",
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7500.0,
+            "y": 5650.0,
+            "z": -444.0
+          },
+          "diameter_mm": 100.0,
+          "angle_deg": 89.824018
+        },
+        {
+          "kind": "tee",
+          "pipe_id": "00000000-0000-4000-8000-000000016010",
+          "branch_pipe_id": "00000000-0000-4000-8000-000000016016",
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7800.0,
+            "y": 5650.0,
+            "z": -450.0
+          },
+          "diameter_mm": 100.0,
+          "angle_deg": 89.977091
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016012",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6300.0,
+            "y": 5760.0,
+            "z": -410.0
+          },
+          "diameter_mm": 50.0,
+          "angle_deg": 84.805571
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016013",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7500.0,
+            "y": 5500.0,
+            "z": -420.0
+          },
+          "diameter_mm": 50.0,
+          "angle_deg": 80.909723
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016014",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 2000.0,
+            "y": 5700.0,
+            "z": -300.0
+          },
+          "diameter_mm": 50.0,
+          "angle_deg": 89.546973
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016014",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6300.0,
+            "y": 5700.0,
+            "z": -334.0
+          },
+          "diameter_mm": 50.0,
+          "angle_deg": 89.608356
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016016",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7800.0,
+            "y": 6000.0,
+            "z": -457.0
+          },
+          "diameter_mm": 50.0,
+          "angle_deg": 91.145763
+        }
+      ],
+      "penetrations": [
+        {
+          "kind": "slab",
+          "pipe_id": "00000000-0000-4000-8000-000000016001",
+          "host_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 2000.0,
+            "y": 6000.0,
+            "z": -75.0
+          },
+          "direction": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "diameter_mm": 25.0
+        },
+        {
+          "kind": "slab",
+          "pipe_id": "00000000-0000-4000-8000-000000016011",
+          "host_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6780.0,
+            "y": 5650.0,
+            "z": -75.0
+          },
+          "direction": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -1.0
+          },
+          "diameter_mm": 100.0
+        },
+        {
+          "kind": "slab",
+          "pipe_id": "00000000-0000-4000-8000-000000016012",
+          "host_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6300.0,
+            "y": 5760.0,
+            "z": -75.0
+          },
+          "direction": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -1.0
+          },
+          "diameter_mm": 50.0
+        },
+        {
+          "kind": "slab",
+          "pipe_id": "00000000-0000-4000-8000-000000016013",
+          "host_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7500.0,
+            "y": 5500.0,
+            "z": -75.0
+          },
+          "direction": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -1.0
+          },
+          "diameter_mm": 50.0
+        },
+        {
+          "kind": "slab",
+          "pipe_id": "00000000-0000-4000-8000-000000016014",
+          "host_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 2000.0,
+            "y": 5700.0,
+            "z": -75.0
+          },
+          "direction": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -1.0
+          },
+          "diameter_mm": 50.0
+        },
+        {
+          "kind": "slab",
+          "pipe_id": "00000000-0000-4000-8000-000000016016",
+          "host_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7800.0,
+            "y": 6000.0,
+            "z": -75.0
+          },
+          "direction": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "diameter_mm": 50.0
+        },
+        {
+          "kind": "roof",
+          "pipe_id": "00000000-0000-4000-8000-000000016016",
+          "host_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7800.0,
+            "y": 6000.0,
+            "z": 3080.506656
+          },
+          "direction": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "diameter_mm": 50.0
+        }
+      ],
+      "takeoff": [
+        {
+          "system": "cold_water",
+          "material": "ppr",
+          "diameter_mm": 20.0,
+          "length_m": 11.85,
+          "run_count": 6
+        },
+        {
+          "system": "cold_water",
+          "material": "ppr",
+          "diameter_mm": 25.0,
+          "length_m": 10.1,
+          "run_count": 1
+        },
+        {
+          "system": "hot_water",
+          "material": "ppr",
+          "diameter_mm": 20.0,
+          "length_m": 7.47,
+          "run_count": 2
+        },
+        {
+          "system": "drainage",
+          "material": "upvc",
+          "diameter_mm": 50.0,
+          "length_m": 7.312,
+          "run_count": 3
+        },
+        {
+          "system": "drainage",
+          "material": "upvc",
+          "diameter_mm": 100.0,
+          "length_m": 3.951,
+          "run_count": 3
+        },
+        {
+          "system": "vent",
+          "material": "upvc",
+          "diameter_mm": 50.0,
+          "length_m": 4.257,
+          "run_count": 1
+        }
+      ],
+      "total_length_m": 44.94,
+      "elbow_count": 23,
+      "tee_count": 9,
+      "sleeve_count": 7
+    }
+  },
+  "revision": 0,
+  "can_undo": false,
+  "can_redo": false,
+  "undo_label": null,
+  "redo_label": null
+}

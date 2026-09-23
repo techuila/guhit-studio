@@ -38,13 +38,14 @@ impl From<CoreError> for ToolError {
 
 use guhit_core::CoreError;
 
-pub const READ_TOOLS: [&str; 6] = [
+pub const READ_TOOLS: [&str; 7] = [
     "get_project_summary",
     "list_rooms",
     "describe_elements",
     "list_elements",
     "find_rooms_without_exterior_window",
     "list_review_items",
+    "get_pipe_takeoff",
 ];
 
 pub const EDIT_TOOLS: [&str; 15] = [
@@ -141,8 +142,8 @@ pub fn definitions() -> Vec<Value> {
         ),
         tool(
             "list_elements",
-            "All elements of one kind with their ids. Use it to find walls, openings or assets the user refers to.",
-            json!({"kind": {"type": "string", "enum": ["wall", "opening", "room", "column", "stair", "asset", "annotation", "dimension", "camera", "underlay"]}}),
+            "All elements of one kind with their ids. Use it to find walls, openings, assets or pipes the user refers to.",
+            json!({"kind": {"type": "string", "enum": ["wall", "opening", "room", "column", "stair", "asset", "annotation", "dimension", "camera", "underlay", "pipe"]}}),
             &["kind"], false,
         ),
         tool(
@@ -153,6 +154,11 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "list_review_items",
             "Current design review items. They are suggestions to check, not compliance findings.",
+            json!({}), &[], false,
+        ),
+        tool(
+            "get_pipe_takeoff",
+            "Pipe quantities from the model: centerline length per system, material and size, elbow, tee and sleeve counts, and every slab, wall and roof penetration. Call this for any question about pipes, fittings or sleeves. It counts; it does not size pipes.",
             json!({}), &[], false,
         ),
         // ---- edit tools (staged, never applied directly)
@@ -359,6 +365,10 @@ pub fn to_query(name: &str, input: &Value) -> Result<Query, ToolError> {
         "list_review_items" => {
             parse::<NoInput>(input)?;
             Query::Issues
+        }
+        "get_pipe_takeoff" => {
+            parse::<NoInput>(input)?;
+            Query::PipeTakeoff
         }
         other => return Err(ToolError::new(format!("unknown tool `{other}`"))),
     })
@@ -874,6 +884,25 @@ pub fn element_label(el: &Element) -> String {
         Element::Underlay(u) => format!("Underlay {}", u.file_name),
         Element::Linework(l) => format!("Linework {}", l.name),
         Element::ReferenceModel(m) => format!("Reference model {}", m.name),
+        // "Heater feed (cold water, 20 mm)", or "Cold water pipe 20 mm".
+        Element::Pipe(p) => {
+            let system = match p.system {
+                PipeSystem::ColdWater => "cold water",
+                PipeSystem::HotWater => "hot water",
+                PipeSystem::Drainage => "drainage",
+                PipeSystem::Vent => "vent",
+            };
+            if p.name.trim().is_empty() {
+                guhit_core::pipe_name(p)
+            } else {
+                let size = if p.diameter_mm.fract() == 0.0 {
+                    format!("{:.0}", p.diameter_mm)
+                } else {
+                    format!("{:.1}", p.diameter_mm)
+                };
+                format!("{} ({system}, {size} mm)", p.name.trim())
+            }
+        }
     }
 }
 

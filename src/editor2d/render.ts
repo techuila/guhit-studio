@@ -12,6 +12,7 @@ import type {
   Element,
   Linework,
   Opening,
+  PipeSystem,
   ReferenceModel,
   Room,
   Stair,
@@ -22,6 +23,8 @@ import type { P } from "./geom";
 import { add, angleDeg, dirDeg, dist, lerp, mul, orientedRect, readableDeg, sub, unit } from "./geom";
 import type { DocIndex } from "./model";
 import { ANNOTATION_LINE, dimensionGeometry, elementShape, openingFrame, openingRect, stairOutline, wallOutline } from "./model";
+import type { PipePlan, PipeShape } from "./pipe";
+import { pipePlan, pipeWidthPx, riserRadiusPx } from "./pipe";
 import { drawAssetSymbol } from "./symbols";
 import { formatArea, formatLength } from "./typed";
 import type { View } from "./view";
@@ -44,6 +47,11 @@ export interface Palette {
   ink2: string;
   ink3: string;
   danger: string;
+  warn: string;
+  pipeCold: string;
+  pipeHot: string;
+  pipeDrain: string;
+  pipeVent: string;
   fontUi: string;
   fontMono: string;
 }
@@ -63,6 +71,11 @@ export const DEFAULT_PALETTE: Palette = {
   ink2: "#44566b",
   ink3: "#7b8896",
   danger: "#c0392b",
+  warn: "#c07a12",
+  pipeCold: "#2b7bd0",
+  pipeHot: "#e0563a",
+  pipeDrain: "#9b6a35",
+  pipeVent: "#3a9a5c",
   fontUi: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   fontMono: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace',
 };
@@ -87,6 +100,11 @@ export function readPalette(el: HTMLElement): Palette {
     ink2: v("--ink-2", d.ink2),
     ink3: v("--ink-3", d.ink3),
     danger: v("--danger", d.danger),
+    warn: v("--warn", d.warn),
+    pipeCold: v("--pipe-cold", d.pipeCold),
+    pipeHot: v("--pipe-hot", d.pipeHot),
+    pipeDrain: v("--pipe-drain", d.pipeDrain),
+    pipeVent: v("--pipe-vent", d.pipeVent),
     fontUi: v("--font-ui", d.fontUi),
     fontMono: v("--font-mono", d.fontMono),
   };
@@ -786,6 +804,202 @@ export function drawReferenceModel(rc: RenderContext, m: ReferenceModel, style: 
   ctx.restore();
 }
 
+// ---------------------------------------------------------------- pipes
+
+/** The system color from the tokens (--pipe-cold, --pipe-hot, --pipe-drain, --pipe-vent). */
+export function pipeColor(palette: Palette, system: PipeSystem): string {
+  switch (system) {
+    case "cold_water":
+      return palette.pipeCold;
+    case "hot_water":
+      return palette.pipeHot;
+    case "drainage":
+      return palette.pipeDrain;
+    case "vent":
+      return palette.pipeVent;
+  }
+}
+
+/** Line pattern per system in CSS pixels: water solid, drainage dashed, vent dash-dot. */
+function pipeDash(system: PipeSystem, k: number): number[] {
+  if (system === "drainage") return [9 * k, 5 * k];
+  if (system === "vent") return [11 * k, 4 * k, 2 * k, 4 * k];
+  return [];
+}
+
+/** Wider than this (CSS pixels) a pipe is drawn as two edges and its centerline. */
+const PIPE_DOUBLE_PX = 4;
+
+/**
+ * A pipe in plan, split the way the exports split it (pipe.ts `pipePlan`):
+ * its stretches at its size at this zoom (never thinner than PIPE_MIN_PX) in
+ * the system color, drainage dashed with flow arrows pointing from the first
+ * point to the last, vent dash-dot. A riser is a circle marked up or down in
+ * run order, never a line. A thin paper casing lets a pipe read over walls
+ * and breaks the pipe it crosses.
+ */
+export function drawPipe(rc: RenderContext, pipe: PipeShape, style: ElementStyle | null, parts: "all" | "lines" | "risers" = "all"): void {
+  const { ctx, view, palette } = rc;
+  const plan = pipePlan(pipe.points);
+  if (parts === "risers") {
+    drawPipeRisers(rc, pipe, style, plan);
+    return;
+  }
+  const k = rc.uiScale;
+  const color = style?.color ?? pipeColor(palette, pipe.system);
+  const alpha = style?.alpha ?? 1;
+  const w = pipeWidthPx(pipe.diameter_mm, view.scale, k);
+  const runs = plan.runs.map((run) => run.map((q) => toScreen(view, q)));
+  const dash = style?.dashed ? [6 * k, 4 * k] : pipeDash(pipe.system, k);
+  ctx.save();
+  ctx.lineJoin = "round";
+  if (runs.length > 0) {
+    ctx.beginPath();
+    for (const run of runs) run.forEach((q, i) => (i === 0 ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y)));
+    ctx.strokeStyle = color;
+    if (style?.hollow) {
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = 1.5 * k;
+      ctx.lineCap = "round";
+      ctx.setLineDash(dash);
+      ctx.stroke();
+    } else if (w > PIPE_DOUBLE_PX * k) {
+      // Edges, a paper core tinted with the system color, then the patterned centerline.
+      ctx.lineCap = "round";
+      ctx.globalAlpha = alpha * 0.85;
+      ctx.lineWidth = w;
+      ctx.stroke();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = palette.paper;
+      ctx.lineWidth = w - 2 * k;
+      ctx.stroke();
+      ctx.globalAlpha = alpha * 0.16;
+      ctx.strokeStyle = color;
+      ctx.stroke();
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = 1.3 * k;
+      ctx.lineCap = dash.length > 0 ? "butt" : "round";
+      ctx.setLineDash(dash);
+      ctx.stroke();
+    } else {
+      ctx.lineCap = "round";
+      ctx.globalAlpha = alpha * 0.85;
+      ctx.strokeStyle = palette.paper;
+      ctx.lineWidth = w + 2.5 * k;
+      ctx.stroke();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = w;
+      ctx.lineCap = dash.length > 0 ? "butt" : "round";
+      ctx.setLineDash(dash);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    if (pipe.system === "drainage" && !style?.hollow) for (const run of runs) drawFlowArrows(ctx, run, color, w, k, alpha);
+  }
+  ctx.restore();
+  if (parts === "all") drawPipeRisers(rc, pipe, style, plan);
+}
+
+/** The riser circles of a pipe. Drawn after the lines, so no run covers them. */
+function drawPipeRisers(rc: RenderContext, pipe: PipeShape, style: ElementStyle | null, plan: PipePlan = pipePlan(pipe.points)): void {
+  const k = rc.uiScale;
+  const color = style?.color ?? pipeColor(rc.palette, pipe.system);
+  const r = riserRadiusPx(pipeWidthPx(pipe.diameter_mm, rc.view.scale, k), k);
+  for (const q of plan.risers) {
+    drawRiserMark(rc.ctx, toScreen(rc.view, q.point), r, q.zTo > q.zFrom, color, rc.palette.paper, k, style?.alpha ?? 1, !!style?.hollow);
+  }
+}
+
+/** Chevrons along each plan segment, pointing downstream (first point to last). */
+function drawFlowArrows(ctx: Ctx, pts: readonly P[], color: string, w: number, k: number, alpha: number): void {
+  const s = Math.max(3.5 * k, Math.min(w * 0.45 + 2 * k, 7 * k));
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.6 * k;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const L = Math.hypot(b.x - a.x, b.y - a.y);
+    if (L < 26 * k) continue;
+    const n = Math.max(1, Math.floor(L / (120 * k)));
+    const dx = (b.x - a.x) / L;
+    const dy = (b.y - a.y) / L;
+    for (let j = 0; j < n; j++) {
+      const t = (j + 0.5) / n;
+      const cx = a.x + (b.x - a.x) * t + dx * s * 0.3;
+      const cy = a.y + (b.y - a.y) * t + dy * s * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(cx - dx * s - dy * s * 0.75, cy - dy * s + dx * s * 0.75);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx - dx * s + dy * s * 0.75, cy - dy * s - dx * s * 0.75);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+/** A riser: a circle with a triangle pointing up the screen (rises) or down (drops). */
+export function drawRiserMark(ctx: Ctx, c: P, r: number, up: boolean, color: string, paper: string, k: number, alpha: number, hollow = false): void {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+  if (!hollow) {
+    ctx.fillStyle = paper;
+    ctx.fill();
+  }
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5 * k;
+  ctx.stroke();
+  const t = r * 0.52;
+  const dir = up ? -1 : 1;
+  ctx.beginPath();
+  ctx.moveTo(c.x, c.y + dir * t);
+  ctx.lineTo(c.x + t * 0.95, c.y - dir * t * 0.6);
+  ctx.lineTo(c.x - t * 0.95, c.y - dir * t * 0.6);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * Tees from `Derived.pipes.fittings` on the active level: a dot where a run
+ * ends on another, in the color of the run it joins. Absent until the engine
+ * fills the network.
+ */
+export function drawPipeFittings(rc: RenderContext, styleOf: (id: string) => ElementStyle | null): void {
+  const fittings = rc.index.doc.derived.pipes?.fittings ?? [];
+  if (fittings.length === 0) return;
+  const { ctx, view, palette } = rc;
+  const k = rc.uiScale;
+  for (const f of fittings) {
+    if (f.kind !== "tee" || f.level_id !== rc.index.levelId || !rc.index.visibleIds.has(f.pipe_id)) continue;
+    const main = rc.index.byId.get(f.pipe_id);
+    if (!main || main.kind !== "pipe") continue;
+    const st = styleOf(f.pipe_id);
+    const w = pipeWidthPx(f.diameter_mm, view.scale, k);
+    const r = Math.max(3.2 * k, w * 0.62);
+    const c = toScreen(view, f.position);
+    ctx.save();
+    ctx.globalAlpha = st?.alpha ?? 1;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, r + 1.2 * k, 0, Math.PI * 2);
+    ctx.fillStyle = palette.paper;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = st?.color ?? pipeColor(palette, main.system);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 // ---------------------------------------------------------------- one element, any kind
 
 /** Draws a single element with a style. Used for ghosts and removed elements. */
@@ -831,6 +1045,9 @@ export function drawElement(rc: RenderContext, el: Element, style: ElementStyle 
     case "reference_model":
       drawReferenceModel(local, el, style);
       break;
+    case "pipe":
+      drawPipe(local, el, style);
+      break;
   }
 }
 
@@ -859,6 +1076,12 @@ export function drawModel(rc: RenderContext, opt: SceneOptions): void {
     if (host && host.kind === "wall") drawOpening(rc, o, host, opt.styleOf(o.id));
   }
   for (const c of of("column")) drawColumn(rc, c, opt.styleOf(c.id));
+  // Pipes over the building so runs in walls and under slabs still read.
+  // Higher runs draw last: seen from above they cross over the lower ones.
+  const pipes = of("pipe").sort((a, b) => meanZ(a.points) - meanZ(b.points));
+  for (const p of pipes) drawPipe(rc, p, opt.styleOf(p.id), "lines");
+  for (const p of pipes) drawPipe(rc, p, opt.styleOf(p.id), "risers");
+  drawPipeFittings(rc, opt.styleOf);
   for (const r of of("room")) drawRoomLabel(rc, r, opt.styleOf(r.id));
   for (const d of of("dimension")) drawDimension(rc, d, opt.styleOf(d.id));
   for (const a of of("annotation")) drawAnnotation(rc, a, opt.styleOf(a.id));
@@ -866,6 +1089,12 @@ export function drawModel(rc: RenderContext, opt: SceneOptions): void {
   if (opt.showCameras) {
     for (const c of of("camera")) drawCamera(rc, c, opt.styleOf(c.id), c.id === opt.activeCameraId);
   }
+}
+
+function meanZ(points: readonly { z: number }[]): number {
+  let s = 0;
+  for (const v of points) s += v.z;
+  return points.length > 0 ? s / points.length : 0;
 }
 
 /**
@@ -904,6 +1133,29 @@ export function drawHighlight(rc: RenderContext, el: Element, strength: "hover" 
     ctx.beginPath();
     ctx.arc(s.x, s.y, (el.width_mm / 2) * rc.view.scale + 2, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.restore();
+    return;
+  }
+  if (el.kind === "pipe") {
+    // A halo along the stretches and a ring around each riser, wider than the pipe itself.
+    const plan = pipePlan(el.points);
+    const w = pipeWidthPx(el.diameter_mm, rc.view.scale, rc.uiScale);
+    ctx.lineCap = "round";
+    ctx.globalAlpha = (sel ? 0.3 : 0.2) * alpha;
+    ctx.lineWidth = w + (sel ? 9 : 7);
+    for (const run of plan.runs) {
+      path(rc, run, false);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = (sel ? 1 : 0.7) * alpha;
+    ctx.lineWidth = sel ? 1.8 : 1.3;
+    const r = riserRadiusPx(w, rc.uiScale) + 3;
+    for (const q of plan.risers) {
+      const s = toScreen(rc.view, q.point);
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
     return;
   }

@@ -4,8 +4,8 @@
 //! both go through `apply`, so every change is validated, undoable and logged.
 //!
 //! PUBLIC API IS CONTRACT: `guhit-app` depends on the signatures of
-//! `Document`, `CoreError`, `compute_derived` and `templates`. Internals are
-//! free to change.
+//! `Document`, `CoreError`, `compute_derived`, `migrate` and `templates`.
+//! Internals are free to change.
 //!
 //! Modules:
 //! - `geom`: segment and polygon math.
@@ -15,6 +15,7 @@
 //! - `exec`: every `Command`.
 //! - `validate`: rules and the post-command safety net.
 //! - `issues`: design review suggestions.
+//! - `pipes`: pipe fittings, penetrations, take-off and pipe review items.
 //! - `query`: read-only answers for the AI copilot.
 //! - `ids`: deterministic ids, so `preview` equals `apply`.
 
@@ -29,6 +30,7 @@ mod exec;
 mod geom;
 mod ids;
 mod issues;
+mod pipes;
 mod query;
 mod rooms;
 pub mod templates;
@@ -37,6 +39,21 @@ mod validate;
 
 pub use derive::compute_derived;
 pub use error::CoreError;
+pub use pipes::pipe_name;
+
+/// Bring a project from an older file up to `SCHEMA_VERSION`. Every layer the
+/// project lacks is added after the ones it has, in `LayerKey` order, visible
+/// and unlocked. Version 2 added the four pipe layers. Running it twice
+/// changes nothing. `Document::new` and `Document::with_revision` call it, so
+/// every project that is opened goes through it.
+pub fn migrate(project: &mut Project) {
+    for layer in defaults::default_layers() {
+        if !project.layers.iter().any(|l| l.key == layer.key) {
+            project.layers.push(layer);
+        }
+    }
+    project.schema_version = SCHEMA_VERSION;
+}
 
 struct HistoryEntry {
     label: String,
@@ -68,7 +85,10 @@ impl Document {
 
     /// Same as `new`, but the revision counter starts at `revision`, so a
     /// restored snapshot never repeats a revision number. History is empty.
+    /// An older project is migrated first (`migrate`).
     pub fn with_revision(project: Project, revision: u32) -> Self {
+        let mut project = project;
+        migrate(&mut project);
         let derived = compute_derived(&project);
         Self {
             project,

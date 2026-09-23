@@ -56,6 +56,11 @@ pub fn save_project(data: &Path, project: &Project) -> Result<(), IpcError> {
 
 /// Parse a project file. Checks `schema_version` before the full parse, so a
 /// file from a newer app gives a clear message instead of a field error.
+///
+/// Versions 1 and 2 are read. Version 2 added pipes and the four pipe layers;
+/// a version 1 file has neither, parses as it is, and `guhit_core::migrate`
+/// adds the missing layers, so the project always comes back at
+/// `SCHEMA_VERSION`.
 pub fn parse_project(bytes: &[u8], source: &Path) -> Result<Project, IpcError> {
     let corrupt =
         |e: serde_json::Error| IpcError::new("invalid", format!("project file is damaged ({}): {e}", source.display()));
@@ -77,10 +82,12 @@ pub fn parse_project(bytes: &[u8], source: &Path) -> Result<Project, IpcError> {
             ))
         }
         Some(0) => return Err(IpcError::new("invalid", "project file has schema_version 0, which never existed")),
-        // Older versions would be migrated here. Version 1 is the first.
+        // 1 and 2: the same shape, migrated below.
         Some(_) => {}
     }
-    serde_json::from_value(raw).map_err(corrupt)
+    let mut project: Project = serde_json::from_value(raw).map_err(corrupt)?;
+    guhit_core::migrate(&mut project);
+    Ok(project)
 }
 
 pub fn load_project(data: &Path, id: &str) -> Result<Project, IpcError> {

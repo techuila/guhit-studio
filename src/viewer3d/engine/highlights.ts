@@ -3,6 +3,10 @@
 // materials once, then blends them from the plain look (k = 0) to the full
 // highlight (k = 1) every frame. Fading out runs the same blend backwards and
 // disposes the clones at 0, so nothing is left behind.
+//
+// The blend starts from the base material as it is right now, not as it was
+// when the highlight began: the X-ray and hidden shell modes change opacity
+// and visibility of the base materials while an element stays selected.
 
 import * as THREE from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
@@ -46,18 +50,65 @@ interface Member {
   mesh: THREE.Mesh;
   base: THREE.MeshStandardMaterial;
   clone: THREE.MeshStandardMaterial;
-  baseColor: THREE.Color;
-  baseOpacity: number;
-  baseTransparent: boolean;
 }
 
 const scratch = new THREE.Color();
+const glowFrom = new THREE.Color();
+const glowTo = new THREE.Color();
+
+/**
+ * Screen-space outline for thin round things (pipes), where an edge outline
+ * would only find the ring at each end: the back faces of the mesh, pushed
+ * out along their normals by a fixed number of pixels, show as a band around
+ * the silhouette.
+ */
+const HULL_VERTEX = /* glsl */ `
+  uniform vec2 resolution;
+  uniform float width;
+  void main() {
+    vec4 clip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec3 n = normalize(normalMatrix * normal);
+    vec2 dir = (projectionMatrix * vec4(n, 0.0)).xy * resolution;
+    float len = length(dir);
+    dir = len > 1e-6 ? dir / len : vec2(0.0);
+    clip.xy += dir * width * 2.0 / resolution * clip.w;
+    gl_Position = clip;
+  }
+`;
+
+const HULL_FRAGMENT = /* glsl */ `
+  uniform vec3 color;
+  uniform float opacity;
+  void main() {
+    gl_FragColor = vec4(color, opacity);
+    #include <colorspace_fragment>
+  }
+`;
+
+function hullMaterial(resolution: THREE.Vector2): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      color: { value: SELECT_COLOR.clone() },
+      opacity: { value: 0 },
+      width: { value: 2.2 },
+      resolution: { value: resolution.clone() },
+    },
+    vertexShader: HULL_VERTEX,
+    fragmentShader: HULL_FRAGMENT,
+    side: THREE.BackSide,
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+  });
+}
 
 /** One element's tint. Created on the way in, released on the way out. */
 export class Highlight {
   readonly members: Member[] = [];
   private outlines: LineSegments2[] = [];
   private outlineMaterial: LineMaterial | null = null;
+  private hulls: THREE.Mesh[] = [];
+  private hullMat: THREE.ShaderMaterial | null = null;
   private released = false;
 
   constructor(
@@ -70,14 +121,7 @@ export class Highlight {
       if (Array.isArray(mesh.material) || !base?.isMeshStandardMaterial) continue;
       const clone = base.clone();
       clone.userData = { ...base.userData };
-      this.members.push({
-        mesh,
-        base,
-        clone,
-        baseColor: base.color.clone(),
-        baseOpacity: base.opacity,
-        baseTransparent: base.transparent,
-      });
+      this.members.push({ mesh, base, clone });
       mesh.material = clone;
     }
   }
@@ -111,12 +155,26 @@ export class Highlight {
     this.outlines.push(line);
   }
 
+  /** The silhouette band used for pipes, on the same fade as every other outline. */
+  addHullOutline(mesh: THREE.Mesh, resolution: THREE.Vector2): void {
+    this.hullMat ??= hullMaterial(resolution);
+    const hull = new THREE.Mesh(mesh.geometry, this.hullMat);
+    hull.raycast = () => {};
+    hull.renderOrder = 3;
+    hull.castShadow = false;
+    hull.receiveShadow = false;
+    hull.userData.outline = true;
+    mesh.add(hull);
+    this.hulls.push(hull);
+  }
+
   hasOutline(): boolean {
-    return this.outlines.length > 0;
+    return this.outlines.length > 0 || this.hulls.length > 0;
   }
 
   setResolution(w: number, h: number): void {
     this.outlineMaterial?.resolution.set(w, h);
+    this.hullMat?.uniforms.resolution.value.set(w, h);
   }
 
   /**
@@ -132,26 +190,36 @@ export class Highlight {
     const wantMapOff = s.dropMap && strength > 0.02;
     for (const m of this.members) {
       const c = m.clone;
-      c.color.copy(m.baseColor);
+      const b = m.base;
+      c.color.copy(b.color);
       if (s.mix > 0) c.color.lerp(scratch.copy(s.tint), s.mix * strength);
-      c.emissive.copy(s.emissive);
-      c.emissiveIntensity = s.emissiveIntensity * strength;
+      // From the material's own glow (pipes have one) to the highlight's.
+      glowFrom.copy(b.emissive).multiplyScalar(b.emissiveIntensity);
+      glowTo.copy(s.emissive).multiplyScalar(s.emissiveIntensity);
+      c.emissive.copy(glowFrom).lerp(glowTo, strength);
+      c.emissiveIntensity = 1;
+      let opacity = b.opacity;
       if (s.opacity !== null) {
         const want = s.breathes && breath !== undefined ? breath : s.opacity;
-        const target = Math.min(m.baseOpacity, want);
-        const opacity = m.baseOpacity + (target - m.baseOpacity) * strength;
-        c.opacity = opacity;
-        const seeThrough = m.baseTransparent || opacity < 0.999;
-        c.transparent = seeThrough;
-        c.depthWrite = seeThrough ? false : m.base.depthWrite;
+        const target = Math.min(b.opacity, want);
+        opacity = b.opacity + (target - b.opacity) * strength;
       }
-      const nextMap = wantMapOff ? null : m.base.map;
+      c.opacity = opacity;
+      const seeThrough = b.transparent || opacity < 0.999;
+      if (c.transparent !== seeThrough) {
+        c.transparent = seeThrough;
+        c.needsUpdate = true;
+      }
+      c.depthWrite = seeThrough ? false : b.depthWrite;
+      c.visible = b.visible;
+      const nextMap = wantMapOff ? null : b.map;
       if (c.map !== nextMap) {
         c.map = nextMap;
         c.needsUpdate = true;
       }
     }
     if (this.outlineMaterial) this.outlineMaterial.opacity = strength;
+    if (this.hullMat) this.hullMat.uniforms.opacity.value = strength;
   }
 
   /** Puts the original materials back and disposes everything this created. */
@@ -167,5 +235,9 @@ export class Highlight {
     this.outlines.length = 0;
     this.outlineMaterial?.dispose();
     this.outlineMaterial = null;
+    for (const hull of this.hulls) hull.parent?.remove(hull);
+    this.hulls.length = 0;
+    this.hullMat?.dispose();
+    this.hullMat = null;
   }
 }

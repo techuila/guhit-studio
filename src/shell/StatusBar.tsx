@@ -1,13 +1,15 @@
 import { useMemo } from "react";
-import type { DocState } from "../contract/bindings";
+import type { DocState, Element } from "../contract/bindings";
 import { useApp, useVisibleDoc } from "../state/store";
 import { cx } from "../ui/controls";
 import { Icon, type IconName } from "../ui/icons";
 import { formatArea, formatAreaMm2, formatLength, lengthToInput } from "../ui/units";
+import { useViewer, type ShellMode } from "../viewer3d/viewerStore";
 import { TOOLS } from "./actions";
+import { PIPE_SYSTEM_LABEL, pipeLength, sizeLabel } from "./pipes";
 import s from "./chrome.module.css";
 
-const KIND_LABEL: Record<string, [string, string]> = {
+const KIND_LABEL: Record<Element["kind"], [string, string]> = {
   wall: ["wall", "walls"],
   opening: ["opening", "openings"],
   room: ["room", "rooms"],
@@ -20,6 +22,7 @@ const KIND_LABEL: Record<string, [string, string]> = {
   underlay: ["underlay", "underlays"],
   linework: ["linework", "linework"],
   reference_model: ["reference model", "reference models"],
+  pipe: ["pipe", "pipes"],
 };
 
 function selectionSummary(doc: DocState, selection: string[]): string {
@@ -35,6 +38,7 @@ function selectionSummary(doc: DocState, selection: string[]): string {
     if (e.kind === "room") parts.push(e.name || "Room");
     else if (e.kind === "opening") parts.push(e.opening_type === "door" ? "Door" : "Window");
     else if (e.kind === "asset") parts.push(e.name);
+    else if (e.kind === "pipe") parts.push(`${PIPE_SYSTEM_LABEL[e.system]} pipe, ${sizeLabel(e.material, e.diameter_mm)}`);
     else parts.push(KIND_LABEL[e.kind][0].replace(/^./, (c) => c.toUpperCase()));
   } else if (kinds.size === 1) {
     parts.push(`${picked.length} ${KIND_LABEL[picked[0].kind][1]}`);
@@ -54,6 +58,11 @@ function selectionSummary(doc: DocState, selection: string[]): string {
     if (area > 0) parts.push(`${roomIds.length > 1 ? "total area" : "area"} ${formatAreaMm2(area)}`);
     if (rooms.length === 1) parts.push(`perimeter ${formatLength(rooms[0].perimeter_mm, unit)}`);
   }
+  const pipes = picked.filter((e) => e.kind === "pipe");
+  if (pipes.length > 0) {
+    const total = pipes.reduce((sum, e) => sum + pipeLength(e.points), 0);
+    parts.push(`${pipes.length > 1 ? "total length" : "length"} ${formatLength(total, unit)}`);
+  }
   if (picked.length === 1 && picked[0].kind === "opening") {
     parts.push(`${formatLength(picked[0].width_mm, unit)} wide`);
   }
@@ -72,6 +81,32 @@ function Toggle({ on, label, icon, tip, onClick }: { on: boolean; label: string;
     >
       <Icon name={icon} size={13} />
       {label}
+    </button>
+  );
+}
+
+const SHELL_LABEL: Record<ShellMode, string> = { solid: "Solid", xray: "X-ray", hidden: "Building hidden" };
+
+/**
+ * Shows the 3D building shell mode while it is not solid, so X pressed in
+ * the plan view has a visible answer. Click to cycle, like X.
+ */
+function ShellStatus() {
+  const shell = useViewer((st) => st.shell);
+  const cycle = useViewer((st) => st.cycleShell);
+  const shown = shell !== "solid";
+  return (
+    <button
+      type="button"
+      className={cx(s.statusToggle, s.statusToggleOn, s.shellStatus, !shown && s.shellStatusOff)}
+      aria-hidden={!shown}
+      tabIndex={shown ? 0 : -1}
+      data-tip="3D building: X switches solid, X-ray, hidden"
+      data-tip-side="top"
+      onClick={cycle}
+    >
+      <Icon name={shell === "hidden" ? "eyeOff" : "xray"} size={13} />
+      {SHELL_LABEL[shell]}
     </button>
   );
 }
@@ -127,6 +162,7 @@ export function StatusBar() {
       </div>
 
       <div className={s.statusRight}>
+        <ShellStatus />
         {level ? <span data-tip="Active level" data-tip-side="top">{level.name}</span> : null}
         <span data-tip="Drawing scale" data-tip-side="top">1:{settings.scale_denominator}</span>
         <span data-tip={`${doc.derived.totals.room_count} rooms, gross ${formatArea(doc.derived.totals.gross_area_m2)}`} data-tip-side="top-end">

@@ -327,10 +327,11 @@ impl AppService {
                 let mut project = match template.as_deref().unwrap_or("blank") {
                     "blank" => defaults::new_project(""),
                     "sample-bungalow" => guhit_core::templates::sample_bungalow(),
+                    "plumbing-demo" => guhit_core::templates::plumbing_demo(),
                     other => {
                         return Err(IpcError::new(
                             "invalid",
-                            format!("unknown template `{other}`. Use `blank` or `sample-bungalow`"),
+                            format!("unknown template `{other}`. Use `blank`, `sample-bungalow` or `plumbing-demo`"),
                         ))
                     }
                 };

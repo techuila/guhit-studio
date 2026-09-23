@@ -158,4 +158,7 @@ pub enum Query {
     ListElements { kind: ElementKind },
     /// Current review items.
     Issues,
+    /// Pipe quantities by system, material and size, fitting and sleeve
+    /// counts, and every penetration. From `Derived::pipes`.
+    PipeTakeoff,
 }

@@ -6,4 +6,9 @@ export type PlanExportOptions = { level_id: string | null, paper: PaperSize, ori
 /**
  * 1:N. None picks the largest common scale that fits the sheet.
  */
-scale_denominator: number | null, show_dimensions: boolean, show_room_labels: boolean, show_assets: boolean, title_block: boolean, };
+scale_denominator: number | null, show_dimensions: boolean, show_room_labels: boolean, show_assets: boolean, title_block: boolean, 
+/**
+ * Draw pipes on visible pipe layers, with a legend. DXF puts each system
+ * on its own layer. Older callers that omit it get true.
+ */
+show_pipes: boolean, };

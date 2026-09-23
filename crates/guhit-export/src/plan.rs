@@ -184,13 +184,22 @@ pub fn resolve_level<'a>(
     }
 }
 
-fn layer_visible(project: &Project, key: LayerKey) -> bool {
+/// A layer missing from the project (an older file) counts as visible.
+pub(crate) fn layer_visible(project: &Project, key: LayerKey) -> bool {
     project
         .layers
         .iter()
         .find(|l| l.key == key)
         .map(|l| l.visible)
         .unwrap_or(true)
+}
+
+/// The error for a level with nothing visible to draw.
+pub fn empty_level(level: &Level) -> ExportError {
+    ExportError::Empty(format!(
+        "level \"{}\" has no visible elements to draw",
+        clean(&level.name)
+    ))
 }
 
 /// Build every primitive of one level. Returns `ExportError::Empty` when the
@@ -201,6 +210,22 @@ pub fn build_plan(
     level: &Level,
     opts: &PlanOptions,
 ) -> Result<Vec<Item>, ExportError> {
+    let out = build_items(project, derived, level, opts);
+    if out.is_empty() {
+        return Err(empty_level(level));
+    }
+    Ok(out)
+}
+
+/// Same as `build_plan`, but an empty level gives an empty list. Pipes are
+/// drawn from their own list (`crate::pipes`), so a level holding only pipes
+/// is still a drawing.
+pub fn build_items(
+    project: &Project,
+    derived: &Derived,
+    level: &Level,
+    opts: &PlanOptions,
+) -> Vec<Item> {
     let n = if opts.scale.is_finite() && opts.scale > 0.0 {
         opts.scale
     } else {
@@ -407,13 +432,7 @@ pub fn build_plan(
     out.append(&mut room_items);
 
     out.retain(item_is_finite);
-    if out.is_empty() {
-        return Err(ExportError::Empty(format!(
-            "level \"{}\" has no visible elements to draw",
-            clean(&level.name)
-        )));
-    }
-    Ok(out)
+    out
 }
 
 fn item_is_finite(item: &Item) -> bool {

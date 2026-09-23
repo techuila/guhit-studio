@@ -7,6 +7,10 @@ restart the wall tool). Source of truth: `src/shell/shortcuts.tsx` (the
 `TOOL_KEYS` map and the `useGlobalShortcuts` handler), `src/shell/actions.ts`
 (`TOOLS`, `paletteActions`), and the in-app cheat sheet (press `?`).
 
+While the 3D view walks or flies (`useViewer` nav is not `orbit`), it owns
+every key without MOD: the global handler ignores them all, including tool
+letters, Delete and `?`. MOD shortcuts keep working. Escape returns to orbit.
+
 ## Draw (tools)
 
 | Key | Tool |
@@ -19,10 +23,23 @@ restart the wall tool). Source of truth: `src/shell/shortcuts.tsx` (the
 | C | Column |
 | S | Stair |
 | O | Objects (opens the object library flyout) |
+| P | Pipe. System, size and start height are in the rail button's flyout |
 | M | Dimension |
 | T | Text |
 | K | Camera |
 | H | Pan (a hand tool; holding Space still pans temporarily) |
+
+### While the pipe tool is active
+
+With the pointer over the plan (H is the Pan tool anywhere else). Handled by
+the plan canvas (`src/editor2d/controller.ts`).
+
+| Key | Action |
+|---|---|
+| PageUp, PageDown | Raise or lower the pipe by 100 mm, Shift for 10 mm. Before the first click it sets the start height; during a run it adds a riser |
+| H, then a number, Enter | Type the height |
+| Enter | Finish the run, or apply a typed length |
+| Escape, or Backspace | Step back: the pending riser, then the last point, then the whole run |
 
 ## Toggles
 
@@ -43,6 +60,33 @@ restart the wall tool). Source of truth: `src/shell/shortcuts.tsx` (the
 | MOD+= | Zoom in |
 | MOD+- | Zoom out |
 | Z | Zoom to the selection (zoom to fit when nothing is selected) |
+
+## Walk and X-ray (3D view)
+
+| Key | Action |
+|---|---|
+| Shift+W | Walk through the building. From the plan-only view the view switches to split first |
+| X | Building shell: solid, then X-ray, then hidden, then solid. Works from the plan view too; the status bar shows the mode while it is not solid |
+
+In walk or fly mode the 3D view handles the keys below
+(`src/viewer3d/engine/walker.ts`). Drag in the 3D view to look around, or use
+its Lock mouse button.
+
+| Key | Action |
+|---|---|
+| W A S D, or arrow keys | Move forward, back and sideways |
+| Shift | Run |
+| F | Switch between walk and fly |
+| E or Space, Q or C | Up and down, in fly mode |
+| X | Building solid, X-ray, hidden |
+| Escape | Back to orbit. With the mouse locked, the first Escape only frees the mouse |
+
+Switching to the plan-only view (the 2D button, or the palette) ends a walk,
+so the plan gets its keys back.
+
+The palette also has Walk through the building, Fly through the building,
+X-ray the building, Hide the building, Show the building solid, and Show the
+pipe take-off.
 
 ## Edit
 

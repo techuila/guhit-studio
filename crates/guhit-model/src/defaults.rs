@@ -77,6 +77,10 @@ pub fn default_layers() -> Vec<Layer> {
         Annotations,
         Dimensions,
         Underlays,
+        ColdWater,
+        HotWater,
+        Drainage,
+        Vent,
     ]
     .into_iter()
     .map(|key| Layer {
@@ -85,6 +89,28 @@ pub fn default_layers() -> Vec<Layer> {
         locked: false,
     })
     .collect()
+}
+
+/// Tool defaults per pipe system: material, nominal size in mm, and the
+/// height above the floor a new run starts at. Suggestions for drawing, not
+/// sizing. The frontend mirrors this table (docs/CONTRACT.md).
+pub fn pipe_defaults(system: PipeSystem) -> (PipeMaterial, f64, f64) {
+    match system {
+        PipeSystem::ColdWater => (PipeMaterial::Ppr, 20.0, 300.0),
+        PipeSystem::HotWater => (PipeMaterial::Ppr, 20.0, 300.0),
+        PipeSystem::Drainage => (PipeMaterial::Upvc, 50.0, -300.0),
+        PipeSystem::Vent => (PipeMaterial::Upvc, 50.0, 300.0),
+    }
+}
+
+/// Default minimum fall of horizontal drainage, in percent: 2 percent, or
+/// 1 percent from 100 mm up. A review default, not a code statement.
+pub fn drain_min_slope_pct(diameter_mm: f64) -> f64 {
+    if diameter_mm >= 100.0 {
+        1.0
+    } else {
+        2.0
+    }
 }
 
 pub fn default_roof() -> Roof {

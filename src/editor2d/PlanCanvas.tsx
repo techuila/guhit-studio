@@ -90,9 +90,11 @@ export function PlanCanvas() {
 
 function TypedBox({ typed, stage }: { typed: NonNullable<UiState["typed"]>; stage: PresenceStage }) {
   const { state, labels } = typed;
+  // A pipe height (typed after h) is a single field.
+  const height = state.mode === "height";
   return (
     <div className={styles.typed} style={{ left: typed.x + 18, top: typed.y + 14 }} data-stage={stage} data-testid="typed-box">
-      {[0, 1].map((i) => (
+      {(height ? [0] : [0, 1]).map((i) => (
         <div key={i} className={`${styles.field} ${state.active === i ? styles.fieldActive : ""}`}>
           <span className={styles.fieldLabel}>{labels[i]}</span>
           <span className={styles.fieldValue}>
@@ -101,7 +103,7 @@ function TypedBox({ typed, stage }: { typed: NonNullable<UiState["typed"]>; stag
           </span>
         </div>
       ))}
-      <span className={styles.typedHelp}>Tab switches, Enter applies</span>
+      <span className={styles.typedHelp}>{height ? "Enter sets the height" : "Tab switches, Enter applies"}</span>
     </div>
   );
 }

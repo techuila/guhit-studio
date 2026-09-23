@@ -41,6 +41,11 @@
   --draw-dimension: #1f5f99;
   --draw-selection: #0e8a8f;
   --draw-preview: #6b4fbb;
+  /* pipe systems: 2D plan, 3D view, legends, layer swatches */
+  --pipe-cold: #2b7bd0;
+  --pipe-hot: #e0563a;
+  --pipe-drain: #9b6a35;
+  --pipe-vent: #3a9a5c;
 
   /* type */
   --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;

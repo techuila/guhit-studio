@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AssetCategory, CatalogItem } from "../contract/bindings";
 import { useApp } from "../state/store";
 import { cx } from "../ui/controls";
@@ -6,6 +6,7 @@ import { Icon } from "../ui/icons";
 import { Presence, useSlidingIndicator } from "../ui/motionDom";
 import { formatLength } from "../ui/units";
 import { DOOR_STYLES, TOOLS, WINDOW_STYLES, activateTool, type ToolDef } from "./actions";
+import { PipeOptions } from "./PipeOptions";
 import { useShell } from "./shellStore";
 import s from "./chrome.module.css";
 
@@ -44,6 +45,18 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
     return () => window.removeEventListener("mousedown", down, true);
   }, [onClose]);
 
+  // A tall flyout (pipe, objects) low on the rail would run off a short
+  // window: lift it by the overflow, before the first paint.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.top = "";
+    // Layout box, not the bounding rect: the entrance scale is still on.
+    const top = (el.offsetParent?.getBoundingClientRect().top ?? 0) + el.offsetTop;
+    const lift = Math.min(top + el.offsetHeight - (window.innerHeight - 12), top - 8);
+    if (lift > 0) el.style.top = `${-4 - lift}px`;
+  }, []);
+
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const items = q ? catalog.filter((c) => `${c.name} ${c.category}`.toLowerCase().includes(q)) : catalog;
@@ -57,7 +70,7 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
   return (
     <div
       ref={ref}
-      className={cx(s.flyout, tool.flyout === "asset" && s.flyoutWide)}
+      className={cx(s.flyout, tool.flyout === "asset" && s.flyoutWide, tool.flyout === "pipe" && s.flyoutPipe)}
       data-stage={stage}
       role="dialog"
       aria-label={`${tool.label} options`}
@@ -106,6 +119,8 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
           ))}
         </>
       ) : null}
+
+      {tool.flyout === "pipe" ? <PipeOptions /> : null}
 
       {tool.flyout === "asset" ? (
         <>
@@ -202,7 +217,7 @@ export function ToolRail() {
     <nav ref={railRef} className={s.rail} aria-label="Drawing tools">
       {pill.visible ? <span aria-hidden className={cx(s.railPill, pill.instant && s.instant)} style={pill.style} /> : null}
       {TOOLS.map((t, i) => (
-        <div key={t.tool} className={cx(s.railSlot, (i === 1 || i === 3 || i === 8 || i === 11) && s.railGap)}>
+        <div key={t.tool} className={cx(s.railSlot, i > 0 && TOOLS[i - 1].group !== t.group && s.railGap)}>
           <button
             ref={tool === t.tool ? activeButtonRef : undefined}
             type="button"

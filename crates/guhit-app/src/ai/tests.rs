@@ -137,7 +137,7 @@ async fn first_request_has_system_prompt_context_and_strict_tools() {
     assert!(!req.system.contains('\u{2014}') && !req.system.contains('\u{2013}'));
     let user = req.messages.last().unwrap()["content"].as_str().unwrap().to_string();
     assert!(user.contains("<project_context>") && user.ends_with("hello"));
-    assert_eq!(req.tools.len(), 21);
+    assert_eq!(req.tools.len(), 22);
     for tool in &req.tools {
         let name = tool["name"].as_str().unwrap();
         assert_eq!(tool["input_schema"]["additionalProperties"], json!(false), "{name}");
@@ -718,4 +718,97 @@ fn every_edit_tool_translates_to_a_typed_command() {
         .0
         .contains("Known material ids"));
     assert!(super::tools::to_command(&project, "resize_room", &json!({"room_id": "w1", "side": "east", "delta_mm": 300}), &level_id).is_err());
+}
+
+// ---------------------------------------------------------------------- pipes
+
+/// Fixed ids from `templates::plumbing_demo`.
+const HEATER_FEED: &str = "00000000-0000-4000-8000-000000016007";
+const SINK_WASTE: &str = "00000000-0000-4000-8000-000000016014";
+
+/// A rig with the plumbing demo open: a project with 16 pipes.
+async fn plumbing_rig(model: ScriptedClient) -> Rig {
+    let r = rig_with(model).await;
+    r.app
+        .handle("hub_create", json!({"name": "Pipes", "settings": null, "template": "plumbing-demo"}))
+        .await
+        .expect("plumbing demo opens");
+    r
+}
+
+#[tokio::test]
+async fn pipe_questions_are_answered_from_the_takeoff() {
+    let r = plumbing_rig(ScriptedClient::new(vec![
+        ScriptedClient::tools(&[
+            ("get_pipe_takeoff", json!({})),
+            ("list_elements", json!({"kind": "pipe"})),
+            ("describe_elements", json!({"ids": [HEATER_FEED]})),
+        ]),
+        ScriptedClient::text("There are 44.94 m of pipe."),
+    ]))
+    .await;
+    let turn = r.chat("How much pipe is in the house, and how many tees?").await.unwrap();
+    assert!(turn.proposal.is_none());
+    assert_eq!(turn.tools_used, vec!["get_pipe_takeoff", "list_elements", "describe_elements"]);
+
+    let results = tool_results(&r.model, 1);
+    assert_eq!(results.len(), 3);
+    for result in &results {
+        assert!(result.get("is_error").is_none(), "{result}");
+    }
+    let takeoff: Value = serde_json::from_str(results[0]["content"].as_str().unwrap()).unwrap();
+    let expected = {
+        let s = r.app.session.lock().await;
+        s.doc.as_ref().unwrap().query(&Query::PipeTakeoff).unwrap()
+    };
+    assert_eq!(takeoff, expected, "the answer is the engine's own query");
+    assert_eq!(takeoff["total_length_m"], 44.94);
+    assert_eq!(takeoff["tee_count"], 9);
+    let list: Value = serde_json::from_str(results[1]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(list["count"], 16);
+    let described: Value = serde_json::from_str(results[2]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(described["elements"][0]["kind"], "pipe");
+    assert_eq!(described["elements"][0]["system"], "cold_water");
+}
+
+#[tokio::test]
+async fn staged_edits_move_pipes_and_respect_a_locked_pipe_layer() {
+    let r = plumbing_rig(ScriptedClient::new(vec![
+        ScriptedClient::tools(&[
+            ("move_elements", json!({"ids": [HEATER_FEED], "dx_mm": 0, "dy_mm": 300, "stretch_connected": false})),
+            ("delete_elements", json!({"ids": [SINK_WASTE]})),
+        ]),
+        ScriptedClient::text("Staged the move. The sink waste is on a locked layer."),
+    ]))
+    .await;
+    // The user locked the drainage layer.
+    r.app
+        .handle(
+            "doc_apply",
+            json!({"command": {"type": "set_layer", "layer": {"key": "drainage", "visible": true, "locked": true}}}),
+        )
+        .await
+        .unwrap();
+    let before = r.project().await;
+
+    let turn = r.chat("move the heater feed 300 north and remove the sink waste").await.unwrap();
+
+    let results = tool_results(&r.model, 1);
+    let moved: Value = serde_json::from_str(results[0]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(moved["this_step"]["modified"][0]["kind"], "pipe");
+    assert_eq!(moved["this_step"]["modified"][0]["label"], "Heater feed (cold water, 20 mm)");
+    assert_eq!(results[1]["is_error"], json!(true));
+    let refused = results[1]["content"].as_str().unwrap();
+    assert!(refused.contains("layer is locked") && refused.contains("Drainage"), "{refused}");
+
+    let proposal = turn.proposal.expect("the move is proposed");
+    assert!(proposal.preview.diff.summary.ends_with("changed 1 pipe"), "{}", proposal.preview.diff.summary);
+    // The staged move clears the door clash in the preview; nothing is applied.
+    let codes: Vec<&str> = proposal.preview.state.derived.issues.iter().map(|i| i.code.as_str()).collect();
+    assert!(!codes.contains(&"pipe_across_opening"), "{codes:?}");
+    assert_eq!(r.project().await, before);
+
+    let applied = r.resolve(&proposal.id, true).await.unwrap().applied.unwrap();
+    assert_eq!(applied.state.project.elements, proposal.preview.state.project.elements);
+    assert_eq!(applied.state.derived, proposal.preview.state.derived);
 }

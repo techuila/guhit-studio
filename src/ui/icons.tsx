@@ -59,6 +59,13 @@ const PATHS = {
   model: "M10 2.5l7 4v7l-7 4-7-4v-7zM3 6.5l7 4 7-4M10 10.5v7",
   import: "M10 3v9.5M6.5 9L10 12.5 13.5 9M4 16.5h12",
   settings: "M10 12.7a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4zM10 3v2.1M10 14.9V17M17 10h-2.1M5.1 10H3M15.1 4.9l-1.5 1.5M6.4 13.6l-1.5 1.5M15.1 15.1l-1.5-1.5M6.4 6.4L4.9 4.9",
+  /** A pipe run with a 90 degree bend and a flange at each end. */
+  pipe: "M3 5.5h7.5a6 6 0 0 1 6 6v5.5M3 10h7.5a1.5 1.5 0 0 1 1.5 1.5v5.5M3 4v7.5M10.5 17h7.5",
+  walk: "M12.9 3.7a1.6 1.6 0 1 1-3.2 0 1.6 1.6 0 0 1 3.2 0zM10.8 6.9l-1.3 5-2.4 5.6M9.5 11.9l2.6 2.2.9 3.4M6.6 10.2l1.9-2.8 2.3-.5 2.2 2.6 2.3.7",
+  fly: "M17.5 3L2.5 9l7 2.6 3.9 5.4zM9.5 11.6L17.5 3",
+  /** A box with its hidden edges dashed: the shell drawn see-through. */
+  xray: "M10 2.8l6.5 3.6v7.2L10 17.2l-6.5-3.6V6.4zM3.5 6.4L10 10l6.5-3.6M10 10v7.2M10 7.4V5.6M7.6 11.3l-1.6.9M12.4 11.3l1.6.9",
+  takeoff: "M5 3.5h10v13H5zM7.5 7h5M7.5 10h5M7.5 13h2.5",
 } as const;
 
 export type IconName = keyof typeof PATHS;

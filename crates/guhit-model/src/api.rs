@@ -128,6 +128,14 @@ pub struct PlanExportOptions {
     pub show_room_labels: bool,
     pub show_assets: bool,
     pub title_block: bool,
+    /// Draw pipes on visible pipe layers, with a legend. DXF puts each system
+    /// on its own layer. Older callers that omit it get true.
+    #[serde(default = "default_true")]
+    pub show_pipes: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Whole-model exports produced by the backend.
@@ -135,9 +143,11 @@ pub struct PlanExportOptions {
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum ModelFormat {
-    /// IFC4 STEP file: walls, openings, doors, windows, spaces, slabs, roof.
+    /// IFC4 STEP file: walls, openings, doors, windows, spaces, slabs, roof,
+    /// pipe segments grouped into distribution systems.
     Ifc,
-    /// 3D DXF with 3DFACE entities, layered like the 2D DXF.
+    /// 3D DXF with 3DFACE entities, layered like the 2D DXF. Pipes are
+    /// tubes on their system layer.
     Dxf3d,
     /// DWG through the ODA File Converter, when configured.
     Dwg,

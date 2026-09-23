@@ -6,6 +6,7 @@ import type { P } from "./geom";
 import { add, angleDeg, dist, distToSegment, dot, left, lerp, mul, normDeg, roundTo, sub, unit } from "./geom";
 import type { DocIndex } from "./model";
 import { backDir, dimensionGeometry, type WallEl } from "./model";
+import { pipeNodes } from "./pipe";
 
 export type GripKind =
   | "wall_start"
@@ -16,12 +17,21 @@ export type GripKind =
   | "dim_a"
   | "dim_b"
   | "cam_pos"
-  | "cam_target";
+  | "cam_target"
+  | "pipe_node";
 
 export interface Grip {
   elementId: string;
   kind: GripKind;
   pos: P;
+  /** pipe_node: first point index of the node and how many points it holds (a riser holds several). */
+  index?: number;
+  count?: number;
+}
+
+/** True when two grips are the same handle. */
+export function sameGrip(a: Grip, b: Grip): boolean {
+  return a.elementId === b.elementId && a.kind === b.kind && a.index === b.index;
 }
 
 /** Grips of one selected element. `pxMm` is the size of one pixel in mm. */
@@ -49,6 +59,9 @@ export function gripsFor(el: Element, pxMm: number): Grip[] {
         g("cam_pos", { x: el.position.x, y: el.position.y }),
         g("cam_target", { x: el.target.x, y: el.target.y }),
       ];
+    case "pipe":
+      // One handle per plan node: a riser moves as one, so it stays vertical.
+      return pipeNodes(el.points).map((n) => ({ elementId: el.id, kind: "pipe_node", pos: n.point, index: n.index, count: n.count }));
     default:
       return [];
   }
@@ -110,6 +123,8 @@ export function translateElement(el: Element, d: P): Element {
       return { ...el, polylines: el.polylines.map((pl) => pl.map((p) => add(p, d))) };
     case "reference_model":
       return { ...el, position: add(el.position, d) };
+    case "pipe":
+      return { ...el, points: el.points.map((v) => ({ ...v, x: v.x + d.x, y: v.y + d.y })) };
     case "opening":
       return el;
   }

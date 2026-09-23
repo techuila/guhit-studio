@@ -204,3 +204,20 @@ describe("hold", () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("moved", () => {
+  it("names the keys that changed in the last sample, so a camera move skips the shadow redraw", () => {
+    const a = new Animator(() => true);
+    a.set("camera", 0);
+    a.set("enter:1", 0);
+    a.to("camera", 1, 0, { duration: 100, easing: (x) => x });
+    a.to("enter:1", 1, 0, { duration: 100, delay: 50, easing: (x) => x });
+    a.sample(20);
+    expect(a.moved()).toEqual(["camera"]);
+    a.sample(80);
+    expect([...a.moved()].sort()).toEqual(["camera", "enter:1"]);
+    a.sample(500);
+    a.sample(600);
+    expect(a.moved()).toEqual([]);
+  });
+});

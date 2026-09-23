@@ -8,6 +8,7 @@ import { Spinner, cx } from "../ui/controls";
 import { PanelBoundary } from "../ui/feedback";
 import { Icon } from "../ui/icons";
 import { Presence, useLastTruthy, useSlidingIndicator } from "../ui/motionDom";
+import { useViewer } from "../viewer3d/viewerStore";
 import { CommandPalette } from "./CommandPalette";
 import { ExportDialog } from "./ExportDialog";
 import { Inspector } from "./Inspector";
@@ -243,6 +244,13 @@ export function EditorShell() {
   useGlobalShortcuts();
 
   useEffect(() => bus.on("open_palette", () => open("palette")), [open]);
+
+  // Walking and flying need the 3D view: going plan-only ends the walk, so
+  // the keys the 3D view owned while walking come back to the plan.
+  const viewMode = useApp((st) => st.viewMode);
+  useEffect(() => {
+    if (viewMode === "2d" && useViewer.getState().nav !== "orbit") useViewer.getState().setNav("orbit");
+  }, [viewMode]);
 
   // Hub thumbnail: refreshed at most once a minute while editing, and on leave (see leaveEditor).
   useEffect(() => {

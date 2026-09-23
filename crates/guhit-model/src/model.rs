@@ -12,7 +12,9 @@ use ts_rs::TS;
 
 pub type Id = String;
 
-pub const SCHEMA_VERSION: u32 = 1;
+/// Version 2 added pipes and the four pipe layers. Version 1 files load and
+/// get the missing layers (`guhit_core::migrate`).
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -105,6 +107,11 @@ pub enum LayerKey {
     Annotations,
     Dimensions,
     Underlays,
+    /// Pipe layers, one per `PipeSystem`.
+    ColdWater,
+    HotWater,
+    Drainage,
+    Vent,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -206,6 +213,7 @@ pub enum Element {
     Underlay(Underlay),
     Linework(Linework),
     ReferenceModel(ReferenceModel),
+    Pipe(Pipe),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -224,6 +232,7 @@ pub enum ElementKind {
     Underlay,
     Linework,
     ReferenceModel,
+    Pipe,
 }
 
 impl Element {
@@ -241,6 +250,7 @@ impl Element {
             Element::Underlay(e) => &e.id,
             Element::Linework(e) => &e.id,
             Element::ReferenceModel(e) => &e.id,
+            Element::Pipe(e) => &e.id,
         }
     }
 
@@ -258,6 +268,7 @@ impl Element {
             Element::Underlay(e) => &mut e.id,
             Element::Linework(e) => &mut e.id,
             Element::ReferenceModel(e) => &mut e.id,
+            Element::Pipe(e) => &mut e.id,
         }
     }
 
@@ -275,6 +286,7 @@ impl Element {
             Element::Underlay(_) => ElementKind::Underlay,
             Element::Linework(_) => ElementKind::Linework,
             Element::ReferenceModel(_) => ElementKind::ReferenceModel,
+            Element::Pipe(_) => ElementKind::Pipe,
         }
     }
 }
@@ -545,6 +557,66 @@ pub struct ReferenceModel {
     /// Multiply model units by this to get mm (a model in meters uses 1000).
     pub scale_to_mm: f64,
     pub locked: bool,
+}
+
+/// The building service a pipe belongs to. Each system has its own layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum PipeSystem {
+    ColdWater,
+    HotWater,
+    /// Sanitary drainage, waste and soil. Flows from the first point to the last.
+    Drainage,
+    Vent,
+}
+
+impl PipeSystem {
+    pub fn layer(self) -> LayerKey {
+        match self {
+            PipeSystem::ColdWater => LayerKey::ColdWater,
+            PipeSystem::HotWater => LayerKey::HotWater,
+            PipeSystem::Drainage => LayerKey::Drainage,
+            PipeSystem::Vent => LayerKey::Vent,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum PipeMaterial {
+    /// Polypropylene random copolymer, the usual PH water line.
+    Ppr,
+    /// Unplasticized PVC, the usual PH drainage and vent pipe.
+    Upvc,
+    /// Galvanized iron.
+    Gi,
+    /// Polyethylene (HDPE), for service connections.
+    Pe,
+    Copper,
+}
+
+/// A pipe run: straight segments through `points`, with a bend at every
+/// interior point. Fittings, penetrations and quantities are derived
+/// (`Derived::pipes`). Guhit places and coordinates pipes. It does not size
+/// them: plumbing design is signed by a registered Master Plumber (RA 1378).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Pipe {
+    pub id: Id,
+    pub level_id: Id,
+    pub system: PipeSystem,
+    pub material: PipeMaterial,
+    /// Nominal size in mm, for example PPR 20 or uPVC 100. The 3D view draws
+    /// it as the outside diameter.
+    pub diameter_mm: f64,
+    /// Centerline points. x and y are plan mm. z is the height above the
+    /// level floor, negative below the slab. At least two points; two points
+    /// in a row are never equal. Drainage flows from the first to the last.
+    pub points: Vec<Vec3>,
+    /// Optional label, for example "Kitchen sink waste". May be empty.
+    pub name: String,
 }
 
 /// An entry of the built-in object library.

@@ -12,14 +12,17 @@ import type {
   Dimension,
   Element,
   OpeningStyle,
+  PipeSystem,
   Room,
   Stair,
+  Vec3,
   Wall,
 } from "../contract/bindings";
 import { ipc } from "../contract/ipc";
 import { bus } from "../state/bus";
 import { useApp, type AppState, type Tool } from "../state/store";
 import { dur, ease, motionOK } from "../ui/motion";
+import { useViewer } from "../viewer3d/viewerStore";
 import { Anim, breathe, mix, mixP } from "./anim";
 import type { Grip } from "./edit";
 import { gripsFor, hitGrip, jointInset, normalDelta, rotationFromGrip } from "./edit";
@@ -31,6 +34,24 @@ import { boundsOfIds, buildIndex, isLocked, keyPoints, modelBounds, wallOutline 
 import { drawOverlay } from "./overlay";
 import type { FaceSnap, OpeningPlacement, OpeningSpan } from "./place";
 import { doorSwingSide, findHostWall, placeOnWall, roomSideOfWall, snapToFace } from "./place";
+import type { FixturePoint, PipeEl, PipeSnapScene, PipeSpec } from "./pipe";
+import {
+  PIPE_HEIGHT_STEP,
+  PIPE_HEIGHT_STEP_FINE,
+  PIPE_SYSTEM_LABEL,
+  addRunPoint,
+  finishRun,
+  fixturePoints,
+  isPlumbingFixture,
+  movePipeNode,
+  pipeNodes,
+  pipeSpec,
+  planOf,
+  popRunPoint,
+  snapToPipes,
+  toolFallPct,
+  withPendingRiser,
+} from "./pipe";
 import type { ElementStyle, Palette, RenderContext } from "./render";
 import { DEFAULT_PALETTE, drawElement, drawFlash, drawGrid, drawHighlight, drawModel, drawOrigin, labelHeightMm, readPalette } from "./render";
 import { decideResize } from "./resizePolicy";
@@ -44,6 +65,9 @@ import { fitRect, panBy, snapStep, toScreen, toWorld, zoomAt } from "./view";
 export const SNAP_PX = 10;
 const DRAG_PX = 4;
 const GRIP_PX = 9;
+/** Two presses closer than this in time and place are a double click. */
+const DOUBLE_CLICK_MS = 500;
+const DOUBLE_CLICK_PX = 5;
 
 /**
  * The controller currently mounted on the plan canvas, if any. Lets shell
@@ -83,7 +107,15 @@ export const K = {
   /** `area:<id>`: a room's area readout cross fading to its new value. */
   area: "area:",
   view: "view",
+  /** `griph:<index>`: the grip under the pointer grows a little. */
+  gripHover: "griph:",
+  /** The ring where the pipe tool placed a point, and the height tag after a height change. */
+  pipePulse: "pipe.pulse",
+  pipeHeight: "pipe.h",
 } as const;
+
+/** Grips beyond this many share the last stagger step (docs/MOTION.md: at most 8). */
+const GRIP_STAGGER = 8;
 
 /** Leaving is faster than entering: about 70% of the enter duration. */
 function exitDur(key: Parameters<typeof dur>[0]): number {
@@ -100,8 +132,9 @@ export type Op =
   | { kind: "marquee"; start: P; current: P; additive: boolean }
   | { kind: "move"; ids: string[]; ref: P; delta: P; duplicate: boolean; committing: boolean }
   | { kind: "slide"; opening: OpeningEl; host: Wall; placement: OpeningPlacement; committing: boolean }
-  | { kind: "grip"; grip: Grip; element: Element; current: P; committing: boolean }
+  | { kind: "grip"; grip: Grip; element: Element; current: P; z: number | null; committing: boolean }
   | { kind: "wall"; points: P[]; typed: TypedState | null; committing: boolean }
+  | { kind: "pipe"; points: Vec3[]; penZ: number; typed: TypedState | null; committing: boolean }
   | { kind: "rect"; origin: P; downScreen: P; typed: TypedState | null; committing: boolean }
   | { kind: "dimension"; a: P; b: P | null; committing: boolean }
   | { kind: "camera"; position: P; committing: boolean };
@@ -170,6 +203,12 @@ export class PlanController {
   flipHinge = false;
   /** Quarter turns for the asset, stair and column tools (R). */
   turns = 0;
+  /** Pipe tool: the height being typed after `h`, idle or while drawing. */
+  heightEntry: TypedState | null = null;
+  /** Where the pipe tool last placed a point, for its settle ring. */
+  pipePulse: { at: P; system: PipeSystem } | null = null;
+  /** Index into `gripList()` of the grip under the pointer. */
+  hoverGrip: number | null = null;
   openingGhost: OpeningGhost | null = null;
   placementGhost: PlacementGhost | null = null;
   editor: InlineEditor | null = null;
@@ -269,6 +308,7 @@ export class PlanController {
         if (s.doc !== p.doc || s.preview !== p.preview || s.activeLevelId !== p.activeLevelId) this.syncDoc();
         if (s.tool !== p.tool) this.onToolChange(p.tool, s.tool);
         if (s.selection !== p.selection || s.hoverId !== p.hoverId || s.tool !== p.tool) this.syncHighlight(p, s);
+        if (s.toolOptions.pipeElevationMm !== p.toolOptions.pipeElevationMm) this.onPipeHeightOption(s.toolOptions.pipeElevationMm);
         if (
           s.selection !== p.selection ||
           s.hoverId !== p.hoverId ||
@@ -336,9 +376,12 @@ export class PlanController {
 
   private typedUi(): UiState["typed"] {
     const op = this.op;
-    if ((op.kind !== "wall" && op.kind !== "rect") || !op.typed || !this.cursorScreen) return null;
     const unitName = this.index?.doc.project.settings.display_unit ?? "mm";
-    const labels: [string, string] = op.kind === "wall" ? [`Length ${unitName}`, "Angle"] : [`Width ${unitName}`, `Depth ${unitName}`];
+    if (this.heightEntry && this.cursorScreen) {
+      return { x: this.cursorScreen.x, y: this.cursorScreen.y, state: this.heightEntry, labels: [`Height ${unitName}`, ""] };
+    }
+    if ((op.kind !== "wall" && op.kind !== "rect" && op.kind !== "pipe") || !op.typed || !this.cursorScreen) return null;
+    const labels: [string, string] = op.kind === "rect" ? [`Width ${unitName}`, `Depth ${unitName}`] : [`Length ${unitName}`, "Angle"];
     return { x: this.cursorScreen.x, y: this.cursorScreen.y, state: op.typed, labels };
   }
 
@@ -348,6 +391,7 @@ export class PlanController {
     if (this.space || tool === "pan") return "grab";
     if (tool === "select") {
       if (this.op.kind === "move" || this.op.kind === "grip" || this.op.kind === "slide") return "grabbing";
+      if (this.hoverGrip !== null) return "grab";
       return useApp.getState().hoverId ? "pointer" : "default";
     }
     if (tool === "text") return "text";
@@ -381,6 +425,14 @@ export class PlanController {
         return "Click where the text goes";
       case "camera":
         return op.kind === "camera" ? "Click what the camera looks at" : "Click where the camera stands";
+      case "pipe": {
+        if (op.kind === "pipe") return "Click the next point. PageUp, PageDown or h adds a riser. Enter finishes, Escape steps back";
+        const name = PIPE_SYSTEM_LABEL[this.pipeSpec().system];
+        const layer = this.pipeLayer();
+        if (layer.locked) return `The ${name} layer is locked. Unlock it to draw`;
+        if (layer.hidden) return `The ${name} layer is hidden. New pipes show when it is on`;
+        return `Click to start a ${name.toLowerCase()} run. PageUp or PageDown sets the height, or type h and a height`;
+      }
       default:
         return null;
     }
@@ -796,6 +848,8 @@ export class PlanController {
       if (prev.hoverId) this.animate(`${K.hover}${prev.hoverId}`, 0, exitDur("hover"), { drop: true });
       if (next.hoverId) this.animate(`${K.hover}${next.hoverId}`, 1, dur("hover"), { from: 0 });
     }
+    // Another selection or tool has other grips: the hovered one is gone.
+    if (next.selection !== prev.selection || next.tool !== prev.tool) this.setHoverGrip(null);
     if (next.selection !== prev.selection) {
       const after = new Set(next.selection);
       const before = new Set(prev.selection);
@@ -808,7 +862,7 @@ export class PlanController {
   /** Grips scale in from nothing, one after the other, and fade out together. */
   private syncGrips(s: AppState): void {
     const show = s.tool === "select" && s.selection.length === 1;
-    const n = 4;
+    const n = GRIP_STAGGER;
     for (let i = 0; i < n; i++) {
       const key = `${K.grip}${i}`;
       if (show) this.animate(key, 1, dur("base"), { from: 0, easing: ease.spring, delayMs: i * 30 });
@@ -866,6 +920,14 @@ export class PlanController {
     } else {
       this.animate(K.ghostPlace, 0, exitDur("hover"), { drop: true });
     }
+  }
+
+  /** The grip under the pointer grows on hover and shrinks back when left. */
+  private setHoverGrip(i: number | null): void {
+    if (i === this.hoverGrip) return;
+    if (this.hoverGrip !== null) this.animate(`${K.gripHover}${this.hoverGrip}`, 0, exitDur("hover"), { drop: true });
+    if (i !== null) this.animate(`${K.gripHover}${i}`, 1, dur("hover"), { from: 0 });
+    this.hoverGrip = i;
   }
 
   /** Pick up and drop. Only these animate: the drag itself tracks 1:1. */
@@ -1019,14 +1081,16 @@ export class PlanController {
       this.finishOrCancel();
       return;
     }
-    if (e.button !== 0 || this.isBusy()) return;
+    if (e.button !== 0) return;
+    const presses = this.pressCount(e, screen);
+    if (this.isBusy()) return;
 
     switch (tool) {
       case "select":
         this.selectDown(screen, world, e);
         break;
       case "wall":
-        this.wallClick(e.detail);
+        this.wallClick(presses);
         break;
       case "rect_room":
         this.rectDown(screen);
@@ -1050,6 +1114,9 @@ export class PlanController {
       case "camera":
         this.cameraClick();
         break;
+      case "pipe":
+        this.pipeClick(presses);
+        break;
       default:
         break;
     }
@@ -1057,6 +1124,21 @@ export class PlanController {
   };
 
   private panReturn: Op = { kind: "idle" };
+
+  /** The last primary press, for counting double clicks. */
+  private lastPress: { t: number; at: P; count: number } | null = null;
+
+  /**
+   * How many presses in a row this one is. Chromium (so also WebView2) leaves
+   * PointerEvent.detail at 0 on pointerdown, so presses close in time and
+   * place are counted here. A browser that fills `detail` in still counts.
+   */
+  private pressCount(e: PointerEvent, screen: P): number {
+    const last = this.lastPress;
+    const count = last && e.timeStamp - last.t <= DOUBLE_CLICK_MS && dist(screen, last.at) <= DOUBLE_CLICK_PX ? last.count + 1 : 1;
+    this.lastPress = { t: e.timeStamp, at: screen, count };
+    return Math.max(count, e.detail);
+  }
 
   private onPointerMove = (e: PointerEvent): void => {
     const screen = this.eventPoint(e);
@@ -1100,8 +1182,13 @@ export class PlanController {
         this.updateToolHover(world);
     }
     if (this.op.kind === "idle" && s.tool === "select") {
+      const grips = this.gripList();
+      const grip = grips.length > 0 ? hitGrip(grips, world, GRIP_PX / this.view.scale) : null;
+      this.setHoverGrip(grip ? grips.indexOf(grip) : null);
       const id = hitTest(world, this.index, this.hitOptions());
       if (id !== s.hoverId) s.setHover(id);
+    } else {
+      this.setHoverGrip(null);
     }
     const snapped = this.snapResult as SnapResult | null;
     const p = snapped?.point ?? world;
@@ -1111,8 +1198,8 @@ export class PlanController {
     this.invalidate();
   }
 
-  private hitOptions(): { tol: number; labelHeightMm: number } {
-    return { tol: 6 / this.view.scale, labelHeightMm: labelHeightMm(this.view) };
+  private hitOptions(): { tol: number; labelHeightMm: number; pxMm: number } {
+    return { tol: 6 / this.view.scale, labelHeightMm: labelHeightMm(this.view), pxMm: 1 / this.view.scale };
   }
 
   /** Snap and ghost updates for the drawing and placement tools. */
@@ -1153,6 +1240,23 @@ export class PlanController {
       case "asset":
         this.placementGhost = this.computePlacementGhost(world, tool);
         break;
+      case "pipe": {
+        const spec = this.pipeSpec();
+        if (op.kind === "pipe") {
+          const last = op.points[op.points.length - 1];
+          const onLast = !!this.cursorScreen && dist(toScreen(this.view, last), this.cursorScreen) <= SNAP_PX;
+          if (onLast && useApp.getState().snapEnabled) {
+            // On the last point a click adds nothing, so a double click there only finishes.
+            this.snapResult = { point: planOf(last), type: "endpoint", guides: [], angleLocked: false, label: "Last point" };
+          } else {
+            const extra = op.points.slice(0, -1).map(planOf);
+            this.snapResult = this.snapPipeAt(world, planOf(last), { system: spec.system, penZ: op.penZ, extra });
+          }
+        } else {
+          this.snapResult = this.snapPipeAt(world, null, { system: spec.system, penZ: spec.startHeightMm });
+        }
+        break;
+      }
       default:
         break;
     }
@@ -1239,6 +1343,7 @@ export class PlanController {
   private onPointerLeave = (): void => {
     this.pointerInside = false;
     if (this.isDragOp()) return;
+    this.setHoverGrip(null);
     this.openingGhost = null;
     this.placementGhost = null;
     const s = useApp.getState();
@@ -1309,7 +1414,8 @@ export class PlanController {
     if (grip) {
       const el = this.index.byId.get(grip.elementId);
       if (el) {
-        this.op = { kind: "grip", grip, element: el, current: grip.pos, committing: false };
+        this.op = { kind: "grip", grip, element: el, current: grip.pos, z: null, committing: false };
+        this.setHoverGrip(null);
         this.setLift(true);
         return;
       }
@@ -1478,6 +1584,18 @@ export class PlanController {
         op.current = r.point;
         break;
       }
+      case "pipe_node": {
+        if (el.kind !== "pipe") return;
+        // Ortho runs from the neighbouring node. A pipe never snaps to itself.
+        const nodes = pipeNodes(el.points);
+        const i = nodes.findIndex((n) => n.index === op.grip.index);
+        const anchor = nodes[i - 1]?.point ?? nodes[i + 1]?.point ?? null;
+        const r = this.snapPipeAt(world, anchor, { system: el.system, penZ: nodes[i]?.zOut ?? 0, exclude: [el.id] });
+        this.snapResult = r;
+        op.current = r.point;
+        op.z = r.z ?? null;
+        break;
+      }
     }
   }
 
@@ -1510,6 +1628,11 @@ export class PlanController {
         return el.kind === "camera" ? { ...el, position: { ...el.position, x: op.current.x, y: op.current.y } } : null;
       case "cam_target":
         return el.kind === "camera" ? { ...el, target: { ...el.target, x: op.current.x, y: op.current.y } } : null;
+      case "pipe_node": {
+        if (el.kind !== "pipe" || op.grip.index === undefined) return null;
+        const points = movePipeNode(el.points, op.grip.index, op.grip.count ?? 1, op.current, op.z);
+        return points ? { ...el, points } : null;
+      }
       default:
         return null;
     }
@@ -1532,6 +1655,8 @@ export class PlanController {
       }
     }
     if (!command) {
+      // A pipe node dropped where the run would lose too many points eases back.
+      if (op.grip.kind === "pipe_node" && dist(op.current, op.grip.pos) >= 0.5) this.easeBack(op);
       this.op = { kind: "idle" };
       return;
     }
@@ -1603,9 +1728,14 @@ export class PlanController {
 
   /** End of the segment being typed: exact length along the current or typed direction. */
   typedWallPoint(op: Extract<Op, { kind: "wall" }>): P | null {
-    if (!op.typed || !this.index) return null;
-    const last = op.points[op.points.length - 1];
-    const v = typedValues(op.typed, this.index.doc.project.settings.display_unit);
+    if (!op.typed) return null;
+    return this.typedEnd(op.points[op.points.length - 1], op.typed);
+  }
+
+  /** Typed length (and angle) from `last`, along the cursor direction when no angle is typed. */
+  private typedEnd(last: P, typed: TypedState): P | null {
+    if (!this.index) return null;
+    const v = typedValues(typed, this.index.doc.project.settings.display_unit);
     const cursor = this.snapResult?.point ?? this.cursorWorld ?? add(last, { x: 1, y: 0 });
     const free = sub(cursor, last);
     const dir = v.b !== null ? dirDeg(v.b) : dist(cursor, last) < 1e-6 ? { x: 1, y: 0 } : unit(free);
@@ -1631,6 +1761,245 @@ export class PlanController {
       thickness_mm: useApp.getState().toolOptions.wallThicknessMm,
       level_id: this.levelId(),
     });
+  }
+
+  // ------------------------------------------------------------ pipe tool
+
+  /** System, material, size and start height the pipe tool draws with. */
+  pipeSpec(): PipeSpec {
+    return pipeSpec(useApp.getState().toolOptions);
+  }
+
+  /** The layer of the system being drawn. Locked stops the tool, hidden only warns. */
+  pipeLayer(): { locked: boolean; hidden: boolean } {
+    const key = this.pipeSpec().system;
+    const l = this.index?.doc.project.layers.find((x) => x.key === key);
+    return { locked: !!l?.locked, hidden: !!l && !l.visible };
+  }
+
+  private pipeSnapScene(exclude: readonly string[] = []): PipeSnapScene {
+    const pipes: PipeEl[] = [];
+    const fixtures: FixturePoint[] = [];
+    if (this.index) {
+      const skip = new Set(exclude);
+      for (const el of this.index.visible) {
+        if (skip.has(el.id)) continue;
+        if (el.kind === "pipe") pipes.push(el);
+        else if (el.kind === "asset" && isPlumbingFixture(el)) fixtures.push(...fixturePoints(el));
+      }
+    }
+    return { pipes, fixtures };
+  }
+
+  /** Pipe snaps first (pipe points, fixtures, tees), then the plan snaps (grid, walls, angles). */
+  private snapPipeAt(world: P, anchor: P | null, o: { system: PipeSystem; penZ: number; exclude?: string[]; extra?: P[] }): SnapResult {
+    const s = useApp.getState();
+    if (s.snapEnabled && this.index) {
+      const ortho = (s.orthoEnabled || this.shift) && !!anchor;
+      const hit = snapToPipes(world, this.pipeSnapScene(o.exclude), { tol: SNAP_PX / this.view.scale, system: o.system, penZ: o.penZ, anchor, ortho });
+      if (hit) {
+        return {
+          point: hit.point,
+          type: hit.kind,
+          guides: ortho && anchor ? [{ from: anchor, to: hit.point, kind: "angle" }] : [],
+          angleLocked: ortho,
+          z: hit.z,
+          label: hit.label,
+        };
+      }
+    }
+    return this.snapAt(world, anchor, { extra: o.extra });
+  }
+
+  /** Plan point and joined height of the next click: the typed length, else the snapped cursor. */
+  private pipeTarget(op: Extract<Op, { kind: "pipe" }>): { point: P; z: number | null } | null {
+    if (op.typed) {
+      const p = this.typedPipePoint(op);
+      if (p) return { point: p, z: null };
+    }
+    const r = this.snapResult;
+    if (r) return { point: r.point, z: r.z ?? null };
+    return this.cursorWorld ? { point: this.cursorWorld, z: null } : null;
+  }
+
+  typedPipePoint(op: Extract<Op, { kind: "pipe" }>): P | null {
+    if (!op.typed || op.points.length === 0) return null;
+    return this.typedEnd(planOf(op.points[op.points.length - 1]), op.typed);
+  }
+
+  /** The run so far with its pending riser, and what the next click adds (from the last point on). */
+  pipePreview(op: Extract<Op, { kind: "pipe" }>): { placed: Vec3[]; band: Vec3[] } {
+    const placed = withPendingRiser(op);
+    const target = op.committing ? null : this.pipeTarget(op);
+    if (!target) return { placed, band: [] };
+    const next = addRunPoint(op, target.point, { fallPct: toolFallPct(this.pipeSpec()), snapZ: target.z });
+    return { placed, band: next.points.slice(placed.length - 1) };
+  }
+
+  /** Height of the next point: the end of the rubber band while drawing, else the start height or a snapped pipe. */
+  pipeNextZ(): number {
+    const op = this.op;
+    if (op.kind === "pipe") {
+      const band = this.pipePreview(op).band;
+      return band.length > 1 ? band[band.length - 1].z : op.penZ;
+    }
+    return this.snapResult?.z ?? this.pipeSpec().startHeightMm;
+  }
+
+  private pipeClick(detail: number): void {
+    const world = this.cursorWorld;
+    if (!world || !this.index) return;
+    // A height being typed applies before the point goes in, as Enter would.
+    if (this.heightEntry) this.applyHeightEntry();
+    const spec = this.pipeSpec();
+    if (this.op.kind !== "pipe") {
+      if (this.pipeLayer().locked) return;
+      const r = this.snapResult ?? this.snapPipeAt(world, null, { system: spec.system, penZ: spec.startHeightMm });
+      const draft = addRunPoint({ points: [], penZ: spec.startHeightMm }, r.point, { fallPct: null, snapZ: r.z ?? null });
+      this.op = { kind: "pipe", points: draft.points, penZ: draft.penZ, typed: null, committing: false };
+      this.pulsePipePoint(r.point, spec.system);
+      return;
+    }
+    const op = this.op;
+    if (op.committing) return;
+    if (detail >= 2) {
+      // Second click of a double click: finish.
+      this.finishPipe(op);
+      return;
+    }
+    const target = this.pipeTarget(op);
+    if (target) this.pushPipePoint(op, target);
+  }
+
+  private pushPipePoint(op: Extract<Op, { kind: "pipe" }>, target: { point: P; z: number | null }): void {
+    const before = op.points.length;
+    const next = addRunPoint(op, target.point, { fallPct: toolFallPct(this.pipeSpec()), snapZ: target.z });
+    op.typed = null;
+    op.points = next.points;
+    op.penZ = next.penZ;
+    if (op.points.length > before) this.pulsePipePoint(target.point, this.pipeSpec().system);
+  }
+
+  private finishPipe(op: Extract<Op, { kind: "pipe" }>): void {
+    if (op.committing) return;
+    const level = this.levelId();
+    const points = finishRun(op);
+    if (!points || !level) {
+      // A run needs two points: one click and Enter only cancels.
+      this.resetOp();
+      return;
+    }
+    const spec = this.pipeSpec();
+    const element: PipeEl = {
+      kind: "pipe",
+      id: "",
+      level_id: level,
+      system: spec.system,
+      material: spec.material,
+      diameter_mm: spec.diameterMm,
+      points,
+      name: "",
+    };
+    op.committing = true;
+    op.typed = null;
+    this.heightEntry = null;
+    void this.run({ type: "add_element", element });
+  }
+
+  /**
+   * Sets the height of the next point. While drawing, the run climbs or drops
+   * there as a riser at its last point; before the first click it is the
+   * start height. The tool option follows, so the options bar shows it too.
+   */
+  private setPipeHeight(z: number): void {
+    if (!Number.isFinite(z)) return;
+    const v = Math.round(z * 1000) / 1000;
+    if (this.op.kind === "pipe") this.op.penZ = v;
+    this.pulsePipeHeight();
+    useApp.getState().setTool("pipe", { pipeElevationMm: v });
+    this.refreshToolGhost();
+    this.invalidate();
+  }
+
+  /** The options bar changed the height while drawing: the run takes it as a riser. */
+  private onPipeHeightOption(z: number | null): void {
+    const op = this.op;
+    if (op.kind !== "pipe" || op.committing || z === null || Math.abs(z - op.penZ) < 0.5) return;
+    op.penZ = z;
+    this.pulsePipeHeight();
+  }
+
+  private applyHeightEntry(): void {
+    const entry = this.heightEntry;
+    this.heightEntry = null;
+    if (entry && this.index) {
+      const v = typedValues(entry, this.index.doc.project.settings.display_unit).a;
+      if (v !== null) this.setPipeHeight(v);
+    }
+    this.updateUi();
+  }
+
+  private pulsePipePoint(at: P, system: PipeSystem): void {
+    this.pipePulse = { at, system };
+    this.anim.clear(K.pipePulse);
+    this.animate(K.pipePulse, 0, dur("base"), { from: 1, easing: ease.out, drop: true });
+  }
+
+  /** Keyboard triggered, so it stays under 100 ms (docs/MOTION.md). */
+  private pulsePipeHeight(): void {
+    this.anim.clear(K.pipeHeight);
+    this.animate(K.pipeHeight, 0, dur("press"), { from: 1, easing: ease.out, drop: true });
+  }
+
+  /** Keys of the height being typed after `h`. True when the key was used. */
+  private heightKey(e: KeyboardEvent): boolean {
+    const entry = this.heightEntry;
+    if (!entry) return false;
+    if (e.key === "Escape") {
+      this.heightEntry = null;
+    } else if (e.key === "Enter") {
+      this.applyHeightEntry();
+    } else if (/^[0-9]$/.test(e.key) || e.key === "." || e.key === "-" || e.key === "Backspace") {
+      this.heightEntry = typedKey(entry, e.key);
+    } else if (e.key.toLowerCase() !== "h") {
+      return false;
+    }
+    this.updateUi();
+    return true;
+  }
+
+  /** Keys while a pipe run is being drawn. Every key is swallowed by the caller. */
+  private pipeOpKey(e: KeyboardEvent, op: Extract<Op, { kind: "pipe" }>): void {
+    const k = e.key.toLowerCase();
+    if (e.key === "Escape" && op.typed) {
+      op.typed = null;
+    } else if (e.key === "Escape" || (e.key === "Backspace" && !op.typed)) {
+      // Escape steps back: the pending riser, then the last point, then the run.
+      const back = popRunPoint(op);
+      if (!back) this.resetOp();
+      else {
+        op.points = back.points;
+        op.penZ = back.penZ;
+      }
+    } else if (e.key === "PageUp" || e.key === "PageDown") {
+      const step = e.shiftKey ? PIPE_HEIGHT_STEP_FINE : PIPE_HEIGHT_STEP;
+      this.setPipeHeight(op.penZ + (e.key === "PageUp" ? step : -step));
+    } else if (k === "h" && !e.altKey) {
+      op.typed = null;
+      this.heightEntry = emptyTyped("height");
+    } else if (isTypedKey(e.key) || (op.typed && (e.key === "Tab" || e.key === "Backspace"))) {
+      op.typed = typedKey(op.typed ?? emptyTyped("polar"), e.key);
+    } else if (e.key === "Enter") {
+      if (!typedIsEmpty(op.typed)) {
+        const p = this.typedPipePoint(op);
+        if (p) this.pushPipePoint(op, { point: p, z: null });
+        else op.typed = null;
+      } else {
+        this.finishPipe(op);
+      }
+    }
+    this.handleMove();
+    this.updateUi();
   }
 
   // ------------------------------------------------------------ rect room tool
@@ -1940,6 +2309,7 @@ export class PlanController {
 
   private resetOp(): void {
     this.op = { kind: "idle" };
+    this.heightEntry = null;
     this.panReturn = { kind: "idle" };
     this.snapResult = null;
     this.openingGhost = null;
@@ -1951,6 +2321,7 @@ export class PlanController {
 
   private onToolChange(_from: Tool, _to: Tool): void {
     if (!this.isBusy()) this.resetOp();
+    this.heightEntry = null;
     this.flipSide = false;
     this.flipHinge = false;
     this.turns = 0;
@@ -1966,6 +2337,7 @@ export class PlanController {
   private finishOrCancel(): void {
     const op = this.op;
     if (op.kind === "wall") this.finishWall(op, false);
+    else if (op.kind === "pipe") this.finishPipe(op);
     else if (!this.isBusy() && op.kind !== "idle") this.resetOp();
     this.invalidate();
   }
@@ -1984,6 +2356,8 @@ export class PlanController {
       if (this.inOperation() || this.pointerInside) this.handleMove();
       return;
     }
+    // Walking or flying in 3D: that view owns every key without MOD (docs/CONTRACT.md).
+    if (useViewer.getState().nav !== "orbit") return;
     if (typing) return;
     if (e.key === " " || e.code === "Space") {
       if (this.pointerInside || this.op.kind === "pan") {
@@ -2002,8 +2376,23 @@ export class PlanController {
       this.invalidate();
     };
 
+    // A height typed after `h` (pipe tool) takes digits, Enter and Escape first,
+    // so h1500 never reaches the 1, 2, 3 view shortcuts.
+    if (this.heightEntry) {
+      if (s.tool !== "pipe") this.heightEntry = null;
+      else if (this.heightKey(e)) {
+        swallow();
+        return;
+      }
+    }
+
     if (this.inOperation()) {
       if (this.isBusy()) {
+        swallow();
+        return;
+      }
+      if (op.kind === "pipe") {
+        this.pipeOpKey(e, op);
         swallow();
         return;
       }
@@ -2070,6 +2459,22 @@ export class PlanController {
       this.refreshToolGhost();
       swallow();
       return;
+    }
+    // Pipe tool over the canvas: PageUp and PageDown set the start height, h types it.
+    // h is the Pan shortcut elsewhere, like the door tool's F and H.
+    if (s.tool === "pipe" && this.pointerInside && !e.altKey) {
+      if (e.key === "PageUp" || e.key === "PageDown") {
+        const step = e.shiftKey ? PIPE_HEIGHT_STEP_FINE : PIPE_HEIGHT_STEP;
+        this.setPipeHeight(this.pipeSpec().startHeightMm + (e.key === "PageUp" ? step : -step));
+        swallow();
+        return;
+      }
+      if (k === "h") {
+        this.heightEntry = emptyTyped("height");
+        this.updateUi();
+        swallow();
+        return;
+      }
     }
     if ((s.tool === "asset" || s.tool === "stair" || s.tool === "column") && this.pointerInside && k === "r") {
       this.turns = (this.turns + 1) % 4;

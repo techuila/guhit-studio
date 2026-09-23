@@ -87,14 +87,15 @@ back in square metres. The plan is +x east, +y north.
 |---|---|
 | `list_projects` | Every project on this machine, newest first |
 | `open_project` | Open one by id; it becomes the document every tool acts on |
-| `create_project` | Create and open one, `blank` or `sample-bungalow` |
+| `create_project` | Create and open one: `blank`, `sample-bungalow` or `plumbing-demo` |
 | `close_project` | Close it; the window goes back to the hub |
 | `get_project_summary` | Totals: areas, wall length, counts |
 | `list_rooms` | Rooms with areas, perimeters and bounding wall ids |
 | `list_elements` | All elements of one kind, with ids |
 | `describe_elements` | Full data plus derived geometry, by id |
 | `find_rooms_without_exterior_window` | Rooms with no daylight |
-| `list_review_items` | Design review suggestions |
+| `list_review_items` | Design review suggestions, pipe items with a `location_mm` |
+| `get_pipe_takeoff` | Pipe lengths by system, material and size, elbows, tees, sleeves and every penetration |
 | `get_plan_image` | The last plan thumbnail the window saved, as a PNG |
 | `list_renders` | Saved 3D visuals |
 | `add_wall`, `add_wall_chain` | Walls |
@@ -107,13 +108,21 @@ back in square metres. The plan is +x east, +y north.
 | `add_asset` | Furniture and fixtures from the built-in library |
 | `undo`, `redo` | History, whoever made the change |
 | `save_version` | A named version the user can restore in the app |
-| `export_plan` | PDF, SVG or DXF into the exports folder |
+| `export_plan` | PDF, SVG or DXF into the exports folder, pipes included unless `show_pipes` is false |
 | `batch` | Several edits atomically, as one undo step |
+
+Pipes are drawn in the app, not through these tools. An MCP client can read
+them (`list_elements` with kind `pipe`, `describe_elements`), move or delete
+them like any element, and answer quantity questions with `get_pipe_takeoff`.
+Guhit coordinates pipes and never sizes them; plumbing plans are signed by a
+registered Master Plumber (DECISIONS D19). The `plumbing-demo` template is a
+bungalow with all four pipe systems and the pipe review items to look at.
 
 Resources:
 
 - `guhit://project/current` - compact JSON of the open project.
-- `guhit://docs/conventions` - units, coordinates, joins, flip conventions.
+- `guhit://docs/conventions` - units, coordinates, joins, flip conventions,
+  pipe heights.
 - `guhit://docs/ph-defaults` - 150 mm CHB walls, 900 x 2100 doors,
   1200 x 1200 windows with a 900 sill, 3000 mm levels, material ids.
 

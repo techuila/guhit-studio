@@ -459,6 +459,12 @@ fn translate_element(el: &mut Element, d: Point) {
             }
         }
         Element::ReferenceModel(m) => m.position = add(m.position, d),
+        Element::Pipe(p) => {
+            for v in p.points.iter_mut() {
+                v.x += d.x;
+                v.y += d.y;
+            }
+        }
     }
 }
 
@@ -886,7 +892,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
 
         Command::AddElement { element } => {
             let mut element = element.clone();
-            ensure_unlocked(project, element.kind())?;
+            ensure_element_unlocked(project, &element)?;
             if element.id().is_empty() {
                 *element.id_mut() = ids.next_id();
             } else if project.elements.iter().any(|e| e.id() == element.id()) {
@@ -1101,6 +1107,13 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                         m.position = rot(m.position);
                         m.rotation_deg = norm_deg(m.rotation_deg + angle_deg);
                     }
+                    Element::Pipe(p) => {
+                        for v in p.points.iter_mut() {
+                            let r = rot(pt(v.x, v.y));
+                            v.x = r.x;
+                            v.y = r.y;
+                        }
+                    }
                 }
             }
             if rotated == 0 {
@@ -1123,7 +1136,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 if !sel.contains(el.id()) {
                     continue;
                 }
-                ensure_unlocked(project, el.kind())?;
+                ensure_element_unlocked(project, el)?;
                 match el {
                     Element::Wall(w) => {
                         let mut copy = w.clone();
@@ -1432,5 +1445,6 @@ pub fn kind_noun(kind: ElementKind) -> &'static str {
         ElementKind::Underlay => "underlay",
         ElementKind::Linework => "linework",
         ElementKind::ReferenceModel => "reference model",
+        ElementKind::Pipe => "pipe",
     }
 }
