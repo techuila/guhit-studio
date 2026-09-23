@@ -1,5 +1,5 @@
 // Things the shell can do, shared by the top bar, shortcuts and the palette.
-import type { DisplayUnit, OpeningStyle, RoofKind } from "../contract/bindings";
+import type { DisplayUnit, OpeningStyle, RoofKind, Vec3 } from "../contract/bindings";
 import { ipc } from "../contract/ipc";
 import { getActiveController } from "../editor2d/controller";
 import { rectIsEmpty } from "../editor2d/geom";
@@ -7,8 +7,9 @@ import { boundsOfIds, buildIndex, layerOf, levelOf } from "../editor2d/model";
 import { bus } from "../state/bus";
 import { useApp, type Tool } from "../state/store";
 import { openRenderCompare, openRenderStudio } from "../viewer3d/render/renderStore";
+import { useViewer, type NavMode, type ShellMode } from "../viewer3d/viewerStore";
 import type { IconName } from "../ui/icons";
-import { useShell } from "./shellStore";
+import { useShell, type FlyoutKind } from "./shellStore";
 import { checkForUpdates } from "./UpdateNotice";
 
 // ---------------------------------------------------------------- tools
@@ -21,22 +22,25 @@ export interface ToolDef {
   icon: IconName;
   key: string | null;
   keywords: string;
-  flyout?: "wall" | "door" | "window" | "asset";
+  /** Tools of one group sit together on the rail, with a rule between groups. */
+  group: "pick" | "draw" | "place" | "services" | "annotate" | "view";
+  flyout?: FlyoutKind;
 }
 
 export const TOOLS: ToolDef[] = [
-  { tool: "select", label: "Select", phrase: "Select and move things", icon: "select", key: "V", keywords: "pointer arrow pick move" },
-  { tool: "wall", label: "Wall", phrase: "Draw walls", icon: "wall", key: "W", keywords: "line partition chb", flyout: "wall" },
-  { tool: "rect_room", label: "Room", phrase: "Draw a room rectangle", icon: "room", key: "R", keywords: "rectangle box space" },
-  { tool: "door", label: "Door", phrase: "Place a door", icon: "door", key: "D", keywords: "opening swing sliding", flyout: "door" },
-  { tool: "window", label: "Window", phrase: "Place a window", icon: "window", key: "N", keywords: "opening jalousie casement glass", flyout: "window" },
-  { tool: "column", label: "Column", phrase: "Place a column", icon: "column", key: "C", keywords: "post pillar structure" },
-  { tool: "stair", label: "Stair", phrase: "Add a stair", icon: "stair", key: "S", keywords: "steps flight" },
-  { tool: "asset", label: "Objects", phrase: "Place furniture and fixtures", icon: "asset", key: "O", keywords: "library furniture sofa bed toilet sink kitchen car plant", flyout: "asset" },
-  { tool: "dimension", label: "Dimension", phrase: "Add a dimension", icon: "dimension", key: "M", keywords: "measure length distance" },
-  { tool: "text", label: "Text", phrase: "Add a text note", icon: "text", key: "T", keywords: "label annotation note" },
-  { tool: "camera", label: "Camera", phrase: "Place a camera", icon: "camera", key: "K", keywords: "view perspective render shot" },
-  { tool: "pan", label: "Pan", phrase: "Pan the view", icon: "pan", key: "H", keywords: "hand move scroll navigate" },
+  { tool: "select", label: "Select", phrase: "Select and move things", icon: "select", key: "V", group: "pick", keywords: "pointer arrow pick move" },
+  { tool: "wall", label: "Wall", phrase: "Draw walls", icon: "wall", key: "W", group: "draw", keywords: "line partition chb", flyout: "wall" },
+  { tool: "rect_room", label: "Room", phrase: "Draw a room rectangle", icon: "room", key: "R", group: "draw", keywords: "rectangle box space" },
+  { tool: "door", label: "Door", phrase: "Place a door", icon: "door", key: "D", group: "place", keywords: "opening swing sliding", flyout: "door" },
+  { tool: "window", label: "Window", phrase: "Place a window", icon: "window", key: "N", group: "place", keywords: "opening jalousie casement glass", flyout: "window" },
+  { tool: "column", label: "Column", phrase: "Place a column", icon: "column", key: "C", group: "place", keywords: "post pillar structure" },
+  { tool: "stair", label: "Stair", phrase: "Add a stair", icon: "stair", key: "S", group: "place", keywords: "steps flight" },
+  { tool: "asset", label: "Objects", phrase: "Place furniture and fixtures", icon: "asset", key: "O", group: "place", keywords: "library furniture sofa bed toilet sink kitchen car plant", flyout: "asset" },
+  { tool: "pipe", label: "Pipe", phrase: "Draw pipes", icon: "pipe", key: "P", group: "services", keywords: "plumbing water supply cold hot drain drainage waste sewer vent ppr upvc gi pe copper", flyout: "pipe" },
+  { tool: "dimension", label: "Dimension", phrase: "Add a dimension", icon: "dimension", key: "M", group: "annotate", keywords: "measure length distance" },
+  { tool: "text", label: "Text", phrase: "Add a text note", icon: "text", key: "T", group: "annotate", keywords: "label annotation note" },
+  { tool: "camera", label: "Camera", phrase: "Place a camera", icon: "camera", key: "K", group: "annotate", keywords: "view perspective render shot" },
+  { tool: "pan", label: "Pan", phrase: "Pan the view", icon: "pan", key: "H", group: "view", keywords: "hand move scroll navigate" },
 ];
 
 export const DOOR_STYLES: Array<{ value: OpeningStyle; label: string }> = [
@@ -84,6 +88,58 @@ export function openAssetTool() {
   const app = useApp.getState();
   if (app.toolOptions.assetKey) activateTool("asset");
   useShell.getState().requestFlyout("asset");
+}
+
+// ---------------------------------------------------------------- 3D navigation and building shell
+
+/** Shows the 3D view: the plan-only view becomes split. */
+function show3dView() {
+  const app = useApp.getState();
+  if (app.viewMode === "2d") app.setViewMode("split");
+}
+
+/** Resolves once the 3D view has mounted and registered itself (it loads on demand). */
+async function waitFor3dView(timeoutMs: number): Promise<boolean> {
+  const start = Date.now();
+  while (!useApp.getState().captureView) {
+    if (Date.now() - start > timeoutMs) return false;
+    await new Promise((r) => window.setTimeout(r, 60));
+  }
+  return true;
+}
+
+/**
+ * Shows the 3D view and resolves true once it is up. False, with a toast, when
+ * it does not come up: walking without it would leave no one owning the keys.
+ */
+async function ensure3dView(): Promise<boolean> {
+  show3dView();
+  if (await waitFor3dView(8000)) return true;
+  useApp.getState().toast("error", "The 3D view is not ready yet. Open it and try again.");
+  return false;
+}
+
+/** Walk (eye height, walls block) or fly (free) through the building in the 3D view. */
+export async function enterNav(nav: Exclude<NavMode, "orbit">) {
+  if (await ensure3dView()) useViewer.getState().setNav(nav);
+}
+
+export function setShellMode(shell: ShellMode) {
+  useViewer.getState().setShell(shell);
+}
+
+/**
+ * Enters walk mode near these elements, looking at `location` when given
+ * (the `Issue::location` convention). Sent once the 3D view is up.
+ */
+export async function walkTo(ids: string[], location: Vec3 | null) {
+  if (await ensure3dView()) bus.emit("walk_to", { ids, location });
+}
+
+/** The project inspector with its Plumbing section open and scrolled into view. */
+export function showPipeTakeoff() {
+  useApp.getState().select([]);
+  useShell.getState().revealSection("plumbing");
 }
 
 // ---------------------------------------------------------------- document actions
@@ -236,6 +292,9 @@ export interface PaletteAction {
 export const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 export const SHIFT = MOD === "⌘" ? "⇧" : "Shift+";
 
+/** The step `useViewer.cycleShell` (the X key) takes from each shell mode. */
+const SHELL_NEXT: Record<ShellMode, ShellMode> = { solid: "xray", xray: "hidden", hidden: "solid" };
+
 export function paletteActions(): PaletteAction[] {
   const app = useApp.getState();
   const shell = useShell.getState();
@@ -266,6 +325,21 @@ export function paletteActions(): PaletteAction[] {
     { id: "toggle-ortho", title: app.orthoEnabled ? "Turn ortho off" : "Turn ortho on", group: "View", icon: "ortho", keywords: "ortho toggle straight 90 degrees angle lock", shortcut: `${SHIFT}O`, run: () => app.toggle("orthoEnabled") },
     { id: "toggle-grid", title: app.gridVisible ? "Hide the grid" : "Show the grid", group: "View", icon: "grid", keywords: "grid toggle", shortcut: "G", run: () => app.toggle("gridVisible") },
   );
+
+  const viewer = useViewer.getState();
+  // X steps solid, X-ray, hidden: the action it would pick next shows the key.
+  const nextShell = SHELL_NEXT[viewer.shell];
+  out.push(
+    viewer.nav === "orbit"
+      ? { id: "nav-walk", title: "Walk through the building", group: "View", icon: "walk", keywords: "walk mode first person eye level inside tour walkthrough 3d", shortcut: `${SHIFT}W`, run: () => void enterNav("walk") }
+      : { id: "nav-orbit", title: "Stop walking and orbit again", group: "View", icon: "view3d", keywords: "orbit walk fly exit leave stop 3d", shortcut: "Esc", run: () => viewer.setNav("orbit") },
+    { id: "nav-fly", title: "Fly through the building", group: "View", icon: "fly", keywords: "fly mode free camera tour 3d", disabled: viewer.nav === "fly", run: () => void enterNav("fly") },
+    { id: "shell-xray", title: "X-ray the building", group: "View", icon: "xray", keywords: "xray see through transparent ghost walls pipes plumbing 3d", shortcut: nextShell === "xray" ? "X" : undefined, disabled: viewer.shell === "xray", run: () => setShellMode("xray") },
+    { id: "shell-hidden", title: "Hide the building", group: "View", icon: "eyeOff", keywords: "hide shell walls roof pipes only plumbing 3d", shortcut: nextShell === "hidden" ? "X" : undefined, disabled: viewer.shell === "hidden", run: () => setShellMode("hidden") },
+  );
+  if (viewer.shell !== "solid") {
+    out.push({ id: "shell-solid", title: "Show the building solid", group: "View", icon: "view3d", keywords: "solid shell walls normal xray 3d", shortcut: nextShell === "solid" ? "X" : undefined, run: () => setShellMode("solid") });
+  }
 
   if (doc) {
     const unit = doc.project.settings.display_unit;
@@ -309,6 +383,15 @@ export function paletteActions(): PaletteAction[] {
     { id: "import-bundle", title: "Open .guhit bundle", group: "Project", icon: "import", keywords: "guhit project open file", run: () => shell.requestImport("bundle") },
     { id: "version-new", title: "Save a new version", group: "Project", icon: "versions", keywords: "snapshot checkpoint history quick", shortcut: `${MOD}S`, run: () => void quickSaveVersion() },
     { id: "versions", title: "Browse and restore versions", group: "Project", icon: "versions", keywords: "snapshot history restore", run: () => shell.open("versions") },
+    {
+      id: "pipe-takeoff",
+      title: "Show the pipe take-off",
+      group: "Project",
+      icon: "takeoff",
+      keywords: "pipe takeoff take off plumbing quantities length elbows tees sleeves csv bill of materials",
+      disabled: !doc?.project.elements.some((e) => e.kind === "pipe"),
+      run: showPipeTakeoff,
+    },
     { id: "hub", title: "Back to all projects", group: "Project", icon: "home", keywords: "hub close home", run: () => void leaveEditor() },
     { id: "shortcuts", title: "Show keyboard shortcuts", group: "Project", icon: "keyboard", keywords: "keys help", shortcut: "?", run: () => shell.open("shortcuts") },
     { id: "settings", title: "Settings", group: "Project", icon: "settings", keywords: "preferences interchange dwg converter oda", run: () => shell.open("settings") },

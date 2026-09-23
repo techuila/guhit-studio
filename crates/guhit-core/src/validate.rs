@@ -29,7 +29,17 @@ pub fn layer_of(kind: ElementKind) -> Option<LayerKey> {
         ElementKind::Dimension => LayerKey::Dimensions,
         ElementKind::Underlay | ElementKind::Linework | ElementKind::ReferenceModel => LayerKey::Underlays,
         ElementKind::Camera => return None,
+        // Pipes live on one layer per system: see `element_layer`.
+        ElementKind::Pipe => return None,
     })
+}
+
+/// The layer an element is on. Pipes use the layer of their system.
+pub fn element_layer(el: &Element) -> Option<LayerKey> {
+    match el {
+        Element::Pipe(p) => Some(p.system.layer()),
+        other => layer_of(other.kind()),
+    }
 }
 
 pub fn layer_name(key: LayerKey) -> &'static str {
@@ -43,16 +53,30 @@ pub fn layer_name(key: LayerKey) -> &'static str {
         LayerKey::Annotations => "Annotations",
         LayerKey::Dimensions => "Dimensions",
         LayerKey::Underlays => "Underlays",
+        LayerKey::ColdWater => "Cold water",
+        LayerKey::HotWater => "Hot water",
+        LayerKey::Drainage => "Drainage",
+        LayerKey::Vent => "Vent",
     }
 }
 
-pub fn is_locked(project: &Project, kind: ElementKind) -> Option<LayerKey> {
-    let key = layer_of(kind)?;
+fn locked_key(project: &Project, key: LayerKey) -> Option<LayerKey> {
     project
         .layers
         .iter()
         .find(|l| l.key == key && l.locked)
         .map(|l| l.key)
+}
+
+/// The locked layer a new element of `kind` would go on. Pipes have no
+/// layer by kind (see `element_layer`), so use `element_locked` for them.
+pub fn is_locked(project: &Project, kind: ElementKind) -> Option<LayerKey> {
+    locked_key(project, layer_of(kind)?)
+}
+
+/// The locked layer `el` is on, if its layer is locked.
+pub fn element_locked(project: &Project, el: &Element) -> Option<LayerKey> {
+    locked_key(project, element_layer(el)?)
 }
 
 fn locked_error(key: LayerKey, ids: Vec<Id>) -> CoreError {
@@ -69,6 +93,15 @@ fn locked_error(key: LayerKey, ids: Vec<Id>) -> CoreError {
 /// Reject a new element on a locked layer.
 pub fn ensure_unlocked(project: &Project, kind: ElementKind) -> Result<(), CoreError> {
     match is_locked(project, kind) {
+        Some(key) => Err(locked_error(key, vec![])),
+        None => Ok(()),
+    }
+}
+
+/// Reject adding or copying `el` when its own layer is locked. Unlike
+/// `ensure_unlocked` this knows the layer of a pipe (its system).
+pub fn ensure_element_unlocked(project: &Project, el: &Element) -> Result<(), CoreError> {
+    match element_locked(project, el) {
         Some(key) => Err(locked_error(key, vec![])),
         None => Ok(()),
     }
@@ -119,6 +152,51 @@ fn in_range(
             format!("{name} must be between {lo} and {hi} {unit}, got {v:.1}."),
             ids.to_vec(),
         ));
+    }
+    Ok(())
+}
+
+/// Pipe sizes outside this range are a slip, not a design.
+pub const PIPE_DIAMETER_MM: (f64, f64) = (10.0, 300.0);
+/// Two pipe points in a row closer than this are the same point.
+pub const PIPE_POINT_EPS_MM: f64 = 1.0;
+
+fn validate_pipe(project: &Project, p: &Pipe) -> Result<(), CoreError> {
+    let ids = [p.id.clone()];
+    require_level(project, &p.level_id)?;
+    in_range(
+        "pipe_diameter",
+        "Pipe size",
+        p.diameter_mm,
+        PIPE_DIAMETER_MM.0,
+        PIPE_DIAMETER_MM.1,
+        "mm",
+        &ids,
+    )?;
+    if p.points.len() < 2 {
+        return Err(CoreError::invalid_for(
+            "pipe_too_short",
+            "A pipe needs at least two points.",
+            ids.to_vec(),
+        ));
+    }
+    for v in &p.points {
+        finite("Pipe point x", v.x, &ids)?;
+        finite("Pipe point y", v.y, &ids)?;
+        finite("Pipe point height", v.z, &ids)?;
+    }
+    for w in p.points.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let d = ((b.x - a.x).powi(2) + (b.y - a.y).powi(2) + (b.z - a.z).powi(2)).sqrt();
+        if d < PIPE_POINT_EPS_MM {
+            return Err(CoreError::invalid_for(
+                "pipe_zero_segment",
+                format!(
+                    "Two pipe points in a row are less than {PIPE_POINT_EPS_MM:.0} mm apart. Remove one of them."
+                ),
+                ids.to_vec(),
+            ));
+        }
     }
     Ok(())
 }
@@ -419,6 +497,7 @@ pub fn validate_element(project: &Project, el: &Element) -> Result<(), CoreError
             }
             Ok(())
         }
+        Element::Pipe(p) => validate_pipe(project, p),
         Element::ReferenceModel(m) => {
             require_level(project, &m.level_id)?;
             finite_point("Model position", m.position, &ids)?;
@@ -602,7 +681,11 @@ pub fn post_validate(before: &Project, after: &Project) -> Result<(), CoreError>
                 underlay_locked.push(a.id.clone());
             }
         }
-        if let Some(key) = is_locked(after, el.kind()) {
+        if let Some(key) = element_locked(after, el) {
+            locked.push((key, el.id().clone()));
+        } else if let Some(key) = prior.and_then(|b| element_locked(after, b)) {
+            // Moving an element off a locked layer edits that layer too: a
+            // pipe whose system changes from a locked one.
             locked.push((key, el.id().clone()));
         }
     }
@@ -610,7 +693,7 @@ pub fn post_validate(before: &Project, after: &Project) -> Result<(), CoreError>
         if new_ids.contains(el.id()) {
             continue;
         }
-        if let Some(key) = is_locked(after, el.kind()) {
+        if let Some(key) = element_locked(after, el) {
             locked.push((key, el.id().clone()));
         }
         if let Element::Underlay(u) = el {

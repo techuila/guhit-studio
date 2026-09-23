@@ -31,6 +31,7 @@ pub fn options(paper: PaperSize, orientation: Orientation) -> PlanExportOptions 
         show_room_labels: true,
         show_assets: true,
         title_block: true,
+        show_pipes: true,
     }
 }
 
@@ -247,4 +248,90 @@ pub fn rich() -> DocState {
     ];
     s.project.elements.append(&mut add);
     s
+}
+
+/// One pipe run: id, system, material, size mm, name, and the points x, y, z
+/// in flow order.
+pub type Run = (&'static str, PipeSystem, PipeMaterial, f64, &'static str, &'static [(f64, f64, f64)]);
+
+/// The sixteen pipe runs of the plumbing concept, on the fixture's bungalow.
+/// Supply rises from under the slab into the north wall chase, drainage
+/// falls to the septic tank, one vent stack leaves through the roof.
+pub const RUNS: [Run; 16] = [
+    ("p-cw-main", PipeSystem::ColdWater, PipeMaterial::Pe, 25.0, "Service line",
+     &[(600.0, -1800.0, 0.0), (600.0, -1800.0, -300.0), (600.0, 5850.0, -300.0), (2000.0, 5850.0, -300.0), (2000.0, 6000.0, -300.0), (2000.0, 6000.0, 300.0)]),
+    ("p-cw-chase", PipeSystem::ColdWater, PipeMaterial::Ppr, 20.0, "Cold water chase",
+     &[(2000.0, 6000.0, 300.0), (7450.0, 6000.0, 300.0)]),
+    ("p-cw-sink", PipeSystem::ColdWater, PipeMaterial::Ppr, 20.0, "Sink supply",
+     &[(2000.0, 6000.0, 300.0), (2000.0, 6000.0, 550.0), (2000.0, 5925.0, 550.0)]),
+    ("p-cw-lav", PipeSystem::ColdWater, PipeMaterial::Ppr, 20.0, "Lavatory supply",
+     &[(6300.0, 6000.0, 300.0), (6300.0, 6000.0, 550.0), (6300.0, 5925.0, 550.0)]),
+    ("p-cw-wc", PipeSystem::ColdWater, PipeMaterial::Ppr, 20.0, "",
+     &[(6780.0, 6000.0, 300.0), (6780.0, 5925.0, 300.0)]),
+    ("p-cw-shower", PipeSystem::ColdWater, PipeMaterial::Ppr, 20.0, "Shower cold",
+     &[(7450.0, 6000.0, 300.0), (7450.0, 6000.0, 1100.0), (7450.0, 5925.0, 1100.0)]),
+    ("p-cw-heater", PipeSystem::ColdWater, PipeMaterial::Ppr, 20.0, "Heater feed",
+     &[(6000.0, 6000.0, 300.0), (6000.0, 4200.0, 300.0), (6000.0, 4200.0, 1500.0), (7500.0, 4200.0, 1500.0), (7500.0, 4400.0, 1500.0), (7500.0, 4400.0, 1600.0)]),
+    ("p-hw-shower", PipeSystem::HotWater, PipeMaterial::Ppr, 20.0, "Hot water to the shower",
+     &[(7550.0, 4400.0, 2200.0), (7550.0, 4400.0, 2450.0), (7550.0, 6000.0, 2450.0), (7550.0, 6000.0, 1100.0), (7550.0, 5925.0, 1100.0)]),
+    ("p-hw-lav", PipeSystem::HotWater, PipeMaterial::Ppr, 20.0, "Hot water to the lavatory",
+     &[(7550.0, 5100.0, 2450.0), (6230.0, 5100.0, 2450.0), (6230.0, 6000.0, 2450.0), (6230.0, 6000.0, 550.0), (6230.0, 5925.0, 550.0)]),
+    ("p-dr-main", PipeSystem::Drainage, PipeMaterial::Upvc, 100.0, "Building drain",
+     &[(6300.0, 5650.0, -420.0), (6780.0, 5650.0, -430.0), (7500.0, 5650.0, -444.0), (7800.0, 5650.0, -450.0), (8600.0, 5650.0, -466.0)]),
+    ("p-dr-wc", PipeSystem::Drainage, PipeMaterial::Upvc, 100.0, "Water closet drain",
+     &[(6780.0, 5650.0, 20.0), (6780.0, 5650.0, -430.0)]),
+    ("p-dr-lav", PipeSystem::Drainage, PipeMaterial::Upvc, 50.0, "Lavatory waste",
+     &[(6300.0, 5760.0, 650.0), (6300.0, 5760.0, -410.0), (6300.0, 5650.0, -420.0)]),
+    ("p-dr-shower", PipeSystem::Drainage, PipeMaterial::Upvc, 50.0, "Shower drain",
+     &[(7500.0, 5500.0, 20.0), (7500.0, 5500.0, -420.0), (7500.0, 5650.0, -444.0)]),
+    ("p-dr-sink", PipeSystem::Drainage, PipeMaterial::Upvc, 50.0, "Kitchen sink waste",
+     &[(2000.0, 5700.0, 850.0), (2000.0, 5700.0, -300.0), (6300.0, 5700.0, -334.0), (6300.0, 5650.0, -420.0)]),
+    ("p-dr-out", PipeSystem::Drainage, PipeMaterial::Upvc, 100.0, "Septic tank outlet",
+     &[(10400.0, 4300.0, -520.0), (11600.0, 4300.0, -545.0)]),
+    ("p-vt-stack", PipeSystem::Vent, PipeMaterial::Upvc, 50.0, "Vent stack",
+     &[(7800.0, 5650.0, -450.0), (7800.0, 6000.0, -457.0), (7800.0, 6000.0, 3450.0)]),
+];
+
+pub fn pipe(level: &str, run: &Run) -> Pipe {
+    Pipe {
+        id: run.0.into(),
+        level_id: level.into(),
+        system: run.1,
+        material: run.2,
+        diameter_mm: run.3,
+        points: run.5.iter().map(|p| Vec3 { x: p.0, y: p.1, z: p.2 }).collect(),
+        name: run.4.into(),
+    }
+}
+
+/// The fixture without any pipe, whatever the fixture file holds: the plan a
+/// pipe export is compared against.
+pub fn plain() -> DocState {
+    let mut s = fixture();
+    s.project.elements.retain(|e| !matches!(e, Element::Pipe(_)));
+    s
+}
+
+/// The fixture with the four pipe layers (as a migrated project has them)
+/// and the sixteen concept runs on its ground floor. The water closet supply
+/// has no name, so it exports as "Cold water 20 mm".
+pub fn plumbing() -> DocState {
+    let mut s = plain();
+    let lvl = level_id(&s);
+    for key in [LayerKey::ColdWater, LayerKey::HotWater, LayerKey::Drainage, LayerKey::Vent] {
+        if !s.project.layers.iter().any(|l| l.key == key) {
+            s.project.layers.push(Layer { key, visible: true, locked: false });
+        }
+    }
+    for run in &RUNS {
+        s.project.elements.push(Element::Pipe(pipe(&lvl, run)));
+    }
+    s
+}
+
+pub fn set_layer(s: &mut DocState, key: LayerKey, visible: bool) {
+    match s.project.layers.iter_mut().find(|l| l.key == key) {
+        Some(l) => l.visible = visible,
+        None => s.project.layers.push(Layer { key, visible, locked: false }),
+    }
 }

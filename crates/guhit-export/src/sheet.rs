@@ -1,10 +1,14 @@
 //! The printed sheet: paper size, scale selection, layout, SVG output.
 //! One SVG user unit is one millimeter on paper.
 
-use guhit_model::{Derived, Orientation, PaperSize, PlanExportOptions, Project};
+use guhit_model::{Derived, Orientation, PaperSize, PipeSystem, PlanExportOptions, Project};
 
 use crate::geom::*;
-use crate::plan::{build_plan, items_bounds, resolve_level, Cat, Fill, HAlign, Item, Pen, PlanOptions, Prim};
+use crate::pipes::{self, Dash, PlanPipe};
+use crate::plan::{
+    build_items, empty_level, items_bounds, resolve_level, Cat, Fill, HAlign, Item, Pen,
+    PlanOptions, Prim,
+};
 use crate::text::{clean, est_width, fit, xml_escape};
 use crate::ExportError;
 
@@ -184,7 +188,7 @@ pub fn render(
     let level = resolve_level(project, opts.level_id.as_ref())?;
     let layout = Layout::new(opts.paper, opts.orientation, opts.title_block);
     let build = |n: u32| {
-        build_plan(
+        build_items(
             project,
             derived,
             level,
@@ -197,23 +201,37 @@ pub fn render(
             },
         )
     };
+    let pipes = if opts.show_pipes {
+        pipes::plan_pipes(project, level)
+    } else {
+        Vec::new()
+    };
+    // What the drawing covers at 1:n: the plan and the pipes around it.
+    let extent = |items: &[Item], n: u32| {
+        let mut b = items_bounds(items);
+        if !pipes.is_empty() {
+            let pb = pipes::bounds(&pipes, n as f64);
+            b.add(pb.min);
+            b.add(pb.max);
+        }
+        b
+    };
 
     // Fails early with Empty when there is nothing to draw.
-    build(100)?;
+    if build(100).is_empty() && pipes.is_empty() {
+        return Err(empty_level(level));
+    }
 
     let (px, py, pw, ph) = layout.plan;
     let scale = match opts.scale_denominator {
         Some(n) if n > 0 => n,
-        _ => pick_scale(pw, ph, |n| match build(n) {
-            Ok(items) => {
-                let b = items_bounds(&items);
-                (b.width(), b.height())
-            }
-            Err(_) => (0.0, 0.0),
+        _ => pick_scale(pw, ph, |n| {
+            let b = extent(&build(n), n);
+            (b.width(), b.height())
         }),
     };
-    let items = build(scale)?;
-    let bounds = items_bounds(&items);
+    let items = build(scale);
+    let bounds = extent(&items, scale);
     let n = scale as f64;
     let center = bounds.center();
     let (ox, oy) = (px + pw / 2.0, py + ph / 2.0);
@@ -254,41 +272,31 @@ pub fn render(
     ));
     for cat in Cat::ALL {
         let group: Vec<&Item> = items.iter().filter(|i| i.cat == cat).collect();
+        if cat == Cat::Area && !pipes.is_empty() {
+            // Pipes draw over the whole plan and over the room label masks,
+            // so a run is never cut by a label. The names go on top and
+            // still read. Area is the last category, so this always runs.
+            if !group.is_empty() {
+                svg.s.push_str("<g id=\"room-label-masks\">\n");
+                label_masks(&mut svg.s, &group, n, &to_paper);
+                svg.s.push_str("</g>\n");
+            }
+            write_pipes(&mut svg.s, &pipes, n, &to_paper);
+            if !group.is_empty() {
+                svg.s.push_str(&format!("<g id=\"{}\">\n", cat.svg_id()));
+                for item in group {
+                    write_item(&mut svg.s, item, n, &to_paper);
+                }
+                svg.s.push_str("</g>\n");
+            }
+            continue;
+        }
         if group.is_empty() {
             continue;
         }
         svg.s.push_str(&format!("<g id=\"{}\">\n", cat.svg_id()));
         if cat == Cat::Area {
-            // Room labels mask what is under them (furniture outlines, door
-            // arcs) so the name and area always read cleanly.
-            let pad = 0.6 * n;
-            let mut boxes: Vec<Bounds> = Vec::new();
-            for item in &group {
-                let mut b = items_bounds(std::slice::from_ref(*item));
-                if b.is_empty() {
-                    continue;
-                }
-                b.min = b.min - v(pad, pad);
-                b.max = b.max + v(pad, pad);
-                // Name and area of one room merge into a single mask.
-                while let Some(i) = boxes.iter().position(|o| o.intersects(&b)) {
-                    let o = boxes.swap_remove(i);
-                    b.add(o.min);
-                    b.add(o.max);
-                }
-                boxes.push(b);
-            }
-            for b in boxes {
-                let (x0, y0) = to_paper(v(b.min.x, b.max.y));
-                let (x1, y1) = to_paper(v(b.max.x, b.min.y));
-                svg.s.push_str(&format!(
-                    "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#ffffff\" stroke=\"none\"/>\n",
-                    num(x0),
-                    num(y0),
-                    num(x1 - x0),
-                    num(y1 - y0)
-                ));
-            }
+            label_masks(&mut svg.s, &group, n, &to_paper);
         }
         for item in group {
             write_item(&mut svg.s, item, n, &to_paper);
@@ -297,10 +305,227 @@ pub fn render(
     }
     svg.s.push_str("</g>\n");
 
-    furniture(&mut svg, project, &clean(&level.name), opts, &layout, scale);
+    let legend: Vec<(PipeSystem, f64)> = pipes::systems_present(&pipes)
+        .into_iter()
+        .map(|system| {
+            let widest = pipes
+                .iter()
+                .filter(|p| p.system == system)
+                .map(|p| pipes::stroke_width(p.diameter_mm, n))
+                .fold(0.0, f64::max);
+            (system, widest.clamp(pipes::paper::STROKE_MIN, LEGEND_MAX_STROKE))
+        })
+        .collect();
+    furniture(&mut svg, project, &clean(&level.name), opts, &layout, scale, &legend);
 
     svg.s.push_str("</svg>\n");
     Ok((svg.s, scale))
+}
+
+/// Room labels mask what is under them (furniture outlines, door arcs) so the
+/// name and area always read cleanly: one white box per room.
+fn label_masks(s: &mut String, group: &[&Item], n: f64, to_paper: &dyn Fn(V) -> (f64, f64)) {
+    let pad = 0.6 * n;
+    let mut boxes: Vec<Bounds> = Vec::new();
+    for item in group {
+        let mut b = items_bounds(std::slice::from_ref(*item));
+        if b.is_empty() {
+            continue;
+        }
+        b.min = b.min - v(pad, pad);
+        b.max = b.max + v(pad, pad);
+        // Name and area of one room merge into a single mask.
+        while let Some(i) = boxes.iter().position(|o| o.intersects(&b)) {
+            let o = boxes.swap_remove(i);
+            b.add(o.min);
+            b.add(o.max);
+        }
+        boxes.push(b);
+    }
+    for b in boxes {
+        let (x0, y0) = to_paper(v(b.min.x, b.max.y));
+        let (x1, y1) = to_paper(v(b.max.x, b.min.y));
+        s.push_str(&format!(
+            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#ffffff\" stroke=\"none\"/>\n",
+            num(x0),
+            num(y0),
+            num(x1 - x0),
+            num(y1 - y0)
+        ));
+    }
+}
+
+/// Widest line a legend sample gets, paper mm.
+const LEGEND_MAX_STROKE: f64 = 0.7;
+
+fn dash_attr(pattern: &[f64]) -> String {
+    if pattern.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<String> = pattern.iter().map(|x| num(*x)).collect();
+    format!(" stroke-dasharray=\"{}\"", parts.join(" "))
+}
+
+/// The pattern of a legend sample `length` mm long, stretched or shrunk a
+/// little so the sample starts and ends on a full dash. A cut dash at the
+/// end would read as a dot and make a dashed sample look dash-dot.
+fn legend_pattern(d: Dash, width: f64, length: f64) -> Vec<f64> {
+    let p = pipes::dash_pattern(d, width);
+    if p.is_empty() {
+        return p;
+    }
+    let period: f64 = p.iter().sum();
+    let periods = ((length - p[0]) / period).round().max(1.0);
+    let k = length / (periods * period + p[0]);
+    p.iter().map(|x| x * k).collect()
+}
+
+fn line_cap(d: Dash) -> &'static str {
+    match d {
+        Dash::Solid => "round",
+        Dash::Dashed | Dash::DashDot => "butt",
+    }
+}
+
+/// The pipe group: one sub-group per system in its color, wide systems
+/// first, and inside each the wider pipes first. Risers are white circles
+/// over the line they end, so the line reads as turning up or down there.
+fn write_pipes(s: &mut String, list: &[PlanPipe], n: f64, to_paper: &dyn Fn(V) -> (f64, f64)) {
+    s.push_str("<g id=\"pipes\" fill=\"none\" stroke-linejoin=\"round\">\n");
+    for system in pipes::DRAW_ORDER {
+        let mut group: Vec<&PlanPipe> = list.iter().filter(|p| p.system == system).collect();
+        if group.is_empty() {
+            continue;
+        }
+        group.sort_by(|a, b| {
+            b.diameter_mm
+                .partial_cmp(&a.diameter_mm)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let d = pipes::dash(system);
+        s.push_str(&format!(
+            "<g id=\"pipes-{}\" stroke=\"{}\" stroke-linecap=\"{}\">\n",
+            pipes::slug(system),
+            pipes::color(system),
+            line_cap(d)
+        ));
+        for p in &group {
+            let w = pipes::stroke_width(p.diameter_mm, n);
+            let dashes = dash_attr(&pipes::dash_pattern(d, w));
+            for run in &p.runs {
+                let pts: Vec<String> = run
+                    .iter()
+                    .map(|q| {
+                        let q = to_paper(*q);
+                        format!("{},{}", num(q.0), num(q.1))
+                    })
+                    .collect();
+                s.push_str(&format!(
+                    "<polyline points=\"{}\" stroke-width=\"{}\"{dashes}/>\n",
+                    pts.join(" "),
+                    num(w)
+                ));
+            }
+        }
+        for p in &group {
+            let w = pipes::stroke_width(p.diameter_mm, n);
+            let r = pipes::riser_radius(p.diameter_mm, n) / n;
+            let sw = (w * 0.5).clamp(pipes::paper::RISER_STROKE, 0.7);
+            for c in &p.risers {
+                let q = to_paper(*c);
+                s.push_str(&format!(
+                    "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#ffffff\" stroke-width=\"{}\"/>\n",
+                    num(q.0),
+                    num(q.1),
+                    num(r),
+                    num(sw)
+                ));
+            }
+        }
+        s.push_str("</g>\n");
+    }
+    s.push_str("</g>\n");
+}
+
+/// Legend of the pipe systems on the sheet, right aligned at `right` in the
+/// band between the drawing title and the scale bar, so it never reaches the
+/// title block. Returns its left edge.
+fn pipe_legend(
+    svg: &mut Svg,
+    entries: &[(PipeSystem, f64)],
+    l: &Layout,
+    right: f64,
+    title_x: f64,
+    band_mid: f64,
+) -> f64 {
+    let k = l.k;
+    let size = 2.0 * k;
+    let sample = 10.0 * k;
+    let gap = 1.6 * k;
+    let col_gap = 3.5 * k;
+    let pitch = 3.6 * k;
+    let count = entries.len();
+    let label_w = |i: usize| est_width(pipes::label(entries[i].0), size, false);
+    // Column-major grid: supply systems share a column, sanitary the next.
+    let width = |rows: usize| -> f64 {
+        let cols = count.div_ceil(rows);
+        let mut w = 0.0;
+        for c in 0..cols {
+            let widest = (c * rows..((c + 1) * rows).min(count))
+                .map(label_w)
+                .fold(0.0, f64::max);
+            w += sample + gap + widest;
+        }
+        w + col_gap * (cols.saturating_sub(1)) as f64
+    };
+    let mut rows = count.clamp(1, 2);
+    // Keep room for the drawing title; one column when two would crowd it.
+    if count > 2 && right - width(rows) - title_x < 46.0 * k && width(count) < width(rows) {
+        rows = count;
+    }
+    let total = width(rows);
+    let left = right - total;
+
+    svg.s.push_str("<g id=\"pipe-legend\">\n");
+    let first = band_mid + 0.6 * k - (rows as f64 - 1.0) * pitch / 2.0;
+    svg.text(left, first - 3.3 * k, size, "start", false, MUTED, "PIPES");
+    let mut x = left;
+    for c in 0..count.div_ceil(rows) {
+        let mut widest: f64 = 0.0;
+        for r in 0..rows {
+            let i = c * rows + r;
+            if i >= count {
+                break;
+            }
+            let (system, w) = entries[i];
+            let y = first + pitch * r as f64;
+            let d = pipes::dash(system);
+            svg.s.push_str(&format!(
+                "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"{}\" stroke-linecap=\"{}\"{}/>\n",
+                num(x),
+                num(y),
+                num(x + sample),
+                num(y),
+                pipes::color(system),
+                num(w),
+                line_cap(d),
+                dash_attr(&legend_pattern(d, w, sample))
+            ));
+            svg.text(
+                x + sample + gap,
+                y + 0.72 * k,
+                size,
+                "start",
+                false,
+                INK,
+                pipes::label(system),
+            );
+            widest = widest.max(label_w(i));
+        }
+        x += sample + gap + widest + col_gap;
+    }
+    svg.s.push_str("</g>\n");
+    left
 }
 
 fn write_item(s: &mut String, item: &Item, n: f64, to_paper: &dyn Fn(V) -> (f64, f64)) {
@@ -460,6 +685,7 @@ fn furniture(
     opts: &PlanExportOptions,
     l: &Layout,
     scale: u32,
+    legend: &[(PipeSystem, f64)],
 ) {
     let k = l.k;
     let m = l.margin;
@@ -532,9 +758,16 @@ fn furniture(
         "GRAPHIC SCALE",
     );
 
-    // Drawing title.
+    // Pipe legend between the drawing title and the scale bar.
     let title_x = m + pad;
-    let title_max = (bar_x - pad - title_x).max(20.0);
+    let title_right = if legend.is_empty() {
+        bar_x
+    } else {
+        pipe_legend(svg, legend, l, bar_x - pad, title_x, band_mid)
+    };
+
+    // Drawing title.
+    let title_max = (title_right - pad - title_x).max(20.0);
     let (title, title_size) = fit(&drawing_title(level_name), 4.2 * k, 2.4 * k, title_max, true);
     let title_w = est_width(&title, title_size, true).min(title_max);
     let base = band_mid - 0.4 * k;

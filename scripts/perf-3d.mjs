@@ -8,10 +8,12 @@
 //   ./target/debug/guhit-devbridge --port 1681 --data .devdata/perf3d
 //   VITE_BRIDGE_URL=http://localhost:1681 pnpm vite --port 1682
 //
-// Two scenes are measured: the sample bungalow as it loads, and the same
-// model with 300 generated furniture assets. For each scene: a 3 s orbit
-// drag, then 2 s of no input (rendered frames there must be 0, the viewer is
-// render on demand).
+// Scenes measured: the sample bungalow as it loads, the same model with 300
+// generated furniture assets, and the plumbing demo (16 pipe runs) in solid
+// and X-ray. For each: a 3 s orbit drag, then 2 s of no input (rendered
+// frames there must be 0, the viewer is render on demand). Walk mode is
+// measured on the bungalow and the plumbing demo: 3 s holding W while
+// dragging to turn, then 2 s standing still (frames must be 0 there too).
 
 import { chromium } from "playwright-core";
 import { readdirSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -149,6 +151,57 @@ async function orbit(page, box, seconds) {
   return i;
 }
 
+/**
+ * Walk mode: enters walk from the store (the toolbar path), holds W while a
+ * slow drag turns the view, then stands still. Frame times come from the same
+ * render instrumentation as the orbit drag.
+ */
+async function measureWalk(page, label, seconds) {
+  await settled(page);
+  // The orbit pose is put back afterwards, so the scenes after a walk start
+  // from the same camera as before.
+  await page.evaluate(() => {
+    window.__orbitPose = window.__viewer3d.currentCamera();
+  });
+  await page.evaluate(() => window.__viewer.getState().setNav("walk"));
+  await settled(page);
+  const box = await page.locator('[data-testid="viewer3d-canvas"]').boundingBox();
+  await page.evaluate(INSTRUMENT);
+  const cx = box.x + box.width * 0.5;
+  const cy = box.y + box.height * 0.5;
+  await page.mouse.move(cx, cy);
+  await page.keyboard.down("KeyW");
+  await pause(60);
+  await page.evaluate(START);
+  await page.mouse.down();
+  const t0 = Date.now();
+  let i = 0;
+  // A slow turn while walking: the walker circles and slides along walls.
+  while (Date.now() - t0 < seconds * 1000) {
+    await page.mouse.move(cx + Math.sin(i * 0.05) * 120, cy + Math.sin(i * 0.03) * 20);
+    i++;
+    await pause(16);
+  }
+  await page.mouse.up();
+  await page.keyboard.up("KeyW");
+  const walk = await page.evaluate(STOP);
+  // Let the walker stop and the interaction tail land, then stand still.
+  await pause(900);
+  await page.evaluate(IDLE);
+  await pause(2000);
+  const idle = await page.evaluate(() => {
+    const p = window.__perf;
+    p.on = false;
+    return p.starts.length;
+  });
+  const walker = await page.evaluate(() => window.__viewer3d.stats().walker);
+  await page.evaluate(() => window.__viewer.getState().setNav("orbit"));
+  await settled(page);
+  await page.evaluate(() => window.__viewer3d.flyToCamera(window.__orbitPose, 0));
+  await settled(page);
+  return { label, pointerMoves: i, ...walk, idleFrames: idle, walker };
+}
+
 /** Waits until nothing is animating and the frame loop has stopped. */
 async function settled(page) {
   for (let i = 0; i < 100; i++) {
@@ -272,6 +325,7 @@ try {
 
   report.scenes.push(await measureScene(page, "bungalow"));
   if (shotDir) await page.screenshot({ path: join(shotDir, "bungalow.png") });
+  report.scenes.push(await measureWalk(page, "bungalow-walk", 3));
 
   // Same model with 300 furniture assets.
   await page.evaluate(() => {
@@ -288,6 +342,21 @@ try {
   await pause(800);
   report.scenes.push(await measureScene(page, "assets-300"));
   if (shotDir) await page.screenshot({ path: join(shotDir, "assets-300.png") });
+
+  // The plumbing demo: pipe batches in solid and X-ray, and a walk.
+  const plumbingUrl = `${url}${url.includes("?") ? "&" : "?"}template=plumbing-demo`;
+  await page.goto(plumbingUrl, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => window.__source && window.__source !== "loading", null, { timeout: 30000 });
+  await page.waitForFunction(() => window.__viewer3d && !window.__viewer3d.isEmpty(), null, { timeout: 30000 });
+  await pause(2500);
+  report.pipes = await page.evaluate(() => window.__viewer3d.stats().pipes);
+  report.scenes.push(await measureScene(page, "plumbing"));
+  await page.evaluate(() => window.__viewer.getState().setShell("xray"));
+  await settled(page);
+  report.scenes.push(await measureScene(page, "plumbing-xray"));
+  if (shotDir) await page.screenshot({ path: join(shotDir, "plumbing-xray.png") });
+  await page.evaluate(() => window.__viewer.getState().setShell("solid"));
+  report.scenes.push(await measureWalk(page, "plumbing-walk", 3));
 } finally {
   report.consoleErrors = errors;
   if (!keep) await browser.close();

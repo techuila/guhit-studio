@@ -19,6 +19,119 @@ What every part of the app agrees on. Types live in `crates/guhit-model`
 - Dimension endpoints within 1 mm of a wall joint or outline corner follow it when a command moves the wall (DECISIONS D12).
 - Stairs: going depth = `run_mm / riser_count`. Annotations: `position` is the left end of the first baseline.
 
+## Pipes
+
+Plumbing is a coordination layer: Guhit places pipes, shows them in 2D and
+3D, flags conflicts and counts quantities. It never sizes pipes or claims code
+compliance; plumbing plans are signed by a registered Master Plumber (RA 1378).
+
+- `Element::Pipe`: a run of straight segments through `points`. `x`, `y` are
+  plan mm, `z` is the centerline height above the level floor (negative below
+  the slab). At least two points, no two in a row closer than 1 mm. Drainage
+  flows from the first point to the last. Size range 10 to 300 mm.
+- Layers: each `PipeSystem` has its own `LayerKey` with the same snake_case
+  name (`cold_water`, `hot_water`, `drainage`, `vent`). Visible and locked
+  work like every other layer. Schema version 2 added them;
+  `guhit_core::migrate` adds missing layers to older projects when a
+  `Document` is created.
+- Colors: tokens `--pipe-cold`, `--pipe-hot`, `--pipe-drain`, `--pipe-vent`
+  in `src/styles/tokens.css`. The 3D view, 2D plan, legends and exports use
+  the same four colors.
+- Tool defaults (`defaults::pipe_defaults`, mirrored by the frontend):
+
+| System | Material | Size mm | Start height mm | Size menu |
+|---|---|---|---|---|
+| cold_water | ppr | 20 | 300 | PPR 20 25 32 40 50 63, GI 15 20 25 32 50, PE 20 25 32 |
+| hot_water | ppr | 20 | 300 | PPR 20 25 32, copper 15 22 28 |
+| drainage | upvc | 50 | -300 | uPVC 32 50 75 100 150 |
+| vent | upvc | 50 | 300 | uPVC 32 50 75 100 |
+
+- Drainage fall default: `defaults::drain_min_slope_pct`, 2 percent, 1 percent
+  from 100 mm up. The pipe tool lets new drainage fall by it as it is drawn.
+- Riser: a segment whose plan length is under 1 mm, or at most 50 mm while it
+  rises at least ten times its plan length. Plans, sheets and DXF draw a riser
+  as a circle, never as a line.
+- Frontend mirror: `src/contract/pipes.ts` holds the defaults, size menus,
+  labels, colors and the fall rule. Every frontend module imports them from
+  there, never keeps its own copy.
+- Pipe tool (2D): clicks place points at the current height. PageUp and
+  PageDown change it by 100 mm (Shift: 10 mm), typing `h1500` then Enter sets
+  it. A height change adds a riser at the last point and writes
+  `toolOptions.pipeElevationMm`. Drainage keeps falling at the default from
+  the new height. Snapping onto another run of a joinable system goes level
+  (or falls) to the join, then rises or drops to its height; a drain that
+  would have to climb slopes up instead and gets a `drain_slope_low` item.
+
+`Derived::pipes` (`PipeNetwork`), recomputed after every change. Positions are
+plan x, y and z above the floor of `level_id`:
+
+- Runs join only when they can carry the same flow: the same system, or
+  drainage and vent. A cold water end resting on a hot water pipe is a
+  `pipes_cross` clash, never a fitting.
+- Elbow: an interior point where the direction turns by more than 1 degree.
+  Also where the ends of two runs meet at an angle.
+- Tee: the end of one run touching another run (3D distance up to the larger
+  radius) away from that run's ends. `pipe_id` is the run joined,
+  `branch_pipe_id` the run that ends there. Three or more run ends at one
+  point make tees too: the two ends that line up best are the run, every
+  other end is a branch. A branch landing where the other run bends is one
+  tee and no elbow.
+- Penetration, one per crossing:
+  - `slab`: a segment with one end at or above the floor (z >= 0) and the
+    other below it, crossing z = 0 inside a footprint of its level.
+  - `wall`: a segment that crosses a wall's thickness (enters one long face,
+    leaves the other) between the floor and the wall top, both ends outside
+    the wall, not inside one of its openings. It counts only where the pipe
+    crosses the wall's centerline inside the wall's resolved outline, so a
+    chase passing a T-junction does not cross the partition. Segments along a
+    wall (a chase) and vertical segments do not count.
+  - `roof`: a segment on the top level that crosses the roof underside, with
+    the roof shape the 3D view draws (`src/viewer3d/geom/roofMesh.ts`).
+- Take-off: one row per system, material and size, centerline length rounded
+  to the millimeter. `sleeve_count` is the number of penetrations.
+
+Review items from pipes. Every one sets `Issue::location` except the summary:
+
+| Code | Severity | element_ids | When |
+|---|---|---|---|
+| `pipe_through_column` | warning | pipe, column | the pipe body enters a column, floor to level height |
+| `pipe_across_opening` | warning | pipe, opening | the pipe body passes through a door or window opening |
+| `pipes_cross` | warning | two pipes, id order | two runs' bodies overlap where they are not joined |
+| `drain_slope_low` | warning | pipe | a drainage segment at least 300 mm long, flatter than 45 degrees, falls less than the default or runs uphill |
+| `pipe_penetrations` | info | pipes with penetrations | summary: how many sleeves or flashings, by kind |
+
+One item per pipe and target, located at the first hit. Messages are plain
+suggestions ("Route it above the door head at 2.10 m or under the slab"),
+never approvals.
+
+`Query::PipeTakeoff` returns `{ rows: [{ system, material, diameter_mm,
+length_m, run_count }], total_length_m, elbow_count, tee_count, sleeve_count,
+penetrations: [{ kind, pipe_id, host_id, position_mm }], note }`.
+
+Exports: `PlanExportOptions::show_pipes` draws pipes on visible pipe layers
+with a legend (SVG, PDF) or on one DXF layer per system: `P-DOMW-CPIP` cold
+water, `P-DOMW-HPIP` hot water, `P-SANR-PIPE` drainage, `P-SANR-VENT` vent. 3D
+DXF draws them as tubes on the same layers. IFC4 writes `IfcPipeSegment`s
+assigned to one `IfcDistributionSystem` per system.
+
+## 3D navigation and shell view state
+
+`src/viewer3d/viewerStore.ts`, view state only, never saved in the project:
+
+- `nav`: `orbit`, `walk` (eye height 1600 mm on the active level; walls,
+  columns and objects taller than 300 mm block; door openings let you
+  through), `fly` (free, nothing blocks).
+  While not `orbit` the 3D view owns every key without MOD; Escape returns
+  to orbit.
+- `shell`: `solid`, `xray` (the building is drawn faint so pipes read through
+  it), `hidden` (only floors, pipes and ghosted outlines). Pipes stay solid.
+- `bus.emit("walk_to", { ids, location })` enters walk mode near a finding.
+- The global shortcut handler defers keys to the 3D view only while that view
+  is on screen. Switching to plan only ends a walk (`nav` back to `orbit`).
+- The shell sends `walk_to` or sets `nav` only once the 3D view is up; the
+  signal is `useApp().captureView` being registered. The 3D view resets `nav`
+  to `orbit` when it truly unmounts.
+
 ## Engine API (`guhit-core`)
 
 ```rust
@@ -32,6 +145,9 @@ compute_derived(&project) -> Derived
 templates::sample_bungalow() -> Project
 Document::with_revision(project, revision) -> Document       // restore without reusing revisions
 doc.rename(name) -> Result<(), CoreError>                   // not an undo step, survives undo
+migrate(&mut project)                                      // fills layers missing in older files; Document::new calls it
+templates::plumbing_demo() -> Project                      // the `plumbing-demo` template
+pipe_name(&pipe) -> String                                 // "Kitchen sink waste" or "Cold water pipe 20 mm", as review items say it
 ```
 
 App service helpers shared with the AI module: `AppService::commit(command, origin)` (apply + autosave), `AppService::commit_if_revision(command, origin, expected_revision)` (same, atomic, `stale` on mismatch) and `AppService::project_dir()`.
@@ -49,7 +165,7 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | Command | Args | Returns | Notes |
 |---|---|---|---|
 | `hub_list` | | `ProjectMeta[]` | newest first |
-| `hub_create` | `name`, `settings?`, `template?` | `DocState` | opens it. templates: `blank`, `sample-bungalow` |
+| `hub_create` | `name`, `settings?`, `template?` | `DocState` | opens it. templates: `blank`, `sample-bungalow`, `plumbing-demo` (the bungalow with a T&B, fixtures and 16 pipe runs) |
 | `hub_open` | `id` | `DocState` | |
 | `hub_rename` | `id`, `name` | `ProjectMeta` | |
 | `hub_duplicate` | `id` | `ProjectMeta` | |

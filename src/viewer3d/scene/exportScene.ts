@@ -1,5 +1,5 @@
 // Whole-scene export: GLB, OBJ, DAE. Serializes the CURRENT model (walls,
-// openings, floors, roof, columns, stairs, assets, reference models) with no
+// openings, floors, roof, columns, stairs, assets, pipes, reference models) with no
 // helpers, lights, grid, ground plane, ghosts, highlights or camera. Built
 // from the same `buildScene` the live view uses, then cloned and reorganized
 // so every mesh reads as "<kind>-<elementId>" grouped under a per-kind node
@@ -25,6 +25,7 @@ const KIND_LABEL: Partial<Record<Element["kind"], string>> = {
   column: "Columns",
   stair: "Stairs",
   asset: "Assets",
+  pipe: "Pipes",
   reference_model: "ReferenceModels",
 };
 
@@ -84,7 +85,9 @@ export function buildExportGroup(
 
   const meshes: THREE.Mesh[] = [];
   source.traverse((o) => {
-    if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
+    // Pipe batches only exist to save draw calls on screen: every run is
+    // exported once, from its own tagged form.
+    if ((o as THREE.Mesh).isMesh && !o.userData.batch) meshes.push(o as THREE.Mesh);
   });
 
   const byElement = new Map<string, THREE.Mesh[]>();

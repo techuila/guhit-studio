@@ -14,8 +14,8 @@
 use std::collections::HashMap;
 
 use guhit_model::{
-    Annotation, Asset, Axis, Column, Derived, Element, Level, Opening, Project, Room, RoofKind,
-    Stair, Wall,
+    Annotation, Asset, Axis, Column, Derived, Element, Level, Opening, Pipe, Project, Room,
+    RoofKind, Stair, Wall,
 };
 
 use crate::geom::*;
@@ -145,6 +145,9 @@ pub struct LevelScene<'a> {
     pub stairs: Vec<&'a Stair>,
     pub assets: Vec<&'a Asset>,
     pub annotations: Vec<&'a Annotation>,
+    /// Pipe runs, whatever their layer's visibility: whole-model exports
+    /// carry every element.
+    pub pipes: Vec<&'a Pipe>,
 }
 
 pub struct RoomSolid<'a> {
@@ -316,6 +319,7 @@ pub fn build_scene<'a>(project: &'a Project, derived: &'a Derived) -> Scene<'a> 
             stairs: Vec::new(),
             assets: Vec::new(),
             annotations: Vec::new(),
+            pipes: Vec::new(),
         })
         .collect();
     let index: HashMap<&str, usize> = project
@@ -405,6 +409,11 @@ pub fn build_scene<'a>(project: &'a Project, derived: &'a Derived) -> Scene<'a> 
             Element::Annotation(a) => {
                 if let Some(i) = slot(&a.level_id) {
                     levels[i].annotations.push(a);
+                }
+            }
+            Element::Pipe(p) => {
+                if let Some(i) = slot(&p.level_id) {
+                    levels[i].pipes.push(p);
                 }
             }
             _ => {}

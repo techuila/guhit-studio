@@ -11,6 +11,11 @@
 //! The whole-model exports go the other way: `model3d` turns the project into
 //! solids in model millimeters, `ifc` writes them as IFC4 STEP and `dxf3d` as
 //! 3DFACE geometry with the 2D linework alongside it.
+//!
+//! Pipes (`pipes`) have their own styling in every format: system colors, a
+//! weight from the pipe size on the sheet, one DXF layer per system, tubes
+//! in 3D and IfcPipeSegments grouped into IfcDistributionSystems in IFC.
+//! A project without pipes exports exactly as it did before pipes existed.
 
 use guhit_model::{Derived, PlanExportOptions, Project};
 
@@ -20,6 +25,7 @@ pub mod geom;
 pub mod ifc;
 pub mod model3d;
 pub mod pdf;
+pub mod pipes;
 pub mod plan;
 pub mod sheet;
 pub mod text;
@@ -68,11 +74,13 @@ pub fn plan_pdf(
     })
 }
 
-/// Model-space DXF in mm, 1:1, layered by element category.
+/// Model-space DXF in mm, 1:1, layered by element category, pipes on one
+/// layer per system when `opts.show_pipes`.
 ///
 /// Paper and title block options do not apply to model space. The scale only
-/// sizes text, ticks and arrows so they plot at the usual paper size at 1:N:
-/// `opts.scale_denominator`, else the project scale, else 100.
+/// sizes text, ticks, arrows, riser marks and pipe dashes so they plot at the
+/// usual paper size at 1:N: `opts.scale_denominator`, else the project scale,
+/// else 100.
 pub fn plan_dxf(
     project: &Project,
     derived: &Derived,
@@ -84,7 +92,7 @@ pub fn plan_dxf(
         .filter(|n| *n > 0)
         .or(Some(project.settings.scale_denominator).filter(|n| *n > 0))
         .unwrap_or(100);
-    let items = plan::build_plan(
+    let items = plan::build_items(
         project,
         derived,
         level,
@@ -95,9 +103,17 @@ pub fn plan_dxf(
             show_assets: opts.show_assets,
             unicode: false,
         },
-    )?;
+    );
+    let pipe_list = if opts.show_pipes {
+        pipes::plan_pipes(project, level)
+    } else {
+        Vec::new()
+    };
+    if items.is_empty() && pipe_list.is_empty() {
+        return Err(plan::empty_level(level));
+    }
     Ok(PlanOutput {
-        data: dxf::write(&items, scale),
+        data: dxf::write(&items, &pipe_list, scale),
         scale_denominator: scale,
     })
 }
@@ -106,16 +122,19 @@ pub fn plan_dxf(
 ///
 /// One IfcBuildingStorey per level, walls with their mitred outlines, openings
 /// cut with IfcRelVoidsElement and filled by IfcDoor or IfcWindow, IfcSpace
-/// per room, IfcSlab per footprint, a roof, columns, stairs, furnishing and
-/// annotations. Ids are derived from the element ids, so a re-export of an
-/// unchanged project produces the same IfcGloballyUniqueIds.
+/// per room, IfcSlab per footprint, a roof, columns, stairs, furnishing,
+/// annotations, and one IfcPipeSegment per straight pipe segment grouped into
+/// one IfcDistributionSystem per pipe system. Ids are derived from the element
+/// ids, so a re-export of an unchanged project produces the same
+/// IfcGloballyUniqueIds.
 pub fn model_ifc(project: &Project, derived: &Derived) -> Result<String, ExportError> {
     ifc::write(project, derived)
 }
 
 /// The whole model as a 3D DXF in millimeters: 3DFACE solids on the 2D layers
-/// plus A-ROOF and A-FLOR-SLAB, and the 2D plan linework of every level at
-/// z = 0 so one file serves both uses.
+/// plus A-ROOF and A-FLOR-SLAB, pipes as closed tubes on their system layers,
+/// and the 2D plan linework of every level at z = 0 so one file serves both
+/// uses.
 pub fn model_dxf3d(project: &Project, derived: &Derived) -> Result<String, ExportError> {
     dxf3d::write(project, derived)
 }

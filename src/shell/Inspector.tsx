@@ -2,15 +2,18 @@
 // nothing selected -> project, level, roof, layers, review; one element ->
 // its fields; several -> shared actions.
 import { useMemo } from "react";
-import type { Command, DocState, Element, Issue, LayerKey, Level, PaperSize, ProjectSettings, Roof } from "../contract/bindings";
+import type { Command, DocState, Element, Issue, Layer, LayerKey, Level, PaperSize, ProjectSettings, Roof } from "../contract/bindings";
 import { bus } from "../state/bus";
 import { useApp, useVisibleDoc } from "../state/store";
 import { MaterialPicker } from "../ui/MaterialPicker";
 import { Button, Field, IconButton, NumberField, Section, Segmented, Select, TextField, cx } from "../ui/controls";
 import { Icon, type IconName } from "../ui/icons";
 import { formatArea } from "../ui/units";
+import { useListPresence } from "../ui/useListPresence";
 import { ElementFields, elementTitle } from "./ElementFields";
-import { ROOF_KINDS, deleteSelection } from "./actions";
+import { PipesMultiFields, PlumbingSection } from "./PipeSections";
+import { ROOF_KINDS, deleteSelection, walkTo } from "./actions";
+import { EMPTY_NETWORK, PIPE_COLOR, isPipeIssue, isPipeLayer, lengthBySystem, orderIssues } from "./pipes";
 import { useProjectName, useSection } from "./shellStore";
 import s from "./Inspector.module.css";
 
@@ -36,6 +39,10 @@ const LAYER_LABEL: Record<LayerKey, string> = {
   annotations: "Text",
   dimensions: "Dimensions",
   underlays: "Traced image",
+  cold_water: "Cold water",
+  hot_water: "Hot water",
+  drainage: "Drainage",
+  vent: "Vent",
 };
 
 function ProjectSection({ doc }: { doc: DocState }) {
@@ -181,70 +188,137 @@ function RoofSection({ doc }: { doc: DocState }) {
   );
 }
 
+function LayerRow({ layer, swatch, meta }: { layer: Layer; swatch?: string; meta?: string | null }) {
+  const label = LAYER_LABEL[layer.key] ?? layer.key;
+  return (
+    <li className={cx(s.layer, !layer.visible && s.layerHidden)}>
+      {swatch ? <span className={s.layerSwatch} style={{ background: swatch }} aria-hidden /> : null}
+      <span className={s.layerName}>{label}</span>
+      {meta ? <span className={s.layerMeta}>{meta}</span> : null}
+      <IconButton
+        icon={layer.locked ? "lock" : "unlock"}
+        label={layer.locked ? `Unlock ${label}` : `Lock ${label}`}
+        tip={layer.locked ? "Locked. Click to allow edits" : "Lock against edits"}
+        tipSide="top-end"
+        size={15}
+        active={layer.locked}
+        className={s.layerButton}
+        onClick={() => dispatch({ type: "set_layer", layer: { ...layer, locked: !layer.locked } })}
+      />
+      <IconButton
+        icon={layer.visible ? "eye" : "eyeOff"}
+        label={layer.visible ? `Hide ${label}` : `Show ${label}`}
+        tip={layer.visible ? "Hide" : "Show"}
+        tipSide="top-end"
+        size={15}
+        className={s.layerButton}
+        onClick={() => dispatch({ type: "set_layer", layer: { ...layer, visible: !layer.visible } })}
+      />
+    </li>
+  );
+}
+
 function LayersSection({ doc }: { doc: DocState }) {
   const [open, toggle] = useSection("layers", false);
   const hidden = doc.project.layers.filter((l) => !l.visible).length;
+  const building = doc.project.layers.filter((l) => !isPipeLayer(l.key));
+  const pipeLayers = doc.project.layers.filter((l) => isPipeLayer(l.key));
+  const lengths = lengthBySystem((doc.derived.pipes ?? EMPTY_NETWORK).takeoff);
   return (
     <Section title="Layers" icon="layers" open={open} onToggle={toggle} aside={hidden > 0 ? <span className={s.sectionAside}>{hidden} hidden</span> : null}>
       <ul className={s.layers}>
-        {doc.project.layers.map((layer) => (
-          <li key={layer.key} className={cx(s.layer, !layer.visible && s.layerHidden)}>
-            <span className={s.layerName}>{LAYER_LABEL[layer.key] ?? layer.key}</span>
-            <IconButton
-              icon={layer.locked ? "lock" : "unlock"}
-              label={layer.locked ? `Unlock ${LAYER_LABEL[layer.key]}` : `Lock ${LAYER_LABEL[layer.key]}`}
-              tip={layer.locked ? "Locked. Click to allow edits" : "Lock against edits"}
-              tipSide="top-end"
-              size={15}
-              active={layer.locked}
-              className={s.layerButton}
-              onClick={() => dispatch({ type: "set_layer", layer: { ...layer, locked: !layer.locked } })}
-            />
-            <IconButton
-              icon={layer.visible ? "eye" : "eyeOff"}
-              label={layer.visible ? `Hide ${LAYER_LABEL[layer.key]}` : `Show ${LAYER_LABEL[layer.key]}`}
-              tip={layer.visible ? "Hide" : "Show"}
-              tipSide="top-end"
-              size={15}
-              className={s.layerButton}
-              onClick={() => dispatch({ type: "set_layer", layer: { ...layer, visible: !layer.visible } })}
-            />
-          </li>
+        {building.map((layer) => (
+          <LayerRow key={layer.key} layer={layer} />
         ))}
       </ul>
+      {pipeLayers.length > 0 ? (
+        <>
+          <div className={s.layerSubhead}>Pipes</div>
+          <ul className={s.layers}>
+            {pipeLayers.map((layer) => {
+              const system = layer.key as keyof typeof lengths;
+              return <LayerRow key={layer.key} layer={layer} swatch={PIPE_COLOR[system]} meta={lengths[system] > 0 ? `${lengths[system].toFixed(2)} m` : null} />;
+            })}
+          </ul>
+        </>
+      ) : null}
     </Section>
   );
 }
 
 const SEVERITY_ICON: Record<Issue["severity"], IconName> = { info: "info", warning: "warning", error: "warning" };
 
+const issueKey = (issue: Issue) => issue.id;
+
 function ReviewSection({ doc }: { doc: DocState }) {
   const [open, toggle] = useSection("review", true);
   const select = useApp((st) => st.select);
-  const issues = doc.derived.issues;
+  // Warnings first; the penetration summary is a note, after the list.
+  const { items, notes } = useMemo(() => orderIssues(doc.derived.issues), [doc.derived.issues]);
+  const rows = useListPresence(items, issueKey);
+  const noteRows = useListPresence(notes, issueKey);
+  const known = (issue: Issue) => issue.element_ids.filter((id) => doc.project.elements.some((e) => e.id === id));
   const focus = (issue: Issue) => {
-    const ids = issue.element_ids.filter((id) => doc.project.elements.some((e) => e.id === id));
+    const ids = known(issue);
     if (ids.length === 0) return;
     select(ids);
     bus.emit("focus_elements", ids);
   };
+  const walk = (issue: Issue) => void walkTo(known(issue), issue.location);
   return (
-    <Section title="Review" icon="check" count={issues.length} open={open} onToggle={toggle}>
-      {issues.length === 0 ? (
-        <p className={s.note}>Nothing to flag right now.</p>
-      ) : (
+    <Section title="Review" icon="check" count={items.length} open={open} onToggle={toggle}>
+      {items.length === 0 && notes.length === 0 ? <p className={s.note}>Nothing to flag right now.</p> : null}
+      {rows.length > 0 ? (
         <ul className={s.issues}>
-          {issues.map((issue) => (
-            <li key={issue.id}>
-              <button type="button" className={cx(s.issue, s[`issue_${issue.severity}`])} onClick={() => focus(issue)} disabled={issue.element_ids.length === 0}>
-                <Icon name={SEVERITY_ICON[issue.severity]} size={15} className={s.issueIcon} />
-                <span>{issue.message}</span>
-              </button>
+          {rows.map(({ key, item: issue, entering, leaving }) => (
+            <li key={key} className={cx(s.issueRow, entering && s.issueRowIn, leaving && s.issueRowOut)} inert={leaving}>
+              <div className={s.issueRowInner}>
+                {isPipeIssue(issue) ? (
+                  <div className={cx(s.issue, s.issueStatic, s[`issue_${issue.severity}`])}>
+                    <Icon name={SEVERITY_ICON[issue.severity]} size={15} className={s.issueIcon} />
+                    <div className={s.issueBody}>
+                      <span>{issue.message}</span>
+                      <div className={s.issueActions}>
+                        <Button size="sm" icon="fit" onClick={() => focus(issue)} disabled={known(issue).length === 0}>
+                          Show
+                        </Button>
+                        {issue.location ? (
+                          <Button size="sm" icon="walk" onClick={() => walk(issue)} disabled={known(issue).length === 0}>
+                            Walk to it
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <button type="button" className={cx(s.issue, s[`issue_${issue.severity}`])} onClick={() => focus(issue)} disabled={issue.element_ids.length === 0}>
+                    <Icon name={SEVERITY_ICON[issue.severity]} size={15} className={s.issueIcon} />
+                    <span>{issue.message}</span>
+                  </button>
+                )}
+              </div>
             </li>
           ))}
         </ul>
-      )}
-      <p className={s.disclaimer}>Suggestions from a design check, for you to judge. This is not a permit, structural or building code review.</p>
+      ) : null}
+      {noteRows.map(({ key, item: note, entering, leaving }) => (
+        <div key={key} className={cx(s.issueRow, entering && s.issueRowIn, leaving && s.issueRowOut)} inert={leaving}>
+          <div className={s.issueRowInner}>
+            <div className={s.reviewNote}>
+              <Icon name="info" size={15} className={s.issueIcon} />
+              <div className={s.issueBody}>
+                <span>{note.message}</span>
+                <div className={s.issueActions}>
+                  <Button size="sm" icon="fit" onClick={() => focus(note)} disabled={known(note).length === 0}>
+                    Show
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+      <p className={s.disclaimer}>Suggestions from a design check, for you to judge. This is not a permit, structural, plumbing or building code review.</p>
     </Section>
   );
 }
@@ -279,6 +353,7 @@ function ProjectInspector({ doc }: { doc: DocState }) {
           </div>
         </dl>
         <ReviewSection doc={doc} />
+        {doc.project.elements.some((e) => e.kind === "pipe") ? <PlumbingSection doc={doc} /> : null}
         <ProjectSection doc={doc} />
         <DrawingSection doc={doc} />
         <LevelSection doc={doc} />
@@ -304,6 +379,7 @@ const KIND_PLURAL: Record<Element["kind"], [string, string]> = {
   underlay: ["traced image", "traced images"],
   linework: ["linework", "linework"],
   reference_model: ["reference model", "reference models"],
+  pipe: ["pipe", "pipes"],
 };
 
 function MultiInspector({ doc, picked }: { doc: DocState; picked: Element[] }) {
@@ -315,6 +391,7 @@ function MultiInspector({ doc, picked }: { doc: DocState; picked: Element[] }) {
 
   const withMaterial = picked.filter((e): e is Extract<Element, { material_id: string | null }> => "material_id" in e);
   const rooms = picked.filter((e): e is Extract<Element, { kind: "room" }> => e.kind === "room");
+  const pipes = picked.filter((e): e is Extract<Element, { kind: "pipe" }> => e.kind === "pipe");
   const sharedOf = (values: Array<string | null>) => (values.every((v) => v === values[0]) ? { value: values[0], mixed: false } : { value: null, mixed: true });
   const mat = sharedOf(withMaterial.map((e) => e.material_id));
   const floor = sharedOf(rooms.map((e) => e.floor_material_id));
@@ -362,7 +439,8 @@ function MultiInspector({ doc, picked }: { doc: DocState; picked: Element[] }) {
               />
             </Field>
           ) : null}
-          {withMaterial.length === 0 && rooms.length === 0 ? <p className={s.note}>These items have no shared settings. Select one to edit it.</p> : null}
+          {pipes.length > 0 ? <PipesMultiFields pipes={pipes} /> : null}
+          {withMaterial.length === 0 && rooms.length === 0 && pipes.length === 0 ? <p className={s.note}>These items have no shared settings. Select one to edit it.</p> : null}
         </div>
         <div className={s.group}>
           <Button variant="danger" icon="trash" onClick={deleteSelection}>
@@ -385,6 +463,7 @@ export function Inspector() {
   const picked = useMemo(() => (doc ? doc.project.elements.filter((e) => selection.includes(e.id)) : []), [doc, selection]);
 
   if (!doc) return null;
+  const head = picked.length === 1 ? elementTitle(picked[0], doc) : null;
   return (
     <div className={s.inspector}>
       {previewing ? (
@@ -398,13 +477,13 @@ export function Inspector() {
       <div className={s.inspectorBody} inert={previewing}>
         {picked.length === 0 ? (
           <ProjectInspector doc={doc} />
-        ) : picked.length === 1 ? (
+        ) : head ? (
           <>
             <header className={s.head}>
-              <Icon name={elementTitle(picked[0], doc).icon} size={18} className={s.headIcon} />
+              <Icon name={head.icon} size={18} className={s.headIcon} style={head.tint ? { color: head.tint } : undefined} />
               <div className={s.headText}>
-                <strong>{elementTitle(picked[0], doc).title}</strong>
-                <span>{elementTitle(picked[0], doc).subtitle}</span>
+                <strong>{head.title}</strong>
+                <span>{head.subtitle}</span>
               </div>
               <IconButton icon="fit" label="Zoom to this" tipSide="bottom-end" onClick={() => bus.emit("focus_elements", [picked[0].id])} />
               <IconButton icon="trash" label="Delete" tip="Delete (Del)" tipSide="bottom-end" onClick={deleteSelection} />

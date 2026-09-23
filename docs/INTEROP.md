@@ -12,9 +12,9 @@ external converter.
 | In | DWG | same | Needs the ODA File Converter |
 | In | glTF, GLB, OBJ | `model_store` | Reference model in the 3D view |
 | In | `.guhit` bundle | `bundle_open` | A whole project |
-| Out | PDF, SVG, DXF (2D plan) | `export_plan` | Sheet or model space |
+| Out | PDF, SVG, DXF (2D plan) | `export_plan` | Sheet or model space, pipes when `show_pipes` (see "Pipes in the exports") |
 | Out | DWG (2D plan) | `export_model` `dwg` | Needs the converter |
-| Out | IFC4, 3D DXF | `export_model` `ifc`, `dxf3d` | Whole model, written by `guhit-export` |
+| Out | IFC4, 3D DXF | `export_model` `ifc`, `dxf3d` | Whole model with pipes, written by `guhit-export` |
 | Out | GLB, OBJ, DAE | `export_bytes` | Made in the 3D view |
 | Out | `.guhit` bundle | `bundle_save` | A whole project |
 
@@ -207,3 +207,91 @@ exports folder when no path is given:
 
 GLB, OBJ and DAE are produced in the 3D view and saved with `export_bytes`,
 because the geometry for them is built by the three.js scene.
+
+## Pipes in the exports
+
+Pipes are a coordination layer (DECISIONS D19). Every export writes them as
+they were drawn: Guhit does not size pipes, and no export claims a plumbing
+design or code compliance. Plumbing plans are signed by a registered Master
+Plumber (RA 1378). A project without pipes exports exactly as it did before
+pipes existed, byte for byte.
+
+Which pipes go where:
+
+| Export | Pipes drawn | Hidden pipe layer |
+|---|---|---|
+| PDF, SVG sheet | the exported level, when `show_pipes` is on | not drawn |
+| DXF 2D (and DWG) | the exported level, when `show_pipes` is on | not drawn |
+| DXF 3D | tubes for every pipe; plan lines at z = 0 like the rest of the linework | tubes stay, plan lines go |
+| IFC4 | every pipe | written |
+
+The whole-model exports carry every element whatever its layer, and pipes
+follow that rule. A level holding only pipes is still a drawing, not an
+empty export.
+
+### On the plan sheet
+
+- Colors are the tokens `--pipe-cold` `#2b7bd0`, `--pipe-hot` `#e0563a`,
+  `--pipe-drain` `#9b6a35` and `--pipe-vent` `#3a9a5c`.
+- The line weight is the pipe size at the sheet scale, never under 0.35 mm:
+  a 100 mm drain is 2 mm wide at 1:50, a 20 mm supply line 0.35 mm at 1:100.
+- Cold and hot water are solid, drainage is dashed, vent is dash-dot. Wider
+  lines get proportionally longer dashes.
+- A segment that runs vertically, a riser or a drop, is a white circle in
+  the system color at its plan position, always wider than its line.
+  Vertical means under 1 mm apart in plan, or at most 50 mm apart and
+  rising at least ten times that.
+- Pipes draw over the whole plan, dimensions included, and over the white
+  masks behind room names, so a label never cuts a run; the names stay on
+  top. Wide drainage goes first so supply lines stay readable on top of it.
+- The sheet extent includes the pipes, so a service line to the meter or an
+  outlet to the septic tank is not cut off.
+- A legend in the band between the drawing title and the scale bar lists
+  only the systems on the sheet. It never reaches the title block.
+
+### DXF
+
+One layer per system, with the AutoCAD color index nearest the system color
+(R12 has no true color):
+
+| Layer | System | Color | Linetype |
+|---|---|---|---|
+| `P-DOMW-CPIP` | cold water | 150 | `CONTINUOUS` |
+| `P-DOMW-HPIP` | hot water | 20 | `CONTINUOUS` |
+| `P-SANR-PIPE` | drainage | 33 | `GUHIT_DASHED` |
+| `P-SANR-VENT` | vent | 103 | `GUHIT_DASHDOT` |
+
+- The file defines the two linetypes itself, sized to plot at 1:N (the
+  export scale, else the project scale): `GUHIT_DASHED` is a 2.2 mm dash and
+  a 1.1 mm gap on paper, `GUHIT_DASHDOT` 3.0 mm dash, 0.9 mm gap, dot, 0.9 mm
+  gap. Their own names keep another drawing's `DASHED` from replacing them
+  when the file is inserted as a block.
+- Runs are open polylines at z = 0, risers are circles sized for plotting
+  and kept `CONTINUOUS` on the dashed layers.
+- Pipe layers and linetypes are only in the file when a system is present.
+- In the 3D DXF each pipe is a closed 8-sided tube of 3DFACEs on its system
+  layer, at world height (level elevation plus the point's z). Bends up to
+  120 degrees are mitred into one surface; sharper bends and very short
+  stubs are cut square and capped. Tube faces carry a `CONTINUOUS` linetype
+  so only the 2D lines are dashed.
+
+### IFC4
+
+- One `IfcPipeSegment` (`.RIGIDSEGMENT.`) per straight segment. The body is
+  an `IfcExtrudedAreaSolid` of an `IfcCircleProfileDef` (radius = size / 2)
+  swept from the segment start along its direction, representation `Body`,
+  `SweptSolid`. It is contained in the `IfcBuildingStorey` of its level.
+- Name: the pipe's name, or the system and size ("Cold water 20 mm") when it
+  has none. Description: "Segment 2 of 4". The GlobalId comes from the pipe
+  id and the segment index, so it survives edits and re-exports.
+- One `IfcDistributionSystem` per system present, `.DOMESTICCOLDWATER.`,
+  `.DOMESTICHOTWATER.`, `.DRAINAGE.` or `.VENT.`, holding its segments
+  through `IfcRelAssignsToGroup` and serving the building through
+  `IfcRelServicesBuildings`.
+- Material by `IfcRelAssociatesMaterial`: `PPR`, `uPVC`, `GI`, `PE` or
+  `Copper`.
+- Properties: `Pset_PipeSegmentTypeCommon.NominalDiameter`, and
+  `Guhit_Pset_Pipe` with the system, material, pipe id and segment count.
+- Not written: elbows and tees as `IfcPipeFitting` (segments meet at their
+  end points, so a bend shows a small notch on its outside in a viewer),
+  sleeves, and colors (the exporter styles no element).

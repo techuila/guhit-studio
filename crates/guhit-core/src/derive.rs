@@ -1,9 +1,10 @@
 //! Builds `Derived` from a project: wall outlines, rooms, footprints,
-//! totals and review items.
+//! totals, pipes and review items.
 
 use guhit_model::*;
 
 use crate::issues::review;
+use crate::pipes::derive_pipes;
 use crate::rooms::{assign_by_seed, face};
 use crate::topo::{analyze, Analysis};
 
@@ -82,6 +83,9 @@ pub fn derived_from(project: &Project, analysis: &Analysis) -> Derived {
     derived.totals.gross_area_m2 = tidy(derived.totals.gross_area_m2);
     derived.totals.wall_length_m = tidy(derived.totals.wall_length_m);
 
+    let (pipes, pipe_issues) = derive_pipes(project, analysis, &assigned);
+    derived.pipes = pipes;
     derived.issues = review(project, analysis, &assigned);
+    derived.issues.extend(pipe_issues);
     derived
 }

@@ -119,7 +119,7 @@ pub fn load(project_dir: &Path, id: &str) -> Result<SnapshotFile, IpcError> {
         std::io::ErrorKind::NotFound => IpcError::new("not_found", format!("snapshot not found: {id}")),
         _ => files::io_err("cannot read", &path, e),
     })?;
-    let file: SnapshotFile = serde_json::from_slice(&bytes)
+    let mut file: SnapshotFile = serde_json::from_slice(&bytes)
         .map_err(|e| IpcError::new("invalid", format!("snapshot file is damaged ({}): {e}", path.display())))?;
     if file.project.schema_version > SCHEMA_VERSION {
         return Err(IpcError::new(
@@ -127,6 +127,8 @@ pub fn load(project_dir: &Path, id: &str) -> Result<SnapshotFile, IpcError> {
             "this snapshot was saved by a newer version of Guhit Studio",
         ));
     }
+    // A snapshot taken before pipes existed gets the pipe layers.
+    guhit_core::migrate(&mut file.project);
     Ok(file)
 }
 

@@ -6,11 +6,17 @@
 // `Animator` (engine/animator.ts), durations come from src/ui/motion.ts and
 // the frame loop runs only while something is animating. The engine renders
 // on demand; it never holds a permanent requestAnimationFrame.
+//
+// Navigation: `orbit` is OrbitControls. `walk` and `fly` hand the camera to the
+// walker (engine/walker.ts), which steps inside the same single frame loop:
+// a frame is scheduled while a key is held or the walker still moves, and
+// none at all while it stands still. The shell modes (engine/shell.ts) fade
+// the building around the pipes (scene/pipes.ts).
 
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import type { Camera, DocState, Element } from "../../contract/bindings";
+import type { Camera, DocState, Element, Vec3 } from "../../contract/bindings";
 import { dur, ease, motionOK } from "../../ui/motion";
 import {
   axonometric,
@@ -23,18 +29,25 @@ import {
   type ModelBounds,
   type PosePreset,
 } from "../geom/cameraMath";
+import { buildCollisionWorld } from "../geom/collision";
 import { cameraToPose, worldToVec3, type WorldPose } from "../geom/coords";
 import { signedArea } from "../geom/polygon";
+import { hiddenAt, pipeMostlyHidden, roomsOn, walkStartPose, walkToPose, type HiddenReason, type WalkPose } from "../geom/walkStart";
 import { buildExportGroup, exportDAE, exportGLB, exportOBJ } from "../scene/exportScene";
 import { BuildCache } from "../scene/buildCache";
-import { buildScene, CUTAWAY_MM, type BuiltScene } from "../scene/buildScene";
+import { buildScene, CUTAWAY_MM, levelFilter, type BuiltScene } from "../scene/buildScene";
 import { MaterialLibrary } from "../scene/materials";
 import { loadPackManifest, modelPack } from "../scene/pack";
+import { PIPE_PICK_LAYER, pipeShown } from "../scene/pipes";
+import { Minimap, type MinimapScene } from "../walk/minimap";
+import type { NavMode, ShellMode } from "../viewerStore";
 import { Animator } from "./animator";
 import { Environment } from "./environment";
 import { Highlight, spec, type HighlightState } from "./highlights";
 import { MeshFade, meshesUnder } from "./meshFade";
 import { ReferenceModelStore, type ReferenceModelPlacement } from "./referenceModels";
+import { ShellView } from "./shell";
+import { pointerLockSupported, WALK_FOV, WalkControls, WalkState, type WalkMode } from "./walker";
 
 export type PresetKind = "eye_level" | "exterior_corner" | "top" | "axonometric" | "room_interior" | "fit";
 
@@ -50,6 +63,24 @@ export interface EngineCallbacks {
   fetchReferenceModel: (fileName: string) => Promise<string>;
   /** A reference model was kept as a placeholder (missing file or over the triangle cap). */
   onReferenceModelWarning?: (message: string) => void;
+  /**
+   * The engine changed the navigation mode itself: Escape or F while walking,
+   * or a camera request (a preset, fit, focus) that leaves walk mode.
+   */
+  onNavChange?: (nav: NavMode) => void;
+  /** X while walking or flying: the global shortcut handler is quiet then. */
+  onCycleShell?: () => void;
+  /** True while the keyboard belongs to something else (a dialog). */
+  keysBlocked?: () => boolean;
+  /** Pointer lock came or went. */
+  onPointerLock?: (locked: boolean) => void;
+  /** The browser refused pointer lock (WKWebView may). */
+  onPointerLockError?: () => void;
+  /**
+   * A `walk_to` put the walker in front of its finding. `hidden` says why a
+   * solid shell would hide the finding (in a wall, under the floor), or null.
+   */
+  onWalkTo?: (hidden: HiddenReason | null) => void;
 }
 
 export interface Highlights {
@@ -104,6 +135,21 @@ const FRAME_BUDGET_MS = 8;
 const DAMPING_MAX_MS = 300;
 /** Pack models that land inside this window share one rebuild. */
 const PACK_COALESCE_MS = 32;
+/**
+ * Tracks that change nothing the sun sees: the camera, walking, the shell
+ * fade, shadow strength, the sky blend and highlight tints. Their frames do
+ * not redraw the shadow map; only meshes that move, fade or get cut do.
+ */
+const VIEW_ONLY_TRACKS = new Set(["camera", "walk", "shell", "shadow", "breath", "env"]);
+const isViewOnlyTrack = (key: string) => VIEW_ONLY_TRACKS.has(key) || key.startsWith("hl:");
+/** How far back and up the camera settles when a walk ends, mm, and how close it may come to anything. */
+const EXIT_BACK_MM = 1200;
+const EXIT_UP_MM = 400;
+const CLEARANCE_M = 0.35;
+
+const tmpPos = new THREE.Vector3();
+const tmpQuat = new THREE.Quaternion();
+const tmpEuler = new THREE.Euler(0, 0, 0, "YXZ");
 
 let liveEngines = 0;
 /** Number of engines that were created and not disposed. For the leak check. */
@@ -193,6 +239,34 @@ export class ViewerEngine {
   private overBudget = 0;
   private lastFrameAt = 0;
 
+  /** How the camera moves. Walk and fly hand it to the walker. */
+  private nav: NavMode = "orbit";
+  /** Walk or fly asked for before there was a document to stand in. */
+  private navPending: WalkMode | null = null;
+  /** A `walk_to` that arrived before the document. */
+  private walkToPending: { ids: string[]; location: Vec3 | null } | null = null;
+  private walker = new WalkState();
+  private walkControls: WalkControls;
+  /** Level the walker is on. Follows the active level when that changes. */
+  private walkLevelId: string | null = null;
+  /** The active level last seen, so only a change of it moves the walker. */
+  private seenActiveLevel: string | null = null;
+  /** The document and level the collision world was built from. */
+  private walkWorldDoc: DocState | null = null;
+  private walkWorldLevel: string | null = null;
+  /** The camera pose a walk started from: the entrance blends out of it. */
+  private walkBlend: { pos: THREE.Vector3; quat: THREE.Quaternion; fov: number } | null = null;
+  /** Time of the last moving walk frame, 0 when the walker stood still. */
+  private lastWalkAt = 0;
+  /** Orbit limits relaxed while a walk hands the camera back. */
+  private orbitMaxPolar = Math.PI * 0.5 + 0.12;
+
+  private shell = new ShellView();
+  private minimap: Minimap | null = null;
+  private minimapScene: MinimapScene | null = null;
+  private minimapVersion = 0;
+  private minimapDirty = false;
+
   constructor(
     private container: HTMLElement,
     private cb: EngineCallbacks,
@@ -255,7 +329,24 @@ export class ViewerEngine {
     this.controls.dampingFactor = 0.12;
     this.controls.zoomToCursor = true;
     this.controls.minDistance = 0.3;
-    this.controls.maxPolarAngle = Math.PI * 0.5 + 0.12;
+    this.controls.maxPolarAngle = this.orbitMaxPolar;
+    // Pipe solos rest on their own layer: not drawn, still clickable.
+    this.raycaster.layers.enable(PIPE_PICK_LAYER);
+    this.walkControls = new WalkControls(canvas, {
+      wake: () => this.invalidate(),
+      look: (dx, dy) => {
+        this.walker.look(dx, dy);
+        this.applyWalkerCamera();
+        this.minimapDirty = true;
+        this.invalidate();
+      },
+      exit: () => this.requestNav("orbit"),
+      toggleFly: () => this.requestNav(this.nav === "fly" ? "walk" : "fly"),
+      cycleShell: () => this.cb.onCycleShell?.(),
+      blocked: () => this.cb.keysBlocked?.() ?? false,
+      lockChange: (locked) => this.cb.onPointerLock?.(locked),
+      lockError: () => this.cb.onPointerLockError?.(),
+    });
     this.controls.addEventListener("change", this.onControlChange);
     this.controls.addEventListener("start", this.onControlStart);
     this.controls.addEventListener("end", this.onControlEnd);
@@ -296,6 +387,7 @@ export class ViewerEngine {
     this.setRoofShown(opts.roofVisible && !opts.cutaway, now);
     this.shadowDirty();
     this.syncReferenceModels(doc, opts);
+    this.syncWalk();
     this.invalidate();
   }
 
@@ -466,6 +558,17 @@ export class ViewerEngine {
         else if (before !== sig) modified.push(id);
       }
       for (const id of prevSignatures.keys()) if (!nextSignatures.has(id)) removed.push(id);
+      // A pipe layer switched off (or a level cut away) takes its runs out the
+      // same way a delete does, and switching it back brings them in.
+      const shownBefore = new Set(prevBuilt?.pipes.solos.keys() ?? []);
+      const shownAfter = this.shownPipeIds();
+      for (const id of shownBefore) if (!shownAfter.has(id) && nextSignatures.has(id)) removed.push(id);
+      for (const id of shownAfter) {
+        if (shownBefore.has(id) || !prevSignatures.has(id)) continue;
+        added.push(id);
+        const m = modified.indexOf(id);
+        if (m >= 0) modified.splice(m, 1);
+      }
     }
     // The red removal ghosts of an AI preview leave the same way elements do.
     const hadGhosts = prevBuilt?.root.getObjectByName("ghosts") ?? null;
@@ -496,6 +599,11 @@ export class ViewerEngine {
     }
     this.scene.add(this.built.root);
     this.refreshPickables();
+    // The shell look goes onto any material this build created, and the
+    // outlines follow the new geometry, before any entrance lifts a mesh.
+    this.shell.invalidate();
+    this.shell.ensureOutlines(this.built, this.doc, () => undefined, (g) => this.built?.kit.track(g));
+    this.applyShell();
     // A new model: pay for full resolution again before deciding it is heavy.
     this.interactionRatio = this.fullRatio();
     this.shadowDirty();
@@ -575,6 +683,10 @@ export class ViewerEngine {
     const group = new THREE.Group();
     group.name = "leaving";
     for (const o of tops) group.add(o);
+    // A leaving pipe has no batch any more: its own form is what fades out.
+    group.traverse((o) => {
+      if (o.userData.pipe) o.layers.set(0);
+    });
     this.scene.add(group);
     const kit = prev.kit;
     this.leaving = { group, kit };
@@ -615,6 +727,7 @@ export class ViewerEngine {
         case "opening":
         case "column":
         case "stair":
+        case "pipe":
           return 2;
         case "asset":
           return 4;
@@ -625,6 +738,8 @@ export class ViewerEngine {
     const buckets: THREE.Mesh[][] = [[], [], [], [], []];
     const roof = new Set(meshesUnder(built.roofGroup));
     for (const mesh of meshesUnder(built.root)) {
+      // Pipe batches draw nothing of a pipe that is fading: its solo does.
+      if (mesh.userData.batch || mesh.userData.outline) continue;
       if (roof.has(mesh)) {
         buckets[3].push(mesh);
         continue;
@@ -716,6 +831,9 @@ export class ViewerEngine {
         this.live.get(id)?.release();
         this.live.delete(id);
         this.anim.remove(`hl:${id}`);
+        // The last breathing tint just left: stop the breath, or the frame
+        // loop would run on forever for nothing.
+        this.syncBreath(performance.now());
         this.invalidate();
       };
       // Retargets instead of queueing: rapid hover across meshes never stacks.
@@ -745,7 +863,11 @@ export class ViewerEngine {
         hl.retarget(want);
       }
       if (spec(want).outline && !hl.hasOutline()) {
-        for (const mesh of meshes) hl.addOutline(mesh, this.edgesFor(mesh), this.outlineResolution());
+        for (const mesh of meshes) {
+          // A pipe is too thin and round for an edge outline: it gets a silhouette band.
+          if (mesh.userData.pipe) hl.addHullOutline(mesh, this.outlineResolution());
+          else hl.addOutline(mesh, this.edgesFor(mesh), this.outlineResolution());
+        }
       }
       if (this.anim.value(`hl:${id}`, 0) < 1) {
         this.anim.to(`hl:${id}`, 1, now, { duration: dur("hover"), easing: ease.out });
@@ -939,6 +1061,8 @@ export class ViewerEngine {
       for (let p: THREE.Object3D | null = o; p; p = p.parent) if (p === built.roofGroup) return;
       const mat = (o as THREE.Mesh).material;
       if (!mat || Array.isArray(mat)) return;
+      // Pipes on the active level stay whole: the cutaway is for seeing them.
+      if (mat.userData.shellCat === "pipe") return;
       if (mat.clippingPlanes && mat.clippingPlanes[0] === plane) return;
       mat.clippingPlanes = [plane];
       mat.needsUpdate = true;
@@ -1011,7 +1135,7 @@ export class ViewerEngine {
    * Eases to a pose with the shared `--dur-scene` easing. Interruptible at any
    * moment: any orbit, pan or zoom drops the fly where it is, with no jump.
    */
-  flyTo(pose: WorldPose, duration = dur("scene")): void {
+  flyTo(pose: WorldPose, duration = dur("scene"), onDone?: () => void): void {
     if (this.disposed) return;
     const fov = Math.min(Math.max(pose.fovDeg || 45, 5), 110);
     this.tween = {
@@ -1030,6 +1154,7 @@ export class ViewerEngine {
         this.applyCameraTween(1);
         this.tween = null;
         this.anim.remove("camera");
+        onDone?.();
         this.invalidate();
       },
     });
@@ -1048,13 +1173,17 @@ export class ViewerEngine {
   flyToCamera(camera: Pick<Camera, "position" | "target" | "fov_deg">, duration?: number): void {
     const ok = [camera.position, camera.target].every((v) => [v.x, v.y, v.z].every(Number.isFinite));
     if (!ok) return;
+    this.leaveWalkFor();
     this.flyTo(cameraToPose(camera), duration);
   }
 
   /** Returns false when the preset cannot be computed (no room to stand in). */
   goPreset(kind: PresetKind, selection: string[], duration?: number): PosePreset | null {
     const pose = this.presetPose(kind, selection);
-    if (pose) this.flyTo(cameraToPose(pose), duration);
+    if (pose) {
+      this.leaveWalkFor();
+      this.flyTo(cameraToPose(pose), duration);
+    }
     return pose;
   }
 
@@ -1100,10 +1229,24 @@ export class ViewerEngine {
     return roomInterior(geo.polygon, geo.label_point, level?.elevation_mm ?? 0, name);
   }
 
-  focusElements(ids: string[]): void {
+  /**
+   * Frames the elements. Returns true when one of them is a pipe that a solid
+   * shell would mostly hide (in a wall, under the floor), so the caller can
+   * switch to X-ray and say so.
+   */
+  focusElements(ids: string[]): boolean {
+    const doc = this.doc;
+    let hiddenPipe = false;
+    if (doc) {
+      for (const id of ids) {
+        const e = doc.project.elements.find((x) => x.id === id);
+        if (e?.kind === "pipe" && pipeMostlyHidden(doc, e)) hiddenPipe = true;
+      }
+    }
     const box = new THREE.Box3();
     for (const id of ids) for (const mesh of this.allMeshesFor(id)) box.expandByObject(mesh);
-    if (box.isEmpty()) return;
+    if (box.isEmpty()) return hiddenPipe;
+    this.leaveWalkFor();
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     if (dir.lengthSq() < 0.5) dir.set(-0.5, 0.5, 0.7).normalize();
@@ -1111,12 +1254,15 @@ export class ViewerEngine {
     const dist = fitDistance(Math.max(sphere.radius, 0.8), fov, this.aspect()) * 1.15;
     const pos = sphere.center.clone().addScaledVector(dir, dist);
     this.flyTo({ position: [pos.x, pos.y, pos.z], target: [sphere.center.x, sphere.center.y, sphere.center.z], fovDeg: fov });
+    return hiddenPipe;
   }
 
   /** Current pose as a contract camera: world mm, x east, y north, z up. */
   currentCamera(name = "View"): Camera {
     const p = this.camera.position;
-    const t = this.controls.target;
+    // Walking, the target is a point straight ahead of the eyes.
+    const t =
+      this.nav === "orbit" ? this.controls.target : p.clone().add(new THREE.Vector3(0, 0, -3).applyQuaternion(this.camera.quaternion));
     const round = (v: { x: number; y: number; z: number }) => ({
       x: Math.round(v.x * 10) / 10,
       y: Math.round(v.y * 10) / 10,
@@ -1132,6 +1278,469 @@ export class ViewerEngine {
     };
   }
 
+
+  // ------------------------------------------------------------ walk and fly
+
+  /** Current navigation mode. */
+  navMode(): NavMode {
+    return this.nav;
+  }
+
+  /**
+   * Orbit, walk or fly. Entering walk or fly tweens the camera to eye height
+   * (1600 mm above the level floor): inside the room under the orbit target
+   * when there is one, else just outside the first exterior door. Leaving
+   * tweens to an orbit pose that looks where the walker looked.
+   */
+  setNav(next: NavMode): void {
+    if (this.disposed) return;
+    if (next === this.nav) {
+      if (next === "orbit") this.navPending = null;
+      return;
+    }
+    if (next === "orbit") {
+      this.navPending = null;
+      this.leaveWalk(true);
+      return;
+    }
+    if (!this.doc) {
+      this.navPending = next;
+      return;
+    }
+    if (this.nav === "orbit") this.enterWalk(next, null, null);
+    else this.switchWalkMode(next);
+  }
+
+  /** Applies a change the engine decided on and tells the app. */
+  private requestNav(next: NavMode): void {
+    this.setNav(next);
+    this.cb.onNavChange?.(this.nav);
+  }
+
+  /** A camera request while walking hands the camera back to orbit first, without a tween of its own. */
+  private leaveWalkFor(): void {
+    if (this.nav === "orbit") {
+      if (this.navPending) {
+        this.navPending = null;
+        this.cb.onNavChange?.("orbit");
+      }
+      return;
+    }
+    this.leaveWalk(false);
+    this.cb.onNavChange?.("orbit");
+  }
+
+  /** The level the walker stands on: the active level, or the lowest. */
+  private activeLevelIdOrLowest(): string | null {
+    const levels = this.doc?.project.levels ?? [];
+    if (this.opts.activeLevelId && levels.some((l) => l.id === this.opts.activeLevelId)) return this.opts.activeLevelId;
+    return [...levels].sort((a, b) => a.elevation_mm - b.elevation_mm)[0]?.id ?? null;
+  }
+
+  private enterWalk(mode: WalkMode, pose: WalkPose | null, levelId: string | null): void {
+    const doc = this.doc;
+    if (!doc) {
+      this.navPending = mode;
+      return;
+    }
+    this.navPending = null;
+    this.seenActiveLevel = this.opts.activeLevelId;
+    // An orbit fly in progress is dropped where it is: the walk takes over from there.
+    if (this.tween) {
+      this.anim.remove("camera");
+      this.tween = null;
+    }
+    this.walkLevelId = levelId ?? this.activeLevelIdOrLowest();
+    this.refreshWalkWorld();
+    const w = this.walker;
+    w.mode = mode;
+    const start = pose ?? this.defaultWalkStart();
+    w.place(start.x, start.y, start.yaw, start.pitch);
+    w.z = w.eyeHeight();
+    this.beginWalkBlend();
+    this.nav = mode;
+    this.controls.enabled = false;
+    this.walkControls.attach();
+    this.lastWalkAt = 0;
+    this.minimapDirty = true;
+    this.applyWalkerCamera();
+    this.invalidate();
+  }
+
+  /** The camera eases from where it is into the walker's eyes, following the walker if it moves meanwhile. */
+  private beginWalkBlend(): void {
+    this.walkBlend = { pos: this.camera.position.clone(), quat: this.camera.quaternion.clone(), fov: this.camera.fov };
+    this.anim.set("walk", 0);
+    this.anim.to("walk", 1, performance.now(), {
+      duration: dur("scene"),
+      easing: ease.inOut,
+      onDone: () => {
+        this.walkBlend = null;
+        this.anim.remove("walk");
+        this.invalidate();
+      },
+    });
+  }
+
+  private switchWalkMode(mode: WalkMode): void {
+    const w = this.walker;
+    w.mode = mode;
+    w.vz = 0;
+    // Back on foot: step out of anything flown into; the eye settles to 1600 mm.
+    if (mode === "walk") w.settle();
+    this.nav = mode;
+    this.lastWalkAt = 0;
+    this.minimapDirty = true;
+    this.invalidate();
+  }
+
+  /** Where a walk starts when nothing asked for a place. */
+  private defaultWalkStart(): WalkPose {
+    const doc = this.doc;
+    const levelId = this.walkLevelId;
+    const t = this.controls.target;
+    const target = { x: t.x * 1000, y: -t.z * 1000 };
+    // Keep looking the way the orbit camera looked.
+    const d = t.clone().sub(this.camera.position);
+    const heading = Math.hypot(d.x, d.z) > 1e-6 ? Math.atan2(-d.z, d.x) : null;
+    if (!doc || !levelId) return { x: target.x, y: target.y, yaw: heading ?? Math.PI / 2, pitch: -0.05 };
+    return walkStartPose(doc, levelId, this.walker.world, target, heading);
+  }
+
+  private leaveWalk(tween: boolean): void {
+    if (this.nav === "orbit") return;
+    const eye = this.camera.position.clone();
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion).normalize();
+    this.walkControls.detach();
+    this.nav = "orbit";
+    this.walkBlend = null;
+    this.anim.remove("walk");
+    this.lastWalkAt = 0;
+    this.controls.enabled = true;
+    // The orbit target is what the walker looked at, so the first orbit frame
+    // looks exactly where the walk left off.
+    const dist = this.lookDistance(eye, fwd);
+    const target = eye.clone().addScaledVector(fwd, dist);
+    this.controls.target.copy(target);
+    if (!tween || !motionOK()) {
+      this.controls.update();
+      this.invalidate();
+      return;
+    }
+    // Settle back and up a little so the orbit has room to turn, stopping
+    // short of whatever stands behind (a wall, a door leaf, a wardrobe).
+    const back = new THREE.Vector3(-fwd.x, 0, -fwd.z);
+    if (back.lengthSq() < 1e-6) back.set(0, 0, 1);
+    back.normalize();
+    const room = this.clearDistance(eye, back, EXIT_BACK_MM / 1000 + CLEARANCE_M) - CLEARANCE_M;
+    const end = eye.clone().addScaledVector(back, Math.max(room, 0));
+    end.y += Math.max(this.clearDistance(end, new THREE.Vector3(0, 1, 0), EXIT_UP_MM / 1000 + CLEARANCE_M) - CLEARANCE_M, 0);
+    // OrbitControls keeps the camera above the horizon of its target: raise
+    // the end pose if the walker looked up, instead of letting it snap there.
+    const flat = Math.hypot(end.x - target.x, end.z - target.z);
+    const minY = target.y - Math.tan(0.1) * flat;
+    if (end.y < minY) end.y = minY;
+    this.controls.maxPolarAngle = Math.PI - 0.01;
+    this.flyTo({ position: [end.x, end.y, end.z], target: [target.x, target.y, target.z], fovDeg: this.camera.fov }, dur("scene"), () => {
+      this.controls.maxPolarAngle = this.orbitMaxPolar;
+    });
+  }
+
+  /** How far a ray from `from` goes before it meets something drawn, up to `max` meters. */
+  private clearDistance(from: THREE.Vector3, dir: THREE.Vector3, max: number): number {
+    this.raycaster.set(from, dir);
+    this.raycaster.far = max;
+    const hits = this.raycaster.intersectObjects(this.pickables, false);
+    this.raycaster.far = Infinity;
+    for (const h of hits) {
+      const mat = (h.object as THREE.Mesh).material;
+      if (mat && !Array.isArray(mat) && mat.visible === false) continue;
+      return h.distance;
+    }
+    return max;
+  }
+
+  /** Distance to what the eye looks at, 1.5 to 12 m, or 5 m when nothing is there. */
+  private lookDistance(eye: THREE.Vector3, dir: THREE.Vector3): number {
+    this.raycaster.set(eye, dir);
+    this.raycaster.far = 12;
+    const hits = this.raycaster.intersectObjects(this.pickables, false);
+    this.raycaster.far = Infinity;
+    for (const h of hits) {
+      const mat = (h.object as THREE.Mesh).material;
+      if (mat && !Array.isArray(mat) && mat.visible === false) continue;
+      return Math.min(Math.max(h.distance, 1.5), 12);
+    }
+    return 5;
+  }
+
+  /**
+   * `walk_to`: stands about 1.5 m from the finding on the room side, at eye
+   * height, facing it. `location` is plan mm with z above the floor of the
+   * first element's level. Returns why a solid shell would hide the finding.
+   */
+  walkTo(ids: string[], location: Vec3 | null): HiddenReason | null {
+    const doc = this.doc;
+    if (this.disposed) return null;
+    if (!doc) {
+      this.walkToPending = { ids, location };
+      return null;
+    }
+    const first = ids.map((id) => doc.project.elements.find((e) => e.id === id)).find((e) => e);
+    let levelId = this.activeLevelIdOrLowest();
+    if (first) {
+      if ("level_id" in first && typeof first.level_id === "string") levelId = first.level_id;
+      else if (first.kind === "opening") {
+        const wall = doc.project.elements.find((e) => e.id === first.wall_id);
+        if (wall?.kind === "wall") levelId = wall.level_id;
+      }
+    }
+    const loc = location ?? this.findingPoint(ids, levelId);
+    if (!loc || !levelId) {
+      this.setNav("walk");
+      this.cb.onWalkTo?.(null);
+      return null;
+    }
+    if (this.nav === "orbit") {
+      this.walkLevelId = levelId;
+      this.refreshWalkWorld();
+      this.enterWalk("walk", walkToPose(doc, levelId, this.walker.world, loc), levelId);
+    } else {
+      this.walkLevelId = levelId;
+      this.refreshWalkWorld();
+      const pose = walkToPose(doc, levelId, this.walker.world, loc);
+      this.beginWalkBlend();
+      const wasFly = this.nav === "fly";
+      this.walker.mode = "walk";
+      this.nav = "walk";
+      this.walker.place(pose.x, pose.y, pose.yaw, pose.pitch);
+      this.walker.z = this.walker.eyeHeight();
+      this.minimapDirty = true;
+      this.applyWalkerCamera();
+      this.invalidate();
+      if (wasFly) this.cb.onNavChange?.("walk");
+    }
+    const hidden = hiddenAt(doc, levelId, loc);
+    this.cb.onWalkTo?.(hidden);
+    return hidden;
+  }
+
+  /** A point to look at when a finding has no location: the middle of its first element. */
+  private findingPoint(ids: string[], levelId: string | null): Vec3 | null {
+    const doc = this.doc;
+    if (!doc) return null;
+    const e = doc.project.elements.find((x) => ids.includes(x.id));
+    if (e?.kind === "pipe" && e.points.length > 0) return e.points[Math.floor((e.points.length - 1) / 2)];
+    const box = new THREE.Box3();
+    for (const id of ids) for (const mesh of this.allMeshesFor(id)) box.expandByObject(mesh);
+    if (box.isEmpty()) return null;
+    const c = box.getCenter(new THREE.Vector3());
+    const level = doc.project.levels.find((l) => l.id === levelId);
+    return { x: c.x * 1000, y: -c.z * 1000, z: c.y * 1000 - (level?.elevation_mm ?? 0) };
+  }
+
+  /** Keeps walk mode in step with a new document, level or pending request. */
+  private syncWalk(): void {
+    if (!this.doc) {
+      if (this.nav !== "orbit") this.requestNav("orbit");
+      return;
+    }
+    if (this.walkToPending) {
+      const req = this.walkToPending;
+      this.walkToPending = null;
+      this.walkTo(req.ids, req.location);
+      return;
+    }
+    if (this.navPending) {
+      this.enterWalk(this.navPending, null, null);
+      return;
+    }
+    if (this.nav === "orbit") return;
+    // Picking another level in the app takes the walker there. A walk_to on
+    // another level stays put until the active level changes.
+    if (this.opts.activeLevelId !== this.seenActiveLevel) {
+      this.seenActiveLevel = this.opts.activeLevelId;
+      const active = this.activeLevelIdOrLowest();
+      if (active) this.walkLevelId = active;
+    }
+    this.refreshWalkWorld();
+  }
+
+  /** Rebuilds what blocks the walker and what the minimap shows, when the document or level changed. */
+  private refreshWalkWorld(): void {
+    const doc = this.doc;
+    const levelId = this.walkLevelId ?? this.activeLevelIdOrLowest();
+    if (doc === this.walkWorldDoc && levelId === this.walkWorldLevel) return;
+    this.walkWorldDoc = doc;
+    this.walkWorldLevel = levelId;
+    const world = buildCollisionWorld(doc, levelId);
+    const w = this.walker;
+    w.world = world;
+    const level = doc?.project.levels.find((l) => l.id === levelId);
+    w.floorZ = level?.elevation_mm ?? 0;
+    const b = this.bounds();
+    w.area = { minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY };
+    w.minZ = (this.built?.groundY ?? -0.15) * 1000 - 2500;
+    w.maxZ = b.maxZ + 20000;
+    const layerOn = (key: string) => doc?.project.layers?.find((l) => l.key === key)?.visible !== false;
+    this.minimapScene = {
+      version: ++this.minimapVersion,
+      world,
+      rooms: doc && levelId ? roomsOn(doc, levelId).map((r) => r.polygon) : [],
+      pipes: (doc?.project.elements ?? []).flatMap((e) =>
+        e.kind === "pipe" && layerOn(e.system) && (world.levelId === null || this.levelIdOf(e.level_id) === world.levelId)
+          ? [{ system: e.system, points: e.points, diameterMm: e.diameter_mm }]
+          : [],
+      ),
+    };
+    this.minimapDirty = true;
+    if (this.nav === "walk") w.settle();
+  }
+
+  private levelIdOf(levelId: string): string | null {
+    const levels = this.doc?.project.levels ?? [];
+    if (levels.some((l) => l.id === levelId)) return levelId;
+    return [...levels].sort((a, b) => a.elevation_mm - b.elevation_mm)[0]?.id ?? null;
+  }
+
+  /** Puts the walker's eyes on the camera, blended with the entrance while it runs. */
+  private applyWalkerCamera(): void {
+    if (this.nav === "orbit") return;
+    const w = this.walker;
+    tmpPos.set(w.x / 1000, w.z / 1000, -w.y / 1000);
+    tmpEuler.set(w.pitch, w.yaw - Math.PI / 2, 0, "YXZ");
+    tmpQuat.setFromEuler(tmpEuler);
+    const b = this.walkBlend;
+    let fov = WALK_FOV;
+    if (b) {
+      const k = this.anim.value("walk", 1);
+      this.camera.position.lerpVectors(b.pos, tmpPos, k);
+      this.camera.quaternion.slerpQuaternions(b.quat, tmpQuat, k);
+      fov = b.fov + (WALK_FOV - b.fov) * k;
+    } else {
+      this.camera.position.copy(tmpPos);
+      this.camera.quaternion.copy(tmpQuat);
+    }
+    if (this.camera.fov !== fov) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
+  /** The walker as the overlay needs it, in plan mm. */
+  walkerPose(): { x: number; y: number; z: number; yaw: number; pitch: number; mode: WalkMode } {
+    const w = this.walker;
+    return { x: w.x, y: w.y, z: w.z, yaw: w.yaw, pitch: w.pitch, mode: w.mode };
+  }
+
+  /** The overlay's minimap canvas, or null when it unmounts. */
+  setMinimap(canvas: HTMLCanvasElement | null): void {
+    this.minimap = canvas ? new Minimap(canvas) : null;
+    if (canvas) this.drawMinimap();
+  }
+
+  private drawMinimap(): void {
+    this.minimapDirty = false;
+    if (!this.minimap || this.nav === "orbit" || !this.minimapScene) return;
+    const w = this.walker;
+    this.minimap.draw(this.minimapScene, { x: w.x, y: w.y, yaw: w.yaw });
+  }
+
+  pointerLockAvailable(): boolean {
+    return pointerLockSupported();
+  }
+
+  requestPointerLock(): void {
+    if (this.nav !== "orbit") this.walkControls.requestLock();
+  }
+
+  exitPointerLock(): void {
+    this.walkControls.exitLock();
+  }
+
+  // ------------------------------------------------------------ shell modes
+
+  shellMode(): ShellMode {
+    return this.shell.mode;
+  }
+
+  /** Solid, X-ray or hidden, animated over `--dur-panel`. Pipes stay solid in all three. */
+  setShell(mode: ShellMode, animate = true): void {
+    if (this.disposed || mode === this.shell.mode) return;
+    this.shell.begin(mode);
+    this.shell.ensureOutlines(this.built, this.doc, (m) => this.restYOf(m), (g) => this.built?.kit.track(g));
+    if (!animate || !motionOK()) {
+      this.shell.jump(mode);
+      this.anim.remove("shell");
+      this.applyShell();
+      this.applyAnimated();
+      this.invalidate();
+      return;
+    }
+    this.anim.set("shell", 0);
+    this.anim.to("shell", 1, performance.now(), {
+      duration: dur("panel"),
+      easing: ease.inOut,
+      onDone: () => {
+        this.anim.remove("shell");
+        this.shell.sample(1);
+        this.applyShell();
+        this.invalidate();
+      },
+    });
+    this.applyAnimated();
+    this.invalidate();
+  }
+
+  /** The resting height of a mesh an entrance fade still lifts. */
+  private restYOf(mesh: THREE.Mesh): number | undefined {
+    for (const job of this.fades) {
+      const y = job.fade.restY(mesh);
+      if (y !== undefined) return y;
+    }
+    return undefined;
+  }
+
+  /**
+   * Puts the current shell look on the materials, the outlines and the ground.
+   * The sun shadow fades with the shell, so the shadow map is only redrawn
+   * when a part of the building appears or disappears: once per change.
+   */
+  private applyShell(): void {
+    if (this.shell.applyMaterials(this.lib.all())) this.shadowDirty();
+    this.shell.applyOutlines();
+    this.env.setGroundOpacity(this.shell.look.ground);
+  }
+
+  /** Pipe ids the current options would build: visible layer, shown level. */
+  private shownPipeIds(): Set<string> {
+    const out = new Set<string>();
+    const doc = this.doc;
+    if (!doc) return out;
+    const levels = new Map(doc.project.levels.map((l) => [l.id, l]));
+    const lowest = [...levels.values()].sort((a, b) => a.elevation_mm - b.elevation_mm)[0] ?? null;
+    const levelOf = (id: string) => levels.get(id) ?? lowest;
+    const shown = levelFilter(doc.project, this.opts);
+    const layerOn = (key: string) => doc.project.layers?.find((l) => l.key === key)?.visible !== false;
+    for (const e of doc.project.elements) if (e.kind === "pipe" && pipeShown(e, levelOf, shown, layerOn)) out.add(e.id);
+    return out;
+  }
+
+  /**
+   * A pipe draws from its solo while it is highlighted or fading, and from its
+   * system's batch otherwise. Checked right before every render.
+   */
+  private syncPipes(): void {
+    const pipes = this.built?.pipes;
+    if (!pipes || pipes.size === 0) return;
+    const want: string[] = [];
+    for (const id of pipes.solos.keys()) {
+      if (this.live.has(id)) want.push(id);
+      else if (this.fades.length > 0 && pipes.meshesOf(id).some((m) => this.fadeOwns(m))) want.push(id);
+    }
+    pipes.promote(want);
+  }
+
   // ---------------------------------------------------------------- capture
 
   /**
@@ -1144,6 +1753,7 @@ export class ViewerEngine {
     this.anim.finishAll();
     this.applyAnimated();
     this.releaseHighlights();
+    this.syncPipes();
     const prevRatio = this.renderer.getPixelRatio();
     const prevAspect = this.camera.aspect;
     try {
@@ -1282,6 +1892,11 @@ export class ViewerEngine {
   /** Writes every animated value onto the scene. Called once per frame. */
   private applyAnimated(): void {
     if (this.tween) this.applyCameraTween(this.anim.value("camera", 1));
+    if (this.anim.has("shell")) {
+      this.shell.sample(this.anim.value("shell", 1));
+      this.applyShell();
+    }
+    if (this.walkBlend) this.applyWalkerCamera();
     for (const job of this.fades) {
       const v = this.anim.value(job.key, 1);
       job.fade.setOpacity(v);
@@ -1291,7 +1906,8 @@ export class ViewerEngine {
       const breath = this.anim.value("breath", PREVIEW_OPACITY);
       for (const [id, hl] of this.live) hl.apply(this.anim.value(`hl:${id}`, 1), breath);
     }
-    this.env.sun.shadow.intensity = this.anim.value("shadow", 1);
+    // X-ray and hidden fade the sun shadow instead of redrawing the shadow map.
+    this.env.sun.shadow.intensity = this.anim.value("shadow", 1) * this.shell.look.shadow;
     // Exposure, ambient fill and sun strength between the procedural sky and
     // the HDRI. A no-op until the HDRI is actually on the scene.
     this.env.applyBlend(this.anim.value("env", 1), this.renderer);
@@ -1308,10 +1924,25 @@ export class ViewerEngine {
     if (this.anim.sample(now)) {
       this.applyAnimated();
       this.needsRender = true;
-      // Meshes moved, faded or got clipped: the shadow map has to follow.
-      this.shadowDirty();
+      // Meshes moved, faded or got clipped: the shadow map has to follow. A
+      // camera, walk or shell move changes nothing the sun sees.
+      if (this.anim.moved().some((k) => !isViewOnlyTrack(k))) this.shadowDirty();
     }
     if (this.anim.animating()) active = true;
+    if (this.nav !== "orbit") {
+      // Frame-rate independent: the step uses the real gap (clamped inside),
+      // and the first frame after standing still counts as one 60 Hz frame.
+      const dt = this.lastWalkAt > 0 ? (now - this.lastWalkAt) / 1000 : 1 / 60;
+      const moving = this.walker.step(dt, this.walkControls.input());
+      this.lastWalkAt = moving ? now : 0;
+      if (moving) {
+        active = true;
+        this.needsRender = true;
+        this.minimapDirty = true;
+        this.beginInteraction(now);
+      }
+      this.applyWalkerCamera();
+    }
     // No hover raycast while the camera is being driven or a button is down:
     // the pointer is orbiting, not pointing at anything.
     if (this.hoverQueued) {
@@ -1327,18 +1958,21 @@ export class ViewerEngine {
         }
       }
     }
-    // Damping keeps reporting change long after the pointer is released. It
-    // is cut off at DAMPING_MAX_MS: the camera lands on its damped target in
-    // one step and the loop stops instead of trickling towards an epsilon.
-    if (this.controls.update()) {
-      if (this.pointerActive || now < this.dampingUntil) active = true;
-      else this.landDamping();
+    if (this.nav === "orbit") {
+      // Damping keeps reporting change long after the pointer is released. It
+      // is cut off at DAMPING_MAX_MS: the camera lands on its damped target in
+      // one step and the loop stops instead of trickling towards an epsilon.
+      if (this.controls.update()) {
+        if (this.pointerActive || now < this.dampingUntil) active = true;
+        else this.landDamping();
+      }
+      // Stay above the ground.
+      const floor = (this.built?.groundY ?? -0.15) + 0.12;
+      if (this.camera.position.y < floor) this.camera.position.y = floor;
     }
-    // Stay above the ground.
-    const floor = (this.built?.groundY ?? -0.15) + 0.12;
-    if (this.camera.position.y < floor) this.camera.position.y = floor;
     if (this.interacting && !active && now >= this.interactionTail) this.endInteraction();
     if (this.needsRender || active) this.renderNow();
+    if (this.minimapDirty) this.drawMinimap();
     this.noteFrameCost(performance.now() - started, interval);
     // The interaction tail needs frames of its own to land the clean one.
     if (active || (this.interacting && now < this.interactionTail)) this.schedule();
@@ -1347,6 +1981,7 @@ export class ViewerEngine {
   private renderNow(): void {
     if (this.disposed || this.contextLost) return;
     this.needsRender = false;
+    this.syncPipes();
     this.env.followCamera(this.camera);
     this.renderer.render(this.scene, this.camera);
     if (!this.firstRendered) {
@@ -1382,7 +2017,7 @@ export class ViewerEngine {
    */
   private refreshPickables(): void {
     const out: THREE.Object3D[] = [];
-    if (this.built) for (const m of meshesUnder(this.built.root)) out.push(m);
+    if (this.built) for (const m of meshesUnder(this.built.root)) if (!m.userData.batch) out.push(m);
     this.pickables = out;
   }
 
@@ -1402,6 +2037,10 @@ export class ViewerEngine {
       hits.push(...this.raycaster.intersectObjects(refs, true));
       hits.sort((a, b) => a.distance - b.distance);
     }
+    // Through an X-ray or hidden shell the pipes are what you point at: a
+    // pipe anywhere along the ray wins over the faint building in front of it.
+    const preferPipes = this.shell.mode !== "solid";
+    let fallback: THREE.Intersection | null = null;
     for (const hit of hits) {
       let visible = true;
       for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
@@ -1411,8 +2050,18 @@ export class ViewerEngine {
         }
       }
       if (!visible) continue;
+      const mat = (hit.object as THREE.Mesh).material;
+      if (mat && !Array.isArray(mat) && mat.visible === false) continue;
+      if (preferPipes && !hit.object.userData.pipe) {
+        fallback ??= hit;
+        continue;
+      }
       if (hit.object.userData.locked) return null;
       return (hit.object.userData.elementId as string | undefined) ?? null;
+    }
+    if (fallback) {
+      if (fallback.object.userData.locked) return null;
+      return (fallback.object.userData.elementId as string | undefined) ?? null;
     }
     return null;
   }
@@ -1536,6 +2185,14 @@ export class ViewerEngine {
       fades: this.fades.length,
       highlights: this.live.size,
       cached: this.cache.size(),
+      nav: this.nav,
+      shell: this.shell.mode,
+      walker: this.nav === "orbit" ? null : this.walkerPose(),
+      pipes: {
+        solos: this.built?.pipes.size ?? 0,
+        batches: this.built?.pipes.batches.length ?? 0,
+        promoted: [...(this.built?.pipes.promotedIds() ?? [])],
+      },
       referenceModels: this.refs.stats(),
       /** CC0 pack: how much of it is on screen, for the dev readout. */
       pack: {
@@ -1570,6 +2227,8 @@ export class ViewerEngine {
     this.controls.removeEventListener("change", this.onControlChange);
     this.controls.removeEventListener("start", this.onControlStart);
     this.controls.removeEventListener("end", this.onControlEnd);
+    this.walkControls.detach();
+    this.minimap = null;
     this.controls.dispose();
     this.anim.clear();
     for (const job of this.fades) job.fade.release();
@@ -1582,6 +2241,7 @@ export class ViewerEngine {
       this.leaving = null;
     }
     this.disposeBuilt();
+    this.shell.dispose();
     this.cache.dispose();
     this.refs.dispose();
     this.scene.remove(this.refs.root);

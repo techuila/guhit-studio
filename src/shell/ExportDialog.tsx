@@ -77,6 +77,7 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
   const [showRoomLabels, setShowRoomLabels] = useState(true);
   const [showAssets, setShowAssets] = useState(true);
   const [titleBlock, setTitleBlock] = useState(true);
+  const [showPipes, setShowPipes] = useState(true);
   const [working, setWorking] = useState(false);
   const [dwg, setDwg] = useState<DwgConverterStatus | null>(null);
 
@@ -97,6 +98,7 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
 
   if (!doc || !settings) return null;
 
+  const hasPipes = doc.project.elements.some((e) => e.kind === "pipe");
   const dwgReady = dwg?.configured === true;
   const def = FORMATS.find((f) => f.value === format)!;
   const isPlanFile = format === "pdf" || format === "svg" || format === "dxf";
@@ -139,6 +141,8 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
           show_room_labels: showRoomLabels,
           show_assets: showAssets,
           title_block: titleBlock,
+          // Without pipes the option changes nothing; true keeps the engine default.
+          show_pipes: hasPipes ? showPipes : true,
         };
         result = await ipc.exportPlan(format as PlanFormat, options, path);
       } else if (format === "dwg2d") {
@@ -298,6 +302,11 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
                 <CheckRow checked={showAssets} onChange={setShowAssets}>
                   Furniture and fixtures
                 </CheckRow>
+                {hasPipes ? (
+                  <CheckRow checked={showPipes} onChange={setShowPipes} hint={format === "dxf" ? "Visible pipe layers, one DXF layer per system" : "Visible pipe layers, with a legend"}>
+                    Pipes
+                  </CheckRow>
+                ) : null}
                 {usesSheet ? (
                   <CheckRow checked={titleBlock} onChange={setTitleBlock} hint="Project, client, location, designer, scale">
                     Title block
@@ -324,9 +333,11 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
               </>
             )
           ) : format === "ifc" ? (
-            <p className={s.exportNote}>A complete BIM model: walls, openings, rooms, roof and materials, ready for Archicad, Revit or a BIM viewer.</p>
+            <p className={s.exportNote}>
+              A complete BIM model: walls, openings, rooms, roof and materials{hasPipes ? ", with pipe runs grouped by system" : ""}, ready for Archicad, Revit or a BIM viewer.
+            </p>
           ) : format === "dxf3d" ? (
-            <p className={s.exportNote}>3D linework of the whole model, at full size in millimeters.</p>
+            <p className={s.exportNote}>3D linework of the whole model{hasPipes ? ", pipes as tubes on one layer per system" : ""}, at full size in millimeters.</p>
           ) : isScene ? (
             <p className={s.exportNote}>
               Saves the current 3D scene, materials included.

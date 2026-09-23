@@ -118,9 +118,10 @@ fn reused_descriptions() -> BTreeMap<&'static str, String> {
         ("get_project_summary", d("Totals of the open project: net floor area and gross area in square metres, total wall length, and counts of rooms, doors, windows and levels. Call this for any question about totals or counts instead of adding numbers up yourself.")),
         ("list_rooms", d("Every room in the open project with its id, name, usage, net floor area in square metres, perimeter and the ids of the walls that bound it. This is how you find a room the user names, and how you find the wall id to put a door or window on.")),
         ("describe_elements", d("Full stored data of specific elements by id, plus derived geometry such as wall length and wall joins. Call this before editing an element whose current dimensions or position you need.")),
-        ("list_elements", d("Every element of one kind in the open project, with ids. Use it to find the walls, doors, windows or assets the user is talking about.")),
+        ("list_elements", d("Every element of one kind in the open project, with ids. Use it to find the walls, doors, windows, assets or pipes the user is talking about. Pipe points are x, y in plan and z above the level floor.")),
         ("find_rooms_without_exterior_window", d("Rooms with no window on a wall that faces the outside. Call this when the user asks about natural light, ventilation or dark rooms.")),
-        ("list_review_items", d("Current design review items for the open project: narrow doors, rooms without windows, unclosed walls and similar. These are suggestions to check, never code compliance or permit findings. Call this after a run of edits and tell the user what it says.")),
+        ("list_review_items", d("Current design review items for the open project: narrow doors, rooms without windows, unclosed walls, pipes through columns or door openings, crossing pipes, flat drains and pipe penetrations. These are suggestions to check, never code compliance or permit findings. Pipe items carry a location_mm. Call this after a run of edits and tell the user what it says.")),
+        ("get_pipe_takeoff", d("Pipe quantities of the open project from the engine: centerline length in metres per system, material and size, elbow, tee and sleeve counts, and every slab, wall and roof penetration with its position. Call this for any question about pipe lengths, fittings or sleeves instead of adding them up yourself. Guhit counts pipes; it never sizes them, and plumbing design is for a registered Master Plumber.")),
         // edit
         ("add_wall", d("Add one straight wall between two points and commit it as one undo step. Omit thickness_mm to use the project default of 150 mm CHB.")),
         ("add_wall_chain", d("Add connected walls running through a list of points, as one undo step. closed joins the last point back to the first. Omit thickness_mm to use the project default of 150 mm.")),
@@ -178,11 +179,11 @@ pub fn definitions() -> Vec<ToolDef> {
     });
     out.push(ToolDef {
         name: "create_project",
-        description: format!("Create a project and open it. template \"blank\" starts with nothing drawn, which is what you want before drawing a house. template \"sample-bungalow\" starts from a worked three-bedroom example. {MM}"),
+        description: format!("Create a project and open it. template \"blank\" starts with nothing drawn, which is what you want before drawing a house. template \"sample-bungalow\" starts from a small two-room house. template \"plumbing-demo\" starts from a bungalow with a T&B, columns and cold water, hot water, drainage and vent pipes, with pipe review items to look at. {MM}"),
         schema: obj(
             json!({
                 "name": {"type": "string", "description": "Project name shown in the hub."},
-                "template": {"type": "string", "enum": ["blank", "sample-bungalow"], "description": "Defaults to \"blank\"."},
+                "template": {"type": "string", "enum": ["blank", "sample-bungalow", "plumbing-demo"], "description": "Defaults to \"blank\"."},
             }),
             &["name"],
         ),
@@ -196,7 +197,7 @@ pub fn definitions() -> Vec<ToolDef> {
     });
 
     // ----------------------------------------------------------------- read
-    for name in ["get_project_summary", "list_rooms", "list_elements", "describe_elements", "find_rooms_without_exterior_window", "list_review_items"] {
+    for name in ["get_project_summary", "list_rooms", "list_elements", "describe_elements", "find_rooms_without_exterior_window", "list_review_items", "get_pipe_takeoff"] {
         reuse(name, true, &mut out);
     }
     out.push(ToolDef {
@@ -247,6 +248,7 @@ pub fn definitions() -> Vec<ToolDef> {
                 "show_room_labels": {"type": "boolean", "description": "Defaults to true."},
                 "show_assets": {"type": "boolean", "description": "Defaults to true."},
                 "title_block": {"type": "boolean", "description": "Defaults to true."},
+                "show_pipes": {"type": "boolean", "description": "Draw pipes on visible pipe layers, with a legend. Defaults to true."},
             }),
             &["format"],
         ),
@@ -458,6 +460,7 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
                 show_room_labels: opt_bool(&args, "show_room_labels")?.unwrap_or(true),
                 show_assets: opt_bool(&args, "show_assets")?.unwrap_or(true),
                 title_block: opt_bool(&args, "title_block")?.unwrap_or(true),
+                show_pipes: opt_bool(&args, "show_pipes")?.unwrap_or(true),
             };
             ok(app
                 .handle(
@@ -630,7 +633,7 @@ mod tests {
         for expected in [
             "list_projects", "open_project", "create_project", "close_project",
             "get_project_summary", "list_rooms", "list_elements", "describe_elements",
-            "find_rooms_without_exterior_window", "list_review_items", "get_plan_image", "list_renders",
+            "find_rooms_without_exterior_window", "list_review_items", "get_pipe_takeoff", "get_plan_image", "list_renders",
             "add_wall", "add_wall_chain", "add_rect_room", "add_door", "add_window", "resize_room",
             "set_wall_length", "move_elements", "rename_room", "set_room_usage", "set_opening_size",
             "delete_elements", "set_material", "set_roof", "add_asset",
@@ -638,7 +641,7 @@ mod tests {
         ] {
             assert!(names.contains(&expected), "tool `{expected}` is missing");
         }
-        assert_eq!(names.len(), 32, "the tool list changed: update docs/MCP.md");
+        assert_eq!(names.len(), 33, "the tool list changed: update docs/MCP.md");
     }
 
     #[test]
@@ -669,6 +672,7 @@ mod tests {
                     | "describe_elements"
                     | "find_rooms_without_exterior_window"
                     | "list_review_items"
+                    | "get_pipe_takeoff"
                     | "get_plan_image"
                     | "list_renders"
             );

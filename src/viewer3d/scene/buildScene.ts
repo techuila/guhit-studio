@@ -8,7 +8,7 @@ import type { DocState, Footprint, LayerKey, Level, Opening, Project, Stair, Wal
 import { planRotationToWorld, planToWorld, type Pt } from "../geom/coords";
 import { EMPTY_BOUNDS, type ModelBounds } from "../geom/cameraMath";
 import { MeshData, pushPrism } from "../geom/meshData";
-import { boundsOf, clipHalfPlane, ensureCCW, offsetPolygon, pointInPolygon } from "../geom/polygon";
+import { boundsOf, clipHalfPlane, ensureCCW, offsetPolygon, orientedRect, pointInPolygon } from "../geom/polygon";
 import { buildRoofInfill, buildRoofMesh, type RoofInput } from "../geom/roofMesh";
 import { buildWallMesh } from "../geom/wallMesh";
 import { buildAssetForm } from "./assets";
@@ -17,6 +17,7 @@ import type { BuildCache } from "./buildCache";
 import { Kit, tagElement } from "./kit";
 import type { MaterialLibrary } from "./materials";
 import { buildOpening } from "./openings";
+import { buildPipeGhost, buildPipes, PipeScene } from "./pipes";
 
 /** Depth of the plinth: the ground sits this far below the lowest floor. */
 export const PLINTH_MM = 150;
@@ -35,6 +36,17 @@ export function groupFootprints(footprints: Footprint[] | undefined | null, leve
     .filter((f) => f.level_id === levelId)
     .map((f) => ensureCCW(f.polygon))
     .filter((p) => p.length >= 3);
+}
+
+/**
+ * Which levels a build draws. Everything, or with the cutaway on only the
+ * active level and the ones below it.
+ */
+export function levelFilter(project: Project, opts: { cutaway: boolean; activeLevelId: string | null }): (l: Level) => boolean {
+  const levels = project.levels ?? [];
+  const lowest = [...levels].sort((a, b) => a.elevation_mm - b.elevation_mm)[0] ?? null;
+  const active = (opts.activeLevelId && levels.find((l) => l.id === opts.activeLevelId)) || lowest;
+  return (l) => !opts.cutaway || !active || l.elevation_mm <= active.elevation_mm + 1;
 }
 
 export interface BuildOptions {
@@ -74,6 +86,8 @@ export interface BuiltScene {
   kit: Kit;
   /** Meshes by element id, for highlighting. */
   byElement: Map<string, THREE.Mesh[]>;
+  /** Pipe runs: one solo per pipe (picking, highlights, fades) and one merged batch per system (drawing). */
+  pipes: PipeScene;
 }
 
 class BoundsAcc {
@@ -105,18 +119,6 @@ function hash32(s: string): string {
   return (h >>> 0).toString(36);
 }
 
-function orientedRect(center: Pt, w: number, d: number, deg: number): Pt[] {
-  const a = (deg * Math.PI) / 180;
-  const c = Math.cos(a);
-  const s = Math.sin(a);
-  return [
-    [-w / 2, -d / 2],
-    [w / 2, -d / 2],
-    [w / 2, d / 2],
-    [-w / 2, d / 2],
-  ].map(([x, y]) => ({ x: center.x + x * c - y * s, y: center.y + x * s + y * c }));
-}
-
 export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptions): BuiltScene {
   const { project, derived } = doc;
   const kit = new Kit();
@@ -142,7 +144,7 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   const locked = (key: LayerKey) => layer(key)?.locked === true;
 
   /** Cutaway hides the levels above the active one and cuts the active one. */
-  const levelShown = (l: Level) => !opts.cutaway || !activeLevel || l.elevation_mm <= activeLevel.elevation_mm + 1;
+  const levelShown = levelFilter(project, opts);
   const levelCut = (l: Level) => (opts.cutaway && activeLevel && l.id === activeLevel.id ? CUTAWAY_MM : null);
 
   // `Derived.footprints` can hold several detached buildings on one level,
@@ -163,6 +165,7 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   const outlines = new Map((derived.walls ?? []).map((g) => [g.wall_id, g.outline]));
 
   // ------------------------------------------------------------------ walls
+  lib.category = "wall";
   const wallOutlinesByLevel = new Map<string, Pt[]>();
   if (visible("walls")) {
     for (const wall of walls.values()) {
@@ -208,6 +211,7 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   }
 
   // --------------------------------------------------------------- openings
+  lib.category = "opening";
   if (visible("openings") && visible("walls")) {
     for (const [wallId, list] of openingsByWall) {
       const wall = walls.get(wallId);
@@ -226,6 +230,7 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   }
 
   // ----------------------------------------------------------------- floors
+  lib.category = "floor";
   for (const level of sortedLevels) {
     if (!levelShown(level)) continue;
     // A slab per detached building on this level.
@@ -267,6 +272,7 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   }
 
   // ---------------------------------------------------------------- columns
+  lib.category = "column";
   if (visible("columns")) {
     for (const e of project.elements) {
       if (e.kind !== "column") continue;
@@ -290,6 +296,7 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   }
 
   // ----------------------------------------------------------------- stairs
+  lib.category = "stair";
   if (visible("stairs")) {
     for (const e of project.elements) {
       if (e.kind !== "stair") continue;
@@ -307,6 +314,7 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   }
 
   // ----------------------------------------------------------------- assets
+  lib.category = "asset";
   if (visible("assets")) {
     const assetsLocked = locked("assets");
     for (const e of project.elements) {
@@ -337,6 +345,14 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
         own.cutY = cutY;
         g = buildAssetForm(own, lib, e, baseYMm / 1000, usePack);
         own.cutY = null;
+        // A pack model arrives with the pack's shared materials: dress it in
+        // this library's copies, which the shell modes may fade.
+        if (usePack) {
+          g.traverse((o) => {
+            const mesh = o as THREE.Mesh;
+            if (mesh.isMesh && !Array.isArray(mesh.material) && !mesh.material.userData.libKey) mesh.material = lib.adopt(mesh.material);
+          });
+        }
         tagElement(g, e.id, assetsLocked);
         if (opts.cache) opts.cache.put(cacheKey, g, [...own.geometries]);
         else kit.adopt(own);
@@ -353,7 +369,25 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
     }
   }
 
+  // ------------------------------------------------------------------ pipes
+  // After the assets, so the category switch below cannot leak into them.
+  const pipes = buildPipes({
+    doc,
+    lib,
+    kit,
+    cache: opts.cache,
+    levelOf: (id) => levels.get(id) ?? lowest,
+    levelShown,
+    layerVisible: visible,
+    layerLocked: locked,
+    slabDepth: (l) => (l === lowest ? PLINTH_MM : 200),
+    addBounds: (pts, z0, z1) => acc.add(pts, z0, z1),
+  });
+  for (const solo of pipes.solos.values()) root.add(solo);
+  for (const batch of pipes.batches) root.add(batch.mesh);
+
   // ------------------------------------------------------------------- roof
+  lib.category = "roof";
   const top = sortedLevels[sortedLevels.length - 1];
   if (top && project.roof && project.roof.kind !== "none") {
     let fps = footprintsOf(top.id);
@@ -414,9 +448,12 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   root.add(roofGroup);
 
   // ---------------------------------------------------------- removed ghosts
+  lib.category = "ghost";
   if (opts.ghostsRemoved && opts.ghostsRemoved.ids.length > 0) {
     root.add(buildGhosts(opts.ghostsRemoved.project, opts.ghostsRemoved.ids, lib, kit));
   }
+  // Materials asked for outside a build (reference model placeholders) belong to no part of the model.
+  lib.category = "";
 
   opts.cache?.end();
   // Materials of reused groups were never requested during this build: hold
@@ -440,7 +477,7 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   const bounds = acc.b ?? { ...EMPTY_BOUNDS, minZ: groundMm, maxZ: groundMm + 3000 };
   bounds.minZ = Math.min(bounds.minZ, groundMm);
   const contact = lowest ? boundsOf(footprintsOf(lowest.id).flat()) : null;
-  return { root, roofGroup, bounds, empty, groundY: groundMm / 1000, contact, kit, byElement };
+  return { root, roofGroup, bounds, empty, groundY: groundMm / 1000, contact, kit, byElement, pipes };
 }
 
 /**
@@ -576,6 +613,11 @@ export function buildGhosts(project: Project, ids: string[], lib: MaterialLibrar
       if (!mesh) continue;
       tint(mesh);
       group.add(mesh);
+    } else if (e.kind === "pipe") {
+      const level = levels.get(e.level_id) ?? lowest;
+      if (!level) continue;
+      const mesh = buildPipeGhost(e, level.elevation_mm, ghostMat, kit);
+      if (mesh) group.add(mesh);
     } else if (e.kind === "asset") {
       const level = levels.get(e.level_id) ?? lowest;
       if (!level) continue;

@@ -4,13 +4,16 @@
 //   ?fresh=1    always create a new bridge project
 //   ?pack=0     start with the CC0 GLB furniture and PBR maps off
 //   ?hdri=0     start with the HDRI sky off
+//   ?template=plumbing-demo   open (or create) a project from another template
 
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import "../../styles/tokens.css";
 import type { Command, DocState, Element, Roof } from "../../contract/bindings";
 import { ipc } from "../../contract/ipc";
+import { bus } from "../../state/bus";
 import { useApp } from "../../state/store";
+import { useViewer } from "../viewerStore";
 import { Viewer3D } from "../Viewer3D";
 import { RenderPanel } from "../RenderPanel";
 import { liveEngineCount, type ViewerEngine } from "../engine/ViewerEngine";
@@ -26,21 +29,27 @@ declare global {
     __ipc: typeof ipc;
     __viewer3d?: ViewerEngine;
     __source: Source;
+    __viewer: typeof useViewer;
+    __bus: typeof bus;
   }
 }
 window.__app = useApp;
 window.__ipc = ipc;
 window.__source = "loading";
+window.__viewer = useViewer;
+window.__bus = bus;
+const template = params.get("template") ?? "sample-bungalow";
+const projectName = template === "sample-bungalow" ? "3D dev" : `3D dev ${template}`;
 
 async function boot(): Promise<Source> {
   if (!params.has("fixture")) {
     try {
       let doc: DocState | null = null;
       if (!params.has("fresh")) {
-        const existing = (await ipc.hubList()).find((p) => p.name === "3D dev");
+        const existing = (await ipc.hubList()).find((p) => p.name === projectName);
         if (existing) doc = await ipc.hubOpen(existing.id);
       }
-      doc ??= await ipc.hubCreate("3D dev", undefined, "sample-bungalow");
+      doc ??= await ipc.hubCreate(projectName, undefined, template);
       useApp.getState().setDoc(doc);
       return "bridge";
     } catch (e) {
@@ -223,6 +232,23 @@ function Harness() {
         {btn("Restore context", () => window.__viewer3d?.renderer.forceContextRestore())}
         {btn(mounted ? "Unmount" : "Mount", () => setMounted((m) => !m), "h-mount")}
         {btn("Undo", () => void useApp.getState().undo())}
+        {btn("Walk to first pipe finding", () => {
+          const issue = useApp.getState().doc?.derived.issues.find((i) => i.location && i.element_ids.length > 0);
+          if (issue) bus.emit("walk_to", { ids: issue.element_ids, location: issue.location });
+        })}
+        {btn("Focus first pipe", () => {
+          const pipe = doc?.project.elements.find((e) => e.kind === "pipe");
+          if (pipe) bus.emit("focus_elements", [pipe.id]);
+        })}
+        {btn("Cold water layer", () => {
+          const d = useApp.getState().doc;
+          const layer = d?.project.layers.find((l) => l.key === "cold_water");
+          if (!d || !layer) return;
+          void apply(source, { type: "set_layer", layer: { ...layer, visible: !layer.visible } }, (x) => {
+            x.project.layers = x.project.layers.map((l) => (l.key === "cold_water" ? { ...l, visible: !l.visible } : l));
+            return x;
+          });
+        })}
         {btn(`Pack assets: ${packAssets ? "on" : "off"}`, () => setPackAssets((v) => !v), "h-pack-assets")}
         {btn(`HDRI: ${hdri ? "on" : "off"}`, () => setHdri((v) => !v), "h-pack-hdri")}
         <code data-testid="h-pack" style={{ fontSize: 10, color: "var(--ink-2)" }}>

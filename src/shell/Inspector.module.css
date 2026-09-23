@@ -258,3 +258,329 @@
   font-size: var(--text-xs);
   line-height: 1.45;
 }
+
+/* ------------------------------------------------------------ pipes */
+.pipeSwatch,
+.layerSwatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(20, 40, 63, 0.18);
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+
+.layerSwatch {
+  margin-right: 7px;
+}
+
+.layerHidden .layerSwatch {
+  opacity: 0.35;
+}
+
+.layerMeta {
+  flex: none;
+  margin-right: 4px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.layerSubhead {
+  margin: 8px 0 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+/* one pipe: its points, with the fall of each drainage segment between them */
+.pointsHead {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.points {
+  display: flex;
+  flex-direction: column;
+}
+
+.point {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 108px;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.pointIndex {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.pointXY {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pointXY i {
+  margin-right: 3px;
+  color: var(--ink-3);
+  font-style: normal;
+}
+
+.fall {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  margin-left: 8px;
+  padding-left: 17px;
+  border-left: 1px dashed var(--line-strong);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  transition:
+    color var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out);
+}
+
+.fall svg {
+  margin-left: -1px;
+}
+
+.fallLow {
+  border-left-color: var(--warn);
+  color: var(--warn);
+  font-weight: 500;
+}
+
+/* review rows: new rows grow in, fixed ones collapse out (MOTION.md rule 6) */
+.issueRow {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows calc(var(--dur-base) * 0.7) var(--ease-in),
+    opacity calc(var(--dur-base) * 0.7) var(--ease-in);
+}
+
+.issueRowInner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.issueRowIn {
+  animation: issue-row-in var(--dur-base) var(--ease-out);
+}
+
+.issueRowOut {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes issue-row-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+/* a pipe item is not one big button: it carries its own actions */
+.issueStatic {
+  cursor: default;
+}
+
+.issueStatic:hover {
+  background: transparent;
+}
+
+.issueBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.issueActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.reviewNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+/* take-off */
+.reveal {
+  border-radius: var(--radius-sm);
+}
+
+/* "Show the pipe take-off" lands here: a soft teal wash that fades out. */
+.revealFlash {
+  animation: reveal-flash 900ms var(--ease-out);
+}
+
+@keyframes reveal-flash {
+  0% {
+    background: var(--accent-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.takeoff {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.takeoff th {
+  padding: 0 0 4px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  text-align: left;
+}
+
+.takeoff td {
+  padding: 4px 0;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.takeoff td + td,
+.takeoff th + th {
+  padding-left: 8px;
+}
+
+.takeoff .num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.takeoff th.num {
+  font-family: var(--font-ui);
+}
+
+.takeoffGroup td {
+  border-top: 1px dashed var(--line);
+}
+
+.takeoffSystem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.takeoff tfoot td {
+  border-top: 1px solid var(--line-strong);
+  font-weight: 600;
+}
+
+.takeoffFittings {
+  margin: 2px 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+/* copy button: the icon and the label cross-fade to "Copied" and a drawn check */
+.copyIcon {
+  position: relative;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+
+.copyLayer {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-out);
+}
+
+.copyLayerOn {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.copyCheck {
+  color: var(--ok);
+}
+
+.copyCheck path {
+  stroke-dasharray: 18;
+  stroke-dashoffset: 18;
+  transition: stroke-dashoffset var(--dur-base) var(--ease-out);
+}
+
+.copyCheck.copyLayerOn path {
+  stroke-dashoffset: 0;
+}
+
+.copyButton > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.copyStack {
+  display: inline-grid;
+}
+
+.copyText {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transform: translateY(3px);
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-out);
+}
+
+.copyTextOn {
+  opacity: 1;
+  transform: none;
+}

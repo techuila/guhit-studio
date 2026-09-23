@@ -5,11 +5,11 @@
 
 import type { DisplayUnit } from "../contract/bindings";
 
-export type TypedMode = "polar" | "rect";
+export type TypedMode = "polar" | "rect" | "height";
 
 export interface TypedState {
   mode: TypedMode;
-  /** polar: [length, angle]. rect: [width, depth]. Raw text as typed. */
+  /** polar: [length, angle]. rect: [width, depth]. height: [height, unused]. Raw text as typed. */
   fields: [string, string];
   active: 0 | 1;
 }
@@ -45,6 +45,8 @@ export function typedKey(t: TypedState, key: string): TypedState | null {
     active = 1;
     fields[1] = "";
   } else if (key === "Tab") {
+    // A height is one field: nothing to switch to.
+    if (t.mode === "height") return t;
     active = active === 0 ? 1 : 0;
   } else if (key === "Backspace") {
     if (fields[active] !== "") fields[active] = fields[active].slice(0, -1);

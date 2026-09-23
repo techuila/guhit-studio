@@ -1,6 +1,6 @@
 // Editable fields for one selected element, by kind. Every edit is one typed
 // command: update_element, or the specific semantic command where one exists.
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type {
   CameraPreset,
   Command,
@@ -15,10 +15,29 @@ import type {
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
 import { MaterialPicker } from "../ui/MaterialPicker";
-import { Button, Field, NumberField, ReadOnly, Section, Segmented, Select, Switch, TextField } from "../ui/controls";
-import type { IconName } from "../ui/icons";
+import { Button, Field, NumberField, ReadOnly, Section, Segmented, Select, Switch, TextField, cx } from "../ui/controls";
+import { Icon, type IconName } from "../ui/icons";
 import { formatAreaMm2, formatLength } from "../ui/units";
-import { DOOR_STYLES, WINDOW_STYLES } from "./actions";
+import { DOOR_STYLES, WINDOW_STYLES, walkTo } from "./actions";
+import {
+  PIPE_COLOR,
+  PIPE_MATERIAL_LABEL,
+  PIPE_SYSTEMS,
+  PIPE_SYSTEM_LABEL,
+  drainMinSlopePct,
+  formatDiameter,
+  inMenu,
+  materialsFor,
+  midPoint,
+  pipeLength,
+  reversed,
+  segmentFalls,
+  sizeLabel,
+  sizesFor,
+  withMaterial,
+  withSystem,
+  type SegmentFall,
+} from "./pipes";
 import { useSection } from "./shellStore";
 import s from "./Inspector.module.css";
 
@@ -62,7 +81,7 @@ const STYLE_LABEL: Record<OpeningStyle, string> = {
   jalousie: "Jalousie",
 };
 
-export function elementTitle(el: Element, doc: DocState): { title: string; subtitle: string; icon: IconName } {
+export function elementTitle(el: Element, doc: DocState): { title: string; subtitle: string; icon: IconName; tint?: string } {
   const unit = doc.project.settings.display_unit;
   switch (el.kind) {
     case "wall": {
@@ -91,6 +110,13 @@ export function elementTitle(el: Element, doc: DocState): { title: string; subti
       return { title: "Linework", subtitle: el.name, icon: "linework" };
     case "reference_model":
       return { title: "Reference model", subtitle: el.name, icon: "model" };
+    case "pipe":
+      return {
+        title: `${PIPE_SYSTEM_LABEL[el.system]} pipe`,
+        subtitle: el.name || `${sizeLabel(el.material, el.diameter_mm)}, ${formatLength(pipeLength(el.points), unit)}`,
+        icon: "pipe",
+        tint: PIPE_COLOR[el.system],
+      };
   }
 }
 
@@ -550,6 +576,110 @@ function LineworkFields({ el, doc }: { el: Of<"linework">; doc: DocState }) {
   );
 }
 
+// ---------------------------------------------------------------- pipes
+
+function coord(mm: number, unit: "mm" | "m"): string {
+  return unit === "m" ? (mm / 1000).toFixed(2) : String(Math.round(mm));
+}
+
+function pct(value: number, digits: number): string {
+  return `${value.toFixed(digits)}%`;
+}
+
+/** How one drainage segment falls, in words. */
+function fallText(f: SegmentFall, min: number, unit: "mm" | "m"): string {
+  const over = `over ${formatLength(f.horizontalMm, unit)}`;
+  if (f.pct === null) return `Vertical, ${f.dropMm >= 0 ? "drops" : "rises"} ${formatLength(Math.abs(f.dropMm), unit)}`;
+  if (f.steep) return `${f.dropMm >= 0 ? "Drops" : "Rises"} ${formatLength(Math.abs(f.dropMm), unit)} ${over}`;
+  // A low fall never reads as the default itself: 1.996 shows 1.996, not 2.00.
+  const digits = f.low && Math.abs(Number(f.pct.toFixed(2))) >= min ? 3 : 2;
+  if (Math.abs(f.dropMm) < 0.05) return `Level ${over}`;
+  if (f.dropMm < 0) return `Rises ${pct(-f.pct, digits)} ${over}`;
+  return `Falls ${pct(f.pct, digits)} ${over}`;
+}
+
+function PipeFields({ el, doc }: { el: Of<"pipe">; doc: DocState }) {
+  const unit = doc.project.settings.display_unit;
+  const drainage = el.system === "drainage";
+  const falls = drainage ? segmentFalls(el) : [];
+  const min = drainMinSlopePct(el.diameter_mm);
+  const lowCount = falls.filter((f) => f.low).length;
+
+  const materials = materialsFor(el.system);
+  const materialOptions = (materials.includes(el.material) ? materials : [...materials, el.material]).map((m) => ({ value: m, label: PIPE_MATERIAL_LABEL[m] }));
+  const sizes = sizesFor(el.system, el.material);
+  const sizeOptions = (inMenu(el.system, el.material, el.diameter_mm) ? sizes : [...sizes, el.diameter_mm].sort((a, b) => a - b)).map((d) => ({
+    value: String(d),
+    label: `${formatDiameter(d)} mm`,
+  }));
+  const setHeight = (i: number, z: number) => update({ ...el, points: el.points.map((p, j) => (j === i ? { ...p, z } : p)) });
+
+  return (
+    <>
+      <div className={s.group}>
+        <Field label="Name">
+          <TextField label="Pipe name" value={el.name} placeholder="For example, sink waste" onCommit={(name) => update({ ...el, name })} />
+        </Field>
+        <Field label="System" hint="Each system has its own layer">
+          <span className={s.pipeSwatch} style={{ background: PIPE_COLOR[el.system] }} aria-hidden />
+          <Select label="Pipe system" value={el.system} options={PIPE_SYSTEMS.map((p) => ({ value: p.value, label: p.label }))} onChange={(system) => update(withSystem(el, system))} />
+        </Field>
+        <Field label="Material">
+          <Select label="Pipe material" value={el.material} options={materialOptions} onChange={(material) => update(withMaterial(el, material))} />
+        </Field>
+        <Field label="Size" hint="Nominal size. Sizing is for a registered Master Plumber.">
+          <Select label="Pipe size" value={String(el.diameter_mm)} options={sizeOptions} onChange={(v) => update({ ...el, diameter_mm: Number(v) })} />
+        </Field>
+        <Field label="Length" hint="Centerline, along every segment">
+          <ReadOnly>{formatLength(pipeLength(el.points), unit)}</ReadOnly>
+        </Field>
+      </div>
+      <div className={s.group}>
+        <div className={s.pointsHead}>
+          <span>{drainage ? "Points, in flow order" : "Points"}</span>
+          <span>Height above floor</span>
+        </div>
+        <div className={s.points}>
+          {el.points.map((p, i) => (
+            <Fragment key={i}>
+              <div className={s.point}>
+                <span className={s.pointIndex}>{i + 1}</span>
+                <span className={s.pointXY} title="Plan position. Drag the point in the plan to move it.">
+                  <i>x</i>
+                  {coord(p.x, unit)} <i>y</i>
+                  {coord(p.y, unit)}
+                </span>
+                <NumberField label={`Height of point ${i + 1}`} kind="length" unit={unit} min={-5000} max={20000} step={10} value={p.z} onCommit={(z) => setHeight(i, z)} />
+              </div>
+              {drainage && i < falls.length ? (
+                <div className={cx(s.fall, falls[i].low && s.fallLow)} title={falls[i].low ? (falls[i].dropMm < 0 ? "Runs uphill" : `Less than the ${min}% default fall for this size`) : undefined}>
+                  <Icon name={falls[i].low ? "warning" : "chevronDown"} size={12} />
+                  <span>{fallText(falls[i], min, unit)}</span>
+                </div>
+              ) : null}
+            </Fragment>
+          ))}
+        </div>
+        {drainage ? (
+          <p className={s.note}>
+            Flows from point 1 to point {el.points.length}. {lowCount > 0 ? `${lowCount === 1 ? "One segment falls" : `${lowCount} segments fall`} less than the ${min}% default.` : `Every segment falls at least the ${min}% default.`}
+          </p>
+        ) : null}
+        <div className={s.actionsRow}>
+          {drainage ? (
+            <Button size="sm" icon="flip" onClick={() => update(reversed(el))}>
+              Reverse flow
+            </Button>
+          ) : null}
+          <Button size="sm" icon="walk" onClick={() => void walkTo([el.id], midPoint(el.points))}>
+            Walk here
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export const MODEL_UNITS = [
   { value: "mm", label: "mm", mm: 1 },
   { value: "cm", label: "cm", mm: 10 },
@@ -619,5 +749,7 @@ export function ElementFields({ element, doc }: { element: Element; doc: DocStat
       return <LineworkFields el={element} doc={doc} />;
     case "reference_model":
       return <ReferenceModelFields el={element} doc={doc} />;
+    case "pipe":
+      return <PipeFields el={element} doc={doc} />;
   }
 }

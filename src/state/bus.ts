@@ -1,7 +1,7 @@
 // Tiny typed event bus for one-shot view requests that are not state.
 // CONTRACT FILE - owned by the orchestrator.
 
-import type { Camera } from "../contract/bindings";
+import type { Camera, Vec3 } from "../contract/bindings";
 
 export interface BusEvents {
   /** Fit the whole model in the 2D and 3D views. */
@@ -12,6 +12,10 @@ export interface BusEvents {
   apply_camera: Camera;
   /** Open the command palette. */
   open_palette: undefined;
+  /** Enter walk mode standing near these elements, looking at `location` when
+   * given (plan x and y, z above the floor of the first element's level, the
+   * `Issue::location` convention). Switches the view to 3D when needed. */
+  walk_to: { ids: string[]; location: Vec3 | null };
 }
 
 type Handler<K extends keyof BusEvents> = (payload: BusEvents[K]) => void;

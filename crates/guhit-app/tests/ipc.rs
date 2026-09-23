@@ -681,3 +681,93 @@ async fn unknown_command_and_bad_args() {
     let styles: Vec<RenderStyle> = call(&app, "render_styles", json!({})).await;
     assert!(!styles.is_empty());
 }
+
+/// A project as version 1 wrote it: no pipe layers, schema 1.
+fn as_version_1(project: &Project) -> Value {
+    let mut v = serde_json::to_value(project).unwrap();
+    v["schema_version"] = json!(1);
+    let layers: Vec<Value> = v["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|l| !matches!(l["key"].as_str(), Some("cold_water" | "hot_water" | "drainage" | "vent")))
+        .cloned()
+        .collect();
+    assert_eq!(layers.len(), 9);
+    v["layers"] = json!(layers);
+    v
+}
+
+#[tokio::test]
+async fn a_version_1_project_opens_with_the_pipe_layers() {
+    let tmp = TempDir::new("migrate");
+    let app = AppService::new(tmp.path().to_path_buf());
+    let state = create(&app, "Old house").await;
+    let id = state.project.id.clone();
+    let _: ApplyResult = call(&app, "doc_apply", wall(0.0, 0.0, 4000.0, 0.0)).await;
+    let _: Value = call(&app, "hub_close", json!({})).await;
+
+    // Rewrite the project and one snapshot the way version 1 saved them.
+    let dir = tmp.path().join("projects").join(&id);
+    let saved: Project = serde_json::from_slice(&std::fs::read(dir.join("project.json")).unwrap()).unwrap();
+    let old = as_version_1(&saved);
+    std::fs::write(dir.join("project.json"), serde_json::to_vec_pretty(&old).unwrap()).unwrap();
+    let snap_id = defaults::new_id();
+    std::fs::create_dir_all(dir.join("snapshots")).unwrap();
+    let meta = SnapshotMeta {
+        id: snap_id.clone(),
+        label: "Before pipes".into(),
+        created_at: "2026-09-22T00:00:00Z".into(),
+        revision: 1,
+        auto: false,
+    };
+    std::fs::write(
+        dir.join("snapshots").join(format!("{snap_id}.json")),
+        serde_json::to_vec(&json!({ "meta": meta, "project": old })).unwrap(),
+    )
+    .unwrap();
+
+    let list: Vec<ProjectMeta> = call(&app, "hub_list", json!({})).await;
+    assert_eq!(list.len(), 1, "a version 1 project is listed");
+    let opened: DocState = call(&app, "hub_open", json!({ "id": id })).await;
+    assert_eq!(opened.project.schema_version, SCHEMA_VERSION);
+    let keys: Vec<LayerKey> = opened.project.layers.iter().map(|l| l.key).collect();
+    let expected: Vec<LayerKey> = defaults::default_layers().iter().map(|l| l.key).collect();
+    assert_eq!(keys, expected, "all 13 layers, in LayerKey order");
+    assert_eq!(wall_count(&opened), 1);
+
+    // The next save writes version 2.
+    let _: ApplyResult = call(&app, "doc_apply", wall(4000.0, 0.0, 4000.0, 3000.0)).await;
+    let on_disk: Value = serde_json::from_slice(&std::fs::read(dir.join("project.json")).unwrap()).unwrap();
+    assert_eq!(on_disk["schema_version"], json!(SCHEMA_VERSION));
+    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 13);
+
+    // A version 1 snapshot restores with the pipe layers too.
+    let restored: DocState = call(&app, "snapshot_restore", json!({ "id": snap_id })).await;
+    assert_eq!(restored.project.layers.len(), 13);
+    assert_eq!(restored.project.schema_version, SCHEMA_VERSION);
+}
+
+#[tokio::test]
+async fn the_plumbing_demo_template_opens_with_its_pipes() {
+    let tmp = TempDir::new("plumbing");
+    let app = AppService::new(tmp.path().to_path_buf());
+    let state: DocState = call(
+        &app,
+        "hub_create",
+        json!({ "name": "Pipes", "settings": null, "template": "plumbing-demo" }),
+    )
+    .await;
+    assert_eq!(state.project.name, "Pipes");
+    assert_ne!(state.project.id, guhit_core::templates::plumbing_demo().id, "identity is always new");
+    let pipes = state.project.elements.iter().filter(|e| e.kind() == ElementKind::Pipe).count();
+    assert_eq!(pipes, 16);
+    assert_eq!(state.derived.pipes.total_length_m, 44.94);
+    assert_eq!(state.derived.pipes.sleeve_count, 7);
+
+    let takeoff: Value = call(&app, "doc_query", json!({ "query": { "type": "pipe_takeoff" } })).await;
+    assert_eq!(takeoff["total_length_m"], json!(44.94));
+
+    let e = fail(&app, "hub_create", json!({ "name": "X", "template": "castle" })).await;
+    assert!(e.message.contains("plumbing-demo"), "{}", e.message);
+}

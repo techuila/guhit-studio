@@ -45,6 +45,7 @@ interface Track {
 export class Animator {
   private tracks = new Map<string, Track>();
   private running = 0;
+  private movedKeys: string[] = [];
 
   constructor(private motion: () => boolean = motionOK) {}
 
@@ -143,7 +144,8 @@ export class Animator {
   sample(now: number): boolean {
     let moved = false;
     const landed: Track[] = [];
-    for (const t of this.tracks.values()) {
+    this.movedKeys.length = 0;
+    for (const [key, t] of this.tracks) {
       if (!t.running) continue;
       const elapsed = now - t.start;
       if (elapsed < 0) continue; // still in its stagger delay
@@ -162,11 +164,22 @@ export class Animator {
       } else {
         next = t.from + (t.to - t.from) * t.easing(raw);
       }
-      if (next !== t.value) moved = true;
+      if (next !== t.value) {
+        moved = true;
+        this.movedKeys.push(key);
+      }
       t.value = next;
     }
     for (const t of landed) t.onDone?.();
     return moved;
+  }
+
+  /**
+   * Keys whose value changed in the last `sample`. The engine uses it to tell
+   * a camera or shell move (no shadow redraw) from a mesh move (redraw).
+   */
+  moved(): readonly string[] {
+    return this.movedKeys;
   }
 
   /** Tracks still moving. 0 means the engine can stop its frame loop. */

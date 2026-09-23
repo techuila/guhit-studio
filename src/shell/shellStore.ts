@@ -4,7 +4,7 @@ import { useApp } from "../state/store";
 
 export type DockTab = "copilot" | "visuals";
 export type Overlay = "palette" | "export" | "versions" | "shortcuts" | "settings" | null;
-export type FlyoutKind = "wall" | "door" | "window" | "asset";
+export type FlyoutKind = "wall" | "door" | "window" | "asset" | "pipe";
 export type ImportKind = "cad" | "model" | "bundle";
 
 interface ShellState {
@@ -27,6 +27,11 @@ interface ShellState {
    * the hidden file inputs mounted once by `ImportController` to react to.
    */
   importRequest: { kind: ImportKind; token: number } | null;
+  /**
+   * A request to open one inspector section and scroll it into view, for
+   * example the palette's "Pipe take-off". The section reacts to a new token.
+   */
+  revealRequest: { key: string; token: number } | null;
 
   open: (overlay: Exclude<Overlay, null>) => void;
   close: () => void;
@@ -37,6 +42,7 @@ interface ShellState {
   toggleSection: (key: string, fallback: boolean) => void;
   requestFlyout: (flyout: FlyoutKind) => void;
   requestImport: (kind: ImportKind) => void;
+  revealSection: (key: string) => void;
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -50,6 +56,7 @@ export const useShell = create<ShellState>((set) => ({
   inspectorSections: {},
   flyoutRequest: null,
   importRequest: null,
+  revealRequest: null,
 
   open: (overlay) => set({ overlay }),
   close: () => set({ overlay: null }),
@@ -61,6 +68,11 @@ export const useShell = create<ShellState>((set) => ({
     set((s) => ({ inspectorSections: { ...s.inspectorSections, [key]: !(s.inspectorSections[key] ?? fallback) } })),
   requestFlyout: (flyout) => set((s) => ({ flyoutRequest: { flyout, token: (s.flyoutRequest?.token ?? 0) + 1 } })),
   requestImport: (kind) => set((s) => ({ importRequest: { kind, token: (s.importRequest?.token ?? 0) + 1 } })),
+  revealSection: (key) =>
+    set((s) => ({
+      inspectorSections: { ...s.inspectorSections, [key]: true },
+      revealRequest: { key, token: (s.revealRequest?.token ?? 0) + 1 },
+    })),
 }));
 
 /** The name to show for the open project. */

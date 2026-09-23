@@ -5,7 +5,12 @@
 //! R12 (AC1009) flavor like `dxf.rs`: 3DFACE exists there and it is the most
 //! widely readable DXF. Model space, millimeters, 1:1, y is north, z is up.
 //!
-//! Layers: the nine 2D layers plus A-ROOF and A-FLOR-SLAB.
+//! Layers: the nine 2D layers plus A-ROOF and A-FLOR-SLAB, and one layer per
+//! pipe system when the project has pipes (`pipes::dxf_layer`).
+//!
+//! Pipes are closed 8-sided tubes at world height (level elevation plus the
+//! point's z), mitred at bends. Their faces keep a CONTINUOUS linetype on
+//! the dashed drainage and vent layers, so only the 2D linework is dashed.
 //!
 //! Simplifications, the same ones the IFC export makes: a gable roof is two
 //! sloped prisms and the triangular gable ends are not filled, so the walls
@@ -15,11 +20,12 @@
 //! riser, because 3DFACE geometry is cheap.
 
 use guhit_model::{
-    ColumnShape, Derived, Element, LayerKey, OpeningType, Project, RoofKind,
+    ColumnShape, Derived, Element, LayerKey, OpeningType, PipeSystem, Project, RoofKind,
 };
 
 use crate::geom::*;
 use crate::model3d::*;
+use crate::pipes::{self, Dash, PlanPipe};
 use crate::plan::{self, Cat, Item, Prim};
 use crate::ExportError;
 
@@ -68,6 +74,21 @@ fn all_layers() -> Vec<&'static str> {
     v.push(ROOF_LAYER);
     v.push(SLAB_LAYER);
     v
+}
+
+/// Pipe systems with tube faces, in layer table order.
+fn tube_systems(faces: &Faces) -> Vec<PipeSystem> {
+    pipes::SYSTEMS
+        .into_iter()
+        .filter(|s| faces.list.iter().any(|f| f.layer == pipes::dxf_layer(*s)))
+        .collect()
+}
+
+/// True for a pipe layer whose linetype is dashed.
+fn dashed_pipe_layer(layer: &str) -> bool {
+    pipes::SYSTEMS
+        .iter()
+        .any(|s| pipes::dxf_layer(*s) == layer && pipes::dash(*s) != Dash::Solid)
 }
 
 fn f(x: f64) -> String {
@@ -357,6 +378,14 @@ pub fn build_faces(project: &Project, derived: &Derived) -> Faces {
                 e + a.elevation_mm + a.height_mm.max(1.0),
             );
         }
+
+        for p in &ls.pipes {
+            let layer = pipes::dxf_layer(p.system);
+            for q in pipes::tube_quads(p, e, pipes::TUBE_SIDES) {
+                let [a, b, c, d] = q.map(|x| p3(x.x, x.y, x.z));
+                faces.quad(layer, a, b, c, d);
+            }
+        }
     }
 
     if let Some(top) = scene.roof_level {
@@ -390,6 +419,7 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
         100
     };
     let mut items: Vec<Item> = Vec::new();
+    let mut flat_pipes: Vec<PlanPipe> = Vec::new();
     for level in &project.levels {
         let built = plan::build_plan(
             project,
@@ -409,10 +439,19 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
         if let Ok(mut b) = built {
             items.append(&mut b);
         }
+        flat_pipes.extend(pipes::plan_pipes(project, level));
     }
-    if faces.list.is_empty() && items.is_empty() {
+    if faces.list.is_empty() && items.is_empty() && flat_pipes.is_empty() {
         return Err(ExportError::Empty("the model has nothing to export".into()));
     }
+    // Pipe layers: every system with a tube or a line.
+    let flat_systems = pipes::systems_present(&flat_pipes);
+    let tubes = tube_systems(&faces);
+    let pipe_systems: Vec<PipeSystem> = pipes::SYSTEMS
+        .into_iter()
+        .filter(|s| tubes.contains(s) || flat_systems.contains(s))
+        .collect();
+    let dashes = crate::dxf::pipe_dashes(&pipe_systems);
 
     // Bounds over everything, for the header extents.
     let mut min = p3(f64::INFINITY, f64::INFINITY, f64::INFINITY);
@@ -423,7 +462,12 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
             max = p3(max.x.max(p.x), max.y.max(p.y), max.z.max(p.z));
         }
     }
-    let flat = plan::items_bounds(&items);
+    let mut flat = plan::items_bounds(&items);
+    if !flat_pipes.is_empty() {
+        let pb = pipes::bounds(&flat_pipes, scale as f64);
+        flat.add(pb.min);
+        flat.add(pb.max);
+    }
     if !flat.is_empty() {
         min = p3(min.x.min(flat.min.x), min.y.min(flat.min.y), min.z.min(0.0));
         max = p3(max.x.max(flat.max.x), max.y.max(flat.max.y), max.z.max(0.0));
@@ -477,7 +521,7 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
     w.pair(2, "TABLES");
     w.pair(0, "TABLE");
     w.pair(2, "LTYPE");
-    w.int(70, 1);
+    w.int(70, 1 + dashes.len() as i64);
     w.pair(0, "LTYPE");
     w.pair(2, "CONTINUOUS");
     w.int(70, 0);
@@ -485,12 +529,13 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
     w.int(72, 65);
     w.int(73, 0);
     w.num(40, 0.0);
+    crate::dxf::write_pipe_linetypes(&mut w.s, &dashes, scale as f64);
     w.pair(0, "ENDTAB");
 
-    let layers = all_layers();
+    let mut layers = all_layers();
     w.pair(0, "TABLE");
     w.pair(2, "LAYER");
-    w.int(70, layers.len() as i64 + 1);
+    w.int(70, layers.len() as i64 + 1 + pipe_systems.len() as i64);
     w.pair(0, "LAYER");
     w.pair(2, "0");
     w.int(70, 0);
@@ -503,7 +548,9 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
         w.int(62, layer_color(layer));
         w.pair(6, "CONTINUOUS");
     }
+    crate::dxf::write_pipe_layers(&mut w.s, &pipe_systems);
     w.pair(0, "ENDTAB");
+    layers.extend(pipe_systems.iter().map(|s| pipes::dxf_layer(*s)));
 
     w.pair(0, "TABLE");
     w.pair(2, "STYLE");
@@ -529,9 +576,13 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
     w.pair(0, "SECTION");
     w.pair(2, "ENTITIES");
     for layer in &layers {
+        let solid_edges = dashed_pipe_layer(layer);
         for face in faces.list.iter().filter(|x| &x.layer == layer) {
             w.pair(0, "3DFACE");
             w.pair(8, face.layer);
+            if solid_edges {
+                w.pair(6, "CONTINUOUS");
+            }
             for (i, p) in face.pts.iter().enumerate() {
                 w.num(10 + i as i32, p.x);
                 w.num(20 + i as i32, p.y);
@@ -544,6 +595,7 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
             flat_entity(&mut w, item, cat);
         }
     }
+    crate::dxf::write_pipe_entities(&mut w.s, &flat_pipes, scale as f64);
     w.pair(0, "ENDSEC");
     w.pair(0, "EOF");
     Ok(w.s)
@@ -627,9 +679,12 @@ fn flat_entity(w: &mut Writer, item: &Item, cat: Cat) {
     }
 }
 
-/// How many faces each layer got. Used by the tests and by the report.
+/// How many faces each layer got, pipe layers included when they have
+/// tubes. Used by the tests and by the report.
 pub fn faces_per_layer(faces: &Faces) -> Vec<(&'static str, usize)> {
-    all_layers()
+    let mut layers = all_layers();
+    layers.extend(tube_systems(faces).into_iter().map(pipes::dxf_layer));
+    layers
         .into_iter()
         .map(|l| (l, faces.list.iter().filter(|f| f.layer == l).count()))
         .collect()

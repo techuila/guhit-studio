@@ -108,6 +108,8 @@ function contactTexture(size: number): THREE.CanvasTexture {
 
 /** Albedo of real grass, near enough. The ground disc is lit, not emissive. */
 const GROUND_ALBEDO = 0.12;
+/** Strength of the soft darkening around the building. */
+const CONTACT_OPACITY = 0.28;
 
 interface HdriScan {
   /** World direction towards the brightest spot above the horizon. */
@@ -266,7 +268,7 @@ export class Environment {
       map: contactTex,
       color: 0x1b2416,
       transparent: true,
-      opacity: 0.28,
+      opacity: CONTACT_OPACITY,
       depthWrite: false,
       toneMapped: false,
     });
@@ -476,6 +478,16 @@ export class Environment {
 
   setShadows(on: boolean): void {
     this.sun.castShadow = on;
+  }
+
+  /**
+   * The X-ray and hidden shell modes thin the ground and the contact shadow
+   * so drains under the slab read through them. 1 is the normal ground.
+   */
+  setGroundOpacity(k: number): void {
+    const t = Math.min(Math.max(k, 0), 1);
+    (this.ground.material as THREE.MeshStandardMaterial).opacity = t;
+    (this.contact.material as THREE.MeshBasicMaterial).opacity = CONTACT_OPACITY * t;
   }
 
   followCamera(camera: THREE.Camera): void {

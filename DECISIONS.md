@@ -91,3 +91,19 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - Intro on first visit is the page loader (about 6.5 s, skippable, once per session, a fade under reduced motion): navy field, the grid draws one line at a time from the center outward (verticals bottom to top, horizontals left to right), the logo draws stroke by stroke with pauses so the G reads, then the field shrinks into the mark's place while the word GUHIT is outlined from G to T and filled behind the stroke. The collapse waits for fonts and above-the-fold images; while waiting it holds on the finished G with a progress line (4 s cap). Axl rejected the first 2.9 s version as too fast to absorb.
 - Rule from a real bug: the act 02 3D house stage never clips (`overflow: visible`), its size derives from the projected model extent, and every plane must clear the stage edge at every scroll position and width (checked by script).
 - Copy states only what the app does. Rejected: percentage "geometry accuracy" claims, a hip roof preset the app does not have.
+
+## 2026-09-23
+
+### D19. Walk mode and a plumbing layer, built now
+- Chosen by: Axl ("proceed" on the plumbing walkthrough concept). Walk mode, the plumbing layer, coordination checks and the pipe take-off are built now, before the first release.
+- Walk mode: walk (eye height, walls block, doors pass) and fly in the live 3D view, with a minimap. X-ray and hidden shell modes keep pipes visible.
+- Plumbing: cold water, hot water, drainage and vent runs drawn in 2D, shown in 3D, one layer per system. Review items for pipes through columns and door or window openings, crossing pipes, drain slopes under the default, and penetrations that need sleeves or flashing. Take-off by system, material and size, with elbows, tees and sleeves. Pipes go into DXF, 3D DXF, IFC4 and plan sheets.
+- Boundary: Guhit coordinates pipes, it does not size them or run hydraulics. Plumbing plans are signed by a registered Master Plumber (RA 1378). Pipe checks are suggestions like every review item.
+- Open: electrical conduits or aircon lines next. The copilot routing pipes stays later.
+
+### D20. Go signal delegated: research, then build the open items
+- Chosen by: Axl ("proceed with what we are missing ... continue without my go signal, also implement it"), on 2026-09-23.
+- Scope: the open items after D19. Rendering phases (sun study, rest mode, night lighting, a Render button, Blender as an optional renderer), electrical and aircon on the services model, and the walk and plumbing gaps (stairs and levels, IFC pipe fittings, label overlap, desktop checks).
+- Method: study how existing apps do each feature and what users ask for (Reddit and forums), copy what works and improve it. Research notes live in the orchestrator's working notes; choices that change the product are recorded here as they are made.
+- The D19 boundary holds for every new service: Guhit coordinates, licensed professionals design and sign.
+

@@ -34,7 +34,7 @@ Stop:
 | `src/editor2d` | 2D plan canvas and tools | |
 | `src/viewer3d` | Three.js live 3D | |
 | `src/ai` | Copilot dock | |
-| `fixtures/` | Golden sample project | Regenerate: `cargo run -p guhit-core --example gen_fixture` |
+| `fixtures/` | Golden sample projects: `sample-bungalow`, `plumbing-demo` (pipes, T&B, fixtures) | Regenerate both: `cargo run -p guhit-core --example gen_fixture` |
 | `site/` | Website: the public landing page, plain HTML/CSS/JS, no build step, no dependencies | Deployed to GitHub Pages by `.github/workflows/pages.yml` on a push to main that touches `site/**`. Serve locally with `python3 -m http.server 8090 --directory site`. Brand assets come from `assets/brand/`; app screenshots are optimized WebP copies under `site/assets/`. |
 
 ## Standing constraints
@@ -44,7 +44,7 @@ Stop:
 - All lengths are millimeters (f64). Plan +x east, +y north. Degrees, counter-clockwise.
 - Geometry is authoritative, AI imagery is derivative. AI output is labelled "AI visualization" and never writes back into the model.
 - Review items are suggestions. Never present anything as permit approval, structural certification or code compliance.
-- Contract files (`crates/guhit-model/**`, `src/contract/ipc.ts`, `src/state/store.ts`, `src/state/bus.ts`, `src/styles/tokens.css`, `src/ui/motion.ts`, `docs/CONTRACT.md`, `docs/MOTION.md`) change only deliberately, with bindings regenerated and every consumer updated in the same change.
+- Contract files (`crates/guhit-model/**`, `src/contract/ipc.ts`, `src/contract/pipes.ts`, `src/state/store.ts`, `src/state/bus.ts`, `src/styles/tokens.css`, `src/ui/motion.ts`, `docs/CONTRACT.md`, `docs/MOTION.md`) change only deliberately, with bindings regenerated and every consumer updated in the same change.
 - The webview runs under the CSP in `src-tauri/tauri.conf.json` (`csp` for release, `devCsp` for Vite). New external origins, inline scripts or eval are refused by it; extend the policy deliberately instead of loosening it.
 - Must build and run on macOS and Windows. No platform-specific paths or shell calls in app code.
 
@@ -54,7 +54,9 @@ Stop:
 - Plain, direct language in code comments, docs and UI copy.
 - Commits: `type(scope): subject`, lowercase, imperative, under 72 chars, no body unless non-obvious, no AI attribution. Commit only when asked.
 - Every interaction has a microanimation. Follow `docs/MOTION.md`: motion tokens only, drags track 1:1, exits animate, `prefers-reduced-motion` respected, no animation library. Helpers: `src/ui/motion.ts`.
-- 3D frame loop invariant: exactly one pending requestAnimationFrame, ever, scheduled only through `ViewerEngine.schedule()`. A second scheduling path once doubled renders per frame and starved input. Shadow maps redraw only on explicit invalidation. Measure with `node scripts/perf-3d.mjs` (real GPU, headed Chromium).
+- 3D frame loop invariant: exactly one pending requestAnimationFrame, ever, scheduled only through `ViewerEngine.schedule()`. A second scheduling path once doubled renders per frame and starved input. Shadow maps redraw only on explicit invalidation. Walk and fly step inside that same frame, and only while a key is held or the camera still moves: standing still draws nothing. Measure with `node scripts/perf-3d.mjs` (real GPU, headed Chromium), which also measures walking and the plumbing demo.
+- 3D pipes draw as one merged batch per system. Each pipe also has a solo mesh on a raycast-only layer that answers clicks and takes over while that pipe is hovered, selected, previewed or fading. Batches are never picked or exported; exports use the solos.
+- Pipes are coordination, not design (DECISIONS D19): never add pipe sizing, hydraulics or code-compliance claims.
 - 3D assets: only CC0 files from Poly Haven, Kenney and ambientCG, listed in `assets/ASSETS.md` and `public/assets/pack/manifest.json`. Rebuild with `node scripts/assets-build.mjs`. Nothing from Sketchfab or unlisted sources.
 - UI styling uses the CSS variables in `src/styles/tokens.css` and CSS modules. No new styling framework.
 - No new dependency without a reason stated in the change.

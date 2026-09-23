@@ -18,6 +18,7 @@ interface Member {
 
 export class MeshFade {
   private members: Member[] = [];
+  private byMesh = new Map<THREE.Mesh, Member>();
   private clones = new Map<string, THREE.Material>();
   private released = false;
   private lift = 0;
@@ -29,14 +30,16 @@ export class MeshFade {
       // Arrays are not produced by this scene builder, and a fade of one is
       // not worth the bookkeeping: leave those meshes alone.
       if (Array.isArray(base)) continue;
-      this.members.push({
+      const member = {
         mesh,
         base,
         baseY: mesh.position.y,
         castShadow: mesh.castShadow,
         renderOrder: mesh.renderOrder,
         visible: mesh.visible,
-      });
+      };
+      this.members.push(member);
+      this.byMesh.set(mesh, member);
     }
   }
 
@@ -49,7 +52,12 @@ export class MeshFade {
    * not fight a fade over the same mesh: it waits for the fade to land.
    */
   owns(mesh: THREE.Mesh): boolean {
-    return !this.released && this.members.some((m) => m.mesh === mesh);
+    return !this.released && this.byMesh.has(mesh);
+  }
+
+  /** Where a mesh rests when the fade is over (its y before any lift), or undefined when not in this fade. */
+  restY(mesh: THREE.Mesh): number | undefined {
+    return this.released ? undefined : this.byMesh.get(mesh)?.baseY;
   }
 
   private cloneFor(base: THREE.Material): THREE.Material {
@@ -79,6 +87,8 @@ export class MeshFade {
       }
       const clone = this.cloneFor(m.base);
       clone.opacity = (m.base.opacity ?? 1) * clamped;
+      // The shell modes change the base material while a fade runs.
+      clone.visible = m.base.visible;
       m.mesh.material = clone;
       // A half-faded mesh casting a hard shadow reads as a bug, so the
       // shadow comes back with the solid material.
@@ -113,6 +123,7 @@ export class MeshFade {
     for (const c of this.clones.values()) c.dispose();
     this.clones.clear();
     this.members.length = 0;
+    this.byMesh.clear();
   }
 }
 

@@ -490,10 +490,16 @@
 }
 
 /* ------------------------------------------------------------ shortcuts sheet */
+/* Groups flow down two balanced columns, so a long group (Draw) does not
+   leave a gap beside a short one (Toggles). */
 .sheet {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px 28px;
+  columns: 2;
+  column-gap: 28px;
+}
+
+.sheet section {
+  break-inside: avoid;
+  margin-bottom: 18px;
 }
 
 .sheet h3 {

@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "../../styles/tokens.css";
-import type { CatalogItem, DocState } from "../../contract/bindings";
+import type { CatalogItem, DocState, PipeSystem } from "../../contract/bindings";
 import { ipc } from "../../contract/ipc";
 import { bus } from "../../state/bus";
 import { useApp, type Tool } from "../../state/store";
@@ -14,7 +14,8 @@ import fixture from "../../../fixtures/sample-bungalow.docstate.json";
 
 const BTN = { border: "1px solid var(--chrome-2)", borderRadius: 4, padding: "3px 8px", background: "var(--chrome-2)", color: "#fff", cursor: "pointer" } as const;
 
-const TOOLS: Tool[] = ["select", "pan", "wall", "rect_room", "door", "window", "column", "stair", "asset", "dimension", "text", "camera"];
+const TOOLS: Tool[] = ["select", "pan", "wall", "rect_room", "door", "window", "column", "stair", "asset", "dimension", "text", "camera", "pipe"];
+const PIPE_SYSTEMS: PipeSystem[] = ["cold_water", "hot_water", "drainage", "vent"];
 
 const FALLBACK_CATALOG: CatalogItem[] = [
   { key: "bed-double", name: "Double bed", category: "furniture", width_mm: 1370, depth_mm: 1900, height_mm: 500, elevation_mm: 0 },
@@ -31,6 +32,7 @@ function Harness() {
   const orthoEnabled = useApp((s) => s.orthoEnabled);
   const catalog = useApp((s) => s.catalog);
   const assetKey = useApp((s) => s.toolOptions.assetKey);
+  const pipeSystem = useApp((s) => s.toolOptions.pipeSystem);
   const doc = useApp((s) => s.doc);
   const [source, setSource] = useState("loading");
 
@@ -106,6 +108,17 @@ function Harness() {
           {catalog.map((c) => (
             <option key={c.key} value={c.key}>
               {c.key}
+            </option>
+          ))}
+        </select>
+        <select
+          data-testid="pipe-system"
+          value={pipeSystem}
+          onChange={(e) => useApp.getState().setTool("pipe", { pipeSystem: e.target.value as PipeSystem, pipeMaterial: null, pipeDiameterMm: null, pipeElevationMm: null })}
+        >
+          {PIPE_SYSTEMS.map((k) => (
+            <option key={k} value={k}>
+              {k}
             </option>
           ))}
         </select>

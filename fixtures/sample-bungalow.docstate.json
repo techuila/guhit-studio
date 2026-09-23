@@ -1,6 +1,6 @@
 {
   "project": {
-    "schema_version": 1,
+    "schema_version": 2,
     "id": "00000000-0000-4000-8000-000000000001",
     "name": "Sample Bungalow",
     "created_at": "2026-09-22T00:00:00Z",
@@ -67,6 +67,26 @@
       },
       {
         "key": "underlays",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "cold_water",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "hot_water",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "drainage",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "vent",
         "visible": true,
         "locked": false
       }
@@ -791,7 +811,16 @@
       "door_count": 2,
       "window_count": 3
     },
-    "issues": []
+    "issues": [],
+    "pipes": {
+      "fittings": [],
+      "penetrations": [],
+      "takeoff": [],
+      "total_length_m": 0.0,
+      "elbow_count": 0,
+      "tee_count": 0,
+      "sleeve_count": 0
+    }
   },
   "revision": 0,
   "can_undo": false,

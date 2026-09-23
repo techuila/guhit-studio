@@ -259,9 +259,32 @@ function applyPack(mat: THREE.MeshStandardMaterial, set: PackTextureSet): void {
   mat.needsUpdate = true;
 }
 
+/**
+ * The part of the model a material dresses. The same preset used by a wall
+ * and by a stair becomes two materials, so the X-ray and hidden shell modes
+ * (engine/shell.ts) can fade walls and stairs by different amounts.
+ */
+export type MaterialCategory = "" | "wall" | "opening" | "floor" | "column" | "stair" | "asset" | "roof" | "pipe" | "ghost";
+
+/** What a material looks like in the solid shell, kept so a shell mode can put it back. */
+export interface SolidLook {
+  opacity: number;
+  transparent: boolean;
+  depthWrite: boolean;
+}
+
+function rememberSolid(mat: THREE.Material, category: MaterialCategory): void {
+  mat.userData.shellCat = category;
+  mat.userData.solid = { opacity: mat.opacity, transparent: mat.transparent, depthWrite: mat.depthWrite } satisfies SolidLook;
+}
+
 export class MaterialLibrary {
   private textures = new Map<MaterialPattern, THREE.Texture>();
   private materials = new Map<string, THREE.MeshStandardMaterial>();
+  /** Library copies of pack model materials (see `adopt`). */
+  private adopted = new Map<string, THREE.Material>();
+  /** Category of the materials handed out from now on. `buildScene` sets it per section and puts it back to "". */
+  category: MaterialCategory = "";
   private used = new Set<string>();
   private byId = new Map<string, Material>();
   private anisotropy = 1;
@@ -334,17 +357,37 @@ export class MaterialLibrary {
    */
   keep(mat: THREE.Material): void {
     const key = mat.userData?.libKey as string | undefined;
-    if (key && this.materials.get(key) === mat) this.used.add(key);
+    if (key && (this.materials.get(key) === mat || this.adopted.get(key) === mat)) this.used.add(key);
   }
 
   /** Call after a rebuild: materials that were not requested are disposed. */
   end(): void {
-    for (const [key, mat] of this.materials) {
-      if (!this.used.has(key)) {
-        mat.dispose();
-        this.materials.delete(key);
+    for (const map of [this.materials, this.adopted] as Map<string, THREE.Material>[]) {
+      for (const [key, mat] of map) {
+        if (!this.used.has(key)) {
+          mat.dispose();
+          map.delete(key);
+        }
       }
     }
+  }
+
+  /**
+   * This library's own copy of a material that came with a pack model. Pack
+   * models share their materials with every engine and with the exporter, so
+   * the shell modes fade the copy, never the original. Textures stay shared:
+   * a material copy only points at them.
+   */
+  adopt(source: THREE.Material): THREE.Material {
+    const key = ["adopt", source.uuid, this.category].join("|");
+    this.used.add(key);
+    let mat = this.adopted.get(key);
+    if (mat) return mat;
+    mat = source.clone();
+    mat.userData = { ...source.userData, libKey: key };
+    rememberSolid(mat, this.category);
+    this.adopted.set(key, mat);
+    return mat;
   }
 
   resolve(id: string | null | undefined, fallbackId?: string): Material {
@@ -376,13 +419,47 @@ export class MaterialLibrary {
     return this.fromSpec({ ...FALLBACK, id: `ghost-${color}`, color, roughness: 0.9, metalness: 0, opacity }, false);
   }
 
+  /**
+   * A pipe system's material: the token color, with a little of it as
+   * emissive so a pipe still reads in shadow and through an X-ray shell.
+   */
+  pipe(color: string): THREE.MeshStandardMaterial {
+    const key = ["pipe", color, this.category].join("|");
+    this.used.add(key);
+    let mat = this.materials.get(key);
+    if (mat) return mat;
+    const c = new THREE.Color();
+    try {
+      c.set(color);
+    } catch {
+      c.set(FALLBACK.color);
+    }
+    mat = new THREE.MeshStandardMaterial({
+      color: c,
+      roughness: 0.42,
+      metalness: 0.05,
+      emissive: c.clone().multiplyScalar(0.28),
+    });
+    mat.userData.glass = false;
+    mat.userData.libKey = key;
+    rememberSolid(mat, this.category);
+    this.materials.set(key, mat);
+    return mat;
+  }
+
+  /** Every material the library holds right now. The shell modes walk it. */
+  *all(): IterableIterator<THREE.Material> {
+    yield* this.materials.values();
+    yield* this.adopted.values();
+  }
+
   private fromSpec(m: Material, textured: boolean): THREE.MeshStandardMaterial {
     const opacity = Number.isFinite(m.opacity) ? Math.min(Math.max(m.opacity, 0.05), 1) : 1;
     // Only geometry with UVs in meters takes a texture, so `textured` also
     // decides whether the pack maps apply.
     const pack = textured ? this.packFor(m) : null;
     const packId = textured && this.packOn ? m.id : "";
-    const key = [m.color, m.roughness, m.metalness, opacity, textured ? m.pattern : "none", packId, this.packGen].join("|");
+    const key = [m.color, m.roughness, m.metalness, opacity, textured ? m.pattern : "none", packId, this.packGen, this.category].join("|");
     this.used.add(key);
     let mat = this.materials.get(key);
     if (mat) return mat;
@@ -413,6 +490,7 @@ export class MaterialLibrary {
     if (tex) mat.map = tex;
     mat.userData.glass = glass;
     mat.userData.libKey = key;
+    rememberSolid(mat, this.category);
     if (packId) {
       mat.userData.packId = packId;
       mat.userData.packColor = m.color;
@@ -451,7 +529,7 @@ export class MaterialLibrary {
 
   /** Counts for the leak check in the dev harness. */
   stats(): { materials: number; textures: number } {
-    return { materials: this.materials.size, textures: this.textures.size };
+    return { materials: this.materials.size + this.adopted.size, textures: this.textures.size };
   }
 
   dispose(): void {
@@ -459,6 +537,8 @@ export class MaterialLibrary {
     this.unsubscribe = null;
     this.onPackTexture = null;
     for (const m of this.materials.values()) m.dispose();
+    for (const m of this.adopted.values()) m.dispose();
+    this.adopted.clear();
     // Only the procedural CanvasTextures belong to this library. Pack textures
     // are shared app data owned by scene/pack.ts and outlive every engine.
     for (const t of this.textures.values()) t.dispose();

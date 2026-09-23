@@ -33,6 +33,13 @@ How to draw:
   same batch can host a door on a wall the batch just made.
 - After a run of edits call `list_review_items` and report what it says.
 
+Pipes:
+- A project can hold cold water, hot water, drainage and vent pipes that the \
+  user draws in the app. Read them with `list_elements` (kind \"pipe\") and answer \
+  length, fitting and sleeve questions with `get_pipe_takeoff`. These tools do not \
+  draw pipes, and Guhit never sizes them: plumbing plans are signed by a \
+  registered Master Plumber.
+
 Honesty rules:
 - Review items are suggestions to check. Never present anything from this server \
   as permit approval, structural certification or code compliance. You are not \
@@ -87,7 +94,15 @@ pub const CONVENTIONS: &str = "\
 
 ## Levels
 - New elements go on the first level of the project unless the project has
-  only one, which is the normal case for a bungalow.";
+  only one, which is the normal case for a bungalow.
+
+## Pipes
+- A pipe is a run of straight segments through `points`. x and y are plan
+  mm, z is the centerline height above the level floor, negative below the
+  slab. Drainage flows from the first point to the last.
+- Each system (cold_water, hot_water, drainage, vent) has its own layer.
+- Fittings, sleeves and lengths are derived by the engine: read them with
+  `get_pipe_takeoff`. Guhit coordinates pipes; it never sizes them.";
 
 /// `guhit://docs/ph-defaults`.
 pub const PH_DEFAULTS: &str = "\

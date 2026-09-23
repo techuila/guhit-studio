@@ -184,6 +184,45 @@ export function longAxis(poly: Pt[]): LongAxis {
   return best;
 }
 
+/**
+ * Plan footprint of a `w` by `d` rectangle centered on `center`, turned `deg`
+ * degrees counter-clockwise. Counter-clockwise corners.
+ */
+export function orientedRect(center: Pt, w: number, d: number, deg: number): Pt[] {
+  const a = (deg * Math.PI) / 180;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return [
+    [-w / 2, -d / 2],
+    [w / 2, -d / 2],
+    [w / 2, d / 2],
+    [-w / 2, d / 2],
+  ].map(([x, y]) => ({ x: center.x + x * c - y * s, y: center.y + x * s + y * c }));
+}
+
+/** Closest point to `p` on the segment a-b. */
+export function closestOnSegment(p: Pt, a: Pt, b: Pt): Pt {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const l2 = dx * dx + dy * dy;
+  if (l2 < EPS) return { x: a.x, y: a.y };
+  const t = Math.min(Math.max(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0), 1);
+  return { x: a.x + dx * t, y: a.y + dy * t };
+}
+
+/** True when the segments p1-p2 and q1-q2 cross or touch. */
+export function segmentsIntersect(p1: Pt, p2: Pt, q1: Pt, q2: Pt): boolean {
+  const cross = (o: Pt, a: Pt, b: Pt) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const d1 = cross(q1, q2, p1);
+  const d2 = cross(q1, q2, p2);
+  const d3 = cross(p1, p2, q1);
+  const d4 = cross(p1, p2, q2);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+  const on = (o: Pt, a: Pt, b: Pt, d: number) =>
+    Math.abs(d) < EPS && Math.min(o.x, a.x) - EPS <= b.x && b.x <= Math.max(o.x, a.x) + EPS && Math.min(o.y, a.y) - EPS <= b.y && b.y <= Math.max(o.y, a.y) + EPS;
+  return on(q1, q2, p1, d1) || on(q1, q2, p2, d2) || on(p1, p2, q1, d3) || on(p1, p2, q2, d4);
+}
+
 export function centroid(poly: Pt[]): Pt {
   const a = signedArea(poly);
   if (Math.abs(a) < EPS) {

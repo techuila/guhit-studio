@@ -29,6 +29,7 @@
 | **AI visualization** | Turn a model capture into a photorealistic image with a style preset, then drag a slider to compare it with the model view. Always labelled, never written back into the model. |
 | **Interoperability** | Export PDF and SVG sheets, DXF 2D and 3D, IFC4, glTF, OBJ, DAE, DWG (through the ODA File Converter) and `.guhit` bundles. Import DXF and DWG as recognized walls or linework, and glTF or OBJ as reference models. See [docs/INTEROP.md](docs/INTEROP.md). |
 | **Local first** | Projects are files on your computer. Versions, autosave, thumbnails. No account. |
+| **Plumbing and walkthrough** | Draw cold water, hot water, drainage and vent runs (P), each on its own layer. See them in 3D, switch the building to X-ray (X) and walk through the house at eye height (Shift+W). Review items flag pipes through columns or door openings, crossing pipes, drains without enough fall, and every sleeve or flashing. A take-off counts lengths by size, elbows, tees and sleeves, and pipes go into PDF, DXF and IFC. Guhit coordinates pipes; sizing stays with a registered Master Plumber. |
 | **Philippine defaults** | Millimeters, 150 mm CHB walls, tropical roof presets, local material presets, Taglish copilot. |
 
 <p align="center">
@@ -42,15 +43,25 @@
 
 ## Install
 
-Download the latest installer from [Releases](https://github.com/techuila/guhit-studio/releases/latest): a `.dmg` for macOS (Apple Silicon and Intel) or a `setup.exe` for Windows. The app checks for updates on its own.
+Download from the website: **[techuila.github.io/guhit-studio](https://techuila.github.io/guhit-studio/#download)**. The buttons start the download of the latest release directly:
 
-The builds are not yet code signed. On macOS, right-click the app and choose Open the first time. On Windows, SmartScreen shows "More info", then "Run anyway".
+| System | File |
+|---|---|
+| Mac with Apple silicon | [Guhit-Studio-mac-apple-silicon.dmg](https://github.com/techuila/guhit-studio/releases/latest/download/Guhit-Studio-mac-apple-silicon.dmg) |
+| Mac with an Intel chip | [Guhit-Studio-mac-intel.dmg](https://github.com/techuila/guhit-studio/releases/latest/download/Guhit-Studio-mac-intel.dmg) |
+| Windows 10 or 11 | [Guhit-Studio-windows-setup.exe](https://github.com/techuila/guhit-studio/releases/latest/download/Guhit-Studio-windows-setup.exe) |
+
+The builds are not code signed yet, so the computer asks once before opening the app:
+
+- **macOS 15 or newer:** open the app, click Done when macOS says it cannot verify it, then go to System Settings, Privacy & Security, and click Open Anyway.
+- **macOS 14 or older:** right-click the app in Applications and choose Open.
+- **Windows:** when SmartScreen says it protected your PC, click More info, then Run anyway.
 
 Requirements: macOS 12 or newer, Windows 10 or newer.
 
 ## First five minutes
 
-1. Open the app, create a project from the **Sample bungalow** template.
+1. Open the app, create a project from the **Sample bungalow** template, or from **Bungalow with plumbing** to see pipes, X-ray and walk mode.
 2. Press **W** and click to draw walls; type `4000` then Enter for an exact length. Close the shape and the room appears with its area.
 3. Press **D** or **N** to hang a door or window on a wall. **F** flips the swing while placing.
 4. Press **2** for plan and 3D side by side, **3** for 3D only. Drag to orbit.

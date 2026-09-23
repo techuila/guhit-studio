@@ -1,14 +1,16 @@
 // Tool overlays: ghosts, grips, snap glyphs, guides, marquee and readouts.
 // Drawn after the model, in CSS pixel space.
 
-import type { Element, Wall } from "../contract/bindings";
+import type { Element, Vec3, Wall } from "../contract/bindings";
 import { useApp } from "../state/store";
 import { K, type PlanController } from "./controller";
-import { stretchedWalls, translateElement, walledJointMove } from "./edit";
+import { sameGrip, stretchedWalls, translateElement, walledJointMove } from "./edit";
 import type { P } from "./geom";
 import { add, dist, lerp, mul, sub, unit } from "./geom";
+import type { PipeEl, PipeShape } from "./pipe";
+import { drainFallPct, formatHeight, formatPct, isRiser, pipeNodes, pipePlan, pipeWidthPx, planDist, planOf, segmentFallPct } from "./pipe";
 import type { ElementStyle, RenderContext } from "./render";
-import { drawCamera, drawDimension, drawElement, drawOpening, drawWalls } from "./render";
+import { drawCamera, drawDimension, drawElement, drawOpening, drawPipe, drawWalls, pipeColor } from "./render";
 import type { SnapResult, SnapType } from "./snap";
 import { polar } from "./snap";
 import { formatAngle, formatArea, formatLength } from "./typed";
@@ -25,9 +27,13 @@ const SNAP_LABEL: Record<SnapType, string> = {
   extension: "Aligned",
   angle: "",
   grid: "",
+  pipe_end: "Pipe end",
+  pipe_joint: "Pipe joint",
+  tee: "Tee",
+  fixture: "Fixture",
 };
 
-function pill(rc: RenderContext, at: P, text: string, opts: { bg?: string; fg?: string; align?: "left" | "center" } = {}): void {
+function pill(rc: RenderContext, at: P, text: string, opts: { bg?: string; fg?: string; align?: "left" | "center"; scale?: number } = {}): void {
   const { ctx, palette } = rc;
   ctx.save();
   ctx.font = `11px ${palette.fontMono}`;
@@ -37,6 +43,12 @@ function pill(rc: RenderContext, at: P, text: string, opts: { bg?: string; fg?: 
   let y = at.y - h / 2;
   x = Math.max(4, Math.min(rc.width - w - 4, x));
   y = Math.max(4, Math.min(rc.height - h - 4, y));
+  if (opts.scale !== undefined && opts.scale !== 1) {
+    // Grows from its left edge, where it is anchored to the cursor.
+    ctx.translate(x, y + h / 2);
+    ctx.scale(opts.scale, opts.scale);
+    ctx.translate(-x, -(y + h / 2));
+  }
   ctx.fillStyle = opts.bg ?? palette.ink;
   ctx.globalAlpha = 0.92;
   ctx.beginPath();
@@ -48,6 +60,27 @@ function pill(rc: RenderContext, at: P, text: string, opts: { bg?: string; fg?: 
   ctx.textAlign = "left";
   ctx.fillText(text, x + 6, y + h / 2 + 0.5);
   ctx.restore();
+}
+
+interface PillPart {
+  text: string;
+  bg?: string;
+  scale?: number;
+}
+
+/** Pills side by side, kept inside the canvas as one row. */
+function pillRow(rc: RenderContext, at: P, parts: readonly PillPart[]): void {
+  const { ctx, palette } = rc;
+  ctx.save();
+  ctx.font = `11px ${palette.fontMono}`;
+  const widths = parts.map((p) => ctx.measureText(p.text).width + 12);
+  ctx.restore();
+  const total = widths.reduce((a, b) => a + b, 0) + 4 * Math.max(0, parts.length - 1);
+  let x = Math.max(4, Math.min(rc.width - total - 4, at.x));
+  parts.forEach((p, i) => {
+    pill(rc, { x, y: at.y }, p.text, { bg: p.bg, scale: p.scale });
+    x += widths[i] + 4;
+  });
 }
 
 /**
@@ -132,6 +165,23 @@ function drawSnap(rc: RenderContext, r: SnapResult, alpha: number, pop: number):
       ctx.moveTo(s.x, s.y - k);
       ctx.lineTo(s.x, s.y + k);
       break;
+    case "pipe_end":
+    case "pipe_joint":
+      ctx.rect(s.x - k, s.y - k, k * 2, k * 2);
+      break;
+    case "tee":
+      // A ring with the joint in the middle.
+      ctx.arc(s.x, s.y, k, 0, Math.PI * 2);
+      ctx.moveTo(s.x + 2.5, s.y);
+      ctx.arc(s.x, s.y, 2.5, 0, Math.PI * 2);
+      break;
+    case "fixture":
+      ctx.arc(s.x, s.y, k, 0, Math.PI * 2);
+      ctx.moveTo(s.x - k + 2, s.y);
+      ctx.lineTo(s.x + k - 2, s.y);
+      ctx.moveTo(s.x, s.y - k + 2);
+      ctx.lineTo(s.x, s.y + k - 2);
+      break;
     case "angle":
       ctx.arc(s.x, s.y, 3, 0, Math.PI * 2);
       break;
@@ -146,15 +196,21 @@ function drawSnap(rc: RenderContext, r: SnapResult, alpha: number, pop: number):
     default:
       break;
   }
-  if (r.type === "endpoint" || r.type === "midpoint" || r.type === "nearest" || r.type === "face") {
+  if (r.type === "endpoint" || r.type === "midpoint" || r.type === "nearest" || r.type === "face" || r.type === "pipe_end" || r.type === "pipe_joint") {
     ctx.globalAlpha = 0.85 * alpha;
     ctx.fill();
     ctx.globalAlpha = alpha;
   }
   ctx.stroke();
-  const label = SNAP_LABEL[r.type];
+  const label = r.label ?? SNAP_LABEL[r.type];
   if (label) {
     ctx.font = `10px ${palette.fontUi}`;
+    // A light backing keeps the label readable over walls and pipes.
+    const tw = ctx.measureText(label).width;
+    ctx.globalAlpha = 0.85 * alpha;
+    ctx.fillStyle = palette.paper;
+    ctx.fillRect(s.x + 10, s.y - 20, tw + 4, 14);
+    ctx.globalAlpha = alpha;
     ctx.fillStyle = palette.selection;
     ctx.textBaseline = "middle";
     ctx.fillText(label, s.x + 12, s.y - 13);
@@ -188,16 +244,17 @@ function drawGrips(rc: RenderContext, c: PlanController, op: PlanController["op"
   ctx.strokeStyle = palette.selection;
   for (let i = 0; i < grips.length; i++) {
     const g = grips[i];
-    if (active && active.kind === g.kind) continue;
-    // Scale in from nothing, one after the other.
-    const grow = c.anim.value(`${K.grip}${i}`, 1);
+    if (active && sameGrip(active, g)) continue;
+    // Scale in from nothing, one after the other, and grow a little under the pointer.
+    const grow = c.anim.value(`${K.grip}${Math.min(i, 7)}`, 1);
     if (grow <= 0.002) continue;
+    const scale = grow * (1 + 0.3 * c.anim.value(`${K.gripHover}${i}`, 0));
     const s = toScreen(view, g.pos);
     ctx.save();
     ctx.globalAlpha = Math.min(1, grow);
-    if (grow !== 1) {
+    if (scale !== 1) {
       ctx.translate(s.x, s.y);
-      ctx.scale(grow, grow);
+      ctx.scale(scale, scale);
       ctx.translate(-s.x, -s.y);
     }
     ctx.fillStyle = palette.surface;
@@ -232,6 +289,10 @@ function drawGrips(rc: RenderContext, c: PlanController, op: PlanController["op"
       ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
       ctx.fillStyle = palette.selection;
       ctx.fill();
+    } else if (g.kind === "pipe_node") {
+      ctx.arc(s.x, s.y, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
     } else if (g.kind === "wall_mid" || g.kind === "dim_offset") {
       ctx.moveTo(s.x, s.y - 6);
       ctx.lineTo(s.x + 6, s.y);
@@ -264,6 +325,8 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
   const solidGhost: ElementStyle = { color: palette.selection, alpha: 0.55 };
   const thickness = s.toolOptions.wallThicknessMm ?? index.doc.project.settings.default_wall_thickness_mm;
   const cursorScreen = c.cursorScreen;
+  // The pipe run as drawn so far and the segment the next click adds.
+  const pipeDraft = op.kind === "pipe" ? c.pipePreview(op) : null;
 
   drawGrips(rc, c, op);
 
@@ -317,6 +380,20 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
         noIndexWalls(rc, walls, ghost);
         const me = walls.find((w) => w.id === el.id);
         if (me) tempDimension(rc, me.start, me.end, 26);
+      } else if (el.kind === "pipe") {
+        const next = c.gripResult(op);
+        if (next && next.kind === "pipe") {
+          drawPipe(rc, next, { alpha: 0.55 * fade });
+          drawElement(rc, next, ghost);
+          // Plan lengths of the segments on each side of the moved node.
+          const nodes = pipeNodes(next.points);
+          const i = nodes.findIndex((n) => planDist(n.point, op.current) < 1);
+          if (!returning && i >= 0) {
+            if (i > 0) tempDimension(rc, nodes[i - 1].point, nodes[i].point, 26);
+            if (i + 1 < nodes.length) tempDimension(rc, nodes[i].point, nodes[i + 1].point, 26);
+          }
+          drawPipeHeights(rc, next, fade);
+        }
       } else {
         const next = c.gripResult(op);
         if (next) {
@@ -370,6 +447,60 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
       }
       break;
     }
+    case "pipe": {
+      const spec = c.pipeSpec();
+      const color = pipeColor(palette, spec.system);
+      const shape = (points: Vec3[]): PipeShape => ({ system: spec.system, diameter_mm: spec.diameterMm, points });
+      const { placed, band } = pipeDraft ?? { placed: [], band: [] };
+      drawPipe(rc, shape(placed), { alpha: 0.9 }, "lines");
+      if (band.length > 1) {
+        // A soft glow marks the segment the next click adds.
+        const runs = pipePlan(band).runs;
+        if (runs.length > 0) {
+          ctx.save();
+          ctx.globalAlpha = 0.16;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = pipeWidthPx(spec.diameterMm, view.scale) + 8;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.beginPath();
+          for (const run of runs) {
+            run.forEach((p, i) => {
+              const q = toScreen(view, p);
+              if (i === 0) ctx.moveTo(q.x, q.y);
+              else ctx.lineTo(q.x, q.y);
+            });
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
+        drawPipe(rc, shape(band), { alpha: 0.8 }, "lines");
+      }
+      // Nodes placed so far.
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = palette.surface;
+      ctx.lineWidth = 1.5;
+      for (const n of pipeNodes(placed)) {
+        if (isRiser(n)) continue;
+        const q = toScreen(view, n.point);
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+      const run = [...placed, ...band.slice(1)];
+      drawPipe(rc, shape(run), { alpha: 0.95 }, "risers");
+      if (spec.system === "drainage") drawFallLabels(rc, run, drainFallPct(spec.diameterMm), 1);
+      // Heights where the run climbs or drops.
+      drawPipeHeights(rc, shape(run), 1, true);
+      const start = band[0];
+      const end = band[band.length - 1];
+      // Length on the left of the direction of travel, like the wall tool; fall tags go on the right.
+      if (band.length > 1 && planDist(start, end) > 1) tempDimension(rc, planOf(start), planOf(end), 30);
+      break;
+    }
     case "rect": {
       const corner = c.rectCommitCorner ?? c.rectCorner(op);
       if (corner && dist(corner, op.origin) > 1) {
@@ -420,6 +551,45 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
   }
 
   if (lift > 0.002) ctx.restore();
+
+  // Point heights of the one selected pipe (a node being dragged shows them on its ghost).
+  if (s.selection.length === 1 && !(op.kind === "grip" && op.element.id === s.selection[0]) && op.kind !== "move") {
+    const el = index.byId.get(s.selection[0]);
+    if (el && el.kind === "pipe" && index.visibleIds.has(el.id)) {
+      const a = c.anim.value(`${K.sel}${el.id}`, 1);
+      drawPipeHeights(rc, el, a);
+      if (el.system === "drainage") drawFallLabels(rc, el.points, drainFallPct(el.diameter_mm), a);
+    }
+  }
+
+  // The ring where the pipe tool just placed a point.
+  const pv = c.anim.value(K.pipePulse, 0);
+  if (c.pipePulse && pv > 0.002) {
+    const q = toScreen(view, c.pipePulse.at);
+    ctx.save();
+    ctx.globalAlpha = pv * 0.9;
+    ctx.strokeStyle = pipeColor(palette, c.pipePulse.system);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, 4 + 12 * (1 - pv), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Next to the cursor: the length and angle of the segment being drawn, then
+  // the height of the next point in the system color. Hidden while a value is typed.
+  const typedOpen = !!c.heightEntry || (op.kind === "pipe" && !!op.typed);
+  if (s.tool === "pipe" && cursorScreen && c.pointerInside && !typedOpen && !("committing" in op && op.committing) && !c.pipeLayer().locked) {
+    const parts: PillPart[] = [];
+    const band = pipeDraft?.band ?? [];
+    if (band.length > 1 && planDist(band[0], band[band.length - 1]) > 1) {
+      const pr = polar(planOf(band[0]), planOf(band[band.length - 1]));
+      parts.push({ text: `${formatLength(pr.length, unitName, true)}  ${formatAngle(pr.angle)}` });
+    }
+    const bump = 1 + 0.12 * c.anim.value(K.pipeHeight, 0);
+    parts.push({ text: `h ${formatHeight(c.pipeNextZ(), unitName, true)}`, bg: pipeColor(palette, c.pipeSpec().system), scale: bump });
+    pillRow(rc, { x: cursorScreen.x + 18, y: cursorScreen.y + 24 }, parts);
+  }
 
   // Hover ghosts of the placement tools. They keep their last geometry while
   // they fade out, so losing a target is not a pop.
@@ -504,4 +674,91 @@ function drawClearDims(rc: RenderContext, host: Wall, width: number, offset: num
   if (clearStart > 1) tempDimension(rc, cornerA, jambA, off);
   tempDimension(rc, jambA, jambB, off);
   if (clearEnd > 1) tempDimension(rc, jambB, cornerB, off);
+}
+
+/** A small label box. Returns its rectangle so callers can keep labels apart. */
+function tag(rc: RenderContext, x: number, y: number, text: string, color: string, alpha: number, filled: boolean): { x: number; y: number; w: number; h: number } {
+  const { ctx, palette } = rc;
+  ctx.save();
+  ctx.font = `10px ${palette.fontMono}`;
+  const w = ctx.measureText(text).width + 8;
+  const h = 15;
+  ctx.globalAlpha = alpha * (filled ? 0.92 : 0.9);
+  ctx.fillStyle = filled ? color : palette.paper;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 3);
+  ctx.fill();
+  if (!filled) {
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = filled ? "#ffffff" : palette.ink;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  ctx.fillText(text, x + 4, y + h / 2 + 0.5);
+  ctx.restore();
+  return { x, y, w, h };
+}
+
+type Box = { x: number; y: number; w: number; h: number };
+const overlaps = (a: Box, b: Box): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+/**
+ * The height of every node of a pipe, above the floor of its level, as the
+ * inspector would give it: "+300", or "+300 to +1200" for a riser in run
+ * order. Labels that would overlap an earlier one are left out.
+ */
+function drawPipeHeights(rc: RenderContext, pipe: Pick<PipeEl, "system" | "points">, alpha: number, onlyRisers = false): void {
+  if (alpha <= 0.002) return;
+  const color = pipeColor(rc.palette, pipe.system);
+  const placed: Box[] = [];
+  for (const n of pipeNodes(pipe.points)) {
+    if (onlyRisers && !isRiser(n)) continue;
+    const text = isRiser(n) ? `${formatHeight(n.zIn, rc.unit)} to ${formatHeight(n.zOut, rc.unit)}` : formatHeight(n.zIn, rc.unit);
+    const q = toScreen(rc.view, n.point);
+    rc.ctx.save();
+    rc.ctx.font = `10px ${rc.palette.fontMono}`;
+    const w = rc.ctx.measureText(text).width + 8;
+    rc.ctx.restore();
+    // Up and to the left of the node: snap labels take the right, cursor pills the lower right.
+    const box: Box = { x: q.x - 9 - w, y: q.y - 22, w, h: 15 };
+    if (placed.some((b) => overlaps(b, box))) continue;
+    placed.push(tag(rc, box.x, box.y, text, color, alpha, false));
+  }
+}
+
+/**
+ * The fall of each horizontal segment of a drainage run, as a percent of its
+ * plan length, at the segment middle. Below the default fall it turns to the
+ * warning color, flat or uphill to the danger color. Suggestions only, the
+ * review tab has the same check (drain_slope_low).
+ */
+function drawFallLabels(rc: RenderContext, points: readonly Vec3[], minPct: number, alpha: number): void {
+  if (alpha <= 0.002) return;
+  const { palette, view } = rc;
+  for (let i = 0; i + 1 < points.length; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const pct = segmentFallPct(a, b);
+    if (pct === null) continue;
+    const sa = toScreen(view, a);
+    const sb = toScreen(view, b);
+    const L = Math.hypot(sb.x - sa.x, sb.y - sa.y);
+    if (L < 48) continue;
+    const text = pct <= 0.005 ? (pct < -0.005 ? `rises ${formatPct(pct)}` : "flat") : `${formatPct(pct)} fall`;
+    const color = pct >= minPct - 0.01 ? palette.pipeDrain : pct > 0.005 ? palette.warn : palette.danger;
+    // Beside the middle of the segment, on the right of the direction of flow.
+    const nx = -(sb.y - sa.y) / L;
+    const ny = (sb.x - sa.x) / L;
+    rc.ctx.save();
+    rc.ctx.font = `10px ${palette.fontMono}`;
+    const w = rc.ctx.measureText(text).width + 8;
+    rc.ctx.restore();
+    const mx = (sa.x + sb.x) / 2 + nx * 14;
+    const my = (sa.y + sb.y) / 2 + ny * 14;
+    tag(rc, mx - w / 2, my - 7.5, text, color, alpha, true);
+  }
 }

@@ -14,6 +14,8 @@ import type {
   Element,
   IpcError,
   OpeningStyle,
+  PipeMaterial,
+  PipeSystem,
   Point,
 } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
@@ -33,13 +35,21 @@ export type Tool =
   | "asset"
   | "dimension"
   | "text"
-  | "camera";
+  | "camera"
+  | "pipe";
 
 export interface ToolOptions {
   wallThicknessMm: number | null;
   openingStyle: OpeningStyle | null;
   /** CatalogItem.key placed by the asset tool. */
   assetKey: string | null;
+  /** Pipe tool: the system drawn. Material, size and start height default
+   * per system (docs/CONTRACT.md, "Pipes") while the fields below are null. */
+  pipeSystem: PipeSystem;
+  pipeMaterial: PipeMaterial | null;
+  pipeDiameterMm: number | null;
+  /** Height above the level floor of the next pipe point. */
+  pipeElevationMm: number | null;
 }
 
 export interface Toast {
@@ -120,7 +130,15 @@ export const useApp = create<AppState>((set, get) => ({
   selection: [],
   hoverId: null,
   tool: "select",
-  toolOptions: { wallThicknessMm: null, openingStyle: null, assetKey: null },
+  toolOptions: {
+    wallThicknessMm: null,
+    openingStyle: null,
+    assetKey: null,
+    pipeSystem: "cold_water",
+    pipeMaterial: null,
+    pipeDiameterMm: null,
+    pipeElevationMm: null,
+  },
   viewMode: "2d",
   activeLevelId: null,
   activeCameraId: null,

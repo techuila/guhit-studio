@@ -7,12 +7,17 @@
 // ever reaches the handler below. Precedence is: a text input first (the
 // isTyping check), then an in-progress canvas operation (already gone by
 // the time we get here), then this global handler.
+//
+// While the 3D view walks or flies (useViewer nav is not "orbit") it owns
+// every key without MOD: WASD, arrows, F and Escape. This handler then only
+// answers MOD shortcuts.
 import { useEffect, useRef } from "react";
 import { ipc } from "../contract/ipc";
 import { getActiveController } from "../editor2d/controller";
 import { bus } from "../state/bus";
 import { useApp, type Tool } from "../state/store";
 import { Dialog, isModalOpen } from "../ui/Dialog";
+import { useViewer } from "../viewer3d/viewerStore";
 import type { PresenceStage } from "../ui/motion";
 import {
   MOD,
@@ -20,6 +25,7 @@ import {
   activateTool,
   deleteSelection,
   duplicateSelection,
+  enterNav,
   escapeToSelect,
   openAssetTool,
   quickSaveVersion,
@@ -43,6 +49,7 @@ const TOOL_KEYS: Record<string, Tool> = {
   t: "text",
   k: "camera",
   h: "pan",
+  p: "pipe",
 };
 
 const ARROW_DELTA: Record<string, [number, number]> = {
@@ -171,6 +178,10 @@ export function useGlobalShortcuts() {
         return;
       }
 
+      // Walking or flying: the 3D view owns every key without MOD, while it
+      // is on screen. EditorShell ends the walk when the view goes plan-only.
+      if (useViewer.getState().nav !== "orbit" && app.viewMode !== "2d") return;
+
       // Arrow keys nudge the selection. Repeats are allowed here (they
       // accumulate into the held burst); everything below this point cares
       // whether the key auto-repeated.
@@ -226,6 +237,9 @@ export function useGlobalShortcuts() {
         } else if (key === "r") {
           e.preventDefault();
           rotateSelectionCCW();
+        } else if (key === "w") {
+          e.preventDefault();
+          void enterNav("walk");
         }
         return;
       }
@@ -238,6 +252,7 @@ export function useGlobalShortcuts() {
       else if (key === "f") bus.emit("zoom_to_fit");
       else if (key === "z") zoomToSelection();
       else if (key === "g") app.toggle("gridVisible");
+      else if (key === "x") useViewer.getState().cycleShell();
       else if (key === "o") openAssetTool();
       else if (TOOL_KEYS[key]) activateTool(TOOL_KEYS[key]);
       else return;
@@ -276,10 +291,19 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
       ["C", "Column"],
       ["S", "Stair"],
       ["O", "Objects"],
+      ["P", "Pipe"],
       ["M", "Dimension"],
       ["T", "Text"],
       ["K", "Camera"],
       ["H", "Pan"],
+    ],
+  },
+  {
+    title: "Pipe tool, pointer on the plan",
+    rows: [
+      ["PgUp / PgDn", "Pipe height in 100 mm steps, Shift for 10"],
+      ["H", "Type the pipe height"],
+      ["Enter", "Finish the run"],
     ],
   },
   {
@@ -300,6 +324,18 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
       [`${MOD}=`, "Zoom in"],
       [`${MOD}-`, "Zoom out"],
       ["Z", "Zoom to selection"],
+    ],
+  },
+  {
+    title: "Walk and X-ray (3D view)",
+    rows: [
+      [`${SHIFT}W`, "Walk through the building"],
+      ["W A S D", "Move while walking, or the arrows"],
+      [MOD === "⌘" ? "⇧" : "Shift", "Run"],
+      ["F", "Switch walk and fly"],
+      ["E / Q", "Up and down while flying"],
+      ["X", "Building solid, X-ray, hidden"],
+      ["Esc", "Back to orbit"],
     ],
   },
   {

@@ -17,7 +17,12 @@ const NARROW_DOOR_MM: f64 = 700.0;
 /// Openings closer than this to a corner or junction get a note.
 const CORNER_CLEARANCE_MM: f64 = 100.0;
 
-fn issue(code: &str, severity: Severity, message: String, element_ids: Vec<Id>) -> Issue {
+pub(crate) fn issue(
+    code: &str,
+    severity: Severity,
+    message: String,
+    element_ids: Vec<Id>,
+) -> Issue {
     // The order of `element_ids` is part of the finding (for example which
     // wall has the loose end), so it is part of the id.
     Issue {
@@ -26,6 +31,7 @@ fn issue(code: &str, severity: Severity, message: String, element_ids: Vec<Id>) 
         code: code.to_string(),
         message,
         element_ids,
+        location: None,
     }
 }
 

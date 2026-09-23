@@ -57,6 +57,9 @@ export function layerOf(el: Element): LayerKey {
       return "underlays";
     case "reference_model":
       return "underlays";
+    case "pipe":
+      // Pipe layers are named after their system.
+      return el.system;
   }
 }
 
@@ -288,6 +291,8 @@ export function elementShape(el: Element, index: DocIndex, opt: ShapeOptions): S
       const r = opt.labelHeightMm * 1.2;
       return { points: orientedRect(el.position, r * 2, r * 2, 0), closed: true };
     }
+    case "pipe":
+      return { points: el.points.map((v) => ({ x: v.x, y: v.y })), closed: false };
   }
 }
 
@@ -325,6 +330,8 @@ export function keyPoints(el: Element, index: DocIndex): P[] {
       return el.polylines.flat();
     case "reference_model":
       return [el.position];
+    case "pipe":
+      return el.points.map((v) => ({ x: v.x, y: v.y }));
     case "opening":
       return [];
   }

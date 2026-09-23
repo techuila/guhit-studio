@@ -280,3 +280,34 @@ async fn an_unknown_tool_is_a_tool_error_not_a_crash() {
     let message = fail(&app, "demolish_everything", json!({})).await;
     assert!(message.contains("unknown tool"), "unexpected: {message}");
 }
+
+#[tokio::test]
+async fn the_pipe_takeoff_of_the_plumbing_demo() {
+    let (app, _dir) = app();
+    ok(&app, "create_project", json!({"name": "Pipes", "template": "plumbing-demo"})).await;
+
+    let takeoff = ok(&app, "get_pipe_takeoff", json!({})).await;
+    assert_eq!(takeoff["total_length_m"], 44.94);
+    assert_eq!(takeoff["elbow_count"], 23);
+    assert_eq!(takeoff["tee_count"], 9);
+    assert_eq!(takeoff["sleeve_count"], 7);
+    assert_eq!(takeoff["rows"].as_array().unwrap().len(), 6);
+    assert!(fail(&app, "get_pipe_takeoff", json!({"size": 20})).await.contains("size"));
+
+    let pipes = ok(&app, "list_elements", json!({"kind": "pipe"})).await;
+    assert_eq!(pipes["count"], 16);
+    let items = ok(&app, "list_review_items", json!({})).await;
+    let codes: Vec<&str> = items["items"].as_array().unwrap().iter().filter_map(|i| i["code"].as_str()).collect();
+    assert!(codes.contains(&"pipe_across_opening") && codes.contains(&"pipe_penetrations"), "{codes:?}");
+
+    // Moving a pipe is an ordinary edit, one undo step, and the take-off follows.
+    let moved = ok(
+        &app,
+        "move_elements",
+        json!({"ids": ["00000000-0000-4000-8000-000000016015"], "dx_mm": 500, "dy_mm": 0, "stretch_connected": false}),
+    )
+    .await;
+    assert_eq!(moved["changed"][0]["kind"], "pipe");
+    assert_eq!(ok(&app, "get_pipe_takeoff", json!({})).await["total_length_m"], 44.94);
+    ok(&app, "undo", json!({})).await;
+}
