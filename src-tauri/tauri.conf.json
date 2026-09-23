@@ -43,7 +43,10 @@
     "shortDescription": "Floor plans, live 3D and an AI copilot for Philippine architects.",
     "longDescription": "Guhit Studio is a desktop design workspace for Philippine architects. Draw a semantic 2D floor plan, see it in 3D as you draw, ask the AI copilot for revisions you approve, and export client-ready plans and visuals. Projects are stored locally.",
     "copyright": "Copyright (c) 2026. All rights reserved.",
-    "publisher": "Guhit Studio"
+    "publisher": "Guhit Studio",
+    "macOS": {
+      "signingIdentity": "-"
+    }
   },
   "plugins": {
     "updater": {

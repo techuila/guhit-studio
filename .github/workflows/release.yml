@@ -1,6 +1,6 @@
 name: release
 
-# Cutting a release is one push of a tag. Steps and the required secret:
+# Cutting a release is one push of a tag. Steps and the optional secret:
 # docs/RELEASING.md.
 #
 # build.yml stays on branch pushes and pull requests only, so a tag push
@@ -24,19 +24,27 @@ jobs:
       matrix:
         include:
           # Apple Silicon and Intel are separate bundles. The updater picks the
-          # right one by target and arch from latest.json.
+          # right one by target and arch from latest.json. `download` is the
+          # fixed file name the website links to, under
+          # releases/latest/download/, so the links never change.
           - os: macos-latest
             label: macos-arm64
             target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
+            bundle: dmg
+            download: Guhit-Studio-mac-apple-silicon.dmg
           - os: macos-latest
             label: macos-x64
             target: x86_64-apple-darwin
             args: "--target x86_64-apple-darwin"
+            bundle: dmg
+            download: Guhit-Studio-mac-intel.dmg
           - os: windows-latest
             label: windows-x64
             target: ""
             args: ""
+            bundle: nsis
+            download: Guhit-Studio-windows-setup.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -61,10 +69,27 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      # Builds, signs the update artifacts with the minisign private key, then
-      # creates the release and uploads the bundles, the .sig files and
-      # latest.json. The app itself is not code signed: no Developer ID or
-      # Windows certificate is configured yet (docs/RELEASING.md).
+      # Update files are signed with the minisign key. Without the secret the
+      # release still ships every installer, it only leaves out latest.json
+      # and the .sig files, so installed copies are not offered this version
+      # as an automatic update.
+      - name: Check for the updater key
+        id: updater
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "on=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "on=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=No updater key::TAURI_SIGNING_PRIVATE_KEY is not set, so this release has installers but no update files. See docs/RELEASING.md."
+          fi
+
+      # Builds, signs the update artifacts when the key is there, then creates
+      # the release and uploads the bundles. macOS bundles are ad-hoc signed
+      # (bundle.macOS.signingIdentity "-"); there is no Developer ID or Windows
+      # certificate yet (docs/RELEASING.md).
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
         env:
@@ -80,8 +105,25 @@ jobs:
           prerelease: false
           # Writes latest.json next to the bundles. This is the file the
           # updater endpoint in tauri.conf.json points at.
-          uploadUpdaterJson: true
+          uploadUpdaterJson: ${{ steps.updater.outputs.on == 'true' }}
           # Windows: update through the NSIS setup.exe rather than the MSI.
           # An MSI update cannot replace a running installation cleanly.
           updaterJsonPreferNsis: true
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ steps.updater.outputs.on != 'true' && '--config ''{"bundle":{"createUpdaterArtifacts":false}}''' || '' }}
+
+      # The website's download buttons link straight to
+      # releases/latest/download/<name>, which starts the download without
+      # showing GitHub. Upload each installer again under its fixed name.
+      - name: Upload the installer under its fixed download name
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          file=$(find target -path "*/bundle/${{ matrix.bundle }}/*" \( -name "*.dmg" -o -name "*-setup.exe" \) -type f | head -n 1)
+          if [ -z "$file" ]; then
+            echo "::error::No ${{ matrix.bundle }} installer found under target/"
+            exit 1
+          fi
+          echo "Found $file"
+          cp "$file" "${{ matrix.download }}"
+          gh release upload "${{ github.ref_name }}" "${{ matrix.download }}" --clobber --repo "${{ github.repository }}"

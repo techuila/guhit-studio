@@ -34,8 +34,11 @@ something different from the installers in it.
 
 ## The secret to add
 
-The workflow signs each update artifact with a minisign private key. Without it
-the build fails, because `bundle.createUpdaterArtifacts` is on.
+The workflow signs each update artifact with a minisign private key. Without
+the secret the release still builds and ships every installer, it just leaves
+out the update files (`latest.json` and the `.sig` files) and the run shows a
+warning. Installed copies then keep working but are not offered that version
+as an update, so add the secret before the release you want them to receive.
 
 - Secret name: **`TAURI_SIGNING_PRIVATE_KEY`** (repository secret, Settings ->
   Secrets and variables -> Actions -> New repository secret).
@@ -65,7 +68,22 @@ signing certificate. Never commit it, never paste it into a chat or an issue.
 | macos-latest | `x86_64-apple-darwin` | `.dmg`, `.app.tar.gz` + `.app.tar.gz.sig` |
 | windows-latest | x64 | `.msi`, NSIS `-setup.exe` + `.sig` |
 
-It also uploads `latest.json`, which lists the version, the release notes, and
+Each job also uploads its installer a second time under a fixed name. The
+website's download buttons link to these through the permanent
+`releases/latest/download/` URL, so a download starts at once, without the
+GitHub page, and the links never change between versions:
+
+| File | For |
+|---|---|
+| `Guhit-Studio-mac-apple-silicon.dmg` | Macs with Apple silicon (the main macOS button) |
+| `Guhit-Studio-mac-intel.dmg` | Macs with an Intel chip (the link under the buttons) |
+| `Guhit-Studio-windows-setup.exe` | Windows 10 and 11 |
+
+```
+https://github.com/techuila/guhit-studio/releases/latest/download/Guhit-Studio-mac-apple-silicon.dmg
+```
+
+With the updater key set, it also uploads `latest.json`, which lists the version, the release notes, and
 one signed download per platform key (`darwin-aarch64`, `darwin-x86_64`,
 `windows-x86_64`). That file is what the app reads, through the permanent URL
 
@@ -103,9 +121,14 @@ test against a real install.
 There is no Apple Developer ID and no Windows code signing certificate. That is
 a separate purchase and a separate set of secrets. Until then:
 
-**macOS.** The first install is the awkward one. Gatekeeper refuses to open a
-downloaded app that has no Developer ID, and the user has to right-click the app
-and choose Open, or allow it once under System Settings -> Privacy & Security.
+**macOS.** The bundle is ad-hoc signed (`bundle.macOS.signingIdentity` is
+`"-"`). Without that, only the binary carried the linker's signature, the
+bundle's resources were unsealed, and a downloaded copy on Apple silicon was
+reported as "damaged" with no way to open it. Ad-hoc signed, the first install
+is merely awkward: Gatekeeper cannot verify the developer, and the user allows
+it once under System Settings -> Privacy & Security -> Open Anyway (macOS 15 and
+newer) or right-clicks the app and chooses Open (macOS 14 and older). The
+website shows these steps as soon as a download starts.
 Updates are easier: the updater replaces the bundle of an app the user already
 opened, so Gatekeeper does not ask again. Apple's quarantine flag is not set on
 the files the updater writes. Note also DECISIONS D13: an unsigned build gets a
@@ -120,9 +143,9 @@ is mostly a first-install problem too.
 
 Neither of these is faked or worked around anywhere in the build. When a
 Developer ID and a Windows certificate exist, they are added as their own
-secrets and the bundle config gains a `macOS.signingIdentity` and a
-`windows.certificateThumbprint`; the updater key is unrelated and does not
-change.
+secrets, `macOS.signingIdentity` changes from `"-"` to the Developer ID, and
+the bundle config gains a `windows.certificateThumbprint`; the updater key is
+unrelated and does not change.
 
 ## Rotating the updater key
 
