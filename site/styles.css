@@ -278,6 +278,8 @@ b { font-weight: 600; }
   padding: 16px 18px 14px;
 }
 .dl-help[data-center] { margin-inline: auto; }
+/* the step lists set their own display, so `hidden` needs to win explicitly */
+.dl-help[hidden], .dl-help [hidden] { display: none; }
 .dl-help__head { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .dl-help__title { margin: 0 0 10px; font-weight: 600; font-size: 0.98rem; outline: none; }
 .dl-help__close {
