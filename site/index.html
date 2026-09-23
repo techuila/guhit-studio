@@ -104,14 +104,35 @@
       anything changes. Files stay on your machine.</p>
 
     <div class="cta" id="heroCta">
-      <a class="btn btn--solid" data-os="mac" href="https://github.com/techuila/guhit-studio/releases/latest">
+      <a class="btn btn--solid" data-os="mac" data-dl="mac" data-file="Guhit-Studio-mac-apple-silicon.dmg" href="https://github.com/techuila/guhit-studio/releases/latest/download/Guhit-Studio-mac-apple-silicon.dmg">
         <svg class="btn__os" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M11 1.2c.1.9-.3 1.8-.8 2.4-.6.6-1.4 1.1-2.2 1-.1-.9.3-1.8.8-2.4.6-.6 1.5-1 2.2-1zm2.6 11c-.4.9-.6 1.3-1.1 2.1-.7 1.1-1.7 2.5-3 2.5-1.1 0-1.4-.7-3-.7-1.5 0-1.8.7-3 .7-1.2 0-2.1-1.2-2.9-2.3C-1 11.8-1.3 8.2.2 6.3c1-1.3 2.5-2 3.9-2 1.4 0 2.3.8 3.5.8 1.1 0 1.8-.8 3.5-.8 1.2 0 2.5.7 3.4 1.8-3 1.6-2.5 5.9.1 6.9z"/></svg>
-        Download for macOS</a>
-      <a class="btn btn--solid" data-os="win" href="https://github.com/techuila/guhit-studio/releases/latest">
+        <span class="btn__label">Download for macOS</span><span class="btn__meta num" data-size></span></a>
+      <a class="btn btn--solid" data-os="win" data-dl="win" data-file="Guhit-Studio-windows-setup.exe" href="https://github.com/techuila/guhit-studio/releases/latest/download/Guhit-Studio-windows-setup.exe">
         <svg class="btn__os" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M0 2.3 6.5 1.4v6.2H0zM7.3 1.3 16 0v7.6H7.3zM0 8.4h6.5v6.2L0 13.7zm7.3 0H16V16l-8.7-1.2z"/></svg>
-        Download for Windows</a>
+        <span class="btn__label">Download for Windows</span><span class="btn__meta num" data-size></span></a>
     </div>
-    <p class="cta__note">Free while in development. <span id="relLine">No public release published yet.</span></p>
+    <p class="cta__note">Free while in development. <span id="relLine">No public release published yet.</span>
+      <span class="cta__alt" data-dl-alt>Mac with an Intel chip? <a data-dl="mac" data-file="Guhit-Studio-mac-intel.dmg" href="https://github.com/techuila/guhit-studio/releases/latest/download/Guhit-Studio-mac-intel.dmg">Get the Intel build</a>.</span></p>
+    <div class="dl-help" data-dl-help hidden>
+      <div class="dl-help__head">
+        <p class="dl-help__title" data-dl-title tabindex="-1">Your download has started</p>
+        <button type="button" class="dl-help__close" data-dl-close aria-label="Close the install steps">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <ol class="dl-help__steps" data-for="mac">
+        <li>Open the downloaded file and drag <b>Guhit Studio</b> into <b>Applications</b>.</li>
+        <li>Open Guhit Studio from Applications.</li>
+        <li>The first time, macOS says it cannot verify the app. Click <b>Done</b>, open <b>System Settings</b>, then <b>Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b>. You only do this once.</li>
+      </ol>
+      <ol class="dl-help__steps" data-for="win" hidden>
+        <li>Open the downloaded setup file.</li>
+        <li>If Windows says it protected your PC, click <b>More info</b>, then <b>Run anyway</b>.</li>
+        <li>Follow the installer. Guhit Studio then opens from the Start menu.</li>
+      </ol>
+      <p class="dl-help__note" data-for="mac">On macOS 14 or older, right-click the app in Applications and choose <b>Open</b> instead.</p>
+      <p class="dl-help__note">The app is not code signed yet, which is why your computer asks once before opening it.</p>
+    </div>
 
     <a class="cue" href="#draw"><span class="cue__label">Scroll</span><span class="cue__rail"><i></i></span></a>
   </div>
@@ -520,13 +541,56 @@
   <div class="wrap get">
     <h2 id="dl-h" class="h2 rise">Draw. See. Build the idea.</h2>
     <div class="cta cta--big rise" id="footCta">
-      <a class="btn btn--solid" data-os="mac" href="https://github.com/techuila/guhit-studio/releases/latest">
+      <a class="btn btn--solid" data-os="mac" data-dl="mac" data-file="Guhit-Studio-mac-apple-silicon.dmg" href="https://github.com/techuila/guhit-studio/releases/latest/download/Guhit-Studio-mac-apple-silicon.dmg">
         <svg class="btn__os" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M11 1.2c.1.9-.3 1.8-.8 2.4-.6.6-1.4 1.1-2.2 1-.1-.9.3-1.8.8-2.4.6-.6 1.5-1 2.2-1zm2.6 11c-.4.9-.6 1.3-1.1 2.1-.7 1.1-1.7 2.5-3 2.5-1.1 0-1.4-.7-3-.7-1.5 0-1.8.7-3 .7-1.2 0-2.1-1.2-2.9-2.3C-1 11.8-1.3 8.2.2 6.3c1-1.3 2.5-2 3.9-2 1.4 0 2.3.8 3.5.8 1.1 0 1.8-.8 3.5-.8 1.2 0 2.5.7 3.4 1.8-3 1.6-2.5 5.9.1 6.9z"/></svg>
-        Download for macOS</a>
-      <a class="btn btn--solid" data-os="win" href="https://github.com/techuila/guhit-studio/releases/latest">
+        <span class="btn__label">Download for macOS</span><span class="btn__meta num" data-size></span></a>
+      <a class="btn btn--solid" data-os="win" data-dl="win" data-file="Guhit-Studio-windows-setup.exe" href="https://github.com/techuila/guhit-studio/releases/latest/download/Guhit-Studio-windows-setup.exe">
         <svg class="btn__os" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M0 2.3 6.5 1.4v6.2H0zM7.3 1.3 16 0v7.6H7.3zM0 8.4h6.5v6.2L0 13.7zm7.3 0H16V16l-8.7-1.2z"/></svg>
-        Download for Windows</a>
-      <a class="btn btn--ghost" href="https://github.com/techuila/guhit-studio">Open source on GitHub</a>
+        <span class="btn__label">Download for Windows</span><span class="btn__meta num" data-size></span></a>
+      <a class="btn btn--ghost" href="https://github.com/techuila/guhit-studio"><span class="btn__label">Open source on GitHub</span></a>
+    </div>
+    <p class="cta__note cta__note--center"><span class="cta__alt" data-dl-alt>Mac with an Intel chip? <a data-dl="mac" data-file="Guhit-Studio-mac-intel.dmg" href="https://github.com/techuila/guhit-studio/releases/latest/download/Guhit-Studio-mac-intel.dmg">Get the Intel build</a>.</span></p>
+    <div class="dl-help" data-dl-help hidden data-center>
+      <div class="dl-help__head">
+        <p class="dl-help__title" data-dl-title tabindex="-1">Your download has started</p>
+        <button type="button" class="dl-help__close" data-dl-close aria-label="Close the install steps">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <ol class="dl-help__steps" data-for="mac">
+        <li>Open the downloaded file and drag <b>Guhit Studio</b> into <b>Applications</b>.</li>
+        <li>Open Guhit Studio from Applications.</li>
+        <li>The first time, macOS says it cannot verify the app. Click <b>Done</b>, open <b>System Settings</b>, then <b>Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b>. You only do this once.</li>
+      </ol>
+      <ol class="dl-help__steps" data-for="win" hidden>
+        <li>Open the downloaded setup file.</li>
+        <li>If Windows says it protected your PC, click <b>More info</b>, then <b>Run anyway</b>.</li>
+        <li>Follow the installer. Guhit Studio then opens from the Start menu.</li>
+      </ol>
+      <p class="dl-help__note" data-for="mac">On macOS 14 or older, right-click the app in Applications and choose <b>Open</b> instead.</p>
+      <p class="dl-help__note">The app is not code signed yet, which is why your computer asks once before opening it.</p>
+    </div>
+    <div class="dl-guide rise" aria-labelledby="guide-h">
+      <h3 id="guide-h" class="dl-guide__h">First time opening it</h3>
+      <div class="dl-guide__cols">
+        <div>
+          <p class="dl-guide__os">On a Mac</p>
+          <ol class="dl-help__steps">
+            <li>Open the downloaded file and drag <b>Guhit Studio</b> into <b>Applications</b>.</li>
+            <li>Open Guhit Studio from Applications.</li>
+            <li>The first time, macOS says it cannot verify the app. Click <b>Done</b>, open <b>System Settings</b>, then <b>Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b>.</li>
+          </ol>
+        </div>
+        <div>
+          <p class="dl-guide__os">On Windows</p>
+          <ol class="dl-help__steps">
+            <li>Open the downloaded setup file.</li>
+            <li>If Windows says it protected your PC, click <b>More info</b>, then <b>Run anyway</b>.</li>
+            <li>Follow the installer. Guhit Studio then opens from the Start menu.</li>
+          </ol>
+        </div>
+      </div>
+      <p class="dl-help__note">Most Macs from late 2020 on have Apple silicon and use the main macOS button. Older Macs with an Intel chip use the Intel build.</p>
     </div>
   </div>
 </section>
@@ -543,7 +607,7 @@
       <div class="bf"><span class="bf__k num">macOS</span><span class="bf__v num">12 Monterey or newer</span></div>
       <div class="bf"><span class="bf__k num">Windows</span><span class="bf__v num">10 or newer</span></div>
       <div class="bf bf--wide"><span class="bf__k num">Source</span><span class="bf__v"><a href="https://github.com/techuila/guhit-studio">github.com/techuila/guhit-studio</a></span></div>
-      <div class="bf bf--wide"><span class="bf__k num">Download</span><span class="bf__v"><a href="https://github.com/techuila/guhit-studio/releases/latest">Open source on GitHub, latest release</a></span></div>
+      <div class="bf bf--wide"><span class="bf__k num">Download</span><span class="bf__v"><a href="#download">macOS and Windows installers</a></span></div>
       <div class="bf bf--wide"><span class="bf__k num">Made in</span><span class="bf__v">the Philippines</span></div>
     </div>
     <p class="block__note">Renders and AI visuals are illustrations, not construction documents.
