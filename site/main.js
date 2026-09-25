@@ -12,12 +12,14 @@ const clamp01 = (n) => (n < 0 ? 0 : n > 1 ? 1 : n);
 /* ---------- 0. the load sequence, which is also the loader --------------- */
 /* The class is already on <html> from the inline head script, so the first
    paint is navy. From there one clock runs the whole thing:
-     0.0 - 2.4s   the drafting grid draws, one line at a time, centre outward
-     2.4 - 2.7s   hold
-     2.7 - 4.7s   the mark draws stroke by stroke, the teal arc last
-     4.7 - 5.1s   hold on the finished G
-     5.1 - 6.0s   the navy field collapses into the hero's own mark
-     5.1 - 6.5s   GUHIT is outlined letter by letter, each fill trailing behind
+     0.0 - 1.4s   the drafting grid draws, every line in a random place at its
+                  own moment, so the field fills everywhere at once
+     1.4 - 1.6s   hold
+     1.6 - 3.6s   the mark draws stroke by stroke, the teal arc last
+     3.6 - 4.0s   hold on the finished G
+     4.0 - 4.9s   the navy field collapses into the hero's own mark
+     4.9 - 6.3s   the mark has landed: GUHIT is outlined letter by letter, each
+                  fill trailing behind, and the rest of the hero rises in
    The collapse also waits for the page itself: fonts, the images above the
    fold, and the load event, each capped at 4s. If the page is slower than the
    animation the G holds, the arc breathes and a progress line fills; if the
@@ -30,11 +32,12 @@ const EASE_OUT = "cubic-bezier(0.22, 1, 0.36, 1)";
 const EASE_IN_OUT = "cubic-bezier(0.65, 0, 0.35, 1)";
 
 const T = {
-  gridEnd: 2400,   // the last grid line lands here
-  lineDur: 500,    // how long one grid line takes to draw
-  markAt: 2700,    // the first stroke of the mark
-  markDur: 2000,   // through to the end of the teal arc, at 4700
-  collapseAt: 5100,
+  gridEnd: 1400,   // every grid line has landed by here
+  lineMin: 380,    // one grid line draws in lineMin to lineMax ms
+  lineMax: 620,
+  markAt: 1600,    // the first stroke of the mark
+  markDur: 2000,   // through to the end of the teal arc, at 3600
+  collapseAt: 4000,
   collapseDur: 900,
   writeStep: 150,  // must match .write tspan in styles.css
   writeDraw: 600,
@@ -181,7 +184,7 @@ function runIntro() {
   const at = (ms, fn) => timers.push(setTimeout(fn, Math.max(0, ms)));
   const t0 = performance.now();
 
-  /* ---- 1. the grid, one line at a time, centre outward --------------- */
+  /* ---- 1. the grid, every line in a random place ------------------- */
 
   const P = 44;
   function buildGrid() {
@@ -205,26 +208,21 @@ function runIntro() {
     for (let y = gy; y <= vh; y += P) ys.push(y);
     for (let y = gy - P; y >= 0; y -= P) ys.push(y);
 
-    /* Ordering rule: every line is ranked by its distance from the centre of
-       the viewport, nearest first, so the centre square closes before anything
-       reaches an edge. The two ranked lists are then interleaved in proportion
-       to their length, which reads as vertical, horizontal, vertical... and
-       makes both axes reach their edges at the same moment. */
-    const cx = vw / 2, cy = vh / 2;
-    const vsort = xs.map((x) => ({ v: true, p: x })).sort((a, b) => Math.abs(a.p - cx) - Math.abs(b.p - cx) || a.p - b.p);
-    const hsort = ys.map((y) => ({ v: false, p: y })).sort((a, b) => Math.abs(a.p - cy) - Math.abs(b.p - cy) || b.p - a.p);
-
-    const order = [];
-    let i = 0, j = 0;
-    while (i < vsort.length || j < hsort.length) {
-      const fv = i / (vsort.length || 1);
-      const fh = j / (hsort.length || 1);
-      if (j >= hsort.length || (i < vsort.length && fv <= fh)) order.push(vsort[i++]);
-      else order.push(hsort[j++]);
+    /* Ordering rule: none. The lines are shuffled, so each one starts in a
+       random place, and many draw at once. The starts are spread evenly over
+       the window, one per slot and jittered inside it, so the field fills at a
+       steady pace with no bursts and no gaps, and every line has landed by
+       T.gridEnd. Only the order and the pace of each line are random. */
+    const order = xs.map((x) => ({ v: true, p: x })).concat(ys.map((y) => ({ v: false, p: y })));
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = order[i];
+      order[i] = order[j];
+      order[j] = tmp;
     }
 
     const n = order.length;
-    const stagger = n > 1 ? (T.gridEnd - T.lineDur) / (n - 1) : 0;
+    const slot = n > 0 ? (T.gridEnd - T.lineMax) / n : 0;
     const ns = "http://www.w3.org/2000/svg";
     const frag = document.createDocumentFragment();
     order.forEach((ln, k) => {
@@ -243,15 +241,17 @@ function runIntro() {
       el.setAttribute("stroke-dasharray", String(len));
       el.setAttribute("stroke-dashoffset", String(len));
       frag.appendChild(el);
+      const delay = (k + Math.random()) * slot;
+      const duration = T.lineMin + Math.random() * (T.lineMax - T.lineMin);
       live.push(
         el.animate(
           [{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
-          { duration: T.lineDur, delay: k * stagger, easing: EASE_OUT, fill: "both" }
+          { duration, delay, easing: EASE_OUT, fill: "both" }
         )
       );
     });
     grid.appendChild(frag);
-    return { lines: n, verticals: vsort.length, horizontals: hsort.length, stagger };
+    return { lines: n, verticals: xs.length, horizontals: ys.length, slot };
   }
   const gridInfo = buildGrid();
 
@@ -341,11 +341,18 @@ function runIntro() {
     const flip = mono.animate([{ transform: big }, { transform: "none" }], opts);
     live.push(flip);
     introEl.classList.add("is-closing");
-    /* the rest of the hero rises from here, wherever "here" turned out to be */
+
+    flip.finished.then(landed).catch(() => {});
+  }
+
+  /* The mark is in its place. Only now is GUHIT written, so the word never
+     shares the screen with the moving field, and the rest of the hero rises
+     from this moment, wherever it turned out to be. */
+  function landed() {
+    if (closed) return;
     root.style.setProperty("--intro-o", `${Math.round(performance.now() - t0)}ms`);
     writeWordmark();
-
-    flip.finished.then(endIntro).catch(() => {});
+    endIntro();
   }
 
   function endIntro() {
@@ -581,7 +588,7 @@ if (crosshair && fine.matches && !reduced.matches) {
   addEventListener("pointerup", () => crosshair.classList.remove("hot"));
   addEventListener("pointerleave", () => crosshair.classList.remove("on"));
   document.addEventListener("pointerover", (e) => {
-    const hot = e.target instanceof Element && e.target.closest("a, button, .fmt, .key, .cell");
+    const hot = e.target instanceof Element && e.target.closest("a, button, .chip, .key, .cell, .sun__rail");
     crosshair.classList.toggle("hot", Boolean(hot));
   });
 }
@@ -797,3 +804,94 @@ document.querySelectorAll("[data-dl-close]").forEach((btn) => {
     if (panel) hideHelp(panel);
   });
 });
+
+/* ---------- 8. the sun: drag it, step it, or press U and I --------------- */
+/* Five frames of the live 3D view, one per sun preset of the app. Dragging
+   scrubs between them; letting go settles on the nearest preset. Arrow keys
+   and the app's own U and I step one preset. The first time the widget is
+   well in view it plays once from morning to night, unless the visitor has
+   already touched it or asked for reduced motion. */
+
+const sun = document.getElementById("sun");
+const sunRange = document.getElementById("sunRange");
+const sunNow = document.getElementById("sunNow");
+if (sun && sunRange) {
+  const PRESETS = [
+    { at: "8:00 AM", name: "morning" },
+    { at: "12:00 PM", name: "noon" },
+    { at: "3:00 PM", name: "afternoon" },
+    { at: "5:59 PM", name: "dusk, lamps on" },
+    { at: "8:00 PM", name: "night" },
+  ];
+  const last = PRESETS.length - 1;
+  const ticks = Array.from(sun.querySelectorAll(".sun__ticks li"));
+  const timers = [];
+  let touched = false;
+  let inView = false;
+
+  const show = (v, following) => {
+    const i = Math.max(0, Math.min(last, Math.round(v)));
+    sun.classList.toggle("is-dragging", following);
+    sun.style.setProperty("--sun", v.toFixed(3));
+    if (sunNow) sunNow.textContent = PRESETS[i].at;
+    sunRange.setAttribute("aria-valuetext", `${PRESETS[i].at}, ${PRESETS[i].name}`);
+    ticks.forEach((li, k) => li.classList.toggle("is-on", k === i));
+  };
+  const settle = (v) => {
+    const c = Math.max(0, Math.min(last, Math.round(v)));
+    sunRange.value = String(c);
+    show(c, false);
+  };
+  const takeOver = () => {
+    touched = true;
+    for (const id of timers) clearTimeout(id);
+    timers.length = 0;
+  };
+
+  sunRange.addEventListener("pointerdown", takeOver);
+  sunRange.addEventListener("input", () => {
+    takeOver();
+    show(+sunRange.value, true);
+  });
+  sunRange.addEventListener("change", () => settle(+sunRange.value));
+  sunRange.addEventListener("keydown", (e) => {
+    const dir = { ArrowRight: 1, ArrowUp: 1, PageUp: 1, ArrowLeft: -1, ArrowDown: -1, PageDown: -1 }[e.key];
+    if (dir) {
+      e.preventDefault();
+      takeOver();
+      settle(Math.round(+sunRange.value) + dir);
+    } else if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      takeOver();
+      settle(e.key === "Home" ? 0 : last);
+    }
+  });
+  addEventListener("keydown", (e) => {
+    if (!inView || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k !== "u" && k !== "i") return;
+    const t = e.target;
+    if (t instanceof HTMLElement && t !== sunRange && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    takeOver();
+    settle(Math.round(+sunRange.value) + (k === "i" ? 1 : -1));
+  });
+
+  if ("IntersectionObserver" in window) {
+    let played = false;
+    new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          inView = e.isIntersecting;
+          if (!e.isIntersecting || played || touched || reduced.matches) continue;
+          if (e.intersectionRatio < 0.55) continue;
+          played = true;
+          for (let k = 1; k <= last; k++) {
+            timers.push(setTimeout(() => settle(k), 500 + (k - 1) * 1150));
+          }
+        }
+      },
+      { threshold: [0, 0.55] }
+    ).observe(sun);
+  }
+  settle(0);
+}
