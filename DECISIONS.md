@@ -175,3 +175,10 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - Chosen by: Claude, on 2026-09-25, for Axl's request that MCP clients make renders too.
 - The path tracer and the plan canvas run in the webview, so MCP render and capture tools ask the open window to do the work (`AppEvent::WindowRequest`, answered with `window_reply`) and wait for it. Results are ordinary Visuals records. AI visualization runs in the backend with the user's own Gemini key (D17) and stays labelled.
 - A long render returns a job id instead of blocking the MCP client; without an open window the tools say so.
+
+### D32. Live sessions reach over the internet through a relay (the VS Code Live Share model)
+- Chosen by: Axl (a setup like VS Code Live Share), on 2026-09-25, after Claude recommended it over a cloud server and over direct connections only.
+- The host's computer keeps the project and its history (D29 unchanged). Guests connect straight to the host when they can reach it (same network or VPN), and otherwise through a relay server. The relay only forwards the session's bytes: the TLS inside stays end to end and pinned to the certificate in the invite, so the relay cannot read or change a plan. It stores nothing and has no accounts.
+- This is the first backend D1 allowed for: one small stateless service (`crates/guhit-relay`, protocol in `docs/RELAY.md`) that runs anywhere a container runs, placed near the users (Singapore for the Philippines). The app's relay address is a setting, empty until a relay is deployed.
+- Invites list every network address of the host, so a VPN such as Tailscale works without the relay. Large frames are compressed, since the whole project goes to every guest on each change.
+- Rejected: a cloud server that holds the projects (the Figma model: accounts, storage, syncing offline edits, backups, privacy duties for clients' plans, running costs; revisit together with share links and billing), and direct connections only (most homes cannot accept incoming connections, and many Philippine ISPs use carrier-grade NAT).
