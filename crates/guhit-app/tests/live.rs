@@ -842,7 +842,7 @@ async fn a_dropped_connection_comes_back_with_the_same_participant() {
     .await;
 }
 
-type RawConnection = tokio_rustls::client::TlsStream<TcpStream>;
+type RawConnection = tls::GuestTls;
 
 /// A client speaking the frames directly: TLS, hello, and the host's answer.
 async fn raw_join(invite: &Invite, name: &str) -> (RawConnection, Result<wire::Welcome, String>) {

@@ -27,12 +27,11 @@ use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde_json::{json, Value};
 use tokio::io::{AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::{mpsc, watch, OwnedSemaphorePermit, Semaphore};
-use tokio_rustls::server::TlsStream;
 
 use super::invite::{Invite, INVITE_VERSION};
-use super::tls::HostIdentity;
+use super::tls::{BoxIo, HostIdentity, HostTls};
 use super::wire::{self, *};
 use super::{
     append_chat, bad_args, check_chat, clean_name, clean_presence, host_only, lock, not_live, read_chat, settings_of,
@@ -77,6 +76,9 @@ pub(crate) struct Host {
     chat_order: Mutex<()>,
     ping: Arc<[u8]>,
     next_conn: AtomicU64,
+    /// Connections still authenticating, direct and through the relay
+    /// alike: at most `MAX_WAITING`.
+    pub(crate) waiting: Arc<Semaphore>,
 }
 
 #[derive(Default)]
@@ -266,6 +268,7 @@ pub(crate) async fn start(app: &AppService, port: Option<u16>) -> Result<LiveSta
         chat_order: Mutex::new(()),
         ping: wire::shared(&ToGuest::Ping, MAX_HELLO_BYTES).unwrap_or_else(|_| Arc::from(&[][..])),
         next_conn: AtomicU64::new(0),
+        waiting: Arc::new(Semaphore::new(MAX_WAITING)),
     });
     host.set_presence(&me.id, Some(app.local_presence()));
     let status = LiveStatus {
@@ -732,7 +735,6 @@ async fn presence_loop(app: AppService, host: Arc<Host>) {
 }
 
 async fn accept_loop(app: AppService, host: Arc<Host>, listener: TcpListener) {
-    let waiting = Arc::new(Semaphore::new(MAX_WAITING));
     let mut stop = host.shutdown.subscribe();
     loop {
         let accepted = tokio::select! {
@@ -743,8 +745,9 @@ async fn accept_loop(app: AppService, host: Arc<Host>, listener: TcpListener) {
             // With MAX_WAITING connections still authenticating, a new one is
             // closed at once.
             Ok((tcp, _)) => {
-                if let Ok(permit) = waiting.clone().try_acquire_owned() {
-                    tokio::spawn(connection(app.clone(), host.clone(), tcp, permit));
+                if let Ok(permit) = host.waiting.clone().try_acquire_owned() {
+                    let _ = tcp.set_nodelay(true);
+                    tokio::spawn(connection(app.clone(), host.clone(), Box::new(tcp), permit));
                 }
             }
             // Out of sockets or similar: wait a moment instead of spinning.
@@ -765,11 +768,11 @@ async fn refuse<W: AsyncWrite + Unpin>(w: &mut W, message: &str) {
     .await;
 }
 
-/// One connection, from the TLS handshake to its end. Anything unexpected
-/// before the guest is in closes this connection and nothing else.
-async fn connection(app: AppService, host: Arc<Host>, tcp: TcpStream, permit: OwnedSemaphorePermit) {
-    let _ = tcp.set_nodelay(true);
-    let Ok(Ok(tls)) = tokio::time::timeout(AUTH_TIMEOUT, host.acceptor.accept(tcp)).await else {
+/// One connection, direct or through the relay, from the TLS handshake to
+/// its end. Anything unexpected before the guest is in closes this
+/// connection and nothing else.
+pub(crate) async fn connection(app: AppService, host: Arc<Host>, io: BoxIo, permit: OwnedSemaphorePermit) {
+    let Ok(Ok(tls)) = tokio::time::timeout(AUTH_TIMEOUT, host.acceptor.accept(io)).await else {
         return;
     };
     let (mut rd, mut wr) = tokio::io::split(tls);
@@ -943,8 +946,8 @@ async fn serve(
     app: AppService,
     host: Arc<Host>,
     joined: Joined,
-    mut rd: ReadHalf<TlsStream<TcpStream>>,
-    wr: WriteHalf<TlsStream<TcpStream>>,
+    mut rd: ReadHalf<HostTls>,
+    wr: WriteHalf<HostTls>,
 ) {
     let Joined { id, conn, tx, rx, kill } = joined;
     tokio::spawn(wire::write_loop(wr, rx, kill.clone(), host.ping.clone()));
