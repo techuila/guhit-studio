@@ -19,13 +19,11 @@ use guhit_core::Document;
 use guhit_model::*;
 use serde_json::Value;
 use tokio::io::{AsyncWriteExt, ReadHalf};
-use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio_rustls::client::TlsStream;
 
 use super::host::file_limit;
 use super::invite::Invite;
-use super::tls::{self, ConnectError};
+use super::tls::{self, ConnectError, GuestTls};
 use super::wire::{self, *};
 use super::{bad_args, host_only, live_lost, lock, not_live, CopyMeta, Role, CHAT_HISTORY};
 use crate::{files, store, AppService};
@@ -306,7 +304,7 @@ async fn connect(
     invite: &Invite,
     name: &str,
     rejoin: Option<Rejoin>,
-) -> Result<(TlsStream<TcpStream>, Welcome), IpcError> {
+) -> Result<(GuestTls, Welcome), IpcError> {
     let mut wrong_host = None;
     for addr in invite.socket_addrs() {
         match tls::connect(addr, &invite.pin).await {
@@ -337,7 +335,7 @@ async fn connect(
 }
 
 async fn greet(
-    stream: &mut TlsStream<TcpStream>,
+    stream: &mut GuestTls,
     invite: &Invite,
     name: &str,
     rejoin: Option<Rejoin>,
@@ -448,12 +446,12 @@ pub(crate) async fn join(app: &AppService, invite: &str) -> Result<DocState, Ipc
 /// presence sender run on their own and stop when `kill` is set.
 struct Conn {
     id: u64,
-    rd: ReadHalf<TlsStream<TcpStream>>,
+    rd: ReadHalf<GuestTls>,
     kill: watch::Sender<bool>,
 }
 
 /// Start using a connection: from now on requests and presence go out on it.
-fn open(guest: &Arc<Guest>, stream: TlsStream<TcpStream>) -> Conn {
+fn open(guest: &Arc<Guest>, stream: GuestTls) -> Conn {
     let (rd, wr) = tokio::io::split(stream);
     let (tx, rx) = mpsc::channel(QUEUE_FRAMES);
     let kill = watch::channel(false).0;
@@ -491,7 +489,7 @@ async fn run(app: AppService, guest: Arc<Guest>, mut conn: Conn) {
 
 /// Retry after each of `RECONNECT_DELAYS`, asking for the same participant
 /// back. `Err(None)`: this computer left meanwhile.
-async fn reconnect(guest: &Guest) -> Result<(TlsStream<TcpStream>, Welcome), Option<String>> {
+async fn reconnect(guest: &Guest) -> Result<(GuestTls, Welcome), Option<String>> {
     let mut leaving = guest.leaving.subscribe();
     let mut refusal = None;
     for delay in RECONNECT_DELAYS {
@@ -523,7 +521,7 @@ async fn reconnect(guest: &Guest) -> Result<(TlsStream<TcpStream>, Welcome), Opt
 async fn rejoined(
     app: &AppService,
     guest: &Arc<Guest>,
-    stream: TlsStream<TcpStream>,
+    stream: GuestTls,
     welcome: Welcome,
 ) -> Option<Conn> {
     let copy = Document::with_revision(welcome.doc.project.clone(), welcome.doc.revision);

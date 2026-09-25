@@ -19,8 +19,8 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::{CertificateError, DigitallySignedStruct, SignatureScheme};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
-use tokio_rustls::client::TlsStream;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 /// The name in the certificate. Nothing checks it; certificates are pinned.
@@ -28,6 +28,16 @@ const CERT_NAME: &str = "guhit-live";
 /// A guest gives each address this long to accept the connection, and again
 /// for the TLS handshake.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// Any byte stream a session runs over: a TCP connection, or a pair through
+/// the relay (`super::relay`).
+pub trait Io: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> Io for T {}
+pub type BoxIo = Box<dyn Io>;
+/// The host's end of a session connection.
+pub type HostTls = tokio_rustls::server::TlsStream<BoxIo>;
+/// A guest's end of it.
+pub type GuestTls = tokio_rustls::client::TlsStream<BoxIo>;
 
 fn provider() -> Arc<CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
@@ -128,9 +138,20 @@ pub enum ConnectError {
     WrongHost,
 }
 
-/// Open a TLS connection to `addr` that trusts only the certificate `pin`
-/// (base64url SHA-256) names.
-pub async fn connect(addr: SocketAddr, pin: &str) -> Result<TlsStream<TcpStream>, ConnectError> {
+/// A TCP connection to `addr`, given `CONNECT_TIMEOUT` to open.
+pub async fn tcp(addr: SocketAddr) -> Result<BoxIo, ConnectError> {
+    match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
+        Ok(Ok(tcp)) => {
+            let _ = tcp.set_nodelay(true);
+            Ok(Box::new(tcp))
+        }
+        _ => Err(ConnectError::Unreachable),
+    }
+}
+
+/// A guest's TLS handshake over `io`, trusting only the certificate `pin`
+/// (base64url SHA-256) names. Given `CONNECT_TIMEOUT`.
+pub async fn handshake(io: BoxIo, pin: &str) -> Result<GuestTls, ConnectError> {
     let pin = URL_SAFE_NO_PAD.decode(pin.as_bytes()).map_err(|_| ConnectError::WrongHost)?;
     let provider = provider();
     let verifier = Arc::new(Pinned { pin, provider: provider.clone(), mismatch: AtomicBool::new(false) });
@@ -142,18 +163,18 @@ pub async fn connect(addr: SocketAddr, pin: &str) -> Result<TlsStream<TcpStream>
         .with_no_client_auth();
     // There is no host name to send: the certificate is pinned.
     config.enable_sni = false;
-
-    let tcp = match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
-        Ok(Ok(tcp)) => tcp,
-        _ => return Err(ConnectError::Unreachable),
-    };
-    let _ = tcp.set_nodelay(true);
     let name = ServerName::try_from(CERT_NAME).map_err(|_| ConnectError::Unreachable)?;
-    match tokio::time::timeout(CONNECT_TIMEOUT, TlsConnector::from(Arc::new(config)).connect(name, tcp)).await {
+    match tokio::time::timeout(CONNECT_TIMEOUT, TlsConnector::from(Arc::new(config)).connect(name, io)).await {
         Ok(Ok(stream)) => Ok(stream),
         _ if verifier.mismatch.load(Ordering::Relaxed) => Err(ConnectError::WrongHost),
         _ => Err(ConnectError::Unreachable),
     }
+}
+
+/// Open a TLS connection to `addr` that trusts only the certificate `pin`
+/// names: `tcp`, then `handshake`.
+pub async fn connect(addr: SocketAddr, pin: &str) -> Result<GuestTls, ConnectError> {
+    handshake(tcp(addr).await?, pin).await
 }
 
 #[cfg(test)]
@@ -194,7 +215,7 @@ mod tests {
         let (_, conn) = tls.get_ref();
         assert_eq!(conn.protocol_version(), Some(rustls::ProtocolVersion::TLSv1_3));
 
-        assert_eq!(connect(addr, &other).await.unwrap_err(), ConnectError::WrongHost);
+        assert_eq!(connect(addr, &other).await.err(), Some(ConnectError::WrongHost));
     }
 
     #[tokio::test]
@@ -203,6 +224,6 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         drop(listener);
         let pin = HostIdentity::new().unwrap().pin;
-        assert_eq!(connect(addr, &pin).await.unwrap_err(), ConnectError::Unreachable);
+        assert_eq!(connect(addr, &pin).await.err(), Some(ConnectError::Unreachable));
     }
 }
