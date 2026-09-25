@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100%;
   background: var(--surface-2);
-  animation: ui-scene-in var(--dur-scene) var(--ease-out);
+  animation: global(ui-scene-in) var(--dur-scene) var(--ease-out);
 }
 
 .middle {
@@ -38,7 +38,7 @@
      fades in on mount. Disabled during the divider drag (paneDragging), which
      must track the pointer 1:1 with zero lag. */
   transition: flex-basis var(--dur-panel) var(--ease-in-out);
-  animation: ui-fade-in var(--dur-panel) var(--ease-out);
+  animation: global(ui-fade-in) var(--dur-panel) var(--ease-out);
 }
 
 .paneDragging {

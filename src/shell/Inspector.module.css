@@ -74,7 +74,7 @@
 
 /* Selection change cross-fade: fade + 4px slide (MOTION.md, Inspector row). */
 .fieldsEnter {
-  animation: ui-fade-in var(--dur-base) var(--ease-out), fields-slide-in var(--dur-base) var(--ease-out);
+  animation: global(ui-fade-in) var(--dur-base) var(--ease-out), fields-slide-in var(--dur-base) var(--ease-out);
 }
 
 @keyframes fields-slide-in {
@@ -1068,7 +1068,7 @@
   font: inherit;
   font-size: var(--text-sm);
   cursor: text;
-  animation: ui-rise-in var(--dur-press) var(--ease-out);
+  animation: global(ui-rise-in) var(--dur-press) var(--ease-out);
 }
 
 .levelRename:focus,

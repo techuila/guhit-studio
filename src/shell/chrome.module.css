@@ -825,7 +825,7 @@
   color: var(--ink-2);
   font-size: var(--text-xs);
   cursor: default;
-  animation: ui-fade-in var(--dur-base) var(--ease-out);
+  animation: global(ui-fade-in) var(--dur-base) var(--ease-out);
   transition:
     background var(--dur-hover) var(--ease-out),
     color var(--dur-hover) var(--ease-out),
