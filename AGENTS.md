@@ -71,6 +71,7 @@ cargo build -p guhit-studio                     # desktop shell compiles
 pnpm gen:types                                  # after any guhit-model change
 pnpm typecheck && pnpm build                    # frontend
 node scripts/csp-check.mjs                      # the build under the release CSP (needs pnpm bridge)
+node scripts/live-check.mjs                     # two tabs in a live session, plus MCP (needs cargo build -p guhit-devbridge)
 ```
 
 Run the full app in a browser (real Rust engine, no desktop shell):
