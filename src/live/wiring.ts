@@ -99,13 +99,16 @@ export function startLive(): () => void {
    * with its last copy still savable from there.
    */
   const onSession = (prev: LiveStatus, next: LiveStatus) => {
-    void reload();
+    const wasGuest = prev.mode === "joined" || prev.mode === "reconnecting";
+    // A guest's shared project closed with the session, before this window
+    // noticed: there is no chat to load, and onProject clears the old one.
+    const guestOut = wasGuest && next.mode === "off";
+    if (!guestOut) void reload();
     void ipc
       .profileGet()
       .then((profile) => !stopped && useLive.getState().setProfile(profile))
       .catch(() => undefined);
-    const wasGuest = prev.mode === "joined" || prev.mode === "reconnecting";
-    const endedHere = wasGuest && next.mode === "off" && next.notice !== null;
+    const endedHere = guestOut && next.notice !== null;
     useLive.getState().setEnded(endedHere ? { projectName: prev.project_name } : null);
     if (!endedHere) return;
     if (useLive.getState().dialog === "share") useLive.getState().closeDialog();
