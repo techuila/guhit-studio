@@ -32,6 +32,11 @@ pub struct WindowState {
     jobs: Mutex<HashMap<Id, Job>>,
 }
 
+enum Checked {
+    Answered(WindowReply),
+    Waiting(Arc<Notify>),
+}
+
 fn no_window(message: &str) -> IpcError {
     IpcError::new("no_window", message)
 }
@@ -75,28 +80,42 @@ impl AppService {
     pub async fn window_wait(&self, id: &str, timeout: Duration) -> Result<Option<WindowReply>, IpcError> {
         let deadline = Instant::now() + timeout;
         loop {
-            let done = {
-                let mut jobs = self.window.jobs.lock().unwrap_or_else(|e| e.into_inner());
-                let Some(job) = jobs.get(id) else {
-                    return Err(IpcError::new("not_found", format!("no window request has id `{id}`")));
-                };
-                if let Some(result) = &job.result {
-                    return result.clone().map(Some);
-                }
-                if job.started.elapsed() >= GIVE_UP {
-                    jobs.remove(id);
-                    return Err(no_window("No window answered this request. Open the app window and try again."));
-                }
-                job.done.clone()
+            let done = match self.window_check(id)? {
+                Checked::Answered(reply) => return Ok(Some(reply)),
+                Checked::Waiting(done) => done,
             };
+            // Listen first, then look again: an answer that lands in between
+            // is seen by the second look instead of being missed.
+            let woken = done.notified();
+            tokio::pin!(woken);
+            woken.as_mut().enable();
+            if let Checked::Answered(reply) = self.window_check(id)? {
+                return Ok(Some(reply));
+            }
             let now = Instant::now();
             if now >= deadline {
                 return Ok(None);
             }
             // Woken by `window_reply`, or wakes at the deadline to report
             // that the work is still going.
-            let _ = tokio::time::timeout(deadline - now, done.notified()).await;
+            let _ = tokio::time::timeout(deadline - now, woken).await;
         }
+    }
+
+    /// Where one request stands.
+    fn window_check(&self, id: &str) -> Result<Checked, IpcError> {
+        let mut jobs = self.window.jobs.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(job) = jobs.get(id) else {
+            return Err(IpcError::new("not_found", format!("no window request has id `{id}`")));
+        };
+        if let Some(result) = &job.result {
+            return result.clone().map(Checked::Answered);
+        }
+        if job.started.elapsed() >= GIVE_UP {
+            jobs.remove(id);
+            return Err(no_window("No window answered this request. Open the app window and try again."));
+        }
+        Ok(Checked::Waiting(job.done.clone()))
     }
 
     /// `window_start` and `window_wait` in one call, for quick tasks: no

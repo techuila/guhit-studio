@@ -162,9 +162,48 @@ export const useRenderQueue = create<RenderQueueState>((set, get) => ({
   dismissLast: () => set({ last: null, error: null }),
 }));
 
-async function runQueue(tasks: RenderTask[]): Promise<void> {
+/** What one pass of the queue produced. */
+interface QueueOutcome {
+  results: RenderResult[];
+  /** Set when a render failed; the queue stopped there. */
+  error: string | null;
+  /** The user pressed Esc (or Stop without saving) before the queue finished. */
+  cancelled: boolean;
+}
+
+/** Size and quality for one pass, instead of the user's own choices. */
+interface QueueOptions {
+  size?: RenderSizeKey;
+  quality?: TraceQuality;
+}
+
+/**
+ * Renders for a window request (an MCP client, DECISIONS D31) with the same
+ * queue the Render button uses, at the size and quality asked, without
+ * changing the user's own choices. `views` are camera ids of saved views;
+ * empty renders the current 3D view. Resolves with what was saved, in order;
+ * throws an IpcError-shaped object when nothing could be rendered.
+ */
+export async function renderForRequest(views: string[], quality: TraceQuality, size: RenderSizeKey): Promise<RenderResult[]> {
+  const doc = useApp.getState().doc;
+  if (!doc) throw { code: "no_document", message: "No project is open in Guhit Studio.", element_ids: [] };
+  if (useRenderQueue.getState().running) {
+    throw { code: "invalid", message: "A render is already running in Guhit Studio. Wait for it or stop it, then try again.", element_ids: [] };
+  }
+  const tasks = resolveTasks(views.length === 0 ? "current" : views, doc);
+  if (typeof tasks === "string") throw { code: "invalid", message: tasks, element_ids: [] };
+  const outcome = await runQueue(tasks, { size, quality });
+  if (outcome.results.length === 0) {
+    const message = outcome.error ?? (outcome.cancelled ? "The render was cancelled in Guhit Studio." : "Nothing was rendered.");
+    throw { code: "invalid", message, element_ids: [] };
+  }
+  return outcome.results;
+}
+
+async function runQueue(tasks: RenderTask[], opts: QueueOptions = {}): Promise<QueueOutcome> {
   const q = useRenderQueue;
   const app = useApp.getState();
+  const outcome: QueueOutcome = { results: [], error: null, cancelled: false };
   queueCancelled = false;
   q.setState({ running: true, error: null, last: null, progress: null, preview: null });
   window.addEventListener("keydown", onKey, true);
@@ -174,8 +213,8 @@ async function runQueue(tasks: RenderTask[]): Promise<void> {
       const task = tasks[i];
       const doc = useApp.getState().doc;
       if (!doc) break;
-      const size = RENDER_SIZES.find((s) => s.key === q.getState().size) ?? RENDER_SIZES[0];
-      const quality = q.getState().quality;
+      const size = RENDER_SIZES.find((s) => s.key === (opts.size ?? q.getState().size)) ?? RENDER_SIZES[0];
+      const quality = opts.quality ?? q.getState().quality;
       const viewer = useViewer.getState();
       const startRevision = doc.revision;
       q.setState({ current: { index: i + 1, total: tasks.length, name: task.camera.name || "View" }, progress: null });
@@ -197,47 +236,50 @@ async function runQueue(tasks: RenderTask[]): Promise<void> {
       );
       job = thisJob;
       q.setState({ preview: thisJob.preview });
-      let outcome;
+      let rendered;
       try {
-        outcome = await thisJob.run();
+        rendered = await thisJob.run();
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         q.setState({ error: `The render could not finish: ${message}` });
         app.toast("error", `The render could not finish: ${message}`);
+        outcome.error = `The render could not finish: ${message}`;
         break;
       }
-      if (!outcome) {
+      if (!rendered) {
         app.toast("info", "Render cancelled");
+        outcome.cancelled = true;
         break;
       }
       // The record keeps how it was made and the model it shows: the
       // revision the render started from.
-      const record = await ipc.renderCapture(task.camera, outcome.png, {
+      const record = await ipc.renderCapture(task.camera, rendered.png, {
         revision: startRevision,
         info: {
-          kind: outcome.kind,
-          width: outcome.width,
-          height: outcome.height,
-          samples: Math.max(0, Math.round(outcome.samples)),
-          seconds: outcome.seconds,
-          quality: outcome.kind === "path_traced" ? quality : null,
-          gpu: outcome.gpu ?? "",
+          kind: rendered.kind,
+          width: rendered.width,
+          height: rendered.height,
+          samples: Math.max(0, Math.round(rendered.samples)),
+          seconds: rendered.seconds,
+          quality: rendered.kind === "path_traced" ? quality : null,
+          gpu: rendered.gpu ?? "",
         },
       });
       useViewer.getState().bumpRenders();
       const result: RenderResult = {
         recordId: record.id,
-        kind: outcome.kind,
+        kind: rendered.kind,
         name: task.camera.name || "View",
-        samples: outcome.samples,
-        seconds: outcome.seconds,
-        note: outcome.fallbackReason ?? "",
+        samples: rendered.samples,
+        seconds: rendered.seconds,
+        note: rendered.fallbackReason ?? "",
       };
+      outcome.results.push(result);
       q.setState({ last: result });
       app.toast(
         "success",
-        outcome.kind === "path_traced"
-          ? `Render saved to Visuals: ${result.name}, ${outcome.samples} samples in ${Math.round(outcome.seconds)} s`
+        rendered.kind === "path_traced"
+          ? `Render saved to Visuals: ${result.name}, ${rendered.samples} samples in ${Math.round(rendered.seconds)} s`
           : `Enhanced capture saved to Visuals: ${result.name}`,
       );
     }
@@ -246,6 +288,7 @@ async function runQueue(tasks: RenderTask[]): Promise<void> {
     job = null;
     q.setState({ running: false, current: null, progress: null });
   }
+  return outcome;
 }
 
 /** Esc cancels the render, unless a dialog or walk mode has the key. */

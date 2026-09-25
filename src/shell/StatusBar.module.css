@@ -1,0 +1,12 @@
+/* Status bar pieces of its own. The shared chrome lives in chrome.module.css. */
+
+/* "Only the selection" (DECISIONS D30), in the AI color. */
+.aiScope {
+  background: var(--ai-soft);
+  color: var(--ai);
+}
+
+.aiScope:hover {
+  background: color-mix(in srgb, var(--ai) 16%, var(--ai-soft));
+  color: var(--ai);
+}

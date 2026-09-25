@@ -9,6 +9,7 @@ import { TOOLS, currentSunPresets, showProjectSection } from "./actions";
 import { pipeLength, runLabel, sizeLabel } from "./pipes";
 import { formatClock, presetAtTime } from "./sun";
 import s from "./chrome.module.css";
+import own from "./StatusBar.module.css";
 
 const KIND_LABEL: Record<Element["kind"], [string, string]> = {
   wall: ["wall", "walls"],
@@ -112,6 +113,32 @@ function ShellStatus() {
   );
 }
 
+/**
+ * "Only the selection" is on and something is selected (DECISIONS D30): AI
+ * edits, the copilot's and MCP clients', may change only the selection. Shown
+ * here too, because an MCP client works while the copilot dock is closed.
+ * Click to lift the limit.
+ */
+function AiScopeStatus() {
+  const count = useApp((st) => (st.aiScope ? st.selection.length : 0));
+  const setAiScope = useApp((st) => st.setAiScope);
+  const shown = count > 0;
+  return (
+    <button
+      type="button"
+      className={cx(s.statusToggle, s.shellStatus, own.aiScope, !shown && s.shellStatusOff)}
+      aria-hidden={!shown}
+      tabIndex={shown ? 0 : -1}
+      data-tip="AI edits may change only the selection. Click to lift the limit"
+      data-tip-side="top"
+      onClick={() => setAiScope(false)}
+    >
+      <Icon name="lock" size={13} />
+      AI: selection only
+    </button>
+  );
+}
+
 /** How long the sun readout stays after the light changes. */
 const SUN_STATUS_MS = 2400;
 
@@ -195,6 +222,7 @@ export function StatusBar() {
       </div>
 
       <div className={s.statusRight}>
+        <AiScopeStatus />
         <SunStatus />
         <ShellStatus />
         {level ? (

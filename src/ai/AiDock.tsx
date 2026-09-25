@@ -6,10 +6,12 @@ import type { AiProposal } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
 import { useShell } from "../shell/shellStore";
 import { useApp } from "../state/store";
+import { Switch } from "../ui/controls";
+import { Icon } from "../ui/icons";
 import { dur, ease, motionOK, tween, usePresence } from "../ui/motion";
 import { collapseOut, growIn, play, settled } from "../ui/motionWaapi";
 import { pendingItem, toHistory, useCopilot, type ChatItem } from "./copilotStore";
-import { affectedRows, suggestionsFor, toolLabel, type Suggestion } from "./describe";
+import { affectedRows, selectionLabel, suggestionsFor, toolLabel, type Suggestion } from "./describe";
 import { SettingsPopover } from "./SettingsPopover";
 import { DrawnCheck, GearIcon, KindIcon, SendIcon, StopIcon } from "./icons";
 import s from "./AiDock.module.css";
@@ -28,6 +30,8 @@ function dropProposal(id: string) {
 export function AiDock() {
   const doc = useApp((st) => st.doc);
   const selection = useApp((st) => st.selection);
+  const aiScope = useApp((st) => st.aiScope);
+  const setAiScope = useApp((st) => st.setAiScope);
   const items = useCopilot((st) => st.items);
   const busy = useCopilot((st) => st.busy);
   const settings = useCopilot((st) => st.settings);
@@ -220,6 +224,13 @@ export function AiDock() {
   const noKey = settings !== null && !settings.has_api_key;
   const suggestions = suggestionsFor(doc, selection);
   const canSend = !!doc && !busy && !noKey && draft.trim() !== "";
+  const scoped = aiScope && selection.length > 0;
+
+  // "Only the selection" (DECISIONS D30) shows while something is selected,
+  // and keeps its last words while it leaves.
+  const scopeRow = usePresence(selection.length > 0 && !noKey, "hover");
+  const scopeText = useRef("");
+  if (selection.length > 0) scopeText.current = selectionLabel(doc, selection);
 
   // Exits animate: the popover, the busy line and the chip row all stay
   // mounted long enough to leave.
@@ -259,7 +270,7 @@ export function AiDock() {
           {settings?.model ?? "Copilot"}
         </span>
         <span className={s.headMeta}>
-          {selection.length === 0 ? "No selection" : `${selection.length} selected`}
+          {selection.length === 0 ? "No selection" : scoped ? `Limited to ${selection.length} selected` : `${selection.length} selected`}
         </span>
         <button
           type="button"
@@ -315,13 +326,31 @@ export function AiDock() {
         </div>
       ) : null}
 
+      {scopeRow.mounted ? (
+        <div className={cx(s.scopeRow, aiScope && s.scopeRowOn)} data-stage={scopeRow.stage} data-testid="ai-scope">
+          <span className={s.scopeWhat} title={`Selected: ${scopeText.current}`}>
+            <Icon name="select" size={12} />
+            <b>{scopeText.current}</b>
+          </span>
+          <span
+            className={s.scopeLabel}
+            data-tip="The copilot and MCP clients may change only the selection and what stands in a selected room. The engine refuses anything else."
+            data-tip-side="top-end"
+            onClick={() => setAiScope(!aiScope)}
+          >
+            Only the selection
+          </span>
+          <Switch checked={aiScope} onChange={setAiScope} label="AI changes only the selection" />
+        </div>
+      ) : null}
+
       <div className={s.composer}>
         <textarea
           ref={inputRef}
           className={s.input}
           rows={2}
           value={draft}
-          placeholder={noKey ? "Add an API key to start" : "Ask about the plan or describe a change"}
+          placeholder={noKey ? "Add an API key to start" : scoped ? "Describe a change to the selection" : "Ask about the plan or describe a change"}
           disabled={!doc || noKey}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
