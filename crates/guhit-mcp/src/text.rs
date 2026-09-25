@@ -51,6 +51,35 @@ Pipes and services:
 - The user can set a review item aside with a note (`set_review_mark`). A \
   set-aside item is never approved; only do it when the user asks and says why.
 
+The user's selection:
+- The user can select parts of the plan in the window. When they say \"this\", \
+  \"the selected\", \"these walls\" or \"the selection\", call `get_selection` first.
+- To change only the selection, pass `scope: \"selection\"` to the editing tool or \
+  to `batch`. The engine then refuses anything outside it: other elements, new \
+  elements outside the selection's area, and project-wide changes such as the roof \
+  or levels. When the user switched on \"Only the selection\" in the app, every \
+  edit is limited to their selection whatever you pass (`get_selection` says so).
+- An `out_of_scope` error means the edit reached outside. Do not work around it: \
+  change only what is in scope, or tell the user what else would need to change.
+
+Views and renders (they need the Guhit Studio window open on the project):
+- `add_camera` saves a view. `capture_view` captures the 3D view (quick); \
+  `render_view` path traces views and saves them to the app's Visuals, a minute or \
+  more each, and hands back a job id for `get_render_job` when it takes longer than \
+  it waits. `get_render_image` shows any saved visual; `get_plan_image` draws the plan.
+- `visualize_render` makes an AI image from a saved model view with the user's own \
+  image provider key. It costs the user money: only when they ask for one. It is \
+  labelled \"AI visualization\" and never changes the model.
+
+Live sessions:
+- Several people may be working on the same plan from their own computers. \
+  `get_session` shows who is in and what they have selected. Your edits appear for \
+  all of them as they land.
+- Undo is one shared history. `undo` refuses a step someone else made and names \
+  them; pass force only after the user confirms.
+- `send_chat_message` posts to the session chat as the user, marked as sent by AI, \
+  when they ask you to tell the others something.
+
 Honesty rules:
 - Review items are suggestions to check. Never present anything from this server \
   as permit approval, structural certification or code compliance. You are not \
@@ -138,7 +167,18 @@ pub const CONVENTIONS: &str = "\
 ## Review marks
 - A finding, a whole check or a check on one element can be set aside with a
   note. It stays listed as ignored, never approved; a set-aside finding the
-  checks stop producing is resolved.";
+  checks stop producing is resolved.
+
+## Edit scope
+- An edit limited to a scope (`scope` on an editing tool, or the user's \"Only
+  the selection\") may change: a selected room, its bounding walls, their doors
+  and windows and what stands inside it; a selected wall and its doors and
+  windows; any other selected element.
+- New elements must land inside the selection's area on its level: a selected
+  room's centerline outline (50 mm of tolerance), or 500 mm around any other
+  selected element. Cameras may always be added.
+- Roof, levels, layers, settings and whole review checks are outside every
+  scope. Connected walls stretching and dimensions following are allowed.";
 
 /// `guhit://docs/ph-defaults`.
 pub const PH_DEFAULTS: &str = "\

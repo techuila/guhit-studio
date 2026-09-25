@@ -10,6 +10,8 @@
 //!   document is still at the revision the proposal was made on.
 //! - A commit goes through `AppService::commit`, the same path as user edits,
 //!   as one `Batch`, so one undo reverts it.
+//! - With "Only the selection" on (DECISIONS D30), every edit call is checked
+//!   with `guhit_core::scope` and one that reaches outside is not staged.
 //! - The API key lives in the OS keychain and never crosses IPC.
 
 pub mod client;
@@ -25,7 +27,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use guhit_core::Document;
+use guhit_core::{CoreError, Document};
 use guhit_model::*;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
@@ -229,19 +231,58 @@ struct Staged {
     step: Value,
 }
 
+/// Told to the model after every edit the scope refuses.
+const SCOPE_HINT: &str = "This turn is limited to the user's selection. Change only the selected elements and what stands in a selected room, or tell the user what else would need to change.";
+
+/// An `out_of_scope` refusal as the model reads it: the engine's sentence,
+/// then what to do. Any other error reads as usual.
+fn refused(e: CoreError) -> tools::ToolError {
+    match e {
+        CoreError::Invalid {
+            code,
+            message,
+            element_ids,
+        } if code == "out_of_scope" => {
+            let ids = if element_ids.is_empty() {
+                String::new()
+            } else {
+                format!(" (elements: {})", element_ids.join(", "))
+            };
+            tools::ToolError(format!("out_of_scope: {message} {SCOPE_HINT}{ids}"))
+        }
+        other => other.into(),
+    }
+}
+
 /// Translate one edit call, append it to the staged commands and validate
-/// the whole batch. On any error nothing is staged.
+/// the whole batch. With a scope, the call must first stay inside the
+/// selection on the staged view. On any error nothing is staged.
+#[allow(clippy::too_many_arguments)]
 fn stage_edit(
     doc: &Document,
     label: &str,
     commands: &[Command],
-    staged_project: Option<&Project>,
+    staged: Option<&ApplyResult>,
+    scope: Option<&[Id]>,
     name: &str,
     input: &Value,
     level_id: &Id,
 ) -> Result<(Vec<Command>, Staged), tools::ToolError> {
-    let view = staged_project.unwrap_or_else(|| doc.project());
+    let (view, view_derived) = match staged {
+        Some(p) => (&p.state.project, &p.state.derived),
+        None => (doc.project(), doc.derived()),
+    };
     let new_commands = tools::to_commands(view, name, input, level_id)?;
+    if let Some(selection) = scope {
+        // What earlier calls of this turn made is in reach, so this call can
+        // build on it: a window on a wall staged a step ago.
+        let made = staged.map(|p| p.diff.added.as_slice()).unwrap_or_default();
+        let call = match new_commands.as_slice() {
+            [one] => one.clone(),
+            many => batch(label, many),
+        };
+        guhit_core::scope::check_staged(view, view_derived, selection, made, &call).map_err(refused)?;
+    }
     let mut next = commands.to_vec();
     next.extend(new_commands.iter().cloned());
     let preview = doc.preview(&batch(label, &next))?;
@@ -277,6 +318,14 @@ async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> 
     if message.is_empty() {
         return Err(IpcError::new("bad_args", "message is empty"));
     }
+    // DECISIONS D30: every edit of this turn stays inside the selection.
+    let scope: Option<&[Id]> = request.scope.as_ref().map(|s| s.ids.as_slice());
+    if scope.is_some_and(|ids| ids.is_empty()) {
+        return Err(IpcError::new(
+            "bad_args",
+            "scope has no ids: limit the turn to a selection, or send no scope",
+        ));
+    }
     let _turn = app.ai.chat_gate.lock().await;
     let started = Instant::now();
     let log_dir = app.project_dir().await;
@@ -295,7 +344,10 @@ async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> 
         let s = app.session.lock().await;
         let doc = s.doc.as_ref().ok_or_else(no_document)?;
         let level_id = active_level(doc.project(), &request.active_level_id)?;
-        (prompt::project_context(doc, &request.selection_ids), level_id)
+        if let Some(ids) = scope {
+            guhit_core::scope::validate(doc.project(), ids)?;
+        }
+        (prompt::project_context(doc, &request.selection_ids, scope), level_id)
     };
     let client = model_client(app, &message)?;
     let model = model_name(app).await;
@@ -307,6 +359,7 @@ async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> 
             "turn_id": turn_id,
             "message": message,
             "selection_ids": request.selection_ids,
+            "scope_ids": scope,
             "level_id": level_id,
             "history_len": request.history.len(),
             "model": model,
@@ -397,7 +450,8 @@ async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> 
                         doc,
                         &label,
                         &commands,
-                        staged.as_ref().map(|p| &p.state.project),
+                        staged.as_ref(),
+                        scope,
                         &call.name,
                         &call.input,
                         &level_id,
@@ -472,7 +526,15 @@ async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> 
         let s = app.session.lock().await;
         let doc = s.doc.as_ref().ok_or_else(no_document)?;
         let command = batch(&label, &commands);
-        match doc.preview(&command) {
+        // A scoped turn is checked once more on the revision the proposal is
+        // pinned to: the plan may have changed while the model worked.
+        let checked = doc.preview(&command).and_then(|preview| {
+            if let Some(ids) = scope {
+                guhit_core::scope::check(doc.project(), doc.derived(), ids, &command)?;
+            }
+            Ok(preview)
+        });
+        match checked {
             Ok(preview) => {
                 let p = AiProposal {
                     id: defaults::new_id(),

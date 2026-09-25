@@ -1018,3 +1018,205 @@ fn delete_level_names_a_level() {
     assert_eq!(add, Command::AddLevel { name: None, elevation_mm: None, height_mm: Some(2800.0) });
     assert!(super::tools::to_command(&project, "add_level", &json!({"height_mm": -1}), &ground).is_err());
 }
+
+// ----------------------------------------------------------------- edit scope
+
+/// Fixed ids from `templates::sample_bungalow`: the Bedroom east of the
+/// partition at x = 5000, the Living / Dining west of it.
+const BEDROOM: &str = "00000000-0000-4000-8000-000000000302";
+const EAST_WALL: &str = "00000000-0000-4000-8000-000000000102";
+const WEST_WALL: &str = "00000000-0000-4000-8000-000000000104";
+
+/// A rig with the sample bungalow open.
+async fn bungalow_rig(model: ScriptedClient) -> Rig {
+    let r = rig_with(model).await;
+    r.app
+        .handle("hub_create", json!({"name": "Scope", "settings": null, "template": "sample-bungalow"}))
+        .await
+        .expect("sample bungalow opens");
+    r
+}
+
+impl Rig {
+    /// A turn limited to `scope` ("Only the selection"), with it selected.
+    async fn chat_scoped(&self, message: &str, scope: &[&str]) -> Result<AiTurn, IpcError> {
+        let request = json!({"message": message, "selection_ids": scope, "history": [], "scope": {"ids": scope}});
+        let v = self.app.handle("ai_chat", json!({"request": request})).await?;
+        Ok(serde_json::from_value(v).expect("AiTurn"))
+    }
+}
+
+fn lamp_at(x: f64, y: f64) -> Value {
+    json!({"catalog_key": "light-ceiling", "position": {"x": x, "y": y}})
+}
+
+const SCOPE_HINT: &str = "This turn is limited to the user's selection.";
+
+#[tokio::test]
+async fn a_scoped_turn_stages_an_edit_inside_the_selection() {
+    let r = bungalow_rig(ScriptedClient::new(vec![
+        ScriptedClient::tools(&[("add_asset", lamp_at(6500.0, 3000.0))]),
+        ScriptedClient::text("I staged a ceiling light in the bedroom."),
+    ]))
+    .await;
+    let before = r.project().await;
+
+    let turn = r.chat_scoped("add a ceiling light here", &[BEDROOM]).await.unwrap();
+
+    let results = tool_results(&r.model, 1);
+    assert!(results[0].get("is_error").is_none(), "{}", results[0]);
+    let proposal = turn.proposal.expect("proposal");
+    assert_eq!(proposal.preview.diff.added.len(), 1);
+    assert_eq!(r.project().await, before, "nothing is applied before Apply");
+
+    // The model is told what the selection holds and that the rest is refused.
+    let requests = r.model.requests.lock().unwrap().clone();
+    let context = requests[0].messages.last().unwrap()["content"].as_str().unwrap().to_string();
+    assert!(
+        context.contains(
+            "Edit scope: limited to the selection: Room Bedroom with its 4 walls, 1 door, 1 window and 1 object, on Ground Floor. Edits outside it are refused.\n"
+        ),
+        "{context}"
+    );
+    assert!(requests[0].system.contains("out_of_scope"));
+    let intent = r.log_lines().await.into_iter().find(|l| l["event"] == "intent").unwrap();
+    assert_eq!(intent["scope_ids"], json!([BEDROOM]));
+
+    let applied = r.resolve(&proposal.id, true).await.unwrap().applied.unwrap();
+    assert_eq!(applied.state.project.elements, proposal.preview.state.project.elements);
+}
+
+#[tokio::test]
+async fn a_scoped_turn_refuses_what_reaches_outside_and_stages_none_of_it() {
+    let r = bungalow_rig(ScriptedClient::new(vec![
+        ScriptedClient::tools(&[
+            // In the living room.
+            ("add_asset", lamp_at(2500.0, 3000.0)),
+            // The second wall of the chain runs into the living room.
+            (
+                "add_wall_chain",
+                json!({"points": [{"x": 6000, "y": 1000}, {"x": 6000, "y": 2000}, {"x": 3000, "y": 2000}], "closed": false}),
+            ),
+            ("set_roof", json!({"kind": "flat"})),
+            ("delete_elements", json!({"ids": [WEST_WALL]})),
+            ("add_asset", lamp_at(6500.0, 3000.0)),
+        ]),
+        ScriptedClient::text("I staged the bedroom light. The rest is outside your selection."),
+    ]))
+    .await;
+    let before = r.project().await;
+
+    let turn = r.chat_scoped("lights in both rooms, a flat roof, and remove the west wall", &[BEDROOM]).await.unwrap();
+
+    let results = tool_results(&r.model, 1);
+    assert_eq!(results.len(), 5);
+    for refusal in &results[0..4] {
+        assert_eq!(refusal["is_error"], json!(true), "{refusal}");
+        let text = refusal["content"].as_str().unwrap();
+        assert!(text.starts_with("out_of_scope: "), "{text}");
+        assert!(text.contains(SCOPE_HINT), "{text}");
+    }
+    let text = |i: usize| results[i]["content"].as_str().unwrap().to_string();
+    assert!(text(0).starts_with("out_of_scope: The new light would be outside the selection"), "{}", text(0));
+    assert!(text(2).contains("Changing the roof affects the whole project"), "{}", text(2));
+    assert!(
+        text(3).starts_with("out_of_scope: Wall 6000 mm is outside the selection this edit is limited to."),
+        "{}",
+        text(3)
+    );
+    assert!(text(3).ends_with(&format!("(elements: {WEST_WALL})")), "{}", text(3));
+    assert!(results[4].get("is_error").is_none(), "{}", results[4]);
+
+    // Only the light inside the bedroom is proposed: no wall of the chain,
+    // the roof and the west wall untouched.
+    let proposal = turn.proposal.expect("the call inside is still proposed");
+    match &proposal.command {
+        Command::Batch { commands, .. } => assert_eq!(commands.len(), 1),
+        other => panic!("not a batch: {other:?}"),
+    }
+    let staged = &proposal.preview.state.project;
+    assert_eq!(proposal.preview.diff.added.len(), 1);
+    assert!(proposal.preview.diff.removed.is_empty() && proposal.preview.diff.modified.is_empty());
+    assert_eq!(staged.roof, before.roof);
+    let refused: Vec<Value> = r.log_lines().await.into_iter().filter(|l| l["event"] == "tool" && l["ok"] == json!(false)).collect();
+    assert_eq!(refused.len(), 4, "every refusal is logged");
+    assert!(refused.iter().all(|l| l["staged"] == json!(false)));
+}
+
+#[tokio::test]
+async fn a_later_step_of_a_scoped_turn_can_build_on_what_an_earlier_step_made() {
+    // Limited to the east wall: its area is its bounding box grown by 500 mm.
+    let r = bungalow_rig(ScriptedClient::dynamic(Box::new(|index, request| match index {
+        0 => ScriptedClient::tools(&[("add_wall", wall(7700.0, 1000.0, 7700.0, 3000.0))]),
+        1 => {
+            let (body, is_error) = first_result(request);
+            assert!(!is_error, "{body}");
+            let wall_id = body["this_step"]["added"][0]["id"].as_str().unwrap().to_string();
+            ScriptedClient::tools(&[
+                ("add_window", json!({"wall_id": wall_id, "position": "center"})),
+                // 400 mm from the new wall but 700 mm from the east wall: the
+                // new wall is in reach, it does not widen the area.
+                ("add_asset", lamp_at(7300.0, 2000.0)),
+            ])
+        }
+        _ => {
+            let results = request.messages.last().unwrap()["content"].as_array().unwrap().clone();
+            assert!(results[0].get("is_error").is_none(), "window on the staged wall: {}", results[0]);
+            assert_eq!(results[1]["is_error"], json!(true), "{}", results[1]);
+            assert!(results[1]["content"].as_str().unwrap().starts_with("out_of_scope: "));
+            ScriptedClient::text("I staged a wall with a window by the east wall.")
+        }
+    })))
+    .await;
+
+    let proposal = r.chat_scoped("a short wall by this wall with a window", &[EAST_WALL]).await.unwrap().proposal.expect("proposal");
+
+    let elements = &proposal.preview.state.project.elements;
+    let window = elements
+        .iter()
+        .find_map(|e| match e {
+            Element::Opening(o) if proposal.preview.diff.added.contains(&o.id) => Some(o.clone()),
+            _ => None,
+        })
+        .expect("window staged");
+    assert!(proposal.preview.diff.added.contains(&window.wall_id), "hosted on the staged wall");
+    assert_eq!(proposal.preview.diff.added.len(), 2);
+    let applied = r.resolve(&proposal.id, true).await.unwrap().applied.unwrap();
+    assert_eq!(applied.state.project.elements, proposal.preview.state.project.elements);
+}
+
+#[tokio::test]
+async fn an_empty_scope_is_bad_args() {
+    let r = bungalow_rig(ScriptedClient::new(vec![ScriptedClient::text("ok")])).await;
+    let err = r.chat_scoped("change it", &[]).await.unwrap_err();
+    assert_eq!(err.code, "bad_args");
+    assert_eq!(r.model.request_count(), 0, "the model is never called");
+}
+
+#[tokio::test]
+async fn an_unknown_scope_id_fails_before_the_model_is_called() {
+    let r = bungalow_rig(ScriptedClient::new(vec![ScriptedClient::text("ok")])).await;
+    let err = r.chat_scoped("change it", &[BEDROOM, "no-such-element"]).await.unwrap_err();
+    assert_eq!(err.code, "not_found");
+    assert!(err.message.contains("no-such-element"), "{}", err.message);
+    assert_eq!(err.element_ids, vec!["no-such-element".to_string()]);
+    assert_eq!(r.model.request_count(), 0, "the model is never called");
+    assert!(r.log_lines().await.is_empty(), "nothing is logged for a refused request");
+}
+
+#[tokio::test]
+async fn without_a_scope_the_turn_reads_as_before() {
+    let r = bungalow_rig(ScriptedClient::new(vec![
+        ScriptedClient::tools(&[("add_asset", lamp_at(2500.0, 3000.0))]),
+        ScriptedClient::text("Staged."),
+    ]))
+    .await;
+    let turn = r.chat("a light in the living room").await.unwrap();
+    assert!(turn.proposal.is_some());
+    let requests = r.model.requests.lock().unwrap().clone();
+    let context = requests[0].messages.last().unwrap()["content"].as_str().unwrap().to_string();
+    assert!(!context.contains("Edit scope"), "{context}");
+    assert!(context.contains("Selected elements: none\nRoof: "), "{context}");
+    let intent = r.log_lines().await.into_iter().find(|l| l["event"] == "intent").unwrap();
+    assert_eq!(intent["scope_ids"], Value::Null);
+}

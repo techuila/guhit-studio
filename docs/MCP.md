@@ -97,8 +97,11 @@ back in square metres. The plan is +x east, +y north.
 | `list_review_items` | Design review suggestions with their status (open, or ignored with a note), located items with a `location_mm`, and the set-aside findings that are resolved |
 | `get_pipe_takeoff` | Run lengths for every system by material and size, elbows, tees, sleeves, every penetration and the aircon core holes |
 | `get_schedule` | Lights, outlets, switches, fixtures and aircon units per level and room, in the rows of the PH electrical inspection form, with totals per level |
-| `get_plan_image` | The last plan thumbnail the window saved, as a PNG |
+| `get_selection` | What the user has selected in the window, with full data, and whether "Only the selection" is on |
+| `get_plan_image` | A picture of the plan: drawn fresh by the open window (any level), else the last thumbnail it saved |
 | `list_renders` | Saved 3D visuals |
+| `get_render_image` | A saved visual as a picture, fitted to 1568 px, with its record |
+| `get_session` | The live session: who is in, what they have selected, the latest chat |
 | `add_wall`, `add_wall_chain` | Walls |
 | `add_rect_room` | Four walls plus a named room |
 | `add_level`, `delete_level` | Add a storey on top of the highest level, or delete a level with everything on it |
@@ -109,10 +112,20 @@ back in square metres. The plan is +x east, +y north.
 | `set_material`, `set_roof` | Finishes |
 | `add_asset` | Furniture, fixtures, lights, outlets, switches, panelboards, detectors and aircon units from the built-in library; wall items snap to the nearest wall face |
 | `set_review_mark` | Set a review item, a whole check or a check on one element aside with a note, or reopen it |
-| `undo`, `redo` | History, whoever made the change |
+| `add_camera` | Save a view (position, target, field of view) to render later |
+| `capture_view` | Capture the 3D view in the window, or a saved view, into Visuals |
+| `render_view` | Path trace the view on screen or saved views in the window, into Visuals; a job id when it takes longer than it waits |
+| `get_render_job` | Wait for a render `render_view` handed back as a job |
+| `visualize_render` | An AI visualization of a saved model view, with the user's own image provider key |
+| `send_chat_message` | Post to the live session chat as the user, marked as sent by AI |
+| `undo`, `redo` | History, whoever made the change. In a live session someone else's step needs `force` |
 | `save_version` | A named version the user can restore in the app |
 | `export_plan` | PDF, SVG or DXF into the exports folder: the plan or a service sheet (`sheet`), pipes included unless `show_pipes` is false, and a page of review items in a PDF (`review_page`) |
 | `batch` | Several edits atomically, as one undo step |
+
+Every editing tool (the ones above that change the plan, `batch`,
+`set_review_mark` and `add_camera`) takes an optional `scope`; see "The
+selection and `scope`" below.
 
 Pipes and service runs (cold and hot water, drainage, vent, storm drains,
 electrical conduit, aircon line sets and condensate) are drawn in the app, not
@@ -206,6 +219,69 @@ Resources:
 - `guhit://docs/ph-defaults` - 150 mm CHB walls, 900 x 2100 doors,
   1200 x 1200 windows with a 900 sill, 3000 mm levels, material ids.
 
+### The selection and `scope`
+
+DECISIONS D30. The user selects parts of the plan in the window and asks
+Claude Code to change only those:
+
+> make the selected room 600 wider to the east and put a window on its new wall
+
+`get_selection` returns what is selected: ids, kinds, readable labels, the
+level on screen and the full data of each element. An editing tool called
+with `"scope": "selection"` (or a list of element ids) is held to it by the
+engine, not by the model: a command that reaches outside is refused with
+`out_of_scope`, naming the element, and nothing is applied.
+
+- A selected room reaches its bounding walls, their doors and windows, and
+  what stands inside it. A selected wall reaches its doors and windows.
+  Anything else reaches itself.
+- New elements must land inside the selection's area on its level (a room's
+  centerline outline, or 500 mm around other elements). In a `batch`, what an
+  earlier step created joins the scope, so a later step can build on it.
+- Roof, levels, layers and settings are outside every scope. What the engine
+  changes as a consequence (connected walls stretching, dimensions following)
+  is allowed.
+- When the user switches on **Only the selection** (the copilot dock, the
+  status bar, or the palette), every MCP edit is limited to their selection,
+  whatever the call says; `get_selection` reports it as
+  `limited_to_selection`. With nothing selected there is no limit.
+
+### Views and renders
+
+DECISIONS D31. The path tracer and the plan canvas run in the desktop window,
+so these tools ask the window to do the work and wait for it; with no window
+open (the dev bridge with no browser) they answer `no_window`.
+
+- `add_camera` saves a view: `position` and `target` in mm, heights above the
+  floor of `level`. The view shows in the app and renders by name.
+- `capture_view` saves a capture of the 3D view as it is on screen, or from a
+  saved view, in a second or two.
+- `render_view` renders like the Render button: the view on screen or saved
+  views, `quick` (about a minute at HD) or `final`, at `hd`, `qhd`, `4k` or
+  `square`. It waits `wait_seconds` (45 by default) and hands back the records
+  and a preview, or a `job_id` for `get_render_job`.
+- `get_render_image` returns any saved visual, fitted to 1568 px.
+- `visualize_render` sends a saved model view to the image provider the user
+  set up in the Visuals panel (Gemini, DECISIONS D17), with the user's own key
+  and at the user's cost. The result is labelled "AI visualization", keeps the
+  view it came from, and never changes the model.
+- `get_plan_image` asks the open window to draw the plan (any `level`), and
+  falls back to the last saved thumbnail when no window answers.
+
+### Live sessions
+
+DECISIONS D29. When the window is in a live session, several people edit the
+same plan from their own computers, and every MCP edit shows up for all of
+them. An MCP client on a guest's computer works too: its edits go to the host
+like the guest's own.
+
+- `get_session` lists the participants, what each has selected, the level they
+  are on, and the latest chat messages.
+- `send_chat_message` posts to the session chat as the user of this computer,
+  marked as sent by AI.
+- Undo is one shared history. `undo` and `redo` refuse a step someone else made
+  (`other_author`, naming them); pass `force` only after the user confirms.
+
 ### `batch` and element ids
 
 `batch` takes a list of `{"tool": ..., "args": ...}` steps, applies them in
@@ -244,6 +320,12 @@ every step created under `steps`, which makes the normal recipe two calls:
   web page. There is no authentication, so anything that can already run code
   on your machine can drive the app; that is the same trust level as the dev
   bridge.
+- **Two tools reach beyond this machine**, and say so with `openWorldHint`:
+  `visualize_render` (the image provider, at the user's cost) and
+  `send_chat_message` (the other people in a live session). Everything else
+  stays on this computer. `get_session` never returns the session's invite.
+- **"Only the selection" is enforced by the engine.** The model cannot talk its
+  way past it; the user switches it off in the app.
 - **Review items are suggestions.** Nothing here is permit approval,
   structural certification or code compliance, and the server instructions
   tell the model to say so.

@@ -19,6 +19,8 @@
 //!   their review items.
 //! - `devices`: the object schedule and the device and aircon review items.
 //! - `query`: read-only answers for the AI copilot.
+//! - `scope`: the AI edit scope, whether a command stays inside the
+//!   selection (DECISIONS D30).
 //! - `ids`: deterministic ids, so `preview` equals `apply`.
 
 use std::collections::BTreeMap;
@@ -36,6 +38,7 @@ mod issues;
 mod pipes;
 mod query;
 mod rooms;
+pub mod scope;
 pub mod templates;
 mod topo;
 mod validate;

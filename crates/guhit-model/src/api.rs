@@ -57,9 +57,8 @@ pub struct ApplyResult {
 pub struct IpcError {
     /// Machine code: "not_found", "invalid", "no_document", "stale",
     /// "io", "ai_not_configured", "ai_failed", "unknown_command", "bad_args",
-    /// "forbidden", "out_of_scope" (an AI edit reached outside the selection
-    /// it was limited to), "other_author" (undo or redo of someone else's
-    /// step in a live session without `force`), "not_live", "host_only",
+    /// "forbidden", "other_author" (undo or redo of someone else's step in a
+    /// live session without `force`), "not_live", "host_only",
     /// "live_refused", "live_unreachable", "live_pin" (the host's certificate
     /// does not match the invite), "live_lost", "no_window".
     pub code: String,
@@ -317,16 +316,18 @@ pub struct AiRequest {
 
 /// Limits an AI edit to part of the plan (DECISIONS D30). The engine checks
 /// every command the AI stages or commits against it (`guhit_core::scope`)
-/// and refuses one that reaches outside with the code `out_of_scope`, naming
-/// the element. The copilot and MCP clients are held to it alike.
+/// and refuses one that reaches outside, naming the element: the model reads
+/// a tool error that starts with `out_of_scope:`. The copilot and MCP
+/// clients are held to it alike.
 ///
 /// What the selection reaches is derived, never stored: a room reaches its
-/// bounding walls, their doors and windows, and what stands inside it; a
-/// wall reaches its doors and windows; any other element reaches itself. New
-/// elements must land inside the area of the selection on its level.
-/// Project-wide changes (roof, levels, layers, settings) are outside every
-/// scope. Changes the engine makes as a consequence (connected walls
-/// stretching, dimensions following, links removed) are allowed.
+/// bounding walls, the doors and windows on its part of them, and what
+/// stands inside it; a wall reaches its doors and windows; any other element
+/// reaches itself. New elements must land inside the area of the selection
+/// on its level. Project-wide changes (roof, levels, layers, settings) are
+/// outside every scope. Changes the engine makes as a consequence (connected
+/// walls stretching, dimensions following, links removed) are allowed.
+/// docs/CONTRACT.md, "AI edit scope", has the full rules.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct EditScope {
