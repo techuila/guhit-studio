@@ -47,6 +47,14 @@ pub struct Session {
     pub dirty: bool,
     /// Document revision at the last automatic snapshot.
     pub last_auto_snapshot_revision: u32,
+    /// Set while the open document is this computer's copy of a project
+    /// another computer hosts in a live session (DECISIONS D29): read-only,
+    /// never saved to `projects/`, its renders and exports in
+    /// `live/<project-id>/`. Edits go to the host.
+    pub(crate) live_copy: Option<live::CopyMeta>,
+    /// The last shared project, kept after its session ends for
+    /// `live_save_copy`, until another project opens.
+    pub(crate) last_shared: Option<Project>,
 }
 
 /// What the open document looks like after a change. Sent to watchers so a
@@ -119,16 +127,26 @@ impl Session {
         self.doc.as_ref().ok_or_else(no_document)
     }
 
+    /// Folder of the open project: its own in `projects/`, or on a live
+    /// session guest the folder for its copy of the shared project.
     pub(crate) fn open_project_dir(&self) -> Result<PathBuf, IpcError> {
         let doc = self.open_doc()?;
+        if self.live_copy.is_some() {
+            return AppService::live_dir(&self.data_dir, &doc.project().id);
+        }
         store::project_dir(&self.data_dir, &doc.project().id)
     }
 
     /// Autosave: write the open project to `project.json` and stamp `updated_at`.
+    /// A live session guest's copy is never written: the project is the host's.
     fn save(&mut self) -> Result<(), IpcError> {
         let Some(doc) = self.doc.as_ref() else {
             return Ok(());
         };
+        if self.live_copy.is_some() {
+            self.dirty = false;
+            return Ok(());
+        }
         let mut project = doc.project().clone();
         project.updated_at = defaults::now_rfc3339();
         match store::save_project(&self.data_dir, &project) {
@@ -191,6 +209,8 @@ impl Session {
         self.doc = Some(Document::new(project));
         self.dirty = false;
         self.last_auto_snapshot_revision = 0;
+        self.live_copy = None;
+        self.last_shared = None;
         Ok(())
     }
 
@@ -199,15 +219,58 @@ impl Session {
         self.doc = None;
         self.dirty = false;
         self.last_auto_snapshot_revision = 0;
+        self.live_copy = None;
         Ok(())
     }
 
-    fn is_open(&self, id: &str) -> bool {
-        self.doc.as_ref().is_some_and(|d| d.project().id == id)
+    /// Where an export goes when the caller names no path: `<data>/exports/`,
+    /// or on a live session guest `exports/` in its folder for the shared
+    /// project.
+    pub(crate) fn exports_dir(&self) -> PathBuf {
+        if self.live_copy.is_some() {
+            if let Ok(dir) = self.open_project_dir() {
+                return dir.join("exports");
+            }
+        }
+        store::exports_dir(&self.data_dir)
     }
 
+    /// A live session guest opens its copy of the shared project in place of
+    /// the open one, which is flushed first.
+    pub(crate) fn install_copy(&mut self, copy: Document, meta: live::CopyMeta) -> Result<(), IpcError> {
+        self.flush()?;
+        self.doc = Some(copy);
+        self.dirty = false;
+        self.last_auto_snapshot_revision = 0;
+        self.live_copy = Some(meta);
+        self.last_shared = None;
+        Ok(())
+    }
+
+    /// The guest's session is over: the copy closes and is kept for
+    /// `live_save_copy`.
+    pub(crate) fn close_copy(&mut self) {
+        self.last_shared = self.doc.take().map(|d| d.project().clone());
+        self.live_copy = None;
+        self.dirty = false;
+        self.last_auto_snapshot_revision = 0;
+    }
+
+    /// True when `id` is the open project of this computer. A live session
+    /// guest's copy is not one: its project lives on the host.
+    fn is_open(&self, id: &str) -> bool {
+        self.live_copy.is_none() && self.doc.as_ref().is_some_and(|d| d.project().id == id)
+    }
+
+    /// The open document's state. A live session guest's copy reports the
+    /// host's history: whether there is a step to undo or redo, its label and
+    /// who made it.
     pub(crate) fn state(&self) -> Result<DocState, IpcError> {
-        Ok(self.open_doc()?.state())
+        let mut state = self.open_doc()?.state();
+        if let Some(copy) = &self.live_copy {
+            copy.undo.apply_to(&mut state);
+        }
+        Ok(state)
     }
 
     /// Revision and project id of the open document. `(0, None)` when none is
@@ -244,6 +307,8 @@ impl AppService {
                 doc: None,
                 dirty: false,
                 last_auto_snapshot_revision: 0,
+                live_copy: None,
+                last_shared: None,
             })),
             external_paths,
             changes: Arc::new(changes),
@@ -283,23 +348,28 @@ impl AppService {
     }
 
     /// Tell watchers the document changed. Never fails and never blocks: a
-    /// `watch` sender keeps the last value even with no receivers.
+    /// `watch` sender keeps the last value even with no receivers. Closing or
+    /// switching the project a live session shares ends that session.
     pub(crate) fn notify(&self, s: &Session) {
         let (revision, project_id) = s.revision();
         let seq = self.change_seq.fetch_add(1, Ordering::Relaxed) + 1;
-        self.changes.send_replace(DocChange { revision, project_id, seq });
+        self.changes.send_replace(DocChange { revision, project_id: project_id.clone(), seq });
+        live::after_doc_change(self, project_id.as_deref());
+    }
+
+    /// The `seq` of the last change notification. Read under the session
+    /// lock it belongs to the document as it is.
+    pub(crate) fn change_seq(&self) -> u64 {
+        self.changes.borrow().seq
     }
 
     /// Apply a command to the open document and persist it. CONTRACT: the AI
     /// module commits accepted proposals through this, so user and AI edits
-    /// share one path (autosave, snapshots, logging).
+    /// share one path (autosave, snapshots, logging). On a live session guest
+    /// the command is committed on the host (docs/CONTRACT.md, "Live
+    /// sessions").
     pub async fn commit(&self, command: Command, origin: Origin) -> Result<ApplyResult, IpcError> {
-        let mut s = self.session.lock().await;
-        let doc = s.doc.as_mut().ok_or_else(no_document)?;
-        let result = doc.apply(command, origin)?;
-        s.after_change()?;
-        self.notify(&s);
-        Ok(result)
+        self.commit_checked(command, origin, None).await
     }
 
     /// `commit`, but only while the document is still at `expected_revision`.
@@ -311,30 +381,101 @@ impl AppService {
         origin: Origin,
         expected_revision: u32,
     ) -> Result<ApplyResult, IpcError> {
+        self.commit_checked(command, origin, Some(expected_revision)).await
+    }
+
+    async fn commit_checked(
+        &self,
+        command: Command,
+        origin: Origin,
+        expected_revision: Option<u32>,
+    ) -> Result<ApplyResult, IpcError> {
         let mut s = self.session.lock().await;
+        if s.live_copy.is_some() {
+            drop(s);
+            return live::guest_apply(self, command, origin, expected_revision).await;
+        }
+        // While hosting, the step records the host participant as its author.
+        let author = self.live.local_author();
+        self.commit_locked(&mut s, command, origin, expected_revision, author, None)
+    }
+
+    /// The one commit path, under the session lock: the revision check, the
+    /// apply with its author, autosave, snapshots and watchers. A live
+    /// session host commits a guest's edit through it with the guest as
+    /// `author` and the shared project as `project`, which the open document
+    /// must still be.
+    pub(crate) fn commit_locked(
+        &self,
+        s: &mut Session,
+        command: Command,
+        origin: Origin,
+        expected_revision: Option<u32>,
+        author: Option<Id>,
+        project: Option<&str>,
+    ) -> Result<ApplyResult, IpcError> {
         let doc = s.doc.as_mut().ok_or_else(no_document)?;
+        if project.is_some_and(|p| doc.project().id != p) {
+            return Err(live::not_live("The host closed the project."));
+        }
         let revision = doc.revision();
-        if revision != expected_revision {
+        if let Some(expected) = expected_revision.filter(|e| *e != revision) {
             return Err(IpcError::new(
                 "stale",
-                format!("the plan moved on from revision {expected_revision} to {revision}, so nothing was applied"),
+                format!("the plan moved on from revision {expected} to {revision}, so nothing was applied"),
             ));
         }
-        let result = doc.apply(command, origin)?;
-        s.after_change()?;
-        self.notify(&s);
+        let result = doc.apply_as(command, origin, author.clone())?;
+        self.live.note_change(result.state.revision, author.as_ref());
+        // Watchers hear of the change even when it could not be saved: the
+        // plan did change.
+        let saved = s.after_change();
+        self.notify(s);
+        saved?;
         Ok(result)
     }
 
-    /// Folder of the open project, if any. CONTRACT: used by the AI module
-    /// for `ai-log.jsonl`.
+    /// Undo or redo under the session lock. In a live session the host
+    /// takes back or brings back someone else's step only with `force`;
+    /// `requester` is the guest asking, None this computer.
+    pub(crate) fn step_locked(
+        &self,
+        s: &mut Session,
+        redo: bool,
+        force: bool,
+        requester: Option<&Id>,
+        project: Option<&str>,
+    ) -> Result<DocState, IpcError> {
+        let doc = s.doc.as_mut().ok_or_else(no_document)?;
+        if project.is_some_and(|p| doc.project().id != p) {
+            return Err(live::not_live("The host closed the project."));
+        }
+        if !force {
+            self.live.check_step(doc, redo, requester)?;
+        }
+        let state = if redo { doc.redo()? } else { doc.undo()? };
+        self.live.note_change(state.revision, requester);
+        let saved = s.after_change();
+        self.notify(s);
+        saved?;
+        Ok(state)
+    }
+
+    /// Folder of the open project, if any: on a live session guest, its
+    /// folder for the shared project. CONTRACT: used by the AI module for
+    /// `ai-log.jsonl`.
     pub async fn project_dir(&self) -> Option<PathBuf> {
         let s = self.session.lock().await;
-        s.doc.as_ref().map(|d| s.data_dir.join("projects").join(&d.project().id))
+        s.open_project_dir().ok()
     }
 
     /// Single entry point for every IPC call.
     pub async fn handle(&self, cmd: &str, args: Value) -> IpcResult {
+        // A live session guest's copy belongs to the host: some calls are
+        // refused or answered differently (docs/CONTRACT.md, "Live sessions").
+        if let Some(result) = live::guest_route(self, cmd, &args).await {
+            return result;
+        }
         // Checked before the `ai_` prefix: `render_ai_*` is the image
         // provider, not the copilot.
         if render_ai::OWNS.contains(&cmd) {
@@ -431,6 +572,9 @@ impl AppService {
                     // everywhere and an undo does not bring the old name back.
                     s.doc.as_mut().ok_or_else(no_document)?.rename(&name)?;
                     s.save()?;
+                    // The revision stays, but watchers (and live session
+                    // guests) get the new name.
+                    self.notify(&s);
                 } else {
                     let mut project = store::load_project(&s.data_dir, &id)?;
                     project.name = name;
@@ -483,7 +627,7 @@ impl AppService {
             // ----------------------------------------------------- document
             "doc_state" => {
                 let s = self.session.lock().await;
-                to_value(&s.doc.as_ref().map(|d| d.state()))
+                to_value(&s.state().ok())
             }
             // Cheap poll for external changes: no project data crosses IPC.
             "doc_revision" => {
@@ -504,13 +648,14 @@ impl AppService {
             "doc_undo" | "doc_redo" => {
                 // In a live session someone else's step needs `force`
                 // (docs/CONTRACT.md, "Live sessions"). Alone, every step is yours.
-                let _force: Option<bool> = arg(&args, "force")?;
+                let force: Option<bool> = arg(&args, "force")?;
+                let (redo, force) = (cmd == "doc_redo", force.unwrap_or(false));
                 let mut s = self.session.lock().await;
-                let doc = s.doc.as_mut().ok_or_else(no_document)?;
-                let state = if cmd == "doc_undo" { doc.undo()? } else { doc.redo()? };
-                s.after_change()?;
-                self.notify(&s);
-                to_value(&state)
+                if s.live_copy.is_some() {
+                    drop(s);
+                    return to_value(&live::guest_step(self, redo, force).await?);
+                }
+                to_value(&self.step_locked(&mut s, redo, force, None, None)?)
             }
             "doc_query" => {
                 let query: Query = arg(&args, "query")?;
@@ -587,6 +732,7 @@ impl AppService {
                 };
                 let target = export_target(
                     &s.data_dir,
+                    &s.exports_dir(),
                     path.as_deref(),
                     &files::slug(&project.name, "plan"),
                     ext,
@@ -609,7 +755,8 @@ impl AppService {
                     _ => safe.clone(),
                 };
                 let s = self.session.lock().await;
-                let target = export_target(&s.data_dir, path.as_deref(), &stem, "png", self.external_paths)?;
+                let exports = s.exports_dir();
+                let target = export_target(&s.data_dir, &exports, path.as_deref(), &stem, "png", self.external_paths)?;
                 files::write_atomic(&target, &bytes)?;
                 to_value(&ExportResult {
                     path: target.to_string_lossy().into_owned(),
@@ -631,7 +778,8 @@ impl AppService {
                 }
                 let bytes = files::decode_any_data_url(&data, 64 * 1024 * 1024)?;
                 let s = self.session.lock().await;
-                let target = export_target(&s.data_dir, path.as_deref(), stem, &ext, self.external_paths)?;
+                let exports = s.exports_dir();
+                let target = export_target(&s.data_dir, &exports, path.as_deref(), stem, &ext, self.external_paths)?;
                 files::write_atomic(&target, &bytes)?;
                 to_value(&ExportResult {
                     path: target.to_string_lossy().into_owned(),
@@ -640,32 +788,30 @@ impl AppService {
             }
 
             // ----------------------------------------------------- underlay
+            // On a live session guest, underlays are stored on and read from
+            // the host.
             "underlay_store" => {
                 let file_name: String = arg(&args, "file_name")?;
                 let data: String = arg(&args, "data")?;
                 let (kind, bytes) = files::decode_image_data_url(&data)?;
-                let safe = files::safe_file_name(&file_name)?;
-                // The stored extension always matches the real image type.
-                let stem = match files::split_ext(&safe) {
-                    (stem, ext) if ImageKind::from_ext(ext).is_some() => stem.to_string(),
-                    _ => safe.replace('.', "_"),
-                };
+                files::safe_file_name(&file_name)?;
+                let underlay = live::wire::FileKind::Underlay;
+                if let Some(stored) = live::guest_put_file(self, underlay, &file_name, &bytes).await {
+                    return stored;
+                }
                 let s = self.session.lock().await;
-                let dir = s.open_project_dir()?.join("underlays");
-                files::create_dir(&dir)?;
-                // Never overwrite: another underlay element may use that file.
-                let target = files::unique_path(&dir, &stem, kind.ext());
-                files::write_atomic(&target, &bytes)?;
-                let stored = target.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+                let stored = store_underlay(&s.open_project_dir()?, &file_name, kind, &bytes)?;
                 Ok(serde_json::json!({ "file_name": stored }))
             }
             "underlay_data" => {
                 let file_name: String = arg(&args, "file_name")?;
-                files::check_file_name(&file_name)?;
-                let kind = ImageKind::from_ext(files::split_ext(&file_name).1)
-                    .ok_or_else(|| IpcError::new("invalid", "underlays are PNG or JPEG files"))?;
+                let kind = underlay_kind(&file_name)?;
+                let underlay = live::wire::FileKind::Underlay;
+                if let Some(bytes) = live::guest_get_file(self, underlay, &file_name).await {
+                    return to_value(&files::encode_data_url(kind, &bytes?));
+                }
                 let s = self.session.lock().await;
-                let path = s.open_project_dir()?.join("underlays").join(&file_name);
+                let (path, kind) = underlay_file(&s.open_project_dir()?, &file_name)?;
                 if !path.is_file() {
                     return Err(IpcError::new("not_found", format!("underlay not found: {file_name}")));
                 }
@@ -723,15 +869,53 @@ fn export_err(e: guhit_export::ExportError) -> IpcError {
     }
 }
 
+/// The image type of a stored underlay, from its name, which must already be
+/// in safe form.
+pub(crate) fn underlay_kind(file_name: &str) -> Result<ImageKind, IpcError> {
+    files::check_file_name(file_name)?;
+    ImageKind::from_ext(files::split_ext(file_name).1)
+        .ok_or_else(|| IpcError::new("invalid", "underlays are PNG or JPEG files"))
+}
+
+/// Where a stored underlay of a project folder is, and its image type.
+pub(crate) fn underlay_file(project_dir: &Path, file_name: &str) -> Result<(PathBuf, ImageKind), IpcError> {
+    let kind = underlay_kind(file_name)?;
+    Ok((project_dir.join("underlays").join(file_name), kind))
+}
+
+/// Store an underlay image in a project folder and return the name it got.
+/// The window's own uploads and a live session guest's go through here.
+pub(crate) fn store_underlay(
+    project_dir: &Path,
+    file_name: &str,
+    kind: ImageKind,
+    bytes: &[u8],
+) -> Result<String, IpcError> {
+    let safe = files::safe_file_name(file_name)?;
+    // The stored extension always matches the real image type.
+    let stem = match files::split_ext(&safe) {
+        (stem, ext) if ImageKind::from_ext(ext).is_some() => stem.to_string(),
+        _ => safe.replace('.', "_"),
+    };
+    let dir = project_dir.join("underlays");
+    files::create_dir(&dir)?;
+    // Never overwrite: another underlay element may use that file.
+    let target = files::unique_path(&dir, &stem, kind.ext());
+    files::write_atomic(&target, bytes)?;
+    Ok(target.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string())
+}
+
 /// Where an export goes. A path from the UI comes from the native save
 /// dialog, so it is used as given but must be absolute, free of `..` and in
-/// an existing folder. Without one: `<data>/exports/<stem>-<timestamp>.<ext>`.
+/// an existing folder. Without one: `<exports>/<stem>-<timestamp>.<ext>`,
+/// where `exports` is `Session::exports_dir`.
 ///
 /// With `external_paths` false the caller is not trusted with a location:
 /// only a path inside `data_dir` is accepted. The dev bridge runs this way,
 /// because any program on the machine can post to it.
 pub(crate) fn export_target(
     data_dir: &Path,
+    exports: &Path,
     path: Option<&str>,
     stem: &str,
     ext: &str,
@@ -759,9 +943,8 @@ pub(crate) fn export_target(
             }
         }
         None => {
-            let dir = store::exports_dir(data_dir);
-            files::create_dir(&dir)?;
-            Ok(files::unique_path(&dir, &format!("{stem}-{}", files::file_timestamp()), ext))
+            files::create_dir(exports)?;
+            Ok(files::unique_path(exports, &format!("{stem}-{}", files::file_timestamp()), ext))
         }
     }
 }
