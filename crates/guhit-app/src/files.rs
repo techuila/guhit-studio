@@ -211,6 +211,12 @@ impl ImageKind {
             ImageKind::Jpeg => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
         }
     }
+
+    /// The type of image bytes that arrived without a media type (a live
+    /// session guest's upload), from their first bytes.
+    pub fn sniff(bytes: &[u8]) -> Option<Self> {
+        [ImageKind::Png, ImageKind::Jpeg].into_iter().find(|k| k.matches_magic(bytes))
+    }
 }
 
 /// Decode a `data:image/png;base64,...` or `data:image/jpeg;base64,...` URL.
