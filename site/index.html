@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GUHIT Studio - floor plans, live 3D and AI revisions on your desktop</title>
-<meta name="description" content="A desktop drafting studio for Philippine architects. Draw a real floor plan in minutes, see it in 3D as you draw, ask AI for revisions you approve, and export to AutoCAD, SketchUp, IFC and PDF. macOS and Windows.">
+<meta name="description" content="A desktop drafting studio for Philippine architects. Draw a real floor plan in minutes, see it in 3D as you draw, lay out plumbing, electrical and aircon, light it by the sun or at night, ask AI for revisions you approve, and export to AutoCAD, SketchUp, IFC and PDF. macOS and Windows.">
 <link rel="canonical" href="https://techuila.github.io/guhit-studio/">
 <meta name="theme-color" content="#1f2d44">
 <meta name="color-scheme" content="light">
@@ -12,7 +12,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="GUHIT Studio">
 <meta property="og:title" content="GUHIT Studio - draw, see, build the idea">
-<meta property="og:description" content="Draw a real floor plan in minutes, see it in 3D instantly, ask AI to make revisions, export to AutoCAD, SketchUp, IFC and PDF. A desktop app for macOS and Windows.">
+<meta property="og:description" content="Draw a real floor plan in minutes, see it in 3D instantly, lay out services, light it by the sun, ask AI to make revisions, export to AutoCAD, SketchUp, IFC and PDF. A desktop app for macOS and Windows.">
 <meta property="og:url" content="https://techuila.github.io/guhit-studio/">
 <meta property="og:image" content="https://techuila.github.io/guhit-studio/og.png">
 <meta property="og:image:width" content="1200">
@@ -57,8 +57,9 @@
 <a class="skip" href="#draw">Skip to the product tour</a>
 
 <!-- Load sequence, and the page's loader: a navy field, the drafting grid drawn
-     line by line from the centre out, the mark drawn stroke by stroke, then the
-     field collapses into the hero's mark once the page is also ready. -->
+     in random places all at once, the mark drawn stroke by stroke, then the
+     field collapses into the hero's mark once the page is also ready, and only
+     then is GUHIT written. -->
 <div class="intro" id="intro" aria-hidden="true" inert>
   <div class="intro__field" id="introField">
     <svg class="intro__grid" id="introGrid" focusable="false" preserveAspectRatio="none"></svg>
@@ -122,16 +123,15 @@
       </div>
       <ol class="dl-help__steps" data-for="mac">
         <li>Open the downloaded file and drag <b>Guhit Studio</b> into <b>Applications</b>.</li>
-        <li>Open Guhit Studio from Applications.</li>
-        <li>The first time, macOS says it cannot verify the app. Click <b>Done</b>, open <b>System Settings</b>, then <b>Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b>. You only do this once.</li>
+        <li>Open Guhit Studio from Applications. The first time, macOS asks if you want to open an app from the internet: click <b>Open</b>.</li>
       </ol>
       <ol class="dl-help__steps" data-for="win" hidden>
         <li>Open the downloaded setup file.</li>
         <li>If Windows says it protected your PC, click <b>More info</b>, then <b>Run anyway</b>.</li>
         <li>Follow the installer. Guhit Studio then opens from the Start menu.</li>
       </ol>
-      <p class="dl-help__note" data-for="mac">On macOS 14 or older, right-click the app in Applications and choose <b>Open</b> instead.</p>
-      <p class="dl-help__note">The app is not code signed yet, which is why your computer asks once before opening it.</p>
+      <p class="dl-help__note" data-for="mac">The Mac app is signed and notarized by Apple.</p>
+      <p class="dl-help__note" data-for="win" hidden>The Windows installer is not code signed yet, which is why Windows asks once before running it.</p>
     </div>
 
     <a class="cue" href="#draw"><span class="cue__label">Scroll</span><span class="cue__rail"><i></i></span></a>
@@ -140,7 +140,7 @@
 
 <main>
 
-<!-- ===================== 02 DRAW ===================== -->
+<!-- ===================== 01 DRAW ===================== -->
 <div class="tag"><span class="tag__no">01</span><span class="tag__name">Draw</span></div>
 <section class="act" id="draw" aria-labelledby="draw-h" style="--len:4">
   <div class="act__stage">
@@ -236,12 +236,13 @@
           read the other way. Draw a wall and it is already there, three metres tall, with the
           light falling on it.</p>
         <p>Materials and furniture come from a built-in library of CC0 assets from Poly Haven,
-          Kenney and ambientCG. Lift the roof, cut the model at eye level, or walk a camera
-          through a room to check a sightline.</p>
+          Kenney and ambientCG. Lift the roof, cut the model at eye level, stack another floor on
+          top, or press <kbd class="kbd-inline">Shift</kbd>+<kbd class="kbd-inline">W</kbd> and walk
+          through the rooms at eye height, up the stairs and out the door.</p>
         <dl class="facts">
           <div><dt>Level height</dt><dd class="num">3000 mm</dd></div>
           <div><dt>Roof presets</dt><dd>Gable, shed, flat</dd></div>
-          <div><dt>Views</dt><dd>Plan, split, 3D</dd></div>
+          <div><dt>Views</dt><dd>Plan, split, 3D, walk, fly</dd></div>
         </dl>
       </div>
 
@@ -269,8 +270,104 @@
   </div>
 </section>
 
-<!-- ===================== 03 ASK ===================== -->
-<div class="tag"><span class="tag__no">03</span><span class="tag__name">Ask</span></div>
+<!-- ===================== 03 COORDINATE ===================== -->
+<div class="tag"><span class="tag__no">03</span><span class="tag__name">Coordinate</span></div>
+<section class="band band--split" id="coordinate" aria-labelledby="co-h">
+  <div class="wrap split">
+    <div class="split__copy">
+      <h2 id="co-h" class="h2 rise">Pipes, wires and<br>aircon, on the plan.</h2>
+      <p class="rise">Cold and hot water, drainage, vent and storm, electrical conduit, aircon line sets
+        and condensate drains draw like walls, at a height you type, each on its own layer. Place
+        lights, outlets, switches and aircon units, then link each switch to the lights it
+        controls. Walk through in X-ray and the runs are there, inside the walls.</p>
+      <p class="rise">The review list reads the model as you work: a pipe through a column or across a
+        door, a drain that falls too little, a light no switch controls. Each item says where and
+        why in plain words. Set one aside with a note; nothing is ever marked approved.</p>
+      <dl class="facts rise">
+        <div><dt>Service runs</dt><dd class="num">8 systems, 7 layers</dd></div>
+        <div><dt>Device schedules</dt><dd>PH inspection form rows</dd></div>
+        <div><dt>Review items</dt><dd>Suggestions, never approval</dd></div>
+      </dl>
+    </div>
+    <div class="split__art">
+      <figure class="shot rise">
+        <img src="assets/app-services.webp" width="1200" height="750" loading="lazy" decoding="async"
+             alt="GUHIT Studio showing the bungalow plan with colored water, drainage, storm, conduit and aircon runs, and the review list grouped by room on the right.">
+        <figcaption>The services demo: every run on the plan, the review list beside it.</figcaption>
+      </figure>
+      <ul class="legend num rise" aria-label="Service systems and their colors on the plan">
+        <li style="--c:#2b7bd0">Cold water</li>
+        <li style="--c:#e0563a">Hot water</li>
+        <li style="--c:#9b6a35" data-dash>Drainage</li>
+        <li style="--c:#3a9a5c" data-dash>Vent</li>
+        <li style="--c:#6f7782" data-dash>Storm</li>
+        <li style="--c:#d49a1a" data-dash>Conduit</li>
+        <li style="--c:#b0428f">Line set</li>
+        <li style="--c:#6c8fb3" data-dash>Condensate</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 04 LIGHT ===================== -->
+<div class="tag"><span class="tag__no">04</span><span class="tag__name">Light</span></div>
+<section class="band band--split" id="light" aria-labelledby="li-h">
+  <div class="wrap split split--flip">
+    <div class="split__copy">
+      <h2 id="li-h" class="h2 rise">The sun over<br>your actual lot.</h2>
+      <p class="rise">Pick the city and the sun stands where it will over that lot, on that date.
+        Scrub the hour with <kbd class="kbd-inline">U</kbd> and <kbd class="kbd-inline">I</kbd>, or step
+        through morning, noon, afternoon, dusk and night. After sunset the fixtures you placed
+        light their rooms, and a saved view keeps its hour.</p>
+      <p class="rise">When a view is right, Render makes a path traced still of it, from HD to 4K, with
+        bounce light and soft shadows, while the 3D view stays yours to use. The still lands in
+        Visuals, ready for the client or for an AI visualization.</p>
+      <dl class="facts rise">
+        <div><dt>Sites</dt><dd>Manila and 8 more PH cities</dd></div>
+        <div><dt>Sun steps</dt><dd class="num">15 min, U and I</dd></div>
+        <div><dt>Render sizes</dt><dd class="num">HD, QHD, 4K</dd></div>
+      </dl>
+    </div>
+    <div class="split__art">
+      <div class="sun rise" id="sun">
+        <div class="sun__frames">
+          <img class="sun__f" style="--i:0" src="assets/sun-0800.webp" width="1200" height="750" loading="lazy" decoding="async" alt="The bungalow at 8:00 in the morning, long shadows to the west.">
+          <img class="sun__f" style="--i:1" src="assets/sun-1200.webp" width="1200" height="750" loading="lazy" decoding="async" alt="">
+          <img class="sun__f" style="--i:2" src="assets/sun-1500.webp" width="1200" height="750" loading="lazy" decoding="async" alt="">
+          <img class="sun__f" style="--i:3" src="assets/sun-1759.webp" width="1200" height="750" loading="lazy" decoding="async" alt="">
+          <img class="sun__f" style="--i:4" src="assets/sun-2000.webp" width="1200" height="750" loading="lazy" decoding="async" alt="">
+          <span class="sun__tag num" aria-hidden="true">Live 3D view · Manila · 25 Sep</span>
+        </div>
+        <div class="sun__ctl">
+          <label class="sun__label" for="sunRange"><span>Time of day <span class="sun__hint">· drag, or press U and I</span></span> <output class="num" id="sunNow" for="sunRange">8:00 AM</output></label>
+          <div class="sun__rail">
+            <input class="sun__range" id="sunRange" type="range" min="0" max="4" step="0.01" value="0"
+                   aria-valuetext="8:00 AM, morning">
+            <span class="sun__knob" aria-hidden="true"></span>
+          </div>
+          <ol class="sun__ticks num" aria-hidden="true">
+            <li>8 AM</li><li>Noon</li><li>3 PM</li><li>Dusk</li><li>8 PM</li>
+          </ol>
+        </div>
+      </div>
+      <div class="duo">
+        <figure class="shot rise">
+          <img src="assets/night-interior.webp" width="1200" height="750" loading="lazy" decoding="async"
+               alt="The living room and kitchen at 8 PM, lit by the pendant over the dining table.">
+          <figcaption>8 PM: the pendant lights the kitchen.</figcaption>
+        </figure>
+        <figure class="shot rise">
+          <img src="assets/render.webp" width="1600" height="900" loading="lazy" decoding="async"
+               alt="A path traced render of the bungalow at mid morning, with a soft shadow on the lawn.">
+          <figcaption>Render: path traced at HD in about a minute.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 05 ASK ===================== -->
+<div class="tag"><span class="tag__no">05</span><span class="tag__name">Ask</span></div>
 <section class="act" id="ask" aria-labelledby="ask-h" style="--len:4">
   <div class="act__stage">
     <div class="wrap act__grid">
@@ -399,8 +496,8 @@
   </div>
 </section>
 
-<!-- ===================== 04 HAND OFF ===================== -->
-<div class="tag"><span class="tag__no">04</span><span class="tag__name">Hand off</span></div>
+<!-- ===================== 06 HAND OFF ===================== -->
+<div class="tag"><span class="tag__no">06</span><span class="tag__name">Hand off</span></div>
 <section class="band" id="handoff" aria-labelledby="ho-h">
   <div class="wrap">
     <div class="band__head">
@@ -410,28 +507,138 @@
         format only this app can open.</p>
     </div>
 
-    <ul class="formats">
-      <li class="fmt rise"><span class="fmt__ext num">DXF</span><span class="fmt__for">AutoCAD, SketchUp, Revit</span><span class="fmt__dir num">2D and 3D</span></li>
-      <li class="fmt rise"><span class="fmt__ext num">DWG</span><span class="fmt__for">AutoCAD</span><span class="fmt__dir num">via ODA converter</span></li>
-      <li class="fmt rise"><span class="fmt__ext num">IFC</span><span class="fmt__for">Revit, ArchiCAD, BIM</span><span class="fmt__dir num">IFC4 out</span></li>
-      <li class="fmt rise"><span class="fmt__ext num">PDF</span><span class="fmt__for">Print, clients, permits desk</span><span class="fmt__dir num">titled sheet</span></li>
-      <li class="fmt rise"><span class="fmt__ext num">SVG</span><span class="fmt__for">Illustrator, Figma, InDesign</span><span class="fmt__dir num">vector plan</span></li>
-      <li class="fmt rise"><span class="fmt__ext num">glTF</span><span class="fmt__for">Blender, Unreal, web viewers</span><span class="fmt__dir num">in and out</span></li>
-      <li class="fmt rise"><span class="fmt__ext num">OBJ</span><span class="fmt__for">Blender, 3ds Max, Cinema 4D</span><span class="fmt__dir num">in and out</span></li>
-      <li class="fmt rise"><span class="fmt__ext num">DAE</span><span class="fmt__for">SketchUp</span><span class="fmt__dir num">out</span></li>
-      <li class="fmt fmt--own rise"><span class="fmt__ext num">.guhit</span><span class="fmt__for">A whole project as one file</span><span class="fmt__dir num">a plain zip</span></li>
-    </ul>
+    <div class="rails rise">
+      <div class="rail" data-dir="in">
+        <p class="rail__label num"><svg class="rail__arrow" viewBox="0 0 20 12" aria-hidden="true" focusable="false"><path d="M1 6H13M9 2L13 6L9 10M16 1V11"/></svg><span>Opens</span></p>
+        <div class="rail__window">
+          <div class="rail__move">
+            <ul class="rail__track" aria-label="Formats GUHIT opens">
+            <li class="chip"><span class="chip__ext num">DXF</span><span class="chip__for">AutoCAD, BricsCAD, LibreCAD</span><span class="chip__dir num">walls or linework</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">DWG</span><span class="chip__for">AutoCAD</span><span class="chip__dir num">via the ODA converter</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">glTF</span><span class="chip__for">Blender, SketchUp, the web</span><span class="chip__dir num">reference model in 3D</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">OBJ</span><span class="chip__for">Blender, 3ds Max, Rhino</span><span class="chip__dir num">reference model in 3D</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">PNG · JPG</span><span class="chip__for">A scanned or photographed plan</span><span class="chip__dir num">underlay to trace over</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip chip--own"><span class="chip__ext num">.guhit</span><span class="chip__for">A whole project as one file</span><span class="chip__dir num">a plain zip</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            </ul>
+            <ul class="rail__track" aria-hidden="true">
+            <li class="chip"><span class="chip__ext num">DXF</span><span class="chip__for">AutoCAD, BricsCAD, LibreCAD</span><span class="chip__dir num">walls or linework</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">DWG</span><span class="chip__for">AutoCAD</span><span class="chip__dir num">via the ODA converter</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">glTF</span><span class="chip__for">Blender, SketchUp, the web</span><span class="chip__dir num">reference model in 3D</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">OBJ</span><span class="chip__for">Blender, 3ds Max, Rhino</span><span class="chip__dir num">reference model in 3D</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">PNG · JPG</span><span class="chip__for">A scanned or photographed plan</span><span class="chip__dir num">underlay to trace over</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip chip--own"><span class="chip__ext num">.guhit</span><span class="chip__for">A whole project as one file</span><span class="chip__dir num">a plain zip</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="rail" data-dir="out">
+        <p class="rail__label num"><svg class="rail__arrow" viewBox="0 0 20 12" aria-hidden="true" focusable="false"><path d="M4 1V11M7 6H19M15 2L19 6L15 10"/></svg><span>Exports</span></p>
+        <div class="rail__window">
+          <div class="rail__move">
+            <ul class="rail__track" aria-label="Formats GUHIT exports">
+            <li class="chip"><span class="chip__ext num">PDF</span><span class="chip__for">Clients, print, the permits desk</span><span class="chip__dir num">titled sheets, review page</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">DXF</span><span class="chip__for">AutoCAD, SketchUp, Revit</span><span class="chip__dir num">2D sheets and 3D model</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">DWG</span><span class="chip__for">AutoCAD</span><span class="chip__dir num">via the ODA converter</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">IFC</span><span class="chip__for">Revit, ArchiCAD, BIM viewers</span><span class="chip__dir num">IFC4, services included</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">SVG</span><span class="chip__for">Illustrator, Figma, InDesign</span><span class="chip__dir num">vector plan</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">GLB</span><span class="chip__for">Blender, Unreal, web and AR</span><span class="chip__dir num">the 3D model</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">OBJ</span><span class="chip__for">Blender, 3ds Max, Cinema 4D</span><span class="chip__dir num">the 3D model</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">DAE</span><span class="chip__for">SketchUp</span><span class="chip__dir num">the 3D model</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">PNG</span><span class="chip__for">Renders and 3D captures</span><span class="chip__dir num">HD to 4K</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip chip--own"><span class="chip__ext num">.guhit</span><span class="chip__for">A whole project as one file</span><span class="chip__dir num">a plain zip</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            </ul>
+            <ul class="rail__track" aria-hidden="true">
+            <li class="chip"><span class="chip__ext num">PDF</span><span class="chip__for">Clients, print, the permits desk</span><span class="chip__dir num">titled sheets, review page</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">DXF</span><span class="chip__for">AutoCAD, SketchUp, Revit</span><span class="chip__dir num">2D sheets and 3D model</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">DWG</span><span class="chip__for">AutoCAD</span><span class="chip__dir num">via the ODA converter</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">IFC</span><span class="chip__for">Revit, ArchiCAD, BIM viewers</span><span class="chip__dir num">IFC4, services included</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">SVG</span><span class="chip__for">Illustrator, Figma, InDesign</span><span class="chip__dir num">vector plan</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">GLB</span><span class="chip__for">Blender, Unreal, web and AR</span><span class="chip__dir num">the 3D model</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">OBJ</span><span class="chip__for">Blender, 3ds Max, Cinema 4D</span><span class="chip__dir num">the 3D model</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">DAE</span><span class="chip__for">SketchUp</span><span class="chip__dir num">the 3D model</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip"><span class="chip__ext num">PNG</span><span class="chip__for">Renders and 3D captures</span><span class="chip__dir num">HD to 4K</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            <li class="chip chip--own"><span class="chip__ext num">.guhit</span><span class="chip__for">A whole project as one file</span><span class="chip__dir num">a plain zip</span></li>
+            <li class="rail__tick" aria-hidden="true"><svg viewBox="0 0 36 12" focusable="false"><path d="M0 6H36M5 10L9 2M27 10L31 2"/></svg></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <figure class="shot shot--wide rise">
       <img src="assets/app-sheet.webp" width="1440" height="1018" loading="lazy" decoding="async"
            alt="An A3 landscape ground floor plan exported by GUHIT Studio, with dimensions, room areas, a graphic scale, a north arrow and a filled title block.">
       <figcaption>An A3 sheet out of the export dialog. Scale 1:75, graphic scale and title block included.</figcaption>
     </figure>
+
+    <div class="sheets">
+      <div class="sheets__head">
+        <h3 class="h3 rise">Sheets for the people who sign.</h3>
+        <p class="rise">Lighting, power, plumbing, plumbing isometric and aircon layouts, each with its
+          legend, counts per room and a blank block for the PEE, the Master Plumber or the PME. A PDF
+          can carry a review page too. GUHIT draws the coordination; the licensed professional
+          designs and signs.</p>
+      </div>
+      <div class="sheets__row">
+        <figure class="shot rise">
+          <a class="shot__open" href="assets/sheet-lighting.webp" target="_blank" rel="noopener" aria-label="Open the lighting layout full size">
+            <img src="assets/sheet-lighting.webp" width="1440" height="1018" loading="lazy" decoding="async"
+               alt="An A3 lighting layout: ceiling lights, downlights and switches with dashed links from each switch to its lights, a legend with counts, counts per room and a blank PEE block.">
+          </a>
+          <figcaption>Lighting layout, switch to light links</figcaption>
+        </figure>
+        <figure class="shot rise">
+          <a class="shot__open" href="assets/sheet-power.webp" target="_blank" rel="noopener" aria-label="Open the power layout full size">
+            <img src="assets/sheet-power.webp" width="1440" height="1018" loading="lazy" decoding="async"
+               alt="An A3 power layout: outlets, special purpose outlets, the panelboard and conduit, with a schedule of loads whose rating columns are left blank.">
+          </a>
+          <figcaption>Power layout, loads left for the PEE</figcaption>
+        </figure>
+        <figure class="shot rise">
+          <a class="shot__open" href="assets/sheet-isometric.webp" target="_blank" rel="noopener" aria-label="Open the plumbing isometric full size">
+            <img src="assets/sheet-isometric.webp" width="1440" height="1018" loading="lazy" decoding="async"
+               alt="Water distribution and sanitary drainage isometric diagrams with riser tags, pipe sizes and a blank Master Plumber block.">
+          </a>
+          <figcaption>Plumbing isometric, not to scale</figcaption>
+        </figure>
+      </div>
+    </div>
   </div>
 </section>
 
-<!-- ===================== 05 SECURE ===================== -->
-<div class="tag tag--dark"><span class="tag__no">05</span><span class="tag__name">Secure by design</span></div>
+<!-- ===================== 07 SECURE ===================== -->
+<div class="tag tag--dark"><span class="tag__no">07</span><span class="tag__name">Secure by design</span></div>
 <section class="band band--dark" id="secure" aria-labelledby="sec-h">
   <div class="wrap">
     <h2 id="sec-h" class="h2 rise">Nothing leaves without you.</h2>
@@ -460,12 +667,18 @@
           so a web page cannot reach it. Exports can only be written inside the app's own
           exports folder.</p>
       </article>
+      <article class="cell rise">
+        <h3>Signed, updates too</h3>
+        <p>The macOS app is signed with a Developer ID and notarized by Apple, so it opens like any
+          other Mac app. Every update is signed as well, and an installed copy refuses one that
+          does not match its key.</p>
+      </article>
     </div>
   </div>
 </section>
 
-<!-- ===================== 06 PHILIPPINES ===================== -->
-<div class="tag"><span class="tag__no">06</span><span class="tag__name">Built for the Philippines</span></div>
+<!-- ===================== 08 PHILIPPINES ===================== -->
+<div class="tag"><span class="tag__no">08</span><span class="tag__name">Built for the Philippines</span></div>
 <section class="band" id="ph" aria-labelledby="ph-h">
   <div class="wrap ph">
     <div class="ph__copy">
@@ -483,6 +696,15 @@
           clay tile in the built-in library.</li>
         <li class="rise"><b>Taglish copilot.</b> "Ilan ang kwarto at ano ang total floor area?"
           works as well as the English version.</li>
+        <li class="rise"><b>Your city's sun.</b> Manila, Quezon City, Baguio, Laoag, Iloilo, Cebu,
+          Puerto Princesa, Davao and Zamboanga presets put the sun where it will stand over your
+          lot.</li>
+        <li class="rise"><b>Inspection form counts.</b> Device schedules count lighting outlets,
+          receptacles, switches and panelboards in the rows of the PH electrical inspection
+          form.</li>
+        <li class="rise"><b>Left for the professionals.</b> Service sheets carry blank blocks for the
+          PEE, the Master Plumber and the PME. GUHIT coordinates; it never sizes pipes, loads or
+          aircon.</li>
         <li class="rise"><b>Peso pricing to come.</b> Free while the app is in development. Pricing,
           when it arrives, will be in PHP.</li>
       </ul>
@@ -515,7 +737,7 @@
   </div>
 </section>
 
-<!-- ===================== 07 SHORTCUTS ===================== -->
+<!-- ===================== SHORTCUTS ===================== -->
 <section class="band band--keys" id="shortcuts" aria-labelledby="kb-h">
   <div class="wrap">
     <h2 id="kb-h" class="h3">One key per tool. No modifier.</h2>
@@ -527,16 +749,20 @@
       <li class="key" style="--i:4"><kbd>N</kbd><span>Window</span></li>
       <li class="key" style="--i:5"><kbd>C</kbd><span>Column</span></li>
       <li class="key" style="--i:6"><kbd>S</kbd><span>Stair</span></li>
-      <li class="key" style="--i:7"><kbd>M</kbd><span>Dimension</span></li>
-      <li class="key" style="--i:8"><kbd>T</kbd><span>Text</span></li>
-      <li class="key" style="--i:9"><kbd>K</kbd><span>Camera</span></li>
+      <li class="key" style="--i:7"><kbd>O</kbd><span>Objects</span></li>
+      <li class="key" style="--i:8"><kbd>P</kbd><span>Services</span></li>
+      <li class="key" style="--i:9"><kbd>L</kbd><span>Link</span></li>
+      <li class="key" style="--i:10"><kbd>M</kbd><span>Dimension</span></li>
+      <li class="key" style="--i:11"><kbd>T</kbd><span>Text</span></li>
+      <li class="key" style="--i:12"><kbd>K</kbd><span>Camera</span></li>
     </ul>
     <p class="keys__foot num">1 plan · 2 split · 3 three-d · F fit · Z zoom to selection ·
+      <span class="kbd-inline">Shift</span>+W walk · U and I move the sun ·
       <span class="kbd-inline">Mod</span>+K command palette · ? for the full sheet</p>
   </div>
 </section>
 
-<!-- ===================== 08 DOWNLOAD ===================== -->
+<!-- ===================== DOWNLOAD ===================== -->
 <section class="band band--get" id="download" aria-labelledby="dl-h">
   <div class="wrap get">
     <h2 id="dl-h" class="h2 rise">Draw. See. Build the idea.</h2>
@@ -559,16 +785,15 @@
       </div>
       <ol class="dl-help__steps" data-for="mac">
         <li>Open the downloaded file and drag <b>Guhit Studio</b> into <b>Applications</b>.</li>
-        <li>Open Guhit Studio from Applications.</li>
-        <li>The first time, macOS says it cannot verify the app. Click <b>Done</b>, open <b>System Settings</b>, then <b>Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b>. You only do this once.</li>
+        <li>Open Guhit Studio from Applications. The first time, macOS asks if you want to open an app from the internet: click <b>Open</b>.</li>
       </ol>
       <ol class="dl-help__steps" data-for="win" hidden>
         <li>Open the downloaded setup file.</li>
         <li>If Windows says it protected your PC, click <b>More info</b>, then <b>Run anyway</b>.</li>
         <li>Follow the installer. Guhit Studio then opens from the Start menu.</li>
       </ol>
-      <p class="dl-help__note" data-for="mac">On macOS 14 or older, right-click the app in Applications and choose <b>Open</b> instead.</p>
-      <p class="dl-help__note">The app is not code signed yet, which is why your computer asks once before opening it.</p>
+      <p class="dl-help__note" data-for="mac">The Mac app is signed and notarized by Apple.</p>
+      <p class="dl-help__note" data-for="win" hidden>The Windows installer is not code signed yet, which is why Windows asks once before running it.</p>
     </div>
     <div class="dl-guide rise" aria-labelledby="guide-h">
       <h3 id="guide-h" class="dl-guide__h">First time opening it</h3>
@@ -577,8 +802,7 @@
           <p class="dl-guide__os">On a Mac</p>
           <ol class="dl-help__steps">
             <li>Open the downloaded file and drag <b>Guhit Studio</b> into <b>Applications</b>.</li>
-            <li>Open Guhit Studio from Applications.</li>
-            <li>The first time, macOS says it cannot verify the app. Click <b>Done</b>, open <b>System Settings</b>, then <b>Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b>.</li>
+            <li>Open Guhit Studio from Applications. The first time, macOS asks if you want to open an app from the internet: click <b>Open</b>.</li>
           </ol>
         </div>
         <div>
@@ -590,7 +814,7 @@
           </ol>
         </div>
       </div>
-      <p class="dl-help__note">Most Macs from late 2020 on have Apple silicon and use the main macOS button. Older Macs with an Intel chip use the Intel build.</p>
+      <p class="dl-help__note">The Mac app is signed and notarized by Apple. The Windows installer is not code signed yet, which is why Windows asks once. Most Macs from late 2020 on have Apple silicon and use the main macOS button; older Macs with an Intel chip use the Intel build.</p>
     </div>
   </div>
 </section>

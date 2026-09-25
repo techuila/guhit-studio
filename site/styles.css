@@ -404,18 +404,17 @@ b { font-weight: 600; }
 }
 @keyframes draw { to { stroke-dashoffset: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
-/* Under the intro the hero is painted from the first frame and simply hidden
-   behind the navy field, so it only slides: no opacity, nothing to delay the
-   largest contentful paint. */
-@keyframes rise-t { from { transform: translateY(20px); } to { transform: none; } }
 
 /* ---------- the load sequence overlay ------------------------------------ */
 
-/* the hero's own entrance waits for the intro, and keeps waiting after the
-   overlay is gone so nothing restarts or jumps mid-slide. The intro is also the
-   page's loader, so it can run long: main.js rewrites --intro-o to the real
-   collapse moment. This value is the no-JS-yet default. */
-html.intro-on, html.intro-done { --intro-o: 5100ms; }
+/* The hero's entrance waits for the mark to land in its place: main.js sets
+   --intro-o on <html> to that moment, and the text rises from there. The
+   intro is also the page's loader, so the moment is not known in advance:
+   until main.js sets it nothing starts (the long default), and an intro that
+   ends any other way (skipped, or its last-resort timer) shows the text at
+   once (0ms). */
+html.intro-on { --intro-o: 600s; }
+html.intro-done { --intro-o: 0ms; }
 
 .intro { display: none; }
 html.intro-on .intro, html.intro-reduced .intro {
@@ -430,7 +429,7 @@ html.intro-on .intro, html.intro-reduced .intro {
   will-change: transform;
 }
 /* The same 44px module as the hero field. One <line> per grid line, built and
-   animated by main.js so each one can draw on its own clock, centre outward. */
+   animated by main.js so each one draws on its own clock, in a random order. */
 .intro__grid {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
@@ -496,12 +495,19 @@ html.intro-on .intro, html.intro-reduced .intro {
   /* Under the intro every stroke is driven from main.js instead, on the same
      clock as the grid and the collapse, so no phase can drift into the next. */
   html.intro-on .mg { animation: none; stroke-dashoffset: var(--len); }
-  html.intro-on .hero__eyebrow, html.intro-on .hero__tagline, html.intro-on .hero__lede,
-  html.intro-on .cta, html.intro-on .cta__note, html.intro-on .cue,
-  html.intro-done .hero__eyebrow, html.intro-done .hero__tagline, html.intro-done .hero__lede,
-  html.intro-done .cta, html.intro-done .cta__note, html.intro-done .cue { animation-name: rise-t; }
-  /* the wordmark is not raised in, it is written: see .write below */
+  /* After the landing the word leads: the eyebrow beside the mark first, then
+     the rest while GUHIT is still being written. Nothing shows while the
+     field is still moving, so nothing crosses the word. */
+  html.intro-on .hero__eyebrow, html.intro-done .hero__eyebrow { animation-delay: calc(160ms + var(--intro-o)); }
+  html.intro-on .hero__tagline, html.intro-done .hero__tagline { animation-delay: calc(520ms + var(--intro-o)); }
+  html.intro-on .hero__lede, html.intro-done .hero__lede { animation-delay: calc(640ms + var(--intro-o)); }
+  html.intro-on .cta, html.intro-done .cta { animation-delay: calc(740ms + var(--intro-o)); }
+  html.intro-on .cta__note, html.intro-done .cta__note { animation-delay: calc(800ms + var(--intro-o)); }
+  html.intro-on .cue, html.intro-done .cue { animation-delay: calc(960ms + var(--intro-o)); }
+  /* the wordmark is not raised in, it is written once the mark has landed
+     (see .write below), and until then it is not shown at all */
   html.intro-on .wordmark, html.intro-done .wordmark { animation: none; }
+  html.intro-on .wordmark { visibility: hidden; }
   html.intro-on .intro.is-closing .intro__grid,
   html.intro-on .intro.is-closing .intro__load { opacity: 0; transition: opacity 260ms linear; }
 }
@@ -773,6 +779,109 @@ html.intro-writing .wordmark { visibility: hidden; }
 .applied__check { width: 22px; height: 22px; }
 .proposal__note { font-size: 0.78rem; color: var(--ink-3); }
 
+/* ---------- split bands: coordinate, light ------------------------------ */
+
+.band--split { padding-top: clamp(16px, 3vh, 36px); }
+.split {
+  display: grid; grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+  gap: clamp(28px, 5vw, 76px); align-items: center;
+}
+.split--flip { grid-template-columns: minmax(0, 1.14fr) minmax(0, 0.86fr); }
+.split--flip .split__copy { order: 2; }
+.split__copy .h2 { font-size: clamp(2rem, 1.1rem + 2.9vw, 3.5rem); }
+.split__copy p { color: var(--ink-2); font-size: clamp(0.95rem, 0.9rem + 0.3vw, 1.08rem); }
+.split__art { min-width: 0; display: grid; gap: clamp(14px, 2.2vh, 22px); }
+.split__art .shot { margin: 0; }
+@media (max-width: 1000px) {
+  .split, .split--flip { grid-template-columns: minmax(0, 1fr); }
+  .split--flip .split__copy { order: 0; }
+}
+
+/* two frames side by side under the sun: night inside, and a render */
+.duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(12px, 1.6vw, 18px); }
+.duo .shot { margin: 0; }
+.duo .shot img { aspect-ratio: 16 / 10; object-fit: cover; }
+@media (max-width: 560px) { .duo { grid-template-columns: minmax(0, 1fr); } }
+
+/* the colors and line types of the service runs, as the plan draws them */
+.legend {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-wrap: wrap; gap: 8px 18px;
+  font-size: 0.72rem; color: var(--ink-2);
+}
+.legend li { display: inline-flex; align-items: center; gap: 8px; }
+.legend li::before { content: ""; width: 22px; height: 0; border-top: 2.5px solid var(--c); }
+.legend li[data-dash]::before { border-top-style: dashed; }
+
+/* The sun: five frames of the live view, one per preset, stacked in time
+   order. Frame i fades in over frame i - 1 as --sun passes from i - 1 to i,
+   so a blend is always a true crossfade and never goes grey. --sun is a
+   registered number, so it glides between presets; while the visitor drags
+   it follows the pointer exactly. */
+@property --sun { syntax: "<number>"; inherits: true; initial-value: 0; }
+.sun {
+  --sun: 0;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  transition: --sun 900ms var(--ease-in-out);
+}
+.sun.is-dragging { transition: none; }
+.sun__frames { position: relative; aspect-ratio: 16 / 10; overflow: hidden; background: var(--navy); }
+.sun__f {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  opacity: clamp(0, calc(var(--sun) - var(--i) + 1), 1);
+}
+.sun__tag {
+  position: absolute; left: 12px; bottom: 10px;
+  font-size: 0.64rem; letter-spacing: 0.04em; color: #fff;
+  background: rgba(31, 45, 68, 0.68); padding: 3px 8px;
+}
+.sun__ctl { position: relative; padding: 12px 16px 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.sun__label {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-family: var(--f-mono); font-size: 0.72rem; letter-spacing: 0.04em; color: var(--ink-3);
+}
+.sun__label output { color: var(--navy); font-size: 0.86rem; white-space: nowrap; }
+/* The native range stays on top for the pointer, the keyboard and screen
+   readers, with its own track and thumb made invisible. The hairline, its
+   teal fill and the knob are drawn here from --sun, so they glide with the
+   frames instead of jumping from preset to preset. */
+.sun__rail { position: relative; height: 22px; }
+.sun__rail::before, .sun__rail::after {
+  content: ""; position: absolute; top: 50%; left: 8px; height: 2px; margin-top: -1px; pointer-events: none;
+}
+.sun__rail::before { right: 8px; background: var(--line-strong); }
+.sun__rail::after { width: calc((100% - 16px) * var(--sun) / 4); background: var(--teal); }
+.sun__range {
+  -webkit-appearance: none; appearance: none;
+  position: relative; z-index: 1; display: block;
+  width: 100%; height: 22px; margin: 0; background: transparent; cursor: pointer;
+}
+.sun__range:focus { outline: none; }
+.sun__range::-webkit-slider-runnable-track { height: 22px; background: transparent; }
+.sun__range::-moz-range-track { height: 22px; background: transparent; }
+.sun__range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 22px; opacity: 0; }
+.sun__range::-moz-range-thumb { width: 16px; height: 22px; border: 0; opacity: 0; }
+.sun__knob {
+  position: absolute; top: 50%; left: calc((100% - 16px) * var(--sun) / 4);
+  width: 16px; height: 16px; margin-top: -8px; border-radius: 50%;
+  background: var(--surface); border: 2px solid var(--navy);
+  box-shadow: 0 0 0 4px rgba(14, 138, 143, 0.16);
+  pointer-events: none;
+  transition: transform var(--dur-hover) var(--ease-out), box-shadow var(--dur-hover) var(--ease-out);
+}
+.sun__rail:hover .sun__knob { box-shadow: 0 0 0 6px rgba(14, 138, 143, 0.2); }
+.sun__range:active + .sun__knob { transform: scale(1.18); }
+.sun__range:focus-visible + .sun__knob { outline: 2px solid var(--teal); outline-offset: 3px; }
+.sun__hint { color: var(--ink-3); opacity: 0.8; }
+@media (hover: none), (max-width: 560px) { .sun__hint { display: none; } }
+.sun__ticks {
+  display: flex; justify-content: space-between; list-style: none; margin: 0; padding: 0;
+  font-size: 0.64rem; color: var(--ink-3);
+}
+.sun__ticks li { transition: color var(--dur-base) var(--ease-out); }
+.sun__ticks li.is-on { color: var(--teal-text); }
+
 /* ---------- bands -------------------------------------------------------- */
 
 .band { padding: clamp(28px, 5vh, 56px) 0 clamp(70px, 12vh, 150px); }
@@ -809,33 +918,88 @@ html.intro-writing .wordmark { visibility: hidden; }
 .copy.done { background: var(--teal-strong); color: #fff; }
 .code__hint { margin: 10px 0 24px; font-size: 0.74rem; color: var(--ink-3); }
 
-/* ---------- formats ------------------------------------------------------ */
+/* ---------- formats: two moving rails ---------------------------------- */
+/* What comes in moves toward the label, what goes out moves away from it.
+   Each track holds its list twice and slides by exactly one copy, so the loop
+   has no seam. The two rails run at different speeds so they never line up.
+   Pointing at a rail, or tabbing into it, holds it still. */
 
-.formats {
-  list-style: none; margin: 0 0 clamp(40px, 7vh, 80px); padding: 0;
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+.rails { display: grid; gap: 12px; margin: 0 0 clamp(40px, 7vh, 80px); }
+.rail {
+  display: grid; grid-template-columns: 124px minmax(0, 1fr);
   border-top: 1px solid var(--line-strong);
-  border-left: 1px solid var(--line-strong);
-}
-.fmt {
-  border-right: 1px solid var(--line-strong);
   border-bottom: 1px solid var(--line-strong);
-  padding: 20px 18px 18px;
-  display: grid; gap: 4px; align-content: start;
+  background: var(--paper);
+}
+.rail__label {
+  margin: 0; display: flex; align-items: center; gap: 10px;
+  padding: 0 16px; max-width: none;
+  font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2);
+  border-right: 1px solid var(--line-strong);
+}
+.rail__arrow { width: 20px; height: 12px; flex: none; fill: none; stroke: var(--teal); stroke-width: 1.4; stroke-linecap: square; }
+.rail__window {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 7%, #000 93%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 7%, #000 93%, transparent 100%);
+}
+.rail__move { display: flex; width: max-content; will-change: transform; }
+.rail__track { display: flex; align-items: stretch; flex: none; list-style: none; margin: 0; padding: 0; }
+.chip {
   position: relative;
+  display: grid; gap: 1px; align-content: center;
+  padding: 16px 18px 15px; min-width: 196px;
   transition: background-color var(--dur-base) var(--ease-out);
 }
-.fmt::before {
-  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+.chip::before {
+  content: ""; position: absolute; left: 18px; right: 18px; bottom: 8px; height: 2px;
   background: var(--teal); transform: scaleX(0); transform-origin: left;
   transition: transform var(--dur-base) var(--ease-out);
 }
-.fmt:hover { background: var(--surface); }
-.fmt:hover::before { transform: scaleX(1); }
-.fmt__ext { font-size: clamp(1.3rem, 1.1rem + 0.7vw, 1.75rem); font-weight: 400; letter-spacing: -0.03em; }
-.fmt__for { font-size: 0.86rem; color: var(--ink-2); }
-.fmt__dir { font-size: 0.68rem; color: var(--ink-3); letter-spacing: 0.02em; margin-top: 4px; }
-.fmt--own .fmt__ext { color: var(--teal-text); }
+.chip:hover { background: var(--surface); }
+.chip:hover::before { transform: scaleX(1); }
+.chip__ext { font-size: clamp(1.25rem, 1.08rem + 0.6vw, 1.65rem); letter-spacing: -0.03em; line-height: 1.15; color: var(--navy); }
+.chip__for { font-size: 0.84rem; color: var(--ink-2); white-space: nowrap; }
+.chip__dir { font-size: 0.66rem; color: var(--ink-3); letter-spacing: 0.02em; white-space: nowrap; margin-top: 3px; }
+.chip--own .chip__ext { color: var(--teal-text); }
+/* between two files, a dimension string: a hairline with its two ticks */
+.rail__tick { display: flex; align-items: center; flex: none; }
+.rail__tick svg { width: 36px; height: 12px; fill: none; stroke: var(--line-strong); stroke-width: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .rail__move { animation: rail-in 46s linear infinite; }
+  .rail[data-dir="out"] .rail__move { animation-name: rail-out; animation-duration: 64s; }
+  .rail:hover .rail__move, .rail:focus-within .rail__move { animation-play-state: paused; }
+}
+/* Held still for reduced motion: the rail scrolls sideways instead, with the
+   second copy gone and no faded edges, so every format can still be reached. */
+@media (prefers-reduced-motion: reduce) {
+  .rail__window { overflow-x: auto; -webkit-mask-image: none; mask-image: none; }
+  .rail__track[aria-hidden="true"] { display: none; }
+}
+@keyframes rail-in { to { transform: translateX(-50%); } }
+@keyframes rail-out { from { transform: translateX(-50%); } to { transform: none; } }
+
+@media (max-width: 720px) {
+  .rail { grid-template-columns: minmax(0, 1fr); }
+  .rail__label { border-right: 0; border-bottom: 1px solid var(--line); padding: 9px 16px; }
+}
+
+/* ---------- sheets for the people who sign ------------------------------- */
+
+.sheets { margin-top: clamp(56px, 9vh, 110px); }
+.sheets__head { max-width: 64ch; margin-bottom: clamp(22px, 4vh, 40px); }
+.sheets__head p { color: var(--ink-2); }
+.sheets__row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(14px, 2vw, 24px); }
+.sheets__row .shot {
+  margin: 0;
+  transition: transform var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out);
+}
+.sheets__row .shot:hover { transform: translateY(-3px); box-shadow: 6px 6px 0 var(--line); }
+.sheets__row .shot img { background: #fff; }
+.shot__open { display: block; cursor: zoom-in; }
+.shot__open:focus-visible { outline: 2px solid var(--teal); outline-offset: -2px; }
+@media (max-width: 860px) { .sheets__row { grid-template-columns: minmax(0, 1fr); } }
 
 /* one deliberate break in the column grid: the sheet runs past both gutters */
 .shot--wide { margin-top: 0; margin-inline: calc(var(--gutter) * -1); border-inline: 0; }
@@ -852,7 +1016,7 @@ html.intro-writing .wordmark { visibility: hidden; }
 .tag--dark::before, .tag--dark::after { background: var(--navy-line); }
 .band--dark .h2 { color: #fff; max-width: 18ch; }
 .cells {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
   border-top: 1px solid var(--navy-line);
   border-left: 1px solid var(--navy-line);
 }
@@ -862,6 +1026,11 @@ html.intro-writing .wordmark { visibility: hidden; }
   transition: background-color var(--dur-base) var(--ease-out);
 }
 .cell:hover { background: #27374f; }
+@media (max-width: 1100px) {
+  .cells { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cell:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) { .cells { grid-template-columns: minmax(0, 1fr); } }
 .cell h3 { margin: 0 0 10px; font-size: 1.06rem; font-weight: 600; letter-spacing: -0.015em; color: #fff; }
 .cell p { margin: 0; font-size: 0.9rem; color: var(--chrome-muted); line-height: 1.6; max-width: 40ch; }
 
@@ -883,7 +1052,7 @@ html.intro-writing .wordmark { visibility: hidden; }
 .band--keys { border-top: 1px solid var(--line); padding-top: clamp(60px, 10vh, 120px); }
 .keys { list-style: none; margin: 0 0 24px; padding: 0; display: flex; flex-wrap: wrap; gap: clamp(10px, 1.6vw, 18px); }
 .key { display: grid; gap: 8px; justify-items: center; }
-kbd {
+.key kbd {
   display: grid; place-items: center;
   width: clamp(52px, 6vw, 66px); height: clamp(52px, 6vw, 66px);
   font-family: var(--f-sans); font-size: clamp(1.1rem, 1.5vw, 1.4rem); font-weight: 600;
@@ -895,7 +1064,11 @@ kbd {
 .key span { font-family: var(--f-mono); font-size: 0.66rem; color: var(--ink-3); letter-spacing: 0.02em; }
 .key:hover kbd { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--navy); }
 .keys__foot { font-size: 0.74rem; color: var(--ink-3); margin: 0; }
-.kbd-inline { border: 1px solid var(--line-strong); padding: 1px 5px; }
+.kbd-inline {
+  font-family: var(--f-mono); font-size: 0.84em; font-weight: 400; color: var(--navy);
+  border: 1px solid var(--line-strong); background: var(--surface); padding: 0 5px;
+  white-space: nowrap;
+}
 
 /* ---------- get ---------------------------------------------------------- */
 
@@ -984,7 +1157,6 @@ kbd {
 }
 
 @media (max-width: 560px) {
-  .formats { grid-template-columns: minmax(0, 1fr); }
   .cta .btn { flex: 1 1 100%; justify-content: center; }
   .facts > div { flex-direction: column; gap: 2px; }
   .facts dd { text-align: left; }
