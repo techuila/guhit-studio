@@ -16,6 +16,11 @@ export interface BusEvents {
    * given (plan x and y, z above the floor of the first element's level, the
    * `Issue::location` convention). Switches the view to 3D when needed. */
   walk_to: { ids: string[]; location: Vec3 | null };
+  /** Render with the path tracer: the current view, every saved view (a
+   * batch), or these camera ids. Results land in the Visuals gallery. */
+  render: { views: "current" | "all" | string[] };
+  /** Open the shadow study export (frames from the live 3D view). */
+  shadow_study: undefined;
 }
 
 type Handler<K extends keyof BusEvents> = (payload: BusEvents[K]) => void;

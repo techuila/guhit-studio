@@ -15,19 +15,58 @@ use guhit_model::{Element, Level, Pipe, PipeMaterial, PipeSystem, Project};
 
 use crate::geom::*;
 
-/// Every system in the order legends and layer tables list them.
-pub const SYSTEMS: [PipeSystem; 4] = [
+/// Every system in the order legends and layer tables list them: plumbing
+/// first, as `PIPE_SYSTEM_ORDER` in `src/contract/pipes.ts`. A project with
+/// plumbing only lists exactly what it listed before the service runs.
+pub const SYSTEMS: [PipeSystem; 8] = [
     PipeSystem::ColdWater,
     PipeSystem::HotWater,
     PipeSystem::Drainage,
     PipeSystem::Vent,
+    PipeSystem::Storm,
+    PipeSystem::Conduit,
+    PipeSystem::Refrigerant,
+    PipeSystem::Condensate,
 ];
+
+/// The runs a sheet draws. The plan draws every system.
+pub fn sheet_systems(sheet: guhit_model::SheetKind) -> &'static [PipeSystem] {
+    use guhit_model::SheetKind as S;
+    match sheet {
+        S::Plan => &SYSTEMS,
+        S::Lighting => &[],
+        S::Power => &[PipeSystem::Conduit],
+        S::Plumbing => &[
+            PipeSystem::ColdWater,
+            PipeSystem::HotWater,
+            PipeSystem::Drainage,
+            PipeSystem::Vent,
+            PipeSystem::Storm,
+        ],
+        S::PlumbingIsometric => &[
+            PipeSystem::ColdWater,
+            PipeSystem::HotWater,
+            PipeSystem::Drainage,
+            PipeSystem::Vent,
+        ],
+        S::Aircon => &[PipeSystem::Refrigerant, PipeSystem::Condensate],
+    }
+}
+
+/// Centerline length of a run, mm.
+pub fn run_length(pipe: &Pipe) -> f64 {
+    points(pipe).windows(2).map(|w| (w[1] - w[0]).len()).sum()
+}
 
 /// Back to front on the sheet: the wide drainage lines go first so the thin
 /// supply lines stay readable on top of them.
-pub const DRAW_ORDER: [PipeSystem; 4] = [
+pub const DRAW_ORDER: [PipeSystem; 8] = [
+    PipeSystem::Storm,
     PipeSystem::Drainage,
+    PipeSystem::Condensate,
     PipeSystem::Vent,
+    PipeSystem::Conduit,
+    PipeSystem::Refrigerant,
     PipeSystem::ColdWater,
     PipeSystem::HotWater,
 ];
@@ -38,6 +77,10 @@ pub fn label(system: PipeSystem) -> &'static str {
         PipeSystem::HotWater => "Hot water",
         PipeSystem::Drainage => "Drainage",
         PipeSystem::Vent => "Vent",
+        PipeSystem::Storm => "Storm drain",
+        PipeSystem::Conduit => "Conduit",
+        PipeSystem::Refrigerant => "Refrigerant line set",
+        PipeSystem::Condensate => "Condensate drain",
     }
 }
 
@@ -49,6 +92,10 @@ pub fn color(system: PipeSystem) -> &'static str {
         PipeSystem::HotWater => "#e0563a",
         PipeSystem::Drainage => "#9b6a35",
         PipeSystem::Vent => "#3a9a5c",
+        PipeSystem::Storm => "#6f7782",
+        PipeSystem::Conduit => "#d49a1a",
+        PipeSystem::Refrigerant => "#b0428f",
+        PipeSystem::Condensate => "#6c8fb3",
     }
 }
 
@@ -59,6 +106,10 @@ pub fn slug(system: PipeSystem) -> &'static str {
         PipeSystem::HotWater => "hot-water",
         PipeSystem::Drainage => "drainage",
         PipeSystem::Vent => "vent",
+        PipeSystem::Storm => "storm",
+        PipeSystem::Conduit => "conduit",
+        PipeSystem::Refrigerant => "refrigerant",
+        PipeSystem::Condensate => "condensate",
     }
 }
 
@@ -69,6 +120,10 @@ pub fn dxf_layer(system: PipeSystem) -> &'static str {
         PipeSystem::HotWater => "P-DOMW-HPIP",
         PipeSystem::Drainage => "P-SANR-PIPE",
         PipeSystem::Vent => "P-SANR-VENT",
+        PipeSystem::Storm => "P-STRM-PIPE",
+        PipeSystem::Conduit => "E-POWR-COND",
+        PipeSystem::Refrigerant => "M-REFR-PIPE",
+        PipeSystem::Condensate => "M-COND-PIPE",
     }
 }
 
@@ -80,6 +135,10 @@ pub fn dxf_color(system: PipeSystem) -> i64 {
         PipeSystem::HotWater => 20,
         PipeSystem::Drainage => 33,
         PipeSystem::Vent => 103,
+        PipeSystem::Storm => 8,
+        PipeSystem::Conduit => 40,
+        PipeSystem::Refrigerant => 210,
+        PipeSystem::Condensate => 151,
     }
 }
 
@@ -92,8 +151,8 @@ pub enum Dash {
 
 pub fn dash(system: PipeSystem) -> Dash {
     match system {
-        PipeSystem::ColdWater | PipeSystem::HotWater => Dash::Solid,
-        PipeSystem::Drainage => Dash::Dashed,
+        PipeSystem::ColdWater | PipeSystem::HotWater | PipeSystem::Refrigerant => Dash::Solid,
+        PipeSystem::Drainage | PipeSystem::Storm | PipeSystem::Condensate | PipeSystem::Conduit => Dash::Dashed,
         PipeSystem::Vent => Dash::DashDot,
     }
 }
@@ -132,6 +191,10 @@ pub fn material_label(material: PipeMaterial) -> &'static str {
         PipeMaterial::Gi => "GI",
         PipeMaterial::Pe => "PE",
         PipeMaterial::Copper => "Copper",
+        PipeMaterial::Pvc => "PVC",
+        PipeMaterial::Emt => "EMT",
+        PipeMaterial::Imc => "IMC",
+        PipeMaterial::Flexible => "Flexible",
     }
 }
 
@@ -142,6 +205,10 @@ pub fn ifc_system(system: PipeSystem) -> &'static str {
         PipeSystem::HotWater => ".DOMESTICHOTWATER.",
         PipeSystem::Drainage => ".DRAINAGE.",
         PipeSystem::Vent => ".VENT.",
+        PipeSystem::Storm => ".STORMWATER.",
+        PipeSystem::Conduit => ".ELECTRICAL.",
+        PipeSystem::Refrigerant => ".REFRIGERATION.",
+        PipeSystem::Condensate => ".DRAINAGE.",
     }
 }
 

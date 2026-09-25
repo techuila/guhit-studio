@@ -5,11 +5,56 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { MeshData } from "../geom/meshData";
 
+/** Shape of a `Kit.round` part. */
+export interface RoundOptions {
+  /** Sides around. 24 reads round at room scale; small devices use 8 to 16. */
+  segments?: number;
+  /** Top radius as a fraction of the bottom one: 1 a cylinder, less a cone frustum, 0 a cone. */
+  top?: number;
+  /** No end caps, and the wall drawn from both sides: a lamp shade you can look into. */
+  open?: boolean;
+  /** Depth radius when it differs from `radius` (an oval). */
+  radiusZ?: number;
+  /** Cut at the cutaway height, as in `box`. */
+  clip?: { baseY: number };
+}
+
+/**
+ * The same triangles again with the winding and the normals reversed, merged
+ * with the originals: an open surface that shows from inside and outside
+ * without a double-sided material, so it merges with everything else.
+ */
+function doubleSided(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const outer = g.index ? g.toNonIndexed() : g;
+  const inner = outer.clone();
+  const attrs = ["position", "normal", "uv"]
+    .map((name) => inner.getAttribute(name))
+    .filter((a): a is THREE.BufferAttribute => !!a && a instanceof THREE.BufferAttribute);
+  for (const a of attrs) {
+    for (let i = 0; i + 2 < a.count; i += 3) {
+      for (let k = 0; k < a.itemSize; k++) {
+        const t = a.array[(i + 1) * a.itemSize + k];
+        a.array[(i + 1) * a.itemSize + k] = a.array[(i + 2) * a.itemSize + k];
+        a.array[(i + 2) * a.itemSize + k] = t;
+      }
+    }
+  }
+  const n = inner.getAttribute("normal");
+  if (n) for (let i = 0; i < n.count; i++) n.setXYZ(i, -n.getX(i), -n.getY(i), -n.getZ(i));
+  const merged = mergeGeometries([outer, inner], false) ?? outer.clone();
+  if (outer !== g) outer.dispose();
+  inner.dispose();
+  g.dispose();
+  return merged;
+}
+
 export class Kit {
   readonly geometries: THREE.BufferGeometry[] = [];
   private unitBox: THREE.BufferGeometry | null = null;
   private unitCyl: THREE.BufferGeometry | null = null;
   private unitBall: THREE.BufferGeometry | null = null;
+  /** Other unit geometries (low-poly rounds, frustums, shades), made once per kit. */
+  private units = new Map<string, THREE.BufferGeometry>();
   /** Cutaway height in world meters, or null. Used by `box` when `clip` is set. */
   cutY: number | null = null;
 
@@ -23,6 +68,17 @@ export class Kit {
     this.geometries.push(...other.geometries);
     other.geometries.length = 0;
     other.unitBox = other.unitCyl = other.unitBall = null;
+    other.units.clear();
+  }
+
+  /** A unit geometry shared by every mesh of this kit that asks for the same key. */
+  private unit(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
+    let g = this.units.get(key);
+    if (!g) {
+      g = this.track(make());
+      this.units.set(key, g);
+    }
+    return g;
   }
 
   fromMeshData(md: MeshData): THREE.BufferGeometry {
@@ -143,6 +199,61 @@ export class Kit {
   }
 
   /**
+   * Upright round part with its center at (x, z) and its underside at y: a
+   * cylinder with as few sides as the part needs, a cone frustum, or an open
+   * shade. The unit geometry is made once per kit for each shape and shared,
+   * like the unit box. Returns null for an empty part, or one cut away.
+   */
+  round(
+    parent: THREE.Object3D,
+    material: THREE.Material,
+    radius: number,
+    height: number,
+    x: number,
+    y: number,
+    z: number,
+    opts: RoundOptions = {},
+  ): THREE.Mesh | null {
+    if (opts.clip && this.cutY !== null) {
+      const room = this.cutY - (opts.clip.baseY + y);
+      if (room <= 0.001) return null;
+      height = Math.min(height, room);
+    }
+    const rz = opts.radiusZ ?? radius;
+    if (!(radius > 0 && rz > 0 && height > 0)) return null;
+    const segments = Math.max(3, Math.min(64, Math.round(opts.segments ?? 24)));
+    const top = Math.max(0, Math.min(4, opts.top ?? 1));
+    const open = opts.open === true;
+    // Rounded so near-equal tapers share one geometry.
+    const taper = Math.round(top * 100) / 100;
+    const geo = this.unit(`round|${segments}|${taper}|${open ? "open" : "closed"}`, () => {
+      const g = new THREE.CylinderGeometry(taper, 1, 1, segments, 1, open);
+      return open ? doubleSided(g) : g;
+    });
+    const m = this.mesh(geo, material);
+    m.scale.set(radius, height, rz);
+    m.position.set(x, y + height / 2, z);
+    parent.add(m);
+    return m;
+  }
+
+  /**
+   * Ring in the x-y plane facing +z, centered on (x, y, z): a fan grille rim.
+   * `tube` is the thickness radius of the ring itself.
+   */
+  ring(parent: THREE.Object3D, material: THREE.Material, radius: number, tube: number, x: number, y: number, z: number, segments = 24): THREE.Mesh | null {
+    if (!(radius > 0 && tube > 0)) return null;
+    const t = Math.round(Math.min(Math.max(tube / radius, 0.01), 0.5) * 100) / 100;
+    const n = Math.max(8, Math.min(64, Math.round(segments)));
+    const geo = this.unit(`ring|${n}|${t}`, () => new THREE.TorusGeometry(1, t, 6, n));
+    const m = this.mesh(geo, material);
+    m.scale.setScalar(radius);
+    m.position.set(x, y, z);
+    parent.add(m);
+    return m;
+  }
+
+  /**
    * Collapses the meshes under `root` into one mesh per material. An item made
    * of twenty little boxes (a sofa, a car, a jalousie window) becomes two or
    * three draw calls instead of twenty, which is what a scene with hundreds of
@@ -207,6 +318,7 @@ export class Kit {
     for (const g of this.geometries) g.dispose();
     this.geometries.length = 0;
     this.unitBox = this.unitCyl = this.unitBall = null;
+    this.units.clear();
   }
 }
 

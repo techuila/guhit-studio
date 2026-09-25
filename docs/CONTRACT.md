@@ -28,13 +28,21 @@ compliance; plumbing plans are signed by a registered Master Plumber (RA 1378).
 - `Element::Pipe`: a run of straight segments through `points`. `x`, `y` are
   plan mm, `z` is the centerline height above the level floor (negative below
   the slab). At least two points, no two in a row closer than 1 mm. Drainage
-  flows from the first point to the last. Size range 10 to 300 mm.
-- Layers: each `PipeSystem` has its own `LayerKey` with the same snake_case
-  name (`cold_water`, `hot_water`, `drainage`, `vent`). Visible and locked
-  work like every other layer. Schema version 2 added them;
-  `guhit_core::migrate` adds missing layers to older projects when a
-  `Document` is created.
-- Colors: tokens `--pipe-cold`, `--pipe-hot`, `--pipe-drain`, `--pipe-vent`
+  flows from the first point to the last. Size range 6 to 300 mm (a 1/4 inch
+  refrigerant liquid line is 6.35 mm).
+- Systems: plumbing (`cold_water`, `hot_water`, `drainage`, `vent`), storm
+  drainage (`storm`), electrical `conduit`, and aircon `refrigerant` (a line
+  set, `diameter_mm` is the gas line) and `condensate`. Drainage, storm and
+  condensate flow from the first point to the last (`PipeSystem::falls`).
+- Layers (`PipeSystem::layer`, `PIPE_LAYER` in `src/contract/pipes.ts`): the
+  four plumbing systems each have a layer of the same name; `storm` has
+  `storm`; `conduit` is on `electrical`; `refrigerant` and `condensate` are on
+  `aircon`. Electrical and lighting objects share the `electrical` layer, aircon
+  units the `aircon` layer. Visible and locked work like every other layer.
+  Schema 2 added the plumbing layers, schema 3 the others;
+  `guhit_core::migrate` adds missing layers when a `Document` is created.
+- Colors: tokens `--pipe-cold`, `--pipe-hot`, `--pipe-drain`, `--pipe-vent`,
+  `--pipe-storm`, `--pipe-conduit`, `--pipe-refrigerant`, `--pipe-condensate`
   in `src/styles/tokens.css`. The 3D view, 2D plan, legends and exports use
   the same four colors.
 - Tool defaults (`defaults::pipe_defaults`, mirrored by the frontend):
@@ -45,6 +53,10 @@ compliance; plumbing plans are signed by a registered Master Plumber (RA 1378).
 | hot_water | ppr | 20 | 300 | PPR 20 25 32, copper 15 22 28 |
 | drainage | upvc | 50 | -300 | uPVC 32 50 75 100 150 |
 | vent | upvc | 50 | 300 | uPVC 32 50 75 100 |
+| storm | upvc | 100 | -300 | uPVC 75 100 150 |
+| conduit | pvc | 20 | 2800 | PVC 20 25 32 40 50, EMT 15 20 25, IMC 20 25, flexible 15 20 |
+| refrigerant | copper | 9.52 | 2400 | copper 9.52 12.7 15.88 (gas line; the liquid line is 6.35) |
+| condensate | pvc | 20 | 2300 | PVC 20 25 32 |
 
 - Drainage fall default: `defaults::drain_min_slope_pct`, 2 percent, 1 percent
   from 100 mm up. The pipe tool lets new drainage fall by it as it is drawn.
@@ -90,6 +102,18 @@ plan x, y and z above the floor of `level_id`:
 - Take-off: one row per system, material and size, centerline length rounded
   to the millimeter. `sleeve_count` is the number of penetrations.
 
+Service runs reuse every rule above. Differences by system:
+
+- Conduit never needs a sleeve (it is cast into slabs and walls), so conduit
+  crossings are left out of penetrations and `sleeve_count`.
+- A refrigerant or condensate run crossing a wall is a core hole (65 mm, or
+  90 mm for gas lines from 16 mm), sloped 5 to 7 mm down to the outside. The
+  penetration summary names them so.
+- The fall check covers every system that falls (`drain_slope_low` for
+  drainage and storm, `condensate_slope_low` for condensate), with the drain
+  default as the review default: no aircon manual gives a number.
+- Joins: runs join within one system, drainage with vent, and nothing else.
+
 Review items from pipes. Every one sets `Issue::location` except the summary:
 
 | Code | Severity | element_ids | When |
@@ -114,6 +138,172 @@ water, `P-DOMW-HPIP` hot water, `P-SANR-PIPE` drainage, `P-SANR-VENT` vent. 3D
 DXF draws them as tubes on the same layers. IFC4 writes `IfcPipeSegment`s
 assigned to one `IfcDistributionSystem` per system.
 
+## Devices, fixtures and links
+
+Electrical, lighting, aircon and utility objects are `Asset`s (categories
+`lighting`, `electrical`, `aircon`, `utility`); there is no separate device
+element. What makes them devices lives in the catalog item:
+
+- `CatalogItem::mount`: `floor`, `wall` (the back, +y, sits on a wall face),
+  `ceiling` (hangs from the level height), `opening` (a window aircon). Placing
+  a wall item snaps it to the nearest wall face; `elevation_mm` is the default
+  underside height (outlets 243 so the center is about 300, switches 1143 so
+  the center is 1200, split indoor units 2300). Ceiling items hang from the
+  ceiling: the level height, or the underside of the next level's 200 mm
+  slab (the slab the 3D view draws) when that is lower. Their underside is
+  the ceiling minus their own height, except the pendant, which keeps its
+  catalog underside (2000) and is only lowered when the ceiling would cut it.
+- `CatalogItem::device`: the row of the PH electrical inspection form it
+  counts under (lighting outlet, convenience receptacle, special purpose
+  outlet, switch, panelboard, smoke detector, buzzer, push button) or an aircon
+  role.
+- `CatalogItem::light`: fixtures copy it into `Asset::light` when placed
+  (lumens, kelvin, on). 900 lm is a 9 W LED bulb sold in PH.
+- `CatalogItem::aircon`: line set sizes and manufacturer limits (minimum 3 m,
+  maximum length and height difference, 3 m included in a standard install).
+
+`Asset::links` holds the ids of what a device controls or feeds: a switch lists
+its lights; an aircon outlet lists its unit. Two switches linking one light make
+it a 3-way (drawn "S3"). The link tool (`L`) writes links; deleting an asset
+removes it from every `links` list in the same command. `Asset::circuit` is a
+free tag ("L1"); Guhit never checks circuits, loads or ratings (the PEE's work).
+
+Switch placement: 200 mm from the latch side of the nearest door, center
+1200 mm (BP 344 IRR 2024). The placement tool offers it; nothing enforces it.
+
+Plan symbols (the 2D editor in `src/editor2d/symbols.ts` and the sheets in
+`guhit-export` draw the same shapes; D is the symbol size, about 300 mm at
+1:100, never scaled with the object):
+
+| Catalog key | Symbol |
+|---|---|
+| `light-ceiling`, `light-pendant` | circle D with an X; pendant adds a small "P" |
+| `light-downlight` | circle 0.6 D with a dot at the center |
+| `light-tube` | the fixture's own rectangle with a line along it |
+| `light-wall`, `light-outdoor` | half circle on the wall face with a line; outdoor adds "WP" |
+| `light-floor-lamp`, `light-table-lamp` | circle 0.6 D with an X, drawn thin (plug-in lamp) |
+| `outlet-duplex`, `outlet-counter` | circle 0.5 D on the wall face with two short parallel lines through it |
+| `outlet-outdoor` | the duplex outlet with "WP" |
+| `outlet-spo`, `outlet-aircon` | the duplex outlet, half filled, with "SPO" or "ACO" |
+| `switch-1`, `switch-2`, `switch-3` | "S" beside the wall face with 1 to 3 dots under it; a switch sharing a light with another switch reads "S3" |
+| `panelboard` | rectangle on the wall face, half filled on a diagonal, "PB" |
+| `smoke-detector` | circle 0.6 D with "SD" |
+| `doorbell-button`, `doorbell-chime` | small circle with a dot, "PB"; square with "CH" |
+| `aircon-indoor-*` | the unit's rectangle with an arrow away from the wall, "ACU" |
+| `aircon-outdoor-*` | the unit's rectangle with a circle (fan), "CU" |
+| `aircon-window` | the unit's rectangle across the wall, "AC" |
+| links | dashed arc from a switch to each light it controls, bowing to one side |
+
+`Derived::schedule` counts objects per level and room for every catalog item
+that is a device or a sanitary, lighting, electrical, aircon or utility item.
+The kitchen sink (`kitchen-sink`) and the washing machine (`washing-machine`)
+count in the plumbing group too, as fixtures with a water supply and a drain.
+
+Review items from devices and aircon (suggestions, same wording rules):
+
+| Code | Severity | element_ids | When |
+|---|---|---|---|
+| `light_no_switch` | info | light | a ceiling or wall light that no switch links |
+| `switch_no_load` | info | switch | a switch that links nothing |
+| `switch_behind_door` | warning | switch, door | inside the swing of a door on its hinge side |
+| `aircon_no_outlet` | warning | unit | no aircon or special purpose outlet links an indoor or window unit |
+| `lineset_long` | warning | run, indoor unit | longer than the unit's maximum |
+| `lineset_rise` | warning | run, indoor unit | height difference over the unit's maximum |
+| `lineset_short` | info | run, indoor unit | shorter than 3 m |
+| `lineset_extra` | info | run | meters beyond the 3 m a standard install includes |
+| `condensate_slope_low` | warning | run | falls less than the default or runs uphill |
+| `condensate_open_end` | info | run | ends away from a drain, a floor drain or the outside |
+| `indoor_unit_clearance` | warning | unit | under 150 mm free above, 120 mm at a side, or underside below 2300 mm |
+| `outdoor_unit_clearance` | warning | unit | something within 2000 mm in front, 300 behind, 300 or 600 at the sides |
+| `outdoor_unit_unsupported` | warning | unit | raised above the floor with no wall, slab or bracket under it |
+| `unit_near_tv` | info | unit, tv console | a TV within 1 m |
+
+Engine readings of the table above:
+
+- An outlet linked to an outdoor unit counts as feeding the indoor unit its
+  line set reaches (`aircon_no_outlet`).
+- Outdoor unit sides are seen facing its front: 300 mm left, 600 mm right.
+- `condensate_open_end` accepts a run ending outside the building, or within
+  300 mm of a floor drain or a drain pipe. A condensate drain touching a drain
+  pipe is still a `pipes_cross` clash (joins stay within one system); end it
+  within 300 mm instead.
+- A condensate crossing within 300 mm of a line set crossing on the same wall
+  shares its core hole; `sleeve_count` still counts both.
+- Unnamed runs read "Conduit 20 mm", "Line set 9.52 mm".
+- Error codes: `unknown_review_code`, `bad_review_target`, `no_review_mark`,
+  `asset_light`, `link_to_itself`, `duplicate_link`, `bad_link`,
+  `circuit_too_long`.
+
+## Review marks
+
+`Project::review` stores only set-aside findings, each with a note.
+`Command::SetReviewMark { target, note }` sets one (`Some(note)`) or removes
+it (`None`); targets are one finding (`Issue::id`), a whole check (`code`), or
+a check on one element. Derive merges them: an issue whose target matches is
+`status: ignored` with the mark's `note`; a mark for one finding that no
+longer appears is listed in `Derived::review_resolved` (resolved). Nothing is
+ever "approved". The review list groups by level, then room, with counts;
+ignoring asks for a note.
+
+## Sheets
+
+`PlanExportOptions::sheet` (default `plan`) picks the sheet: `lighting`,
+`power` (with a schedule of loads whose rating columns stay blank for the
+PEE), `plumbing` (with a fixture table), `plumbing_isometric` (water and
+sanitary diagrams, not to scale, legend box, a blank Master Plumber block),
+`aircon`. `review_page` adds a PDF page of review items and notes. DXF writes
+devices as blocks with attributes (type, tag, height, room) on NCS style
+layers (`E-LITE-FIXT`, `E-POWR-DEVC`, `M-HVAC-EQPM` and the service run
+layers).
+
+## Sun and light
+
+- Site: `ProjectSettings::site` (city preset, latitude, longitude, UTC offset
+  in minutes). None means Manila (`defaults::default_site`). The frontend
+  bundles PH city presets; there is no geocoding service.
+- Live light: `useViewer().light` (month, day, local minutes, sky, exposure,
+  lamps). Not saved in the project, not an undo step. `Camera::light`
+  (`ViewLight`) saves it with a view, lamps included (`LampMode`: `auto`,
+  `on` or `off`); applying the view restores it.
+- Keys (3D view or app, not while typing or walking): `U` and `I` move the sun
+  15 minutes back and forward (hold to scrub); `Shift+U` and `Shift+I` step
+  through the presets (Morning 8:00, Noon, Afternoon 3 PM, Dusk, Night 8 PM);
+  `Shift+N` switches lamps between auto and on.
+- Sun position from SunCalc's formulas (no dependency), north from
+  `ProjectSettings::north_angle_deg`.
+- Sky: `clear` (a physical sky that follows the sun), `cloudy`, `photo` (the
+  pack HDRI, turned so its sun sits at the computed azimuth).
+- Exposure is automatic in the live view and locked into a saved view,
+  a render or a study.
+- Lamps: a fixture gives light when `Asset::light.on` and the lamps are on,
+  or on auto from dusk to dawn. Off keeps every fixture dark. Rooms with no fixture get a soft ghost light at
+  night so interiors are never pitch black; it is view only, never written to
+  the model.
+- Refine: when the camera rests, the view blends jittered frames (clean edges,
+  soft sun shadows) and then stops. It follows the frame loop rule: every
+  refine frame is scheduled through `ViewerEngine.schedule()`, and a still,
+  refined view draws nothing.
+
+## Render
+
+`bus.emit("render", { views })` renders the current view, every saved view,
+or chosen cameras with a path tracer (`three-gpu-pathtracer`, WebGL 2, lazy
+loaded) in its own offscreen renderer, so the live view stays usable. Sizes: HD
+1920 x 1080 (default), QHD 2560 x 1440, 4K 3840 x 2160, square 2048 x 2048.
+Quality: quick or final (`TraceQuality`), set by time. The result is
+denoised, saved as a `RenderRecord` (`render_capture`) with the camera and
+light it used, the revision the render started from, and `RenderRecord::info`
+(`RenderInfo`: kind, size, samples, seconds, quality, graphics adapter), and
+offered to "Visualize with AI" (D17). The job never calls
+requestAnimationFrame: it paces itself on GPU fences, so the live view keeps
+its one pending frame. Esc cancels; stopping early saves what
+is there. If the path tracer cannot start, the render falls back to a refined
+raster capture labelled "Enhanced capture".
+
+`bus.emit("shadow_study")` opens the shadow study: frames from the live view
+every 30 or 60 minutes over one or more dates, exported as a contact sheet
+with time, date, place and a north arrow on each frame.
+
 ## 3D navigation and shell view state
 
 `src/viewer3d/viewerStore.ts`, view state only, never saved in the project:
@@ -126,6 +316,18 @@ assigned to one `IfcDistributionSystem` per system.
 - `shell`: `solid`, `xray` (the building is drawn faint so pipes read through
   it), `hidden` (only floors, pipes and ghosted outlines). Pipes stay solid.
 - `bus.emit("walk_to", { ids, location })` enters walk mode near a finding.
+- Wheel while walking: it changes speed while a move key is held or with Alt,
+  and otherwise moves you forward and back. At the top of a stair you switch to
+  the level whose floor elevation is within 300 mm of the top.
+- Levels: `AddLevel` stacks a new level on the highest one by default;
+  `DeleteLevel` removes a level with everything on it (never the last level).
+- Walk settings (`useViewer().walk`, remembered per computer): eye height
+  800 to 2500 mm (default 1600), speed (default 1.4 m/s); the wheel changes
+  speed while walking. Clicking the minimap moves you there; double-clicking
+  the floor glides there at eye height. Walking onto a stair's run climbs it
+  as a ramp and switches level at the landing. Door leaves swing open as you
+  approach and close behind you (view only). Mouse-only: drag to look, scroll
+  or two-finger swipe to move.
 - The global shortcut handler defers keys to the 3D view only while that view
   is on screen. Switching to plan only ends a walk (`nav` back to `orbit`).
 - The shell sends `walk_to` or sets `nav` only once the 3D view is up; the
@@ -165,7 +367,7 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | Command | Args | Returns | Notes |
 |---|---|---|---|
 | `hub_list` | | `ProjectMeta[]` | newest first |
-| `hub_create` | `name`, `settings?`, `template?` | `DocState` | opens it. templates: `blank`, `sample-bungalow`, `plumbing-demo` (the bungalow with a T&B, fixtures and 16 pipe runs) |
+| `hub_create` | `name`, `settings?`, `template?` | `DocState` | opens it. templates: `blank`, `sample-bungalow`, `plumbing-demo` ("Bungalow with services": T&B, 16 plumbing runs, 2 downspouts, a line set and condensate drain, and 32 objects including lights, switches, outlets, a panelboard and a split aircon) |
 | `hub_open` | `id` | `DocState` | |
 | `hub_rename` | `id`, `name` | `ProjectMeta` | |
 | `hub_duplicate` | `id` | `ProjectMeta` | |
@@ -197,7 +399,7 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | `dwg_status`, `dwg_set_path` | , `path` | `DwgConverterStatus` | ODA File Converter, stored in settings.json |
 | `render_styles` | | `RenderStyle[]` | |
 | `render_list` | | `RenderRecord[]` | |
-| `render_capture` | `camera`, `png` | `RenderRecord` | Tier 1 capture, tied to revision |
+| `render_capture` | `camera`, `png`, `revision?`, `info?` | `RenderRecord` | Tier 1 capture or render. Tied to `revision` (the one a render started from, never newer than the document) or the current one. `info` says how it was made; width and height at least 1, seconds 0 or more |
 | `render_data` | `id` | data URL | |
 | `render_delete` | `id` | `null` | |
 | `render_ai_settings_get` | | `RenderAiSettings` | |

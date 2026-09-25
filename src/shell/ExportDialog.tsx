@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
-import type { DwgConverterStatus, ExportResult, Orientation, PaperSize, PlanExportOptions, PlanFormat } from "../contract/bindings";
+import { useEffect, useRef, useState } from "react";
+import type { CatalogItem, DocState, DwgConverterStatus, ExportResult, Orientation, PaperSize, PlanExportOptions, PlanFormat, SheetKind } from "../contract/bindings";
+import { PIPE_GROUP } from "../contract/pipes";
 import { ipc, isTauri } from "../contract/ipc";
 import { useApp } from "../state/store";
 import { Dialog } from "../ui/Dialog";
 import { Button, CheckRow, Field, Segmented, Select, Spinner, cx } from "../ui/controls";
 import { Icon, type IconName } from "../ui/icons";
 import type { PresenceStage } from "../ui/motion";
+import { useSlidingIndicator } from "../ui/motionDom";
+import { catalogItem } from "./devices";
 import { useProjectName, useShell } from "./shellStore";
 import s from "./overlays.module.css";
 
@@ -41,6 +44,82 @@ const FORMATS: FormatDef[] = [
 ];
 
 const SCALES = [20, 25, 50, 75, 100, 125, 150, 200, 250, 500];
+
+interface SheetDef {
+  value: SheetKind;
+  label: string;
+  /** What the sheet shows, in one line. */
+  about: string;
+  /** What the project needs before the sheet is offered. */
+  needs: (doc: DocState, catalog: CatalogItem[]) => boolean;
+}
+
+const assets = (doc: DocState) => doc.project.elements.filter((e): e is Extract<DocState["project"]["elements"][number], { kind: "asset" }> => e.kind === "asset");
+const runs = (doc: DocState) => doc.project.elements.filter((e): e is Extract<DocState["project"]["elements"][number], { kind: "pipe" }> => e.kind === "pipe");
+
+/** The sheets a PH permit and hand-off set asks for (`PlanExportOptions::sheet`). */
+export const SHEETS: SheetDef[] = [
+  { value: "plan", label: "Plan", about: "The floor plan with dimensions, rooms and objects.", needs: () => true },
+  {
+    value: "lighting",
+    label: "Lighting",
+    about: "Light fixtures, switches and the links between them, with a legend.",
+    needs: (doc, catalog) => assets(doc).some((a) => a.light !== null || catalogItem(catalog, a.catalog_key)?.device === "lighting_outlet"),
+  },
+  {
+    value: "power",
+    label: "Power",
+    about: "Outlets, special purpose outlets and the panelboard, with a schedule of loads whose ratings stay blank for the PEE.",
+    needs: (doc, catalog) =>
+      assets(doc).some((a) => {
+        const d = catalogItem(catalog, a.catalog_key)?.device;
+        return d === "convenience_receptacle" || d === "special_purpose_outlet" || d === "panelboard";
+      }) || runs(doc).some((r) => r.system === "conduit"),
+  },
+  {
+    value: "plumbing",
+    label: "Plumbing",
+    about: "Water, drainage, vent and storm runs with a fixture table.",
+    needs: (doc) => runs(doc).some((r) => PIPE_GROUP[r.system] === "plumbing") || assets(doc).some((a) => a.category === "sanitary"),
+  },
+  {
+    value: "plumbing_isometric",
+    label: "Plumbing isometric",
+    about: "Water and sanitary diagrams, not to scale, with a legend box and a blank Master Plumber block.",
+    needs: (doc) => runs(doc).some((r) => PIPE_GROUP[r.system] === "plumbing"),
+  },
+  {
+    value: "aircon",
+    label: "Aircon",
+    about: "Indoor and outdoor units, line sets and condensate drains.",
+    needs: (doc) => assets(doc).some((a) => a.category === "aircon") || runs(doc).some((r) => PIPE_GROUP[r.system] === "aircon"),
+  },
+];
+
+/** Sheet chips with one sliding highlight. */
+function SheetPicker({ sheets, value, onChange }: { sheets: SheetDef[]; value: SheetKind; onChange: (v: SheetKind) => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const on = useRef<HTMLButtonElement>(null);
+  const pill = useSlidingIndicator(box, on, [value, sheets.length]);
+  return (
+    <div ref={box} className={s.sheetChips} role="radiogroup" aria-label="Sheet">
+      {pill.visible ? <span aria-hidden className={cx(s.sheetChipPill, pill.instant && s.instant)} style={pill.style} /> : null}
+      {sheets.map((sh) => (
+        <button
+          key={sh.value}
+          ref={sh.value === value ? on : undefined}
+          type="button"
+          role="radio"
+          aria-checked={sh.value === value}
+          className={cx(s.sheetChip, sh.value === value && s.sheetChipOn)}
+          onClick={() => onChange(sh.value)}
+        >
+          {sh.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function safeFileName(name: string): string {
   const cleaned = name.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
@@ -78,7 +157,10 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
   const [showAssets, setShowAssets] = useState(true);
   const [titleBlock, setTitleBlock] = useState(true);
   const [showPipes, setShowPipes] = useState(true);
+  const [sheet, setSheet] = useState<SheetKind>("plan");
+  const [reviewPage, setReviewPage] = useState(false);
   const [working, setWorking] = useState(false);
+  const catalog = useApp((st) => st.catalog);
   const [dwg, setDwg] = useState<DwgConverterStatus | null>(null);
 
   useEffect(() => {
@@ -99,6 +181,11 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
   if (!doc || !settings) return null;
 
   const hasPipes = doc.project.elements.some((e) => e.kind === "pipe");
+  const sheets = SHEETS.filter((sh) => sh.needs(doc, catalog));
+  // A sheet the project no longer has what it needs for falls back to the plan.
+  const sheetDef = sheets.find((sh) => sh.value === sheet) ?? SHEETS[0];
+  /** The isometric diagrams are not drawn to a scale (they print NTS). */
+  const notToScale = sheetDef.value === "plumbing_isometric";
   const dwgReady = dwg?.configured === true;
   const def = FORMATS.find((f) => f.value === format)!;
   const isPlanFile = format === "pdf" || format === "svg" || format === "dxf";
@@ -136,13 +223,15 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
           level_id: activeLevelId,
           paper,
           orientation,
-          scale_denominator: scale === "auto" ? null : Number(scale),
+          scale_denominator: scale === "auto" || notToScale ? null : Number(scale),
           show_dimensions: showDimensions,
           show_room_labels: showRoomLabels,
           show_assets: showAssets,
           title_block: titleBlock,
           // Without pipes the option changes nothing; true keeps the engine default.
           show_pipes: hasPipes ? showPipes : true,
+          sheet: sheetDef.value,
+          review_page: format === "pdf" && reviewPage,
         };
         result = await ipc.exportPlan(format as PlanFormat, options, path);
       } else if (format === "dwg2d") {
@@ -200,7 +289,8 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
         result = await ipc.exportImage(png, `${safeFileName(name)} ${wantPlan ? "plan" : "3D"}`, path);
       }
 
-      const usedScale = result.scale_denominator ? ` at 1:${result.scale_denominator}` : "";
+      // The isometric sheet fits its diagrams to the paper and prints NTS.
+      const usedScale = result.scale_denominator && !notToScale ? ` at 1:${result.scale_denominator}` : "";
       toast("success", `Exported ${def.name}${usedScale} to ${result.path}`);
       onClose();
     } catch (e) {
@@ -258,6 +348,15 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
         <div className={s.exportOptions}>
           {isPlanFile ? (
             <>
+              {sheets.length > 1 ? (
+                <div className={s.sheetBlock}>
+                  <span className={s.sheetLabel}>Sheet</span>
+                  <SheetPicker sheets={sheets} value={sheetDef.value} onChange={setSheet} />
+                  <p key={sheetDef.value} className={s.sheetAbout}>
+                    {sheetDef.about}
+                  </p>
+                </div>
+              ) : null}
               {usesSheet ? (
                 <>
                   <Field label="Paper">
@@ -286,7 +385,11 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
                     />
                   </Field>
                   <Field label="Scale">
-                    <Select label="Scale" value={scale} onChange={setScale} options={scaleOptions} />
+                    {notToScale ? (
+                      <span className={s.scaleNts}>Not to scale</span>
+                    ) : (
+                      <Select label="Scale" value={scale} onChange={setScale} options={scaleOptions} />
+                    )}
                   </Field>
                 </>
               ) : (
@@ -303,13 +406,22 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
                   Furniture and fixtures
                 </CheckRow>
                 {hasPipes ? (
-                  <CheckRow checked={showPipes} onChange={setShowPipes} hint={format === "dxf" ? "Visible pipe layers, one DXF layer per system" : "Visible pipe layers, with a legend"}>
-                    Pipes
+                  <CheckRow
+                    checked={showPipes}
+                    onChange={setShowPipes}
+                    hint={format === "dxf" ? "Visible service layers, one DXF layer per system" : "Pipes, conduit and aircon lines on visible layers, with a legend"}
+                  >
+                    Service runs
                   </CheckRow>
                 ) : null}
                 {usesSheet ? (
                   <CheckRow checked={titleBlock} onChange={setTitleBlock} hint="Project, client, location, designer, scale">
                     Title block
+                  </CheckRow>
+                ) : null}
+                {format === "pdf" ? (
+                  <CheckRow checked={reviewPage} onChange={setReviewPage} hint="Open and set-aside items with their notes, as suggestions">
+                    Review page
                   </CheckRow>
                 ) : null}
               </div>

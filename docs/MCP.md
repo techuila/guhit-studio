@@ -87,42 +87,122 @@ back in square metres. The plan is +x east, +y north.
 |---|---|
 | `list_projects` | Every project on this machine, newest first |
 | `open_project` | Open one by id; it becomes the document every tool acts on |
-| `create_project` | Create and open one: `blank`, `sample-bungalow` or `plumbing-demo` |
+| `create_project` | Create and open one: `blank`, `sample-bungalow` or `plumbing-demo` (the bungalow with services) |
 | `close_project` | Close it; the window goes back to the hub |
 | `get_project_summary` | Totals: areas, wall length, counts |
 | `list_rooms` | Rooms with areas, perimeters and bounding wall ids |
 | `list_elements` | All elements of one kind, with ids |
 | `describe_elements` | Full data plus derived geometry, by id |
 | `find_rooms_without_exterior_window` | Rooms with no daylight |
-| `list_review_items` | Design review suggestions, pipe items with a `location_mm` |
-| `get_pipe_takeoff` | Pipe lengths by system, material and size, elbows, tees, sleeves and every penetration |
+| `list_review_items` | Design review suggestions with their status (open, or ignored with a note), located items with a `location_mm`, and the set-aside findings that are resolved |
+| `get_pipe_takeoff` | Run lengths for every system by material and size, elbows, tees, sleeves, every penetration and the aircon core holes |
+| `get_schedule` | Lights, outlets, switches, fixtures and aircon units per level and room, in the rows of the PH electrical inspection form, with totals per level |
 | `get_plan_image` | The last plan thumbnail the window saved, as a PNG |
 | `list_renders` | Saved 3D visuals |
 | `add_wall`, `add_wall_chain` | Walls |
 | `add_rect_room` | Four walls plus a named room |
+| `add_level`, `delete_level` | Add a storey on top of the highest level, or delete a level with everything on it |
 | `add_door`, `add_window` | Openings hosted on a wall |
 | `resize_room`, `set_wall_length`, `move_elements` | Reshape |
 | `rename_room`, `set_room_usage` | Room data |
 | `set_opening_size`, `delete_elements` | Edit and remove |
 | `set_material`, `set_roof` | Finishes |
-| `add_asset` | Furniture and fixtures from the built-in library |
+| `add_asset` | Furniture, fixtures, lights, outlets, switches, panelboards, detectors and aircon units from the built-in library; wall items snap to the nearest wall face |
+| `set_review_mark` | Set a review item, a whole check or a check on one element aside with a note, or reopen it |
 | `undo`, `redo` | History, whoever made the change |
 | `save_version` | A named version the user can restore in the app |
-| `export_plan` | PDF, SVG or DXF into the exports folder, pipes included unless `show_pipes` is false |
+| `export_plan` | PDF, SVG or DXF into the exports folder: the plan or a service sheet (`sheet`), pipes included unless `show_pipes` is false, and a page of review items in a PDF (`review_page`) |
 | `batch` | Several edits atomically, as one undo step |
 
-Pipes are drawn in the app, not through these tools. An MCP client can read
-them (`list_elements` with kind `pipe`, `describe_elements`), move or delete
-them like any element, and answer quantity questions with `get_pipe_takeoff`.
-Guhit coordinates pipes and never sizes them; plumbing plans are signed by a
-registered Master Plumber (DECISIONS D19). The `plumbing-demo` template is a
-bungalow with all four pipe systems and the pipe review items to look at.
+Pipes and service runs (cold and hot water, drainage, vent, storm drains,
+electrical conduit, aircon line sets and condensate) are drawn in the app, not
+through these tools. An MCP client can read them (`list_elements` with kind
+`pipe`, `describe_elements`), move or delete them like any element, and answer
+quantity questions with `get_pipe_takeoff`, which covers every system.
+
+Lights, outlets, switches, the panelboard, detectors and aircon units are
+library objects: `add_asset` places them, and a wall item lands with its back
+on the nearest wall face within 1000 mm of the point given. `describe_elements`
+shows an object's device kind, mount, light, circuit tag and links (what a
+switch controls, what feeds an aircon unit). Linking is done in the app with
+the link tool (L). `get_schedule` counts the objects per room in the rows of
+the PH electrical inspection form.
+
+Guhit coordinates services and never sizes them, plans circuits or calculates
+loads: plumbing plans are signed by a registered Master Plumber, electrical
+plans by a Professional Electrical Engineer, aircon by a Professional
+Mechanical Engineer (DECISIONS D19, D21).
+
+The `plumbing-demo` template is the bungalow with services: the 16 plumbing
+runs of the concept, two storm downspouts, a light in every room, a pendant
+and an outdoor light, switches by the doors (a 3-way in the bedroom), outlets,
+the range and washer outlets, a panelboard, a smoke detector, and a split
+aircon for the bedroom with its outlet, line set and condensate drain. Its
+review items: the four plumbing findings (the penetration summary names the
+aircon core hole), the T&B light with no switch, and the meters of line set
+beyond a standard installation.
+
+### Levels
+
+New elements go on the first level. `add_wall`, `add_wall_chain`,
+`add_rect_room` and `add_asset` take an optional `level`: a level id, or its
+name (case does not matter). `add_level` adds a storey: "Level N", its floor on
+top of the highest level (that level's elevation plus its height) and 3000 mm
+floor to floor unless you say otherwise. Names are 1 to 60 characters, heights
+2000 to 10000 mm, and no two levels share a floor elevation. The result lists
+it under `levels_added` with its id, so one `batch` can add the level and draw
+on it by name:
+
+```json
+{"steps": [
+  {"tool": "add_level", "args": {"name": "Second Floor"}},
+  {"tool": "add_rect_room", "args": {"origin": {"x": 0, "y": 0}, "width_mm": 4000,
+    "depth_mm": 3000, "name": "Bedroom", "level": "Second Floor"}}
+]}
+```
+
+`delete_level` removes a level with its walls, doors, windows, rooms, columns,
+stairs, objects, notes, dimensions and pipes, and removes links from other
+objects to the deleted ones, as one undo step. The last level cannot be
+deleted, and elements on a locked layer keep their level until the layer is
+unlocked. The roof sits on the top level.
+
+### `export_plan` sheets
+
+`sheet` picks the drawing, `plan` when it is left out:
+
+| `sheet` | Drawing |
+|---|---|
+| `plan` | The architectural plan |
+| `lighting` | Lights, switches and their links, a legend and counts |
+| `power` | Outlets, special purpose outlets, the panelboard and conduit, a legend, counts and a schedule of loads with blank ratings for the Professional Electrical Engineer |
+| `plumbing` | Water, drainage, vent and storm runs, a legend and a fixture table |
+| `plumbing_isometric` | Water and sanitary isometric diagrams, not to scale, with a legend and a blank Master Plumber block |
+| `aircon` | Aircon units, line sets, condensate drains and core holes, with a legend |
+
+Every sheet works in PDF, SVG and DXF. `review_page: true` adds a page of
+review items, open and set aside, with their notes; it is PDF only, and the
+tool refuses it with another format. An unknown sheet name is refused before
+anything is drawn. The signing professional's fields stay blank on every
+sheet.
+
+### `set_review_mark`
+
+`{"action": "set_aside" | "reopen", "issue_id"?, "code"?, "element_id"?, "note"?}`
+
+The target is one finding (`issue_id` from `list_review_items`), a whole check
+(`code`, for example `light_no_switch`) or a check on one element (`code` and
+`element_id`). `set_aside` needs a note. A set-aside item stays in
+`list_review_items` with status `ignored` and its note; it is never approved
+(DECISIONS D24). A set-aside finding that the checks stop producing is listed
+under `resolved`. One call is one undo step, like every edit.
 
 Resources:
 
-- `guhit://project/current` - compact JSON of the open project.
+- `guhit://project/current` - compact JSON of the open project, with review
+  items and their status.
 - `guhit://docs/conventions` - units, coordinates, joins, flip conventions,
-  pipe heights.
+  pipe and service run systems, devices and links, review marks.
 - `guhit://docs/ph-defaults` - 150 mm CHB walls, 900 x 2100 doors,
   1200 x 1200 windows with a 900 sill, 3000 mm levels, material ids.
 

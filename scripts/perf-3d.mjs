@@ -14,6 +14,13 @@
 // frames there must be 0, the viewer is render on demand). Walk mode is
 // measured on the bungalow and the plumbing demo: 3 s holding W while
 // dragging to turn, then 2 s standing still (frames must be 0 there too).
+//
+// Once the camera rests the view refines (light/LightRig.ts): it blends
+// jittered frames and settles its exposure, then stops. Two idle numbers:
+// `idleNoWaitFrames` counts frames in the 2 s from 900 ms after the input
+// ends (refine frames included when it runs into that window);
+// `idleFrames` counts frames in the 2 s after refine has finished, and must
+// be 0. `restMs` is how long the rest took from the end of the input.
 
 import { chromium } from "playwright-core";
 import { readdirSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -123,6 +130,45 @@ const IDLE = () => {
   return null;
 };
 
+/**
+ * Stands still until the view has come to rest: refine done and the frame
+ * loop stopped (light/LightRig.ts). Then counts the frames of the next 2 s.
+ * `since` is the performance.now() the input ended at.
+ */
+async function measureIdle(page, since) {
+  await pause(900);
+  await page.evaluate(IDLE);
+  const windowStart = await page.evaluate(() => performance.now());
+  let restAt = null;
+  for (let i = 0; i < 150; i++) {
+    const s = await page.evaluate(() => {
+      const st = window.__viewer3d.stats();
+      return { looping: st.looping, refining: st.light?.refining ?? false, animations: st.animations };
+    });
+    if (!s.looping && !s.refining && s.animations === 0) {
+      restAt = await page.evaluate(() => performance.now());
+      break;
+    }
+    await pause(50);
+  }
+  if (restAt === null) console.log("warning: the view never came to rest");
+  const restStart = restAt ?? (await page.evaluate(() => performance.now()));
+  await pause(2000);
+  return page.evaluate(
+    ([w0, r0, t0]) => {
+      const p = window.__perf;
+      p.on = false;
+      const starts = p.starts;
+      return {
+        idleNoWaitFrames: starts.filter((t) => t >= w0 && t < w0 + 2000).length,
+        idleFrames: starts.filter((t) => t >= r0).length,
+        restMs: Math.round(r0 - t0),
+      };
+    },
+    [windowStart, restStart, since],
+  );
+}
+
 async function orbit(page, box, seconds) {
   const cx = box.x + box.width * 0.5;
   const cy = box.y + box.height * 0.55;
@@ -184,22 +230,16 @@ async function measureWalk(page, label, seconds) {
   }
   await page.mouse.up();
   await page.keyboard.up("KeyW");
+  const ended = await page.evaluate(() => performance.now());
   const walk = await page.evaluate(STOP);
   // Let the walker stop and the interaction tail land, then stand still.
-  await pause(900);
-  await page.evaluate(IDLE);
-  await pause(2000);
-  const idle = await page.evaluate(() => {
-    const p = window.__perf;
-    p.on = false;
-    return p.starts.length;
-  });
+  const idle = await measureIdle(page, ended);
   const walker = await page.evaluate(() => window.__viewer3d.stats().walker);
   await page.evaluate(() => window.__viewer.getState().setNav("orbit"));
   await settled(page);
   await page.evaluate(() => window.__viewer3d.flyToCamera(window.__orbitPose, 0));
   await settled(page);
-  return { label, pointerMoves: i, ...walk, idleFrames: idle, walker };
+  return { label, pointerMoves: i, ...walk, ...idle, walker };
 }
 
 /** Waits until nothing is animating and the frame loop has stopped. */
@@ -222,17 +262,11 @@ async function measureScene(page, label) {
   await pause(400);
 
   const moves = await orbit(page, box, 3);
+  const ended = await page.evaluate(() => performance.now());
   const drag = await page.evaluate(STOP);
 
-  // Let damping and any restore frame land, then watch for 2 s of silence.
-  await pause(900);
-  await page.evaluate(IDLE);
-  await pause(2000);
-  const idle = await page.evaluate(() => {
-    const p = window.__perf;
-    p.on = false;
-    return p.starts.length;
-  });
+  // Let damping, the restore frame and the refine land, then watch for 2 s of silence.
+  const idle = await measureIdle(page, ended);
 
   const stats = await page.evaluate(() => {
     const e = window.__viewer3d;
@@ -263,7 +297,7 @@ async function measureScene(page, label) {
     return Number(times[Math.floor(times.length / 2)].toFixed(1));
   });
 
-  return { label, pointerMoves: moves, ...drag, idleFrames: idle, rebuildMs, ...stats };
+  return { label, pointerMoves: moves, ...drag, ...idle, rebuildMs, ...stats };
 }
 
 /** Grows the current document to `total` furniture assets, laid out on a grid. */
@@ -365,7 +399,7 @@ try {
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, JSON.stringify(report, null, 2));
 
-const cols = ["label", "frames", "fpsMean", "frameMeanMs", "frameP95Ms", "frameWorstMs", "calls", "callsMean", "triangles", "meshes", "idleFrames", "rebuildMs", "pixelRatio"];
+const cols = ["label", "frames", "fpsMean", "frameMeanMs", "frameP95Ms", "frameWorstMs", "calls", "callsMean", "triangles", "meshes", "idleNoWaitFrames", "restMs", "idleFrames", "rebuildMs", "pixelRatio"];
 const rows = report.scenes.map((s) => cols.map((c) => String(s[c] ?? "")));
 const w = cols.map((c, i) => Math.max(c.length, ...rows.map((r) => r[i].length)));
 const line = (cells) => cells.map((c, i) => c.padEnd(w[i])).join("  ");

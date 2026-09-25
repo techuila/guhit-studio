@@ -11,6 +11,7 @@
 
 import * as THREE from "three";
 import type { Material, MaterialPattern } from "../../contract/bindings";
+import { lampTint } from "../light/model";
 import { texturePack, type PackTextureSet } from "./pack";
 
 interface PatternSpec {
@@ -442,6 +443,39 @@ export class MaterialLibrary {
     });
     mat.userData.glass = false;
     mat.userData.libKey = key;
+    rememberSolid(mat, this.category);
+    this.materials.set(key, mat);
+    return mat;
+  }
+
+  /**
+   * The diffuser of one light fixture: off-white, with an emissive glow in the
+   * lamp's color that the light rig (light/LightRig.ts) turns up while the
+   * lamp is lit. One per fixture, so a single fixture can be switched on or
+   * off in the view (walk mode switches), and kept across rebuilds so a lit
+   * lamp never flickers when the model changes. It casts no shadow in the
+   * path tracer either (`castShadow`, read by three-gpu-pathtracer).
+   */
+  lampGlow(elementId: string, kelvin: number): THREE.MeshStandardMaterial {
+    const key = ["glow", elementId, Math.round(kelvin), this.category].join("|");
+    this.used.add(key);
+    let mat = this.materials.get(key);
+    if (mat) return mat;
+    const [r, g, b] = lampTint(kelvin);
+    mat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(0.9, 0.89, 0.86),
+      roughness: 0.55,
+      metalness: 0,
+      emissive: new THREE.Color(r, g, b),
+      emissiveIntensity: 0,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    });
+    (mat as THREE.MeshStandardMaterial & { castShadow?: boolean }).castShadow = false;
+    mat.userData.glass = false;
+    mat.userData.libKey = key;
+    mat.userData.lampGlow = elementId;
     rememberSolid(mat, this.category);
     this.materials.set(key, mat);
     return mat;

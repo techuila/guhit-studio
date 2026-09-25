@@ -1,7 +1,8 @@
 //! Writes the golden fixtures used by frontend development, export tests and
 //! the engine golden tests:
 //! - fixtures/sample-bungalow.docstate.json: a small two-room house,
-//! - fixtures/plumbing-demo.docstate.json: the bungalow with plumbing.
+//! - fixtures/plumbing-demo.docstate.json: the bungalow with services
+//!   (plumbing, storm, lighting, power and a split aircon).
 //!
 //! Run: cargo run -p guhit-core --example gen_fixture
 //!
@@ -41,6 +42,12 @@ fn main() {
     println!(
         "pipe total {:.3} m, {} elbows, {} tees, {} sleeves or flashings",
         pipes.total_length_m, pipes.elbow_count, pipes.tee_count, pipes.sleeve_count
+    );
+    let objects: u32 = state.derived.schedule.iter().map(|r| r.count).sum();
+    println!(
+        "schedule: {} objects counted in {} rows",
+        objects,
+        state.derived.schedule.len()
     );
     for issue in &state.derived.issues {
         println!("issue {}: {}", issue.code, issue.message);

@@ -6,9 +6,49 @@ use std::collections::BTreeMap;
 
 use guhit_model::*;
 
+use crate::error::CoreError;
 use crate::geom::*;
 use crate::rooms::{face, FaceRef};
 use crate::topo::{Analysis, Face};
+
+/// Every review code the engine produces. A review mark for a whole check,
+/// or for a check on one element, names one of these (docs/CONTRACT.md,
+/// "Review marks").
+pub const REVIEW_CODES: &[&str] = &[
+    // Rooms, openings, walls.
+    "room_no_window",
+    "room_no_door",
+    "room_small",
+    "door_narrow",
+    "opening_blocked",
+    "opening_near_corner",
+    "wall_end_gap_start",
+    "wall_end_gap_end",
+    "wall_dangling_start",
+    "wall_dangling_end",
+    "wall_overlap",
+    // Pipes and service runs.
+    "pipe_through_column",
+    "pipe_across_opening",
+    "pipes_cross",
+    "drain_slope_low",
+    "pipe_penetrations",
+    "condensate_slope_low",
+    "condensate_open_end",
+    // Devices and aircon.
+    "light_no_switch",
+    "switch_no_load",
+    "switch_behind_door",
+    "aircon_no_outlet",
+    "lineset_long",
+    "lineset_rise",
+    "lineset_short",
+    "lineset_extra",
+    "indoor_unit_clearance",
+    "outdoor_unit_clearance",
+    "outdoor_unit_unsupported",
+    "unit_near_tv",
+];
 
 /// A wall end this close to another wall, but not joined, is probably a slip.
 const NEAR_MISS_MM: f64 = 300.0;
@@ -32,7 +72,107 @@ pub(crate) fn issue(
         message,
         element_ids,
         location: None,
+        status: IssueStatus::Open,
+        note: String::new(),
     }
+}
+
+/// True when `code` is a review code the engine produces.
+pub fn is_review_code(code: &str) -> bool {
+    REVIEW_CODES.contains(&code)
+}
+
+/// A review mark target with its codes and ids trimmed, or an error when it
+/// names no known check. `Issue` targets are `code:ids`, so their code part
+/// must be known too.
+pub(crate) fn clean_review_target(target: &ReviewTarget) -> Result<ReviewTarget, CoreError> {
+    let unknown = |code: &str| {
+        CoreError::invalid(
+            "unknown_review_code",
+            format!(
+                "There is no review check called \"{code}\". Use a code from the review list, for example room_no_window or light_no_switch."
+            ),
+        )
+    };
+    match target {
+        ReviewTarget::Issue { id } => {
+            let id = id.trim();
+            if id.is_empty() {
+                return Err(CoreError::invalid(
+                    "bad_review_target",
+                    "Say which review item to set aside: its id is empty.",
+                ));
+            }
+            let code = id.split(':').next().unwrap_or_default();
+            if !is_review_code(code) {
+                return Err(unknown(code));
+            }
+            Ok(ReviewTarget::Issue { id: id.to_string() })
+        }
+        ReviewTarget::Check { code } => {
+            let code = code.trim();
+            if !is_review_code(code) {
+                return Err(unknown(code));
+            }
+            Ok(ReviewTarget::Check {
+                code: code.to_string(),
+            })
+        }
+        ReviewTarget::Element { code, element_id } => {
+            let code = code.trim();
+            if !is_review_code(code) {
+                return Err(unknown(code));
+            }
+            let element_id = element_id.trim();
+            if element_id.is_empty() {
+                return Err(CoreError::invalid(
+                    "bad_review_target",
+                    "Say which element the check is set aside for: its id is empty.",
+                ));
+            }
+            Ok(ReviewTarget::Element {
+                code: code.to_string(),
+                element_id: element_id.to_string(),
+            })
+        }
+    }
+}
+
+/// How specific a mark is: one finding, then a check on one element, then a
+/// whole check. Lower wins.
+fn mark_rank(target: &ReviewTarget, issue: &Issue) -> Option<u8> {
+    match target {
+        ReviewTarget::Issue { id } => (id.trim() == issue.id).then_some(0),
+        ReviewTarget::Element { code, element_id } => (code.trim() == issue.code
+            && issue.element_ids.iter().any(|e| e == element_id.trim()))
+        .then_some(1),
+        ReviewTarget::Check { code } => (code.trim() == issue.code).then_some(2),
+    }
+}
+
+/// Apply the project's review marks (DECISIONS D24). An issue a mark matches
+/// is `ignored` with the note of the most specific matching mark; the first
+/// mark wins a tie. Returns the marks for one finding that no finding
+/// matches any more: those are resolved. Nothing is ever approved.
+pub(crate) fn apply_review_marks(marks: &[ReviewMark], issues: &mut [Issue]) -> Vec<ReviewMark> {
+    for issue in issues.iter_mut() {
+        let best = marks
+            .iter()
+            .filter_map(|m| mark_rank(&m.target, issue).map(|r| (r, m)))
+            .min_by_key(|(r, _)| *r);
+        if let Some((_, mark)) = best {
+            issue.status = IssueStatus::Ignored;
+            issue.note = mark.note.clone();
+        }
+    }
+    marks
+        .iter()
+        .filter(|m| match &m.target {
+            ReviewTarget::Issue { id } => !issues.iter().any(|i| i.id == id.trim()),
+            _ => false,
+        })
+        .cloned()
+        .collect()
 }
 
 pub fn usage_label(usage: RoomUsage) -> &'static str {

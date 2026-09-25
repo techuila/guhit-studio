@@ -92,12 +92,15 @@ function testContent(levelId: string): Element[] {
       depth_mm: item?.depth_mm ?? 1000,
       height_mm: item?.height_mm ?? 1000,
       elevation_mm: item?.elevation_mm ?? 0,
+      light: item?.light ?? null,
+      links: [],
+      circuit: "",
     });
   });
-  out.push({ kind: "asset", id: "", level_id: levelId, catalog_key: "unknown-thing", name: "Unknown", category: "furniture", position: { x: 12000, y: 1000 }, rotation_deg: 30, width_mm: 900, depth_mm: 600, height_mm: 700, elevation_mm: 0 });
-  out.push({ kind: "asset", id: "", level_id: levelId, catalog_key: "sofa-3", name: "Sofa", category: "furniture", position: { x: 2400, y: 5300 }, rotation_deg: 0, width_mm: 2100, depth_mm: 900, height_mm: 800, elevation_mm: 0 });
-  out.push({ kind: "asset", id: "", level_id: levelId, catalog_key: "coffee-table", name: "Coffee table", category: "furniture", position: { x: 2400, y: 4000 }, rotation_deg: 0, width_mm: 1100, depth_mm: 600, height_mm: 420, elevation_mm: 0 });
-  out.push({ kind: "asset", id: "", level_id: levelId, catalog_key: "dining-4", name: "Dining", category: "furniture", position: { x: 3300, y: 1500 }, rotation_deg: 90, width_mm: 1200, depth_mm: 800, height_mm: 750, elevation_mm: 0 });
+  out.push({ kind: "asset", id: "", level_id: levelId, catalog_key: "unknown-thing", name: "Unknown", category: "furniture", position: { x: 12000, y: 1000 }, rotation_deg: 30, width_mm: 900, depth_mm: 600, height_mm: 700, elevation_mm: 0, light: null, links: [], circuit: "" });
+  out.push({ kind: "asset", id: "", level_id: levelId, catalog_key: "sofa-3", name: "Sofa", category: "furniture", position: { x: 2400, y: 5300 }, rotation_deg: 0, width_mm: 2100, depth_mm: 900, height_mm: 800, elevation_mm: 0, light: null, links: [], circuit: "" });
+  out.push({ kind: "asset", id: "", level_id: levelId, catalog_key: "coffee-table", name: "Coffee table", category: "furniture", position: { x: 2400, y: 4000 }, rotation_deg: 0, width_mm: 1100, depth_mm: 600, height_mm: 420, elevation_mm: 0, light: null, links: [], circuit: "" });
+  out.push({ kind: "asset", id: "", level_id: levelId, catalog_key: "dining-4", name: "Dining", category: "furniture", position: { x: 3300, y: 1500 }, rotation_deg: 90, width_mm: 1200, depth_mm: 800, height_mm: 750, elevation_mm: 0, light: null, links: [], circuit: "" });
   out.push({ kind: "column", id: "", level_id: levelId, center: { x: 11000, y: 5000 }, shape: "rect", width_mm: 300, depth_mm: 400, rotation_deg: 0, material_id: null });
   out.push({ kind: "column", id: "", level_id: levelId, center: { x: 12500, y: 5000 }, shape: "round", width_mm: 350, depth_mm: 350, rotation_deg: 0, material_id: null });
   out.push({ kind: "stair", id: "", level_id: levelId, origin: { x: 11000, y: -2500 }, rotation_deg: 0, width_mm: 1000, run_mm: 3900, riser_count: 16 });
@@ -187,7 +190,7 @@ function Harness() {
           label: "Ghost test",
           commands: [
             { type: "add_wall", start: { x: 2500, y: 0 }, end: { x: 2500, y: 3000 }, thickness_mm: 100, height_mm: null, material_id: null, level_id: levelId },
-            { type: "add_element", element: { kind: "asset", id: "", level_id: levelId, catalog_key: "wardrobe", name: "Wardrobe", category: "furniture", position: { x: 5700, y: 5500 }, rotation_deg: 0, width_mm: 1200, depth_mm: 600, height_mm: 2100, elevation_mm: 0 } },
+            { type: "add_element", element: { kind: "asset", id: "", level_id: levelId, catalog_key: "wardrobe", name: "Wardrobe", category: "furniture", position: { x: 5700, y: 5500 }, rotation_deg: 0, width_mm: 1200, depth_mm: 600, height_mm: 2100, elevation_mm: 0, light: null, links: [], circuit: "" } },
           ],
         });
         app.setPreview(preview);

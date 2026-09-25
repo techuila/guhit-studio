@@ -25,8 +25,10 @@ export default defineConfig(() => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri`, and the Rust build output
+      // and crates: every cargo build writes thousands of files under
+      // `target/`, which kept Vite busy and slowed page loads to 30 s.
+      ignored: ["**/src-tauri/**", "**/target/**", "**/crates/**", "**/.devdata/**"],
     },
   },
 }));

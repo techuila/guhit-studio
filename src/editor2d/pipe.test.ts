@@ -19,7 +19,10 @@ import {
   formatPct,
   hitsPipe,
   isPlumbingFixture,
+  isServiceFixture,
   isVertical,
+  lineSetPx,
+  lineSetSpacingMm,
   movePipeNode,
   pipeNodes,
   pipePlan,
@@ -363,6 +366,58 @@ describe("pipe hit testing", () => {
     expect(inside).not.toContain("drain");
     const crossing = marqueeSelect(rectFromPoints(pt(2400, 800), pt(2600, 2200)), true, index, opt);
     expect(crossing).toEqual(expect.arrayContaining(["cold", "drain"]));
+  });
+});
+
+describe("service runs", () => {
+  it("falls only for drainage, storm and condensate", () => {
+    expect(toolFallPct({ system: "storm", diameterMm: 100 })).toBe(1);
+    expect(toolFallPct({ system: "condensate", diameterMm: 20 })).toBe(2);
+    for (const system of ["cold_water", "hot_water", "vent", "conduit", "refrigerant"] as const) {
+      expect(toolFallPct({ system, diameterMm: 20 })).toBeNull();
+    }
+  });
+
+  it("joins within a system, and drainage with vent, nothing else", () => {
+    expect(canJoin("conduit", "conduit")).toBe(true);
+    expect(canJoin("refrigerant", "refrigerant")).toBe(true);
+    expect(canJoin("condensate", "drainage")).toBe(false);
+    expect(canJoin("storm", "drainage")).toBe(false);
+    expect(canJoin("refrigerant", "condensate")).toBe(false);
+    expect(canJoin("conduit", "cold_water")).toBe(false);
+    // A conduit run never snaps onto a water pipe.
+    const water = pipe("w", "cold_water", [v(0, 0, 2800), v(2000, 0, 2800)]);
+    const scene: PipeSnapScene = { pipes: [water], fixtures: [] };
+    expect(snapToPipes(pt(1000, 5), scene, { tol: 50, system: "conduit", penZ: 2800, anchor: null, ortho: false })).toBeNull();
+  });
+
+  it("starts runs at the objects of their trade", () => {
+    const acu = { category: "aircon" as const, catalog_key: "aircon-indoor-1hp" };
+    expect(isServiceFixture(acu, "refrigerant", "aircon_indoor")).toBe(true);
+    expect(isServiceFixture(acu, "condensate", "aircon_indoor")).toBe(true);
+    expect(isServiceFixture({ category: "aircon", catalog_key: "aircon-outdoor-1hp" }, "condensate", "aircon_outdoor")).toBe(false);
+    expect(isServiceFixture({ category: "sanitary", catalog_key: "floor-drain" }, "condensate", null)).toBe(true);
+    expect(isServiceFixture({ category: "electrical", catalog_key: "switch-1" }, "conduit", "switch")).toBe(true);
+    expect(isServiceFixture({ category: "lighting", catalog_key: "light-ceiling" }, "conduit", "lighting_outlet")).toBe(true);
+    expect(isServiceFixture({ category: "sanitary", catalog_key: "wc" }, "conduit", null)).toBe(false);
+    expect(isServiceFixture({ category: "sanitary", catalog_key: "wc" }, "drainage", null)).toBe(true);
+    expect(isServiceFixture({ category: "sanitary", catalog_key: "wc" }, "storm", null)).toBe(false);
+  });
+
+  it("draws a line set as two lines at plan scale that never merge", () => {
+    // 9.52 gas and 6.35 liquid, each in 10 mm of foam: about 28 mm apart.
+    expect(lineSetSpacingMm(9.52)).toBeCloseTo(27.935, 3);
+    const near = lineSetPx(9.52, 1);
+    expect(near.sep).toBeCloseTo(27.935, 3);
+    expect(near.gasW).toBeCloseTo(9.52);
+    expect(near.liquidW).toBeCloseTo(6.35);
+    const far = lineSetPx(9.52, 0.05);
+    expect(far.sep).toBe(4.5);
+    expect(far.gasW).toBeGreaterThan(far.liquidW);
+    // Picked across both lines.
+    const ls = pipe("ls", "refrigerant", [v(0, 0, 2400), v(3000, 0, 2400)], 9.52);
+    expect(hitsPipe(pt(1500, 20), ls, 1, 6)).toBe(true);
+    expect(hitsPipe(pt(1500, 20), { ...ls, system: "cold_water" }, 1, 6)).toBe(false);
   });
 });
 

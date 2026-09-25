@@ -690,7 +690,12 @@ fn as_version_1(project: &Project) -> Value {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|l| !matches!(l["key"].as_str(), Some("cold_water" | "hot_water" | "drainage" | "vent")))
+        .filter(|l| {
+            !matches!(
+                l["key"].as_str(),
+                Some("cold_water" | "hot_water" | "drainage" | "vent" | "storm" | "electrical" | "aircon")
+            )
+        })
         .cloned()
         .collect();
     assert_eq!(layers.len(), 9);
@@ -740,12 +745,75 @@ async fn a_version_1_project_opens_with_the_pipe_layers() {
     let _: ApplyResult = call(&app, "doc_apply", wall(4000.0, 0.0, 4000.0, 3000.0)).await;
     let on_disk: Value = serde_json::from_slice(&std::fs::read(dir.join("project.json")).unwrap()).unwrap();
     assert_eq!(on_disk["schema_version"], json!(SCHEMA_VERSION));
-    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 13);
+    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 16);
 
     // A version 1 snapshot restores with the pipe layers too.
     let restored: DocState = call(&app, "snapshot_restore", json!({ "id": snap_id })).await;
-    assert_eq!(restored.project.layers.len(), 13);
+    assert_eq!(restored.project.layers.len(), 16);
     assert_eq!(restored.project.schema_version, SCHEMA_VERSION);
+}
+
+/// A project as version 2 wrote it: the pipe layers but no storm,
+/// electrical or aircon layer, schema 2, and none of the version 3 fields.
+fn as_version_2(project: &Project) -> Value {
+    let mut v = serde_json::to_value(project).unwrap();
+    v["schema_version"] = json!(2);
+    v.as_object_mut().unwrap().remove("review");
+    v["settings"].as_object_mut().unwrap().remove("site");
+    let layers: Vec<Value> = v["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|l| !matches!(l["key"].as_str(), Some("storm" | "electrical" | "aircon")))
+        .cloned()
+        .collect();
+    assert_eq!(layers.len(), 13);
+    v["layers"] = json!(layers);
+    for e in v["elements"].as_array_mut().unwrap() {
+        let map = e.as_object_mut().unwrap();
+        if map["kind"] == "asset" {
+            map.remove("light");
+            map.remove("links");
+            map.remove("circuit");
+        }
+        if map["kind"] == "camera" {
+            map.remove("light");
+        }
+    }
+    v
+}
+
+#[tokio::test]
+async fn a_version_2_project_opens_with_the_service_layers() {
+    let tmp = TempDir::new("migrate-v2");
+    let app = AppService::new(tmp.path().to_path_buf());
+    let state: DocState = call(
+        &app,
+        "hub_create",
+        json!({ "name": "Plumbed house", "settings": null, "template": "sample-bungalow" }),
+    )
+    .await;
+    let id = state.project.id.clone();
+    let _: Value = call(&app, "hub_close", json!({})).await;
+
+    let dir = tmp.path().join("projects").join(&id);
+    let saved: Project = serde_json::from_slice(&std::fs::read(dir.join("project.json")).unwrap()).unwrap();
+    std::fs::write(dir.join("project.json"), serde_json::to_vec_pretty(&as_version_2(&saved)).unwrap()).unwrap();
+
+    let opened: DocState = call(&app, "hub_open", json!({ "id": id })).await;
+    assert_eq!(opened.project.schema_version, 3);
+    let keys: Vec<LayerKey> = opened.project.layers.iter().map(|l| l.key).collect();
+    let expected: Vec<LayerKey> = defaults::default_layers().iter().map(|l| l.key).collect();
+    assert_eq!(keys, expected, "all 16 layers, in LayerKey order");
+    assert!(opened.project.review.is_empty());
+    assert!(opened.derived.schedule.is_empty(), "a bed is not counted");
+
+    // The next save writes version 3 with every layer.
+    let _: ApplyResult = call(&app, "doc_apply", wall(0.0, -2000.0, 3000.0, -2000.0)).await;
+    let on_disk: Value = serde_json::from_slice(&std::fs::read(dir.join("project.json")).unwrap()).unwrap();
+    assert_eq!(on_disk["schema_version"], json!(3));
+    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 16);
+    assert_eq!(on_disk["review"], json!([]));
 }
 
 #[tokio::test]
@@ -761,12 +829,31 @@ async fn the_plumbing_demo_template_opens_with_its_pipes() {
     assert_eq!(state.project.name, "Pipes");
     assert_ne!(state.project.id, guhit_core::templates::plumbing_demo().id, "identity is always new");
     let pipes = state.project.elements.iter().filter(|e| e.kind() == ElementKind::Pipe).count();
-    assert_eq!(pipes, 16);
-    assert_eq!(state.derived.pipes.total_length_m, 44.94);
-    assert_eq!(state.derived.pipes.sleeve_count, 7);
+    // The 16 plumbing runs, two downspouts, a line set and a condensate drain.
+    assert_eq!(pipes, 20);
+    assert_eq!(state.derived.pipes.total_length_m, 59.654);
+    assert_eq!(state.derived.pipes.sleeve_count, 9);
+    let objects = state.project.elements.iter().filter(|e| e.kind() == ElementKind::Asset).count();
+    assert_eq!(objects, 32);
+    // 22 devices, the three T&B fixtures, the kitchen sink and the washer.
+    assert_eq!(state.derived.schedule.iter().map(|r| r.count).sum::<u32>(), 27);
 
     let takeoff: Value = call(&app, "doc_query", json!({ "query": { "type": "pipe_takeoff" } })).await;
-    assert_eq!(takeoff["total_length_m"], json!(44.94));
+    assert_eq!(takeoff["total_length_m"], json!(59.654));
+    let schedule: Value = call(&app, "doc_query", json!({ "query": { "type": "schedule" } })).await;
+    assert_eq!(schedule["levels"][0]["total"], json!(27));
+
+    // A review item set aside over IPC is one undo step and comes back open.
+    let marked: ApplyResult = call(
+        &app,
+        "doc_apply",
+        json!({ "command": { "type": "set_review_mark", "target": { "kind": "check", "code": "lineset_extra" }, "note": "Quoted" } }),
+    )
+    .await;
+    let extra = marked.state.derived.issues.iter().find(|i| i.code == "lineset_extra").unwrap();
+    assert_eq!((extra.status, extra.note.as_str()), (IssueStatus::Ignored, "Quoted"));
+    let undone: DocState = call(&app, "doc_undo", json!({})).await;
+    assert!(undone.project.review.is_empty());
 
     let e = fail(&app, "hub_create", json!({ "name": "X", "template": "castle" })).await;
     assert!(e.message.contains("plumbing-demo"), "{}", e.message);

@@ -108,7 +108,7 @@ describe("moveWithCollision", () => {
     const blocked = moveWithCollision({ x: 6900, y: 3000 }, { x: 0, y: 2000 }, R, world);
     expect(blocked.y).toBeLessThanOrEqual(4800 - 950 - R + 0.5);
     const low = withElements([
-      { kind: "asset", id: "rug", level_id: LEVEL, catalog_key: "rug", name: "Rug", category: "furniture", position: { x: 2500, y: 3000 }, rotation_deg: 0, width_mm: 2000, depth_mm: 1400, height_mm: 20, elevation_mm: 0 },
+      { kind: "asset", id: "rug", level_id: LEVEL, catalog_key: "rug", name: "Rug", category: "furniture", position: { x: 2500, y: 3000 }, rotation_deg: 0, width_mm: 2000, depth_mm: 1400, height_mm: 20, elevation_mm: 0, light: null, links: [], circuit: "" },
     ]);
     const lowWorld = buildCollisionWorld(low, LEVEL);
     const p = moveWithCollision({ x: 2500, y: 1000 }, { x: 0, y: 3000 }, R, lowWorld);

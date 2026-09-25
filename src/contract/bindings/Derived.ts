@@ -2,7 +2,9 @@
 import type { Footprint } from "./Footprint";
 import type { Issue } from "./Issue";
 import type { PipeNetwork } from "./PipeNetwork";
+import type { ReviewMark } from "./ReviewMark";
 import type { RoomGeometry } from "./RoomGeometry";
+import type { ScheduleRow } from "./ScheduleRow";
 import type { Totals } from "./Totals";
 import type { WallGeometry } from "./WallGeometry";
 
@@ -20,4 +22,15 @@ issues: Array<Issue>,
 /**
  * Pipe fittings, penetrations and quantities. Empty without pipes.
  */
-pipes: PipeNetwork, };
+pipes: PipeNetwork, 
+/**
+ * Object counts per level and room, for fixture tables and device
+ * schedules. Only objects whose catalog item has a `device` kind or is a
+ * sanitary, lighting, electrical, aircon or utility item, plus the
+ * kitchen sink and the washing machine, which count as plumbing fixtures.
+ */
+schedule: Array<ScheduleRow>, 
+/**
+ * Review marks whose finding the checks no longer produce: resolved.
+ */
+review_resolved: Array<ReviewMark>, };

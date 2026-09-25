@@ -34,11 +34,23 @@ pub fn layer_of(kind: ElementKind) -> Option<LayerKey> {
     })
 }
 
-/// The layer an element is on. Pipes use the layer of their system.
+/// The layer an element is on. Pipes use the layer of their system; lights
+/// and electrical objects are on `electrical`, aircon units on `aircon`
+/// (docs/CONTRACT.md, "Pipes").
 pub fn element_layer(el: &Element) -> Option<LayerKey> {
     match el {
         Element::Pipe(p) => Some(p.system.layer()),
+        Element::Asset(a) => Some(asset_layer(a.category)),
         other => layer_of(other.kind()),
+    }
+}
+
+/// The layer an object of this category is on.
+pub fn asset_layer(category: AssetCategory) -> LayerKey {
+    match category {
+        AssetCategory::Lighting | AssetCategory::Electrical => LayerKey::Electrical,
+        AssetCategory::Aircon => LayerKey::Aircon,
+        _ => LayerKey::Assets,
     }
 }
 
@@ -57,6 +69,9 @@ pub fn layer_name(key: LayerKey) -> &'static str {
         LayerKey::HotWater => "Hot water",
         LayerKey::Drainage => "Drainage",
         LayerKey::Vent => "Vent",
+        LayerKey::Storm => "Storm drainage",
+        LayerKey::Electrical => "Electrical",
+        LayerKey::Aircon => "Aircon",
     }
 }
 
@@ -156,8 +171,97 @@ fn in_range(
     Ok(())
 }
 
-/// Pipe sizes outside this range are a slip, not a design.
-pub const PIPE_DIAMETER_MM: (f64, f64) = (10.0, 300.0);
+/// Light output of a fixture, lumens. 20000 lm is far past any house lamp.
+pub const LIGHT_LUMENS: (f64, f64) = (0.0, 20_000.0);
+/// Color temperature of a fixture, kelvin: candle warm to cold daylight.
+pub const LIGHT_KELVIN: (f64, f64) = (1500.0, 10_000.0);
+/// A circuit tag is a short label such as "L1" or "C12".
+pub const MAX_CIRCUIT_CHARS: usize = 16;
+
+/// Light, links and circuit tag of an object. Links must name other objects
+/// that exist in `project`, each once.
+fn validate_asset_services(project: &Project, a: &Asset) -> Result<(), CoreError> {
+    let ids = [a.id.clone()];
+    if let Some(light) = &a.light {
+        in_range(
+            "asset_light",
+            "Light output",
+            light.lumens,
+            LIGHT_LUMENS.0,
+            LIGHT_LUMENS.1,
+            "lm",
+            &ids,
+        )?;
+        in_range(
+            "asset_light",
+            "Color temperature",
+            light.kelvin,
+            LIGHT_KELVIN.0,
+            LIGHT_KELVIN.1,
+            "K",
+            &ids,
+        )?;
+    }
+    let chars = a.circuit.chars().count();
+    if chars > MAX_CIRCUIT_CHARS {
+        return Err(CoreError::invalid_for(
+            "circuit_too_long",
+            format!("A circuit tag is at most {MAX_CIRCUIT_CHARS} characters, this one has {chars}."),
+            ids.to_vec(),
+        ));
+    }
+    for (i, link) in a.links.iter().enumerate() {
+        if link == &a.id {
+            return Err(CoreError::invalid_for(
+                "link_to_itself",
+                format!("{} cannot be linked to itself.", object_name(a)),
+                ids.to_vec(),
+            ));
+        }
+        if a.links[..i].contains(link) {
+            return Err(CoreError::invalid_for(
+                "duplicate_link",
+                format!("{} links the same object twice.", object_name(a)),
+                vec![a.id.clone(), link.clone()],
+            ));
+        }
+        match project.elements.iter().find(|e| e.id() == link) {
+            Some(Element::Asset(_)) => {}
+            Some(_) => {
+                return Err(CoreError::invalid_for(
+                    "bad_link",
+                    format!(
+                        "{} can only be linked to lights, outlets, switches and other objects, not to this element.",
+                        object_name(a)
+                    ),
+                    vec![a.id.clone(), link.clone()],
+                ))
+            }
+            None => {
+                return Err(CoreError::invalid_for(
+                    "bad_link",
+                    format!("{} is linked to an object that does not exist ({link}).", object_name(a)),
+                    ids.to_vec(),
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+/// "The switch" or "Ceiling light": how validation messages name an object.
+fn object_name(a: &Asset) -> String {
+    let name = a.name.trim();
+    if name.is_empty() {
+        "This object".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+/// Pipe sizes outside this range are a slip, not a design. The low end
+/// takes aircon line sets: a 9.52 mm gas line, a 6.35 mm liquid line.
+pub const PIPE_DIAMETER_MM: (f64, f64) = (6.0, 300.0);
 /// Two pipe points in a row closer than this are the same point.
 pub const PIPE_POINT_EPS_MM: f64 = 1.0;
 
@@ -199,6 +303,64 @@ fn validate_pipe(project: &Project, p: &Pipe) -> Result<(), CoreError> {
         }
     }
     Ok(())
+}
+
+/// A level name is at most this many characters.
+pub const MAX_LEVEL_NAME_CHARS: usize = 60;
+/// Floor-to-floor height of a new level, mm.
+pub const NEW_LEVEL_HEIGHT_MM: (f64, f64) = (2000.0, 10_000.0);
+/// Two levels whose floors are closer than this are at the same elevation.
+pub const LEVEL_ELEVATION_EPS_MM: f64 = 1.0;
+
+/// The fields of a new level: a trimmed name of 1 to 60 characters, a finite
+/// elevation within 1 km of project zero, a height of 2000 to 10000 mm, and
+/// a floor no other level has. Returns the trimmed name.
+pub fn validate_new_level(
+    project: &Project,
+    name: &str,
+    elevation_mm: f64,
+    height_mm: f64,
+) -> Result<String, CoreError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CoreError::invalid("bad_name", "A level needs a name."));
+    }
+    let chars = name.chars().count();
+    if chars > MAX_LEVEL_NAME_CHARS {
+        return Err(CoreError::invalid(
+            "name_too_long",
+            format!("A level name is at most {MAX_LEVEL_NAME_CHARS} characters, this one has {chars}."),
+        ));
+    }
+    if !elevation_mm.is_finite() || elevation_mm.abs() > 1.0e6 {
+        return Err(CoreError::invalid(
+            "bad_level",
+            "The level elevation is not a valid number.",
+        ));
+    }
+    in_range(
+        "bad_level",
+        "The level height",
+        height_mm,
+        NEW_LEVEL_HEIGHT_MM.0,
+        NEW_LEVEL_HEIGHT_MM.1,
+        "mm",
+        &[],
+    )?;
+    if let Some(other) = project
+        .levels
+        .iter()
+        .find(|l| (l.elevation_mm - elevation_mm).abs() < LEVEL_ELEVATION_EPS_MM)
+    {
+        return Err(CoreError::invalid(
+            "level_elevation_taken",
+            format!(
+                "{} already has its floor at {:.0} mm. Give the new level another elevation.",
+                other.name, other.elevation_mm
+            ),
+        ));
+    }
+    Ok(name.to_string())
 }
 
 pub fn require_level(project: &Project, level_id: &str) -> Result<(), CoreError> {
@@ -427,7 +589,8 @@ pub fn validate_element(project: &Project, el: &Element) -> Result<(), CoreError
                 50_000.0,
                 "mm",
                 &ids,
-            )
+            )?;
+            validate_asset_services(project, a)
         }
         Element::Annotation(a) => {
             require_level(project, &a.level_id)?;

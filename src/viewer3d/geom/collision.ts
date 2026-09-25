@@ -3,7 +3,8 @@
 // The walker is a circle (250 mm radius) that stays out of every blocker on
 // its level: the wall outlines from `Derived.walls`, cut open at each door
 // (a window leaves the wall closed), columns, and objects taller than 300 mm
-// that reach below eye height. A move is split into substeps shorter than the
+// that reach below eye height. Stairs add thin strips of wall around their
+// flights (walk/stairs.ts, walk/worlds.ts). A move is split into substeps shorter than the
 // radius, and after each substep the circle is pushed out of whatever it
 // overlaps along the shortest way. Pushing along the contact normal keeps the
 // part of the move that runs along the surface, so the walker slides along a
@@ -22,7 +23,7 @@ export const OBJECT_BLOCK_MIN_HEIGHT_MM = 300;
 const MAX_STEP_OF_RADIUS = 0.4;
 const PUSH_ITERATIONS = 4;
 
-export type ColliderSource = "wall" | "column" | "object";
+export type ColliderSource = "wall" | "column" | "object" | "stair";
 
 interface Box {
   minX: number;
@@ -67,7 +68,8 @@ function boxOf(pts: Pt[]): Box {
   return { minX, minY, maxX, maxY };
 }
 
-function polyCollider(pts: Pt[], source: ColliderSource, id: string): Collider | null {
+/** A polygon blocker, or null when the polygon has no area. Any winding. */
+export function polyCollider(pts: Pt[], source: ColliderSource, id: string): Collider | null {
   const ccw = ensureCCW(pts);
   if (ccw.length < 3 || Math.abs(signedArea(ccw)) < 1) return null;
   return { kind: "poly", pts: ccw, source, id, ...boxOf(ccw) };
@@ -139,9 +141,10 @@ export function wallPieces(outline: Pt[], wall: Wall, doors: Opening[]): Pt[][] 
 /**
  * Everything that blocks a walker on `levelId`. Hidden layers do not block:
  * what is not drawn is not there. Doors only open a gap while the openings
- * layer is shown, because the 3D wall is only cut for them then.
+ * layer is shown, because the 3D wall is only cut for them then. `eyeMm` is
+ * the walker's eye height: objects hung at or above it do not block.
  */
-export function buildCollisionWorld(doc: DocState | null, levelId: string | null): CollisionWorld {
+export function buildCollisionWorld(doc: DocState | null, levelId: string | null, opts?: { eyeMm?: number }): CollisionWorld {
   if (!doc) return EMPTY_WORLD;
   const project = doc.project;
   const layerOn = (key: LayerKey) => project.layers?.find((l) => l.key === key)?.visible !== false;
@@ -217,7 +220,7 @@ export function buildCollisionWorld(doc: DocState | null, levelId: string | null
   if (layerOn("assets")) {
     for (const e of project.elements) {
       if (e.kind !== "asset" || !onLevel(e.level_id)) continue;
-      if (!objectBlocks(e.height_mm, e.elevation_mm)) continue;
+      if (!objectBlocks(e.height_mm, e.elevation_mm, opts?.eyeMm)) continue;
       const c = polyCollider(orientedRect(e.position, e.width_mm, e.depth_mm, e.rotation_deg), "object", e.id);
       if (c) colliders.push(c);
     }
@@ -226,9 +229,9 @@ export function buildCollisionWorld(doc: DocState | null, levelId: string | null
   return { levelId: level.id, colliders, wallPieces: pieces, doorGaps, windows };
 }
 
-/** Taller than 300 mm, and not hung above the walker's head. */
-export function objectBlocks(heightMm: number, elevationMm: number): boolean {
-  return heightMm > OBJECT_BLOCK_MIN_HEIGHT_MM && Math.max(elevationMm, 0) < EYE_HEIGHT_MM;
+/** Taller than 300 mm, and not hung above the walker's eyes. */
+export function objectBlocks(heightMm: number, elevationMm: number, eyeMm = EYE_HEIGHT_MM): boolean {
+  return heightMm > OBJECT_BLOCK_MIN_HEIGHT_MM && Math.max(elevationMm, 0) < eyeMm;
 }
 
 /** The point on a polygon's boundary nearest to `p`, and the distance to it. */

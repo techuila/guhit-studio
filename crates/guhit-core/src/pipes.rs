@@ -17,7 +17,13 @@
 //!   drainage and vent. A cold water end resting on a hot water pipe is not a
 //!   fitting, it is a clash.
 //! - Penetrations: `slab`, `wall` and `roof`, one per crossing (see
-//!   `penetrations`).
+//!   `penetrations`). Conduit has none. An aircon line set or condensate
+//!   drain through a wall is a core hole in the summary.
+//! - The fall check covers every system that falls: drainage and storm
+//!   (`drain_slope_low`) and condensate (`condensate_slope_low`).
+//!
+//! Service runs (storm, conduit, line sets, condensate) are pipes with their
+//! own systems and reuse every rule here (docs/CONTRACT.md, "Pipes").
 //!
 //! Heights are handled as absolute elevations (level elevation plus z), so
 //! runs on different levels meet and clash correctly. Everything reported
@@ -129,7 +135,7 @@ fn line_angle(a: Vec3, b: Vec3) -> f64 {
     t.min(180.0 - t)
 }
 
-fn round_to(v: f64, scale: f64) -> f64 {
+pub(crate) fn round_to(v: f64, scale: f64) -> f64 {
     let r = (v * scale).round() / scale;
     if r == 0.0 {
         0.0
@@ -361,6 +367,10 @@ fn system_label(s: PipeSystem) -> &'static str {
         PipeSystem::HotWater => "Hot water",
         PipeSystem::Drainage => "Drainage",
         PipeSystem::Vent => "Vent",
+        PipeSystem::Storm => "Storm drain",
+        PipeSystem::Conduit => "Conduit",
+        PipeSystem::Refrigerant => "Line set",
+        PipeSystem::Condensate => "Condensate drain",
     }
 }
 
@@ -370,20 +380,22 @@ fn system_noun(s: PipeSystem) -> &'static str {
         PipeSystem::HotWater => "hot water",
         PipeSystem::Drainage => "drainage",
         PipeSystem::Vent => "vent",
+        PipeSystem::Storm => "storm drain",
+        PipeSystem::Conduit => "conduit",
+        PipeSystem::Refrigerant => "refrigerant line set",
+        PipeSystem::Condensate => "condensate drain",
     }
 }
 
-/// "20" or "12.5": a size without a trailing ".0".
-fn size(mm: f64) -> String {
-    if (mm - mm.round()).abs() < 1e-9 {
-        format!("{mm:.0}")
-    } else {
-        format!("{mm:.1}")
-    }
+/// "20", "12.5" or "9.52": a size in mm, at most two decimals, no trailing
+/// zeros.
+pub(crate) fn size(mm: f64) -> String {
+    let s = format!("{:.2}", round_to(mm, 100.0));
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 /// "2.10 m": meters with two decimals.
-fn meters(mm: f64) -> String {
+pub(crate) fn meters(mm: f64) -> String {
     format!("{:.2} m", round_to(mm / 1000.0, 100.0))
 }
 
@@ -396,7 +408,7 @@ fn height_phrase(z: f64) -> String {
     }
 }
 
-fn capitalize(s: &str) -> String {
+pub(crate) fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
         Some(c) => c.to_uppercase().chain(chars).collect(),
@@ -405,31 +417,50 @@ fn capitalize(s: &str) -> String {
 }
 
 /// How a pipe is called in review items: its name when it has one, otherwise
-/// its system and size, for example "Cold water pipe 20 mm".
+/// its system and size, for example "Cold water pipe 20 mm", "Conduit 20 mm"
+/// or "Line set 9.52 mm".
 pub fn pipe_name(p: &Pipe) -> String {
     let name = p.name.trim();
-    if name.is_empty() {
-        format!("{} pipe {} mm", system_label(p.system), size(p.diameter_mm))
-    } else {
-        name.to_string()
+    if !name.is_empty() {
+        return name.to_string();
+    }
+    let d = size(p.diameter_mm);
+    match p.system {
+        PipeSystem::Conduit | PipeSystem::Refrigerant => {
+            format!("{} {d} mm", system_label(p.system))
+        }
+        s => format!("{} pipe {d} mm", system_label(s)),
     }
 }
 
 /// `pipe_name` for the start of a sentence.
-fn name_start(p: &Pipe) -> String {
+pub(crate) fn name_start(p: &Pipe) -> String {
     capitalize(&pipe_name(p))
 }
 
 /// `pipe_name` inside a sentence.
-fn name_mid(p: &Pipe) -> String {
-    if p.name.trim().is_empty() {
-        format!(
-            "the {} pipe {} mm",
-            system_noun(p.system),
-            size(p.diameter_mm)
-        )
-    } else {
-        p.name.trim().to_string()
+pub(crate) fn name_mid(p: &Pipe) -> String {
+    if !p.name.trim().is_empty() {
+        return p.name.trim().to_string();
+    }
+    let d = size(p.diameter_mm);
+    match p.system {
+        PipeSystem::Conduit => format!("the conduit {d} mm"),
+        PipeSystem::Refrigerant => format!("the line set {d} mm"),
+        s => format!("the {} pipe {d} mm", system_noun(s)),
+    }
+}
+
+/// What the body of a run is, with its size: "20 mm cold water line",
+/// "20 mm conduit", "9.52 mm line set".
+fn line_of(p: &Pipe) -> String {
+    let d = size(p.diameter_mm);
+    match p.system {
+        PipeSystem::Storm => format!("{d} mm storm drain"),
+        PipeSystem::Conduit => format!("{d} mm conduit"),
+        PipeSystem::Refrigerant => format!("{d} mm line set"),
+        PipeSystem::Condensate => format!("{d} mm condensate drain"),
+        s => format!("{d} mm {} line", system_noun(s)),
     }
 }
 
@@ -445,7 +476,7 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 
 /// Floor elevation and floor-to-floor height of a level. An element whose
 /// level is gone is read as standing on project zero.
-fn level_of(project: &Project, id: &str) -> (f64, f64) {
+pub(crate) fn level_of(project: &Project, id: &str) -> (f64, f64) {
     project
         .levels
         .iter()
@@ -1241,10 +1272,12 @@ fn roof_shapes(
 
 struct Pen {
     along: f64,
+    system: PipeSystem,
     pen: PipePenetration,
 }
 
-/// Every penetration, one per crossing:
+/// Every penetration, one per crossing. Conduit has none: it is cast into
+/// slabs and walls and needs no sleeve.
 /// - `slab`: a segment with one end at or above the floor (z >= 0) and the
 ///   other below it, crossing z = 0 inside a footprint of its level. Placed at
 ///   the middle of the slab the 3D view draws.
@@ -1268,6 +1301,9 @@ fn penetrations(
     let mut out: Vec<Pen> = vec![];
     for run in runs {
         let pipe = run.pipe;
+        if pipe.system == PipeSystem::Conduit {
+            continue;
+        }
         let footprints: Vec<&Vec<Point>> = analysis
             .level(&pipe.level_id)
             .map(|l| l.footprints.iter().map(|(p, _)| p).collect())
@@ -1289,6 +1325,7 @@ fn penetrations(
                     b: Vec3| {
             mine.push(Pen {
                 along: run.along[i] + t * dist3(a, b),
+                system: pipe.system,
                 pen: PipePenetration {
                     kind,
                     pipe_id: pipe.id.clone(),
@@ -1409,13 +1446,13 @@ fn takeoff(runs: &[Run]) -> (Vec<PipeTakeoffRow>, f64) {
 
 // ------------------------------------------------------------ review items
 
-fn located(mut i: Issue, at: Vec3) -> Issue {
+pub(crate) fn located(mut i: Issue, at: Vec3) -> Issue {
     i.location = Some(tidy3(at));
     i
 }
 
 /// "the T&B door": an opening named after the smallest room it opens into.
-fn opening_name(
+pub(crate) fn opening_name(
     project: &Project,
     analysis: &Analysis,
     assigned: &BTreeMap<Id, FaceRef>,
@@ -1494,11 +1531,10 @@ fn across_openings(
                 }
             };
             let message = format!(
-                "{} crosses {}. The {} mm {} line runs {} through the {} mm opening. {way_out}",
+                "{} crosses {}. The {} runs {} through the {} mm opening. {way_out}",
                 name_start(p),
                 opening_name(project, analysis, assigned, o),
-                size(p.diameter_mm),
-                system_noun(p.system),
+                line_of(p),
                 height_phrase(at.z),
                 size(o.width_mm),
             );
@@ -1531,10 +1567,9 @@ fn through_columns(runs: &[Run], solids: &[Solid]) -> Vec<Issue> {
                 ColumnShape::Round => format!("{} mm round", size(c.width_mm)),
             };
             let message = format!(
-                "{} runs through a column. The {} mm {} line passes through the {column} column {}. Keep pipes out of columns: route it around the column or under the slab, or ask the structural engineer first.",
+                "{} runs through a column. The {} passes through the {column} column {}. Keep pipes out of columns: route it around the column or under the slab, or ask the structural engineer first.",
                 name_start(p),
-                size(p.diameter_mm),
-                system_noun(p.system),
+                line_of(p),
                 height_phrase(at.z),
             );
             out.push(located(
@@ -1635,12 +1670,13 @@ fn pipe_crosses(runs: &[Run], joins: &[Join]) -> Vec<Issue> {
     out
 }
 
-fn drain_slopes(runs: &[Run]) -> Vec<Issue> {
+/// The fall check for every system that falls (`PipeSystem::falls`):
+/// `drain_slope_low` for drainage and storm drains, `condensate_slope_low`
+/// for aircon condensate. The drain default is the review default for all of
+/// them; no aircon manual gives a number for condensate.
+fn fall_checks(runs: &[Run]) -> Vec<Issue> {
     let mut out = vec![];
-    for run in runs
-        .iter()
-        .filter(|r| r.pipe.system == PipeSystem::Drainage)
-    {
+    for run in runs.iter().filter(|r| r.pipe.system.falls()) {
         let p = run.pipe;
         let min = defaults::drain_min_slope_pct(p.diameter_mm);
         let mut first: Option<(Vec3, Vec3)> = None;
@@ -1666,28 +1702,49 @@ fn drain_slopes(runs: &[Run]) -> Vec<Issue> {
         let length = meters(dist3(a, b));
         let dz = b.z - a.z;
         let pct = -dz / dist(plan(a), plan(b)) * 100.0;
-        let mut message = if dz >= 0.5 {
-            format!(
+        let condensate = p.system == PipeSystem::Condensate;
+        let what = if p.system == PipeSystem::Storm {
+            "storm drainage"
+        } else {
+            "drainage"
+        };
+        let mut message = match (condensate, dz >= 0.5, dz > -0.5) {
+            (false, true, _) => format!(
                 "{} runs uphill. The {length} run rises {:.0} mm from its first point to its last, against the flow. Lower its far end, or reverse the run if it was drawn from the outlet.",
                 name_start(p),
                 dz,
-            )
-        } else if dz > -0.5 {
-            format!(
-                "{} has no fall. The {length} run is level, and the default for {} mm drainage is {} percent. Give it fall: start it higher or connect it lower.",
+            ),
+            (false, false, true) => format!(
+                "{} has no fall. The {length} run is level, and the default for {} mm {what} is {} percent. Give it fall: start it higher or connect it lower.",
                 name_start(p),
                 size(p.diameter_mm),
                 size(min),
-            )
-        } else {
-            format!(
-                "{} falls {:.1} percent. The {length} run drops {:.0} mm, under the {} percent default for {} mm drainage. Give it more fall: start it higher or connect it lower.",
+            ),
+            (false, false, false) => format!(
+                "{} falls {:.1} percent. The {length} run drops {:.0} mm, under the {} percent default for {} mm {what}. Give it more fall: start it higher or connect it lower.",
                 name_start(p),
                 round_to(pct, 10.0),
                 -dz,
                 size(min),
                 size(p.diameter_mm),
-            )
+            ),
+            (true, true, _) => format!(
+                "{} runs uphill. The {length} run rises {:.0} mm from its first point to its last, so water would run back toward the unit. Lower its far end, or reverse the run if it was drawn from the outlet.",
+                name_start(p),
+                dz,
+            ),
+            (true, false, true) => format!(
+                "{} has no fall. The {length} run is level. Guhit checks condensate against the {} percent drain default, since aircon manuals give no number. Give it fall toward the outlet.",
+                name_start(p),
+                size(min),
+            ),
+            (true, false, false) => format!(
+                "{} falls {:.1} percent. The {length} run drops {:.0} mm, under the {} percent drain default Guhit uses for condensate. Give it more fall toward the outlet, so water does not back up into the unit.",
+                name_start(p),
+                round_to(pct, 10.0),
+                -dz,
+                size(min),
+            ),
         };
         if others > 0 {
             message.push_str(&format!(
@@ -1696,57 +1753,207 @@ fn drain_slopes(runs: &[Run]) -> Vec<Issue> {
                 if others == 1 { "is" } else { "are" }
             ));
         }
+        let code = if condensate {
+            "condensate_slope_low"
+        } else {
+            "drain_slope_low"
+        };
         out.push(located(
-            issue(
-                "drain_slope_low",
-                Severity::Warning,
-                message,
-                vec![p.id.clone()],
-            ),
+            issue(code, Severity::Warning, message, vec![p.id.clone()]),
             lerp3(a, b, 0.5),
         ));
     }
     out
 }
 
+/// A condensate run ends at a drain when its last point is this close to a
+/// drainage or storm run's body, or to a floor drain.
+const CONDENSATE_DRAIN_REACH_MM: f64 = 300.0;
+
+/// `condensate_open_end`: a condensate run whose last point is inside the
+/// building and away from a floor drain or a drain pipe. Outside the
+/// footprints of its level the water is outdoors, which is fine.
+fn condensate_open_ends(project: &Project, analysis: &Analysis, runs: &[Run]) -> Vec<Issue> {
+    let mut out = vec![];
+    for run in runs
+        .iter()
+        .filter(|r| r.pipe.system == PipeSystem::Condensate)
+    {
+        let p = run.pipe;
+        let end = run.last();
+        let footprints: Vec<&Vec<Point>> = analysis
+            .level(&p.level_id)
+            .map(|l| l.footprints.iter().map(|(fp, _)| fp).collect())
+            .unwrap_or_default();
+        if !footprints
+            .iter()
+            .any(|fp| point_in_polygon(plan(end), fp))
+        {
+            continue;
+        }
+        let at_floor_drain = project.elements.iter().any(|e| match e {
+            Element::Asset(a) => {
+                a.catalog_key == "floor-drain"
+                    && a.level_id == p.level_id
+                    && dist(a.position, plan(end))
+                        <= CONDENSATE_DRAIN_REACH_MM + a.width_mm.max(a.depth_mm) / 2.0
+            }
+            _ => false,
+        });
+        let at_drain = runs.iter().any(|o| {
+            matches!(o.pipe.system, PipeSystem::Drainage | PipeSystem::Storm)
+                && o.closest(end).dist <= o.radius + CONDENSATE_DRAIN_REACH_MM
+        });
+        if at_floor_drain || at_drain {
+            continue;
+        }
+        out.push(located(
+            issue(
+                "condensate_open_end",
+                Severity::Info,
+                format!(
+                    "{} ends inside the house, away from a drain. Lead it to a floor drain, a drain pipe or the outside, so the water has somewhere to go.",
+                    name_start(p)
+                ),
+                vec![p.id.clone()],
+            ),
+            run.rel(end),
+        ));
+    }
+    out
+}
+
+/// A condensate crossing this close to a line set crossing of the same wall
+/// goes through the line set's core hole: the Koppel manual bundles the
+/// drain hose with the refrigerant pipes.
+const SHARED_CORE_HOLE_MM: f64 = 300.0;
+
+/// The manual's "16 mm (5/8 inch)" gas line: a 15.88 mm line counts.
+const LARGE_GAS_LINE_MM: f64 = 15.8;
+
+/// Core hole for an aircon run through a wall (Koppel manual): 65 mm, or
+/// 90 mm when the gas line is 16 mm (5/8 inch) or more.
+fn core_hole_mm(system: PipeSystem, diameter_mm: f64) -> f64 {
+    if system == PipeSystem::Refrigerant && diameter_mm >= LARGE_GAS_LINE_MM {
+        90.0
+    } else {
+        65.0
+    }
+}
+
+/// True for a penetration that is an aircon core hole, not a sleeve.
+fn is_core_hole(p: &Pen) -> bool {
+    p.pen.kind == PenetrationKind::Wall
+        && matches!(p.system, PipeSystem::Refrigerant | PipeSystem::Condensate)
+}
+
+/// The core hole size of one penetration, when it is one. Used by the
+/// take-off query.
+pub(crate) fn penetration_core_hole(pipe: &Pipe, pen: &PipePenetration) -> Option<f64> {
+    (pen.kind == PenetrationKind::Wall
+        && matches!(pipe.system, PipeSystem::Refrigerant | PipeSystem::Condensate))
+        .then(|| core_hole_mm(pipe.system, pipe.diameter_mm))
+}
+
+/// The `pipe_penetrations` summary: sleeves and flashings by kind, then the
+/// aircon core holes, each counted once where a condensate drain shares a
+/// line set's hole.
 fn penetration_summary(pens: &[Pen]) -> Option<Issue> {
     if pens.is_empty() {
         return None;
     }
-    let count = |k: PenetrationKind| pens.iter().filter(|p| p.pen.kind == k).count();
-    let (slab, wall, roof) = (
-        count(PenetrationKind::Slab),
-        count(PenetrationKind::Wall),
-        count(PenetrationKind::Roof),
-    );
-    let n = pens.len();
-    let mut parts = vec![];
-    if slab > 0 {
-        parts.push(format!("{slab} through the floor slab"));
+    let sleeved: Vec<&Pen> = pens.iter().filter(|p| !is_core_hole(p)).collect();
+    let mut sentences: Vec<String> = vec![];
+    if !sleeved.is_empty() {
+        let count = |k: PenetrationKind| sleeved.iter().filter(|p| p.pen.kind == k).count();
+        let (slab, wall, roof) = (
+            count(PenetrationKind::Slab),
+            count(PenetrationKind::Wall),
+            count(PenetrationKind::Roof),
+        );
+        let n = sleeved.len();
+        let mut parts = vec![];
+        if slab > 0 {
+            parts.push(format!("{slab} through the floor slab"));
+        }
+        if wall > 0 {
+            parts.push(if wall == 1 {
+                "1 through a wall".to_string()
+            } else {
+                format!("{wall} through walls")
+            });
+        }
+        if roof > 0 {
+            parts.push(format!("{roof} through the roof"));
+        }
+        let sleeves = slab + wall;
+        let need = match (sleeves > 0, roof > 0, n == 1) {
+            (true, true, _) => "need sleeves or flashing",
+            (true, false, true) => "needs a sleeve",
+            (true, false, false) => "need sleeves",
+            (false, _, true) => "needs flashing",
+            (false, _, false) => "need flashing",
+        };
+        let advice = match (sleeves > 0, roof > 0) {
+            (true, true) => "Set the sleeves before the pour or the blockwork, and detail the flashing before the roofing.",
+            (true, false) => "Set the sleeves before the pour or the blockwork.",
+            _ => "Detail the flashing before the roofing.",
+        };
+        sentences.push(format!(
+            "{} {need}: {}. {advice}",
+            plural(n, "pipe penetration", "pipe penetrations"),
+            parts.join(", ")
+        ));
     }
-    if wall > 0 {
-        parts.push(if wall == 1 {
-            "1 through a wall".to_string()
+
+    // Line sets first, each through its own hole; a condensate drain next to
+    // one on the same wall shares it.
+    let mut holes: Vec<(&Id, Vec3, f64)> = vec![];
+    for p in pens
+        .iter()
+        .filter(|p| is_core_hole(p) && p.system == PipeSystem::Refrigerant)
+    {
+        if let Some(host) = &p.pen.host_id {
+            holes.push((host, p.pen.position, core_hole_mm(p.system, p.pen.diameter_mm)));
+        }
+    }
+    for p in pens
+        .iter()
+        .filter(|p| is_core_hole(p) && p.system == PipeSystem::Condensate)
+    {
+        let Some(host) = &p.pen.host_id else { continue };
+        let shared = holes.iter().any(|(h, at, _)| {
+            *h == host && dist3(*at, p.pen.position) <= SHARED_CORE_HOLE_MM
+        });
+        if !shared {
+            holes.push((host, p.pen.position, core_hole_mm(p.system, p.pen.diameter_mm)));
+        }
+    }
+    if !holes.is_empty() {
+        let mut sizes: Vec<f64> = holes.iter().map(|h| h.2).collect();
+        sizes.sort_by(|a, b| a.total_cmp(b));
+        sizes.dedup();
+        let sizes = match sizes.as_slice() {
+            [one] => format!("{} mm", size(*one)),
+            many => {
+                let words: Vec<String> = many.iter().map(|s| size(*s)).collect();
+                format!(
+                    "{} and {} mm",
+                    words[..words.len() - 1].join(", "),
+                    words[words.len() - 1]
+                )
+            }
+        };
+        sentences.push(if holes.len() == 1 {
+            format!("1 aircon core hole goes through a wall: {sizes}, sloped 5 to 7 mm down to the outside. Drill it before the wall is finished.")
         } else {
-            format!("{wall} through walls")
+            format!(
+                "{} aircon core holes go through walls: {sizes}, each sloped 5 to 7 mm down to the outside. Drill them before the walls are finished.",
+                holes.len()
+            )
         });
     }
-    if roof > 0 {
-        parts.push(format!("{roof} through the roof"));
-    }
-    let sleeves = slab + wall;
-    let need = match (sleeves > 0, roof > 0, n == 1) {
-        (true, true, _) => "need sleeves or flashing",
-        (true, false, true) => "needs a sleeve",
-        (true, false, false) => "need sleeves",
-        (false, _, true) => "needs flashing",
-        (false, _, false) => "need flashing",
-    };
-    let advice = match (sleeves > 0, roof > 0) {
-        (true, true) => "Set the sleeves before the pour or the blockwork, and detail the flashing before the roofing.",
-        (true, false) => "Set the sleeves before the pour or the blockwork.",
-        _ => "Detail the flashing before the roofing.",
-    };
+
     let mut ids: Vec<Id> = vec![];
     for p in pens {
         if !ids.contains(&p.pen.pipe_id) {
@@ -1757,11 +1964,7 @@ fn penetration_summary(pens: &[Pen]) -> Option<Issue> {
     Some(issue(
         "pipe_penetrations",
         Severity::Info,
-        format!(
-            "{} {need}: {}. {advice}",
-            plural(n, "pipe penetration", "pipe penetrations"),
-            parts.join(", ")
-        ),
+        sentences.join(" "),
         ids,
     ))
 }
@@ -1800,7 +2003,8 @@ pub(crate) fn derive_pipes(
     let mut issues = across_openings(project, analysis, assigned, &runs, &holes(project, &bodies));
     issues.extend(through_columns(&runs, &solids(project)));
     issues.extend(pipe_crosses(&runs, &joins));
-    issues.extend(drain_slopes(&runs));
+    issues.extend(fall_checks(&runs));
+    issues.extend(condensate_open_ends(project, analysis, &runs));
     issues.extend(penetration_summary(&pens));
 
     let fittings: Vec<PipeFitting> = found.into_iter().map(|f| f.fitting).collect();

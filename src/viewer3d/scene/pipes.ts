@@ -21,7 +21,7 @@
 
 import * as THREE from "three";
 import type { DocState, LayerKey, Level, Pipe, PipeFitting, PipePenetration, PipeSystem } from "../../contract/bindings";
-import { PIPE_COLOR_HEX, PIPE_SYSTEM_ORDER } from "../../contract/pipes";
+import { PIPE_COLOR_HEX, PIPE_LAYER, PIPE_SYSTEM_ORDER } from "../../contract/pipes";
 import type { BuildCache } from "./buildCache";
 import { tagElement, type Kit } from "./kit";
 import type { MaterialLibrary } from "./materials";
@@ -36,9 +36,9 @@ export const SLEEVE_COLOR = "#a4a8ad";
 /** Solos rest on this layer: never drawn by the camera, always seen by the raycaster. */
 export const PIPE_PICK_LAYER = 1;
 
-/** Each pipe system has a layer with the same name (docs/CONTRACT.md, "Pipes"). */
+/** The layer a run is on (docs/CONTRACT.md, "Pipes"). */
 export function pipeLayer(system: PipeSystem): LayerKey {
-  return system;
+  return PIPE_LAYER[system];
 }
 
 // --------------------------------------------------------------- geometry

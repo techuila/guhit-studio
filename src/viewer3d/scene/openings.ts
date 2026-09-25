@@ -8,6 +8,11 @@
 // Shared conventions with the 2D plan and the exports:
 // flip_side false = leaf swings to the left of the wall direction,
 // flip_hinge false = hinge on the jamb nearer to the wall start.
+//
+// Door leaves (a swing leaf on its hinge, the moving panel of a sliding door)
+// keep a group of their own, tagged `userData.doorLeaf`, so walk mode can
+// open and close them in the view (walk/doors.ts). Everywhere else they rest
+// ajar, as drawn here; exports and captures outside walk mode show that.
 
 import * as THREE from "three";
 import type { Opening, Wall } from "../../contract/bindings";
@@ -17,6 +22,28 @@ import type { MaterialLibrary } from "./materials";
 
 const FRAME = 0.045;
 const AJAR = (32 * Math.PI) / 180;
+
+/** A swing leaf fully open, about its hinge. */
+export const DOOR_SWING_OPEN_RAD = Math.PI / 2;
+
+/** On a door leaf's group (`userData.doorLeaf`): how to open it. `open` runs from 0 (closed) to 1 (fully open). */
+export interface DoorLeafTag {
+  /** swing: turns about its hinge. slide: moves along the wall over the fixed panel. */
+  kind: "swing" | "slide";
+  /** swing: rotation.y = sign * open * DOOR_SWING_OPEN_RAD. */
+  sign: number;
+  /** slide: position.x closed and fully open, meters along the wall. */
+  closedX: number;
+  openX: number;
+  /** How open the leaf is drawn outside walk mode. */
+  rest: number;
+}
+
+/** Puts a tagged leaf at `open` (0 closed, 1 fully open). */
+export function setLeafOpen(obj: THREE.Object3D, tag: DoorLeafTag, open: number): void {
+  if (tag.kind === "swing") obj.rotation.y = tag.sign * open * DOOR_SWING_OPEN_RAD;
+  else obj.position.x = tag.closedX + open * (tag.openX - tag.closedX);
+}
 
 export function buildOpening(
   kit: Kit,
@@ -93,6 +120,9 @@ export function buildOpening(
     return pivot;
   };
 
+  /** Door leaves and sliding panels: merged apart from the frame, so they can move. */
+  const leaves: THREE.Object3D[] = [];
+
   const doorLeaf = (hingeAtStart: boolean, lw: number) => {
     const z = side * (t / 2 - 0.02);
     const pivot = hinged(hingeAtStart, AJAR, z);
@@ -102,6 +132,15 @@ export function buildOpening(
     for (const s of [-1, 1]) {
       box(pivot, metal, 0.12, 0.025, 0.05, dir * (lw - 0.11), clearY + 1.0, s * 0.035);
     }
+    const tag: DoorLeafTag = {
+      kind: "swing",
+      sign: (hingeAtStart ? 1 : -1) * (side < 0 ? 1 : -1),
+      closedX: pivot.position.x,
+      openX: pivot.position.x,
+      rest: AJAR / DOOR_SWING_OPEN_RAD,
+    };
+    pivot.userData.doorLeaf = tag;
+    leaves.push(pivot);
   };
 
   let style = o.style;
@@ -117,9 +156,17 @@ export function buildOpening(
       const pw = clearW / 2 + 0.03;
       const startFixed = !o.flip_hinge;
       const fixedX = startFixed ? x0 + FRAME + pw / 2 : x1 - FRAME - pw / 2;
-      const slideX = startFixed ? x1 - FRAME - pw / 2 - clearW * 0.22 : x0 + FRAME + pw / 2 + clearW * 0.22;
+      // The moving panel closes over the other half and opens over the fixed one; drawn a fifth open.
+      const closedX = startFixed ? x1 - FRAME - pw / 2 : x0 + FRAME + pw / 2;
+      const slideX = startFixed ? closedX - clearW * 0.22 : closedX + clearW * 0.22;
       glazed(group, metal, pw, clearH - 0.01, fixedX, clearY + 0.005, -0.018, 0.05);
-      glazed(group, metal, pw, clearH - 0.01, slideX, clearY + 0.005, 0.018, 0.05);
+      const panel = new THREE.Group();
+      group.add(panel);
+      glazed(panel, metal, pw, clearH - 0.01, 0, clearY + 0.005, 0.018, 0.05);
+      const tag: DoorLeafTag = { kind: "slide", sign: 1, closedX, openX: fixedX, rest: (slideX - closedX) / (fixedX - closedX) };
+      panel.userData.doorLeaf = tag;
+      setLeafOpen(panel, tag, tag.rest);
+      leaves.push(panel);
     }
     // "fixed" door style: a cased opening, frame only.
   } else if (style === "fixed") {
@@ -160,7 +207,13 @@ export function buildOpening(
     }
   }
 
-  // Frame, leaves, rails and glass collapse to one mesh per material.
+  // Frame, rails and glass collapse to one mesh per material, and so does
+  // each leaf inside its own group.
+  for (const leaf of leaves) {
+    kit.mergeByMaterial(leaf);
+    leaf.removeFromParent();
+  }
   kit.mergeByMaterial(group);
+  for (const leaf of leaves) group.add(leaf);
   return group;
 }

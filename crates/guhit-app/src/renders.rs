@@ -109,8 +109,15 @@ pub fn read_image(project_dir: &Path, id: &str) -> Result<(ImageKind, Vec<u8>), 
     Ok((kind, bytes))
 }
 
-/// Tier 1: a deterministic capture of the live 3D view.
-pub fn capture(project_dir: &Path, revision: u32, camera: Camera, png_data_url: &str) -> Result<RenderRecord, IpcError> {
+/// Tier 1: a deterministic capture of the live 3D view, or a render of it.
+pub fn capture(
+    project_dir: &Path,
+    revision: u32,
+    camera: Camera,
+    png_data_url: &str,
+    info: Option<RenderInfo>,
+) -> Result<RenderRecord, IpcError> {
+    let info = info.map(clean_info).transpose()?;
     let png = files::decode_png_data_url(png_data_url)?;
     let id = defaults::new_id();
     let path = image_path_with(project_dir, &id, ImageKind::Png)?;
@@ -126,11 +133,28 @@ pub fn capture(project_dir: &Path, revision: u32, camera: Camera, png_data_url: 
         image_path: path.to_string_lossy().into_owned(),
         source_render_id: None,
         provider: None,
+        info,
     };
     let mut records = load_index(project_dir)?;
     records.push(record.clone());
     save_index(project_dir, &records)?;
     Ok(record)
+}
+
+/// Longest adapter name kept in a record.
+const MAX_GPU_CHARS: usize = 160;
+
+/// Render info as sent by the UI: sizes and times must be real numbers, the
+/// adapter name is kept short and free of control characters.
+fn clean_info(mut info: RenderInfo) -> Result<RenderInfo, IpcError> {
+    if info.width == 0 || info.height == 0 {
+        return Err(IpcError::new("bad_args", "argument `info`: width and height must be at least 1 pixel"));
+    }
+    if !info.seconds.is_finite() || info.seconds < 0.0 {
+        return Err(IpcError::new("bad_args", "argument `info`: seconds must be a number of seconds, 0 or more"));
+    }
+    info.gpu = info.gpu.chars().filter(|c| !c.is_control()).take(MAX_GPU_CHARS).collect::<String>().trim().to_string();
+    Ok(info)
 }
 
 /// Tier 2: a generated image, saved next to the capture it came from. The
@@ -163,6 +187,7 @@ pub fn save_ai(
         image_path: path.to_string_lossy().into_owned(),
         source_render_id: Some(source.id.clone()),
         provider: Some(provider.to_string()),
+        info: None,
     };
     let mut records = load_index(project_dir)?;
     records.push(record.clone());

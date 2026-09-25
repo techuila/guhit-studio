@@ -11,6 +11,11 @@
 // While the 3D view walks or flies (useViewer nav is not "orbit") it owns
 // every key without MOD: WASD, arrows, F and Escape. This handler then only
 // answers MOD shortcuts.
+//
+// Sun and render keys (docs/CONTRACT.md, "Sun and light"): U and I move the
+// sun 15 minutes and repeat while held, so holding one scrubs; Shift+U and
+// Shift+I step the presets; Shift+N switches the lamps; MOD+Alt+R renders the
+// view. None of them is a WebView2 browser key (Ctrl+R, F5 and F12 are).
 import { useEffect, useRef } from "react";
 import { ipc } from "../contract/ipc";
 import { getActiveController } from "../editor2d/controller";
@@ -20,6 +25,7 @@ import { Dialog, isModalOpen } from "../ui/Dialog";
 import { useViewer } from "../viewer3d/viewerStore";
 import type { PresenceStage } from "../ui/motion";
 import {
+  ALT,
   MOD,
   SHIFT,
   activateTool,
@@ -29,8 +35,12 @@ import {
   escapeToSelect,
   openAssetTool,
   quickSaveVersion,
+  renderViews,
   rotateSelectionCCW,
   selectAllOnLevel,
+  stepSunPreset,
+  stepSunTime,
+  toggleLampsNow,
   zoomToSelection,
 } from "./actions";
 import { useShell } from "./shellStore";
@@ -50,6 +60,7 @@ const TOOL_KEYS: Record<string, Tool> = {
   k: "camera",
   h: "pan",
   p: "pipe",
+  l: "link",
 };
 
 const ARROW_DELTA: Record<string, [number, number]> = {
@@ -143,6 +154,12 @@ export function useGlobalShortcuts() {
       if (isModalOpen() || isTyping(e.target)) return;
 
       if (mod) {
+        // Alt changes e.key on macOS (Option+R is "®"), so match the physical key.
+        if (e.altKey && e.code === "KeyR") {
+          e.preventDefault();
+          if (!e.repeat) void renderViews("current");
+          return;
+        }
         if (key === "z") {
           e.preventDefault();
           void (e.shiftKey ? app.redo() : app.undo());
@@ -240,7 +257,20 @@ export function useGlobalShortcuts() {
         } else if (key === "w") {
           e.preventDefault();
           void enterNav("walk");
+        } else if (key === "u" || key === "i") {
+          e.preventDefault();
+          if (!e.repeat) stepSunPreset(key === "i" ? 1 : -1);
+        } else if (key === "n") {
+          e.preventDefault();
+          if (!e.repeat) toggleLampsNow();
         }
+        return;
+      }
+
+      // U and I repeat while held: holding one scrubs the sun.
+      if (key === "u" || key === "i") {
+        e.preventDefault();
+        stepSunTime(key === "i" ? 1 : -1);
         return;
       }
 
@@ -291,7 +321,8 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
       ["C", "Column"],
       ["S", "Stair"],
       ["O", "Objects"],
-      ["P", "Pipe"],
+      ["P", "Services: pipes, conduit, aircon lines"],
+      ["L", "Link a switch to its lights"],
       ["M", "Dimension"],
       ["T", "Text"],
       ["K", "Camera"],
@@ -299,12 +330,16 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
     ],
   },
   {
-    title: "Pipe tool, pointer on the plan",
+    title: "Services tool, pointer on the plan",
     rows: [
-      ["PgUp / PgDn", "Pipe height in 100 mm steps, Shift for 10"],
-      ["H", "Type the pipe height"],
+      ["PgUp / PgDn", "Run height in 100 mm steps, Shift for 10"],
+      ["H", "Type the height"],
       ["Enter", "Finish the run"],
     ],
+  },
+  {
+    title: "Link tool, on the plan",
+    rows: [["Esc / Enter", "End linking"]],
   },
   {
     title: "Toggles",
@@ -339,6 +374,24 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
     ],
   },
   {
+    title: "Sun and render",
+    rows: [
+      ["U / I", "Sun 15 minutes earlier or later. Hold to scrub"],
+      [`${SHIFT}U / ${SHIFT}I`, "Previous or next sun preset"],
+      [`${SHIFT}N`, "Lamps on, or auto"],
+      [`${MOD}${ALT}R`, "Render this view"],
+    ],
+  },
+  {
+    title: "Review list, when it has focus",
+    rows: [
+      ["↑ ↓", "Move between items"],
+      ["S", "Set aside, with a note"],
+      ["O", "Reopen a set-aside item"],
+      ["Enter", "Show it on the plan"],
+    ],
+  },
+  {
     title: "Edit",
     rows: [
       [`${MOD}Z`, "Undo"],
@@ -369,7 +422,7 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
 
 export function ShortcutsDialog({ onClose, stage }: { onClose: () => void; stage?: PresenceStage }) {
   return (
-    <Dialog title="Keyboard shortcuts" onClose={onClose} width={560} stage={stage}>
+    <Dialog title="Keyboard shortcuts" onClose={onClose} width={800} stage={stage}>
       <div className={s.sheet}>
         {SHEET.map((group) => (
           <section key={group.title}>

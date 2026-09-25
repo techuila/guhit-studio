@@ -14,8 +14,10 @@
 //! - `dimensions`: dimensions follow the walls they were snapped to.
 //! - `exec`: every `Command`.
 //! - `validate`: rules and the post-command safety net.
-//! - `issues`: design review suggestions.
-//! - `pipes`: pipe fittings, penetrations, take-off and pipe review items.
+//! - `issues`: design review suggestions and review marks.
+//! - `pipes`: pipe and service run fittings, penetrations, take-off and
+//!   their review items.
+//! - `devices`: the object schedule and the device and aircon review items.
 //! - `query`: read-only answers for the AI copilot.
 //! - `ids`: deterministic ids, so `preview` equals `apply`.
 
@@ -24,6 +26,7 @@ use std::collections::BTreeMap;
 use guhit_model::*;
 
 mod derive;
+mod devices;
 mod dimensions;
 mod error;
 mod exec;
@@ -39,13 +42,35 @@ mod validate;
 
 pub use derive::compute_derived;
 pub use error::CoreError;
+pub use issues::{is_review_code, REVIEW_CODES};
 pub use pipes::pipe_name;
+
+/// The room each object stands in, by object id: the room of the closed wall
+/// face that holds its position. Objects outside every room are left out.
+/// For labels such as "Ceiling light in Bedroom".
+pub fn asset_rooms(project: &Project) -> BTreeMap<Id, String> {
+    let analysis = topo::analyze(project);
+    let assigned = rooms::assign_by_seed(project, &analysis);
+    let index = devices::RoomIndex::new(project, &analysis, &assigned);
+    project
+        .elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Asset(a) => index
+                .at(&a.level_id, a.position)
+                .map(|r| (a.id.clone(), r.name.clone())),
+            _ => None,
+        })
+        .collect()
+}
 
 /// Bring a project from an older file up to `SCHEMA_VERSION`. Every layer the
 /// project lacks is added after the ones it has, in `LayerKey` order, visible
-/// and unlocked. Version 2 added the four pipe layers. Running it twice
-/// changes nothing. `Document::new` and `Document::with_revision` call it, so
-/// every project that is opened goes through it.
+/// and unlocked. Version 2 added the four pipe layers, version 3 the storm,
+/// electrical and aircon layers; every new field of version 3 has a serde
+/// default. Running it twice changes nothing. `Document::new` and
+/// `Document::with_revision` call it, so every project that is opened goes
+/// through it.
 pub fn migrate(project: &mut Project) {
     for layer in defaults::default_layers() {
         if !project.layers.iter().any(|l| l.key == layer.key) {
@@ -230,11 +255,11 @@ fn diff_projects(before: &Project, after: &Project, outcome: &exec::Outcome) -> 
         match old.get(el.id()) {
             None => {
                 diff.added.push(el.id().clone());
-                *counts[0].entry(exec::kind_noun(el.kind())).or_default() += 1;
+                *counts[0].entry(exec::diff_noun(el)).or_default() += 1;
             }
             Some(b) if *b != el => {
                 diff.modified.push(el.id().clone());
-                *counts[1].entry(exec::kind_noun(el.kind())).or_default() += 1;
+                *counts[1].entry(exec::diff_noun(el)).or_default() += 1;
             }
             _ => {}
         }
@@ -242,7 +267,7 @@ fn diff_projects(before: &Project, after: &Project, outcome: &exec::Outcome) -> 
     for el in &before.elements {
         if !new.contains_key(el.id()) {
             diff.removed.push(el.id().clone());
-            *counts[2].entry(exec::kind_noun(el.kind())).or_default() += 1;
+            *counts[2].entry(exec::diff_noun(el)).or_default() += 1;
         }
     }
     let part = |verb: &str, c: &BTreeMap<&'static str, usize>| -> Option<String> {
@@ -251,13 +276,7 @@ fn diff_projects(before: &Project, after: &Project, outcome: &exec::Outcome) -> 
         }
         let items: Vec<String> = c
             .iter()
-            .map(|(noun, n)| {
-                if *n == 1 {
-                    format!("1 {noun}")
-                } else {
-                    format!("{n} {noun}s")
-                }
-            })
+            .map(|(noun, n)| exec::count_noun(*n, noun))
             .collect();
         Some(format!("{verb} {}", items.join(", ")))
     };

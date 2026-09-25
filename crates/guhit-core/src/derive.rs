@@ -1,9 +1,10 @@
 //! Builds `Derived` from a project: wall outlines, rooms, footprints,
-//! totals, pipes and review items.
+//! totals, pipes, the object schedule, review items and review marks.
 
 use guhit_model::*;
 
-use crate::issues::review;
+use crate::devices::{device_issues, schedule, Catalog, RoomIndex};
+use crate::issues::{apply_review_marks, review};
 use crate::pipes::derive_pipes;
 use crate::rooms::{assign_by_seed, face};
 use crate::topo::{analyze, Analysis};
@@ -87,5 +88,16 @@ pub fn derived_from(project: &Project, analysis: &Analysis) -> Derived {
     derived.pipes = pipes;
     derived.issues = review(project, analysis, &assigned);
     derived.issues.extend(pipe_issues);
+
+    // Devices: the object schedule and the device review items.
+    let catalog = Catalog::new();
+    let rooms = RoomIndex::new(project, analysis, &assigned);
+    derived
+        .issues
+        .extend(device_issues(project, analysis, &rooms, &catalog));
+    derived.schedule = schedule(project, &rooms, &catalog);
+
+    // Review marks last, over every finding.
+    derived.review_resolved = apply_review_marks(&project.review, &mut derived.issues);
     derived
 }

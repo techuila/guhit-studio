@@ -397,12 +397,7 @@ export default async (page, shot) => {
 
   // An AI style preview adding a pipe draws it in the preview color.
   const preview = await page.evaluate(async (lv) => {
-    const res = await fetch("http://localhost:1741/ipc/doc_preview", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ command: { type: "add_element", element: { kind: "pipe", id: "", level_id: lv, system: "hot_water", material: "ppr", diameter_mm: 20, points: [{ x: 1000, y: 5000, z: 300 }, { x: 4000, y: 5000, z: 300 }, { x: 4000, y: 5000, z: 1200 }], name: "" } } }),
-    });
-    const result = await res.json();
+    const result = await window.__ipc.docPreview({ type: "add_element", element: { kind: "pipe", id: "", level_id: lv, system: "hot_water", material: "ppr", diameter_mm: 20, points: [{ x: 1000, y: 5000, z: 300 }, { x: 4000, y: 5000, z: 300 }, { x: 4000, y: 5000, z: 1200 }], name: "" } });
     window.__app.getState().setPreview(result);
     return result.diff;
   }, level);

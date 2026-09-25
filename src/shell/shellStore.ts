@@ -32,6 +32,17 @@ interface ShellState {
    * example the palette's "Pipe take-off". The section reacts to a new token.
    */
   revealRequest: { key: string; token: number } | null;
+  /**
+   * Elements the review list showed (selected and zoomed to). While the
+   * selection is exactly these, the inspector keeps the review list on
+   * screen, so triage goes on; editing them is one click away.
+   */
+  reviewShown: string[] | null;
+  /**
+   * A request (the palette's "Delete this level") for the Levels section to
+   * open its inline confirmation for this level. Never window.confirm.
+   */
+  levelDeleteRequest: { levelId: string; token: number } | null;
 
   open: (overlay: Exclude<Overlay, null>) => void;
   close: () => void;
@@ -43,6 +54,8 @@ interface ShellState {
   requestFlyout: (flyout: FlyoutKind) => void;
   requestImport: (kind: ImportKind) => void;
   revealSection: (key: string) => void;
+  setReviewShown: (ids: string[] | null) => void;
+  requestLevelDelete: (levelId: string) => void;
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -57,6 +70,8 @@ export const useShell = create<ShellState>((set) => ({
   flyoutRequest: null,
   importRequest: null,
   revealRequest: null,
+  reviewShown: null,
+  levelDeleteRequest: null,
 
   open: (overlay) => set({ overlay }),
   close: () => set({ overlay: null }),
@@ -73,7 +88,16 @@ export const useShell = create<ShellState>((set) => ({
       inspectorSections: { ...s.inspectorSections, [key]: true },
       revealRequest: { key, token: (s.revealRequest?.token ?? 0) + 1 },
     })),
+  setReviewShown: (reviewShown) => set({ reviewShown }),
+  requestLevelDelete: (levelId) => set((s) => ({ levelDeleteRequest: { levelId, token: (s.levelDeleteRequest?.token ?? 0) + 1 } })),
 }));
+
+/** True when the selection is exactly the elements the review list showed. */
+export function isReviewShown(shown: string[] | null, selection: string[]): boolean {
+  if (!shown || shown.length === 0 || shown.length !== selection.length) return false;
+  const set = new Set(selection);
+  return shown.every((id) => set.has(id));
+}
 
 /** The name to show for the open project. */
 export function useProjectName(): string {

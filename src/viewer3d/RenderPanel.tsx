@@ -16,6 +16,10 @@ import { useApp } from "../state/store";
 import { usePresence } from "../ui/motion";
 import { collapseOut } from "../ui/motionWaapi";
 import { RenderLightbox } from "./render/RenderLightbox";
+import { RenderSection } from "./render/RenderSection";
+import { ShadowStudyDialog } from "./render/ShadowStudyDialog";
+// Loads the render queue, which answers `bus.emit("render", ...)`.
+import "./render/renderQueue";
 import { RenderStudio } from "./render/RenderStudio";
 import { formatResolution, useRenderUi } from "./render/renderStore";
 import { useViewer } from "./viewerStore";
@@ -335,6 +339,8 @@ export function RenderPanel() {
 
       {!canCapture && hasDoc && <p className={styles.note}>Open the 3D view to capture it.</p>}
 
+      {hasDoc && <RenderSection canRender={canCapture} />}
+
       {error && (
         <div className={styles.error} role="alert" data-testid="render-error">
           <span>Visuals could not be loaded: {error}</span>
@@ -376,6 +382,8 @@ export function RenderPanel() {
           </div>,
           document.body,
         )}
+
+      <ShadowStudyDialog />
 
       <RenderLightbox
         open={lightboxId !== null}

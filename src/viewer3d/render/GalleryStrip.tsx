@@ -2,10 +2,12 @@
 // next to the capture it was made from. Newest group first. Cards slide to
 // their new place (FLIP) when one is added or removed.
 
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { RenderRecord } from "../../contract/bindings";
 import { flip, play } from "../../ui/motionWaapi";
-import { groupRenders, type RenderGroup } from "./renderStore";
+import { clockLabel, dateLabel } from "../light/sun";
+import { kindLabel } from "./renderMeta";
+import { formatResolution, groupRenders, type RenderGroup } from "./renderStore";
 import s from "./render.module.css";
 
 function timeLabel(rfc3339: string): string {
@@ -42,6 +44,8 @@ export function GalleryStrip({
 }: GalleryStripProps) {
   const ownRef = useRef<HTMLUListElement>(null);
   const ref = listRef ?? ownRef;
+  // Image sizes, read off the thumbnails as they load.
+  const [sizes, setSizes] = useState<Record<string, string>>({});
   const rects = useRef(new Map<string, DOMRect>());
   const groups: RenderGroup[] = groupRenders(records);
 
@@ -69,6 +73,11 @@ export function GalleryStrip({
             {cards.map((r) => {
               const ai = r.source === "ai_visualization";
               const thumb = thumbs[r.id];
+              const meta = ai ? null : (r.info ?? null);
+              const light = r.camera?.light ?? null;
+              const size = meta?.width && meta?.height ? formatResolution(meta.width, meta.height) : sizes[r.id];
+              // A render's record carries the revision it started from.
+              const stale = r.revision < revision;
               return (
                 <div
                   key={r.id}
@@ -87,20 +96,31 @@ export function GalleryStrip({
                     data-testid={ai ? "card-ai" : "card-view"}
                   >
                     {thumb ? (
-                      <img src={thumb} alt={`${ai ? "AI visualization" : "Model view"}: ${r.camera?.name ?? "view"}`} />
+                      <img
+                        src={thumb}
+                        alt={`${ai ? "AI visualization" : "Model view"}: ${r.camera?.name ?? "view"}`}
+                        onLoad={(e) => {
+                          const img = e.currentTarget;
+                          const label = formatResolution(img.naturalWidth, img.naturalHeight);
+                          if (label && sizes[r.id] !== label) setSizes((m) => ({ ...m, [r.id]: label }));
+                        }}
+                      />
                     ) : (
                       <span className={s.cardWait}>{thumb === "" ? "Image missing" : "Loading"}</span>
                     )}
-                    <span className={s.cardBadge} data-ai={ai || undefined}>
-                      {ai ? "AI visualization" : "Model view"}
+                    <span className={s.cardBadge} data-ai={ai || undefined} data-kind={meta?.kind}>
+                      {ai ? "AI visualization" : kindLabel(meta)}
                     </span>
                   </button>
                   <div className={s.cardMeta}>
                     <span className={s.cardName} title={r.camera?.name ?? "View"}>
                       {r.camera?.name || "View"}
                     </span>
-                    <span className={s.cardTime}>{timeLabel(r.created_at)}</span>
-                    {r.revision < revision ? <span className={s.cardStale}>Model changed</span> : null}
+                    <span className={s.cardTime} title={`Saved ${timeLabel(r.created_at)}`} data-testid="card-light">
+                      {light ? `${clockLabel(light.minutes)}, ${dateLabel(light.month, light.day)}` : timeLabel(r.created_at)}
+                    </span>
+                    {size ? <span className={s.cardTime}>{size}</span> : null}
+                    {stale ? <span className={s.cardStale}>Model changed</span> : null}
                   </div>
                   <button
                     type="button"

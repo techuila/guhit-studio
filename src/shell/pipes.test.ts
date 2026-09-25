@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { Issue, Pipe, PipeNetwork } from "../contract/bindings";
 import {
   PIPE_SIZES,
+  SERVICE_TRADES,
   closestSize,
+  formatDiameter,
   drainMinSlopePct,
   fittingsLine,
   inMenu,
   isPipeIssue,
   isPipeLayer,
+  lengthByLayer,
   lengthBySystem,
   midPoint,
   orderIssues,
@@ -15,9 +18,13 @@ import {
   pipeLength,
   pipeToolSettings,
   reversed,
+  runLabel,
   segmentFalls,
   switchToolSystem,
   takeoffCsv,
+  takeoffNote,
+  takeoffTitle,
+  tradeOf,
   withMaterial,
   withSystem,
 } from "./pipes";
@@ -36,7 +43,7 @@ const pipe = (patch: Partial<Pipe> = {}): Pipe => ({
   ...patch,
 });
 
-const issue = (id: string, severity: Issue["severity"], code = "room_no_window"): Issue => ({ id, severity, code, message: id, element_ids: [], location: null });
+const issue = (id: string, severity: Issue["severity"], code = "room_no_window"): Issue => ({ id, severity, code, message: id, element_ids: [], location: null, status: "open", note: "" });
 
 describe("pipe defaults mirror docs/CONTRACT.md", () => {
   it("has the tool defaults per system", () => {
@@ -278,5 +285,49 @@ describe("take-off", () => {
     expect(lines).toContain("Sleeves or flashings,5");
     expect(lines).toContain("Centerline lengths from the model. Sizing is for a registered Master Plumber.");
     expect(takeoffCsv(net).endsWith("\r\n")).toBe(true);
+  });
+});
+
+describe("services", () => {
+  it("groups the eight systems by trade, in display order", () => {
+    expect(SERVICE_TRADES.map((t) => [t.label, t.systems.map((sys) => sys.value)])).toEqual([
+      ["Plumbing", ["cold_water", "hot_water", "drainage", "vent", "storm"]],
+      ["Electrical", ["conduit"]],
+      ["Aircon", ["refrigerant", "condensate"]],
+    ]);
+    expect(tradeOf("condensate").pro).toBe("the Professional Mechanical Engineer");
+  });
+
+  it("names runs by trade", () => {
+    expect(runLabel("cold_water")).toBe("Cold water pipe");
+    expect(runLabel("storm")).toBe("Storm drain pipe");
+    expect(runLabel("conduit")).toBe("Conduit");
+    expect(runLabel("refrigerant")).toBe("Refrigerant line set");
+  });
+
+  it("writes line set sizes to the hundredth", () => {
+    expect(formatDiameter(9.52)).toBe("9.52");
+    expect(formatDiameter(15.88)).toBe("15.88");
+    expect(formatDiameter(20)).toBe("20");
+  });
+
+  it("names who sizes the runs a take-off lists", () => {
+    const row = (system: PipeNetwork["takeoff"][number]["system"]) => ({ system, material: "pvc" as const, diameter_mm: 20, length_m: 1, run_count: 1 });
+    expect(takeoffNote([row("cold_water")])).toBe("Centerline lengths from the model. Sizing is for a registered Master Plumber.");
+    expect(takeoffNote([row("cold_water"), row("conduit"), row("refrigerant")])).toBe(
+      "Centerline lengths from the model. Sizing is for a registered Master Plumber, the Professional Electrical Engineer and the Professional Mechanical Engineer.",
+    );
+    expect(takeoffNote([row("conduit")])).toBe("Centerline lengths from the model. Sizing is for the Professional Electrical Engineer.");
+    expect(takeoffTitle([row("vent")])).toBe("Plumbing");
+    expect(takeoffTitle([row("vent"), row("condensate")])).toBe("Services");
+  });
+
+  it("sums run length per service layer", () => {
+    const rows = [
+      { system: "refrigerant" as const, material: "copper" as const, diameter_mm: 9.52, length_m: 3.5, run_count: 1 },
+      { system: "condensate" as const, material: "pvc" as const, diameter_mm: 20, length_m: 2, run_count: 1 },
+      { system: "conduit" as const, material: "pvc" as const, diameter_mm: 20, length_m: 7, run_count: 2 },
+    ];
+    expect(lengthByLayer(rows)).toEqual({ aircon: 5.5, electrical: 7 });
   });
 });

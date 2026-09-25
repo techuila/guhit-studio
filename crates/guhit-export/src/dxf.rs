@@ -14,7 +14,7 @@ use guhit_model::PipeSystem;
 
 use crate::geom::*;
 use crate::pipes::{self, Dash, PlanPipe};
-use crate::plan::{items_bounds, Cat, HAlign, Item, Prim};
+use crate::plan::{items_bounds, Cat, Fill, HAlign, Item, Prim};
 use crate::text::est_width;
 
 /// AutoCAD color index per layer. Dark, readable on white and on black.
@@ -200,15 +200,131 @@ pub(crate) fn write_pipe_entities(s: &mut String, list: &[PlanPipe], scale: f64)
 /// linetypes and riser marks and goes into the header comment; geometry is
 /// 1:1.
 pub fn write(items: &[Item], pipe_list: &[PlanPipe], scale: u32) -> String {
+    write_parts(
+        &Parts {
+            items,
+            pipes: pipe_list,
+            ..Parts::new(format!(
+                "Units: millimeters, model space 1:1, y is north. Text sized for plotting at 1:{scale}"
+            ))
+        },
+        scale,
+    )
+}
+
+/// A layer a sheet adds after the architecture and pipe layers.
+pub(crate) struct ExtraLayer {
+    pub name: String,
+    pub color: i64,
+    pub linetype: &'static str,
+}
+
+/// A block: geometry around its insertion point on layer 0 (so it takes the
+/// layer of the insert), and the tags of its attributes.
+pub(crate) struct BlockDef {
+    pub name: String,
+    pub prims: Vec<Prim>,
+    pub attrs: Vec<&'static str>,
+    pub attr_height: f64,
+}
+
+/// A block reference with its attribute values, all invisible.
+pub(crate) struct Insert {
+    pub layer: &'static str,
+    pub block: String,
+    pub at: V,
+    pub attrs: Vec<(&'static str, String)>,
+    pub attr_height: f64,
+}
+
+/// A loose entity on a named layer. Filled polygons become SOLIDs over a
+/// closed outline, filled circles become donuts.
+pub(crate) struct Ent {
+    pub layer: String,
+    pub prim: Prim,
+    /// Overrides the layer's linetype.
+    pub linetype: Option<&'static str>,
+}
+
+/// Everything one DXF file holds.
+pub(crate) struct Parts<'a> {
+    /// Second header comment.
+    pub comment: String,
+    pub items: &'a [Item],
+    /// ACI color of the architecture layers; None keeps the plan colors.
+    pub arch_color: Option<i64>,
+    /// Write the nine architecture layers into the layer table. A diagram
+    /// without architecture leaves them out.
+    pub arch_layers: bool,
+    pub pipes: &'a [PlanPipe],
+    pub layers: Vec<ExtraLayer>,
+    /// Dash styles the extra layers or entities use.
+    pub dashes: Vec<Dash>,
+    pub blocks: Vec<BlockDef>,
+    pub inserts: Vec<Insert>,
+    pub ents: Vec<Ent>,
+}
+
+impl<'a> Parts<'a> {
+    pub(crate) fn new(comment: String) -> Parts<'a> {
+        Parts {
+            comment,
+            items: &[],
+            arch_color: None,
+            arch_layers: true,
+            pipes: &[],
+            layers: Vec::new(),
+            dashes: Vec::new(),
+            blocks: Vec::new(),
+            inserts: Vec::new(),
+            ents: Vec::new(),
+        }
+    }
+}
+
+fn prim_item(p: &Prim) -> Item {
+    Item {
+        cat: Cat::Furn,
+        pen: crate::plan::Pen::Light,
+        prim: p.clone(),
+    }
+}
+
+/// Write a complete DXF document from its parts. A plan without extras
+/// writes exactly what the plan export always wrote.
+pub(crate) fn write_parts(p: &Parts, scale: u32) -> String {
     let mut w = Writer { s: String::new() };
-    let mut bounds = items_bounds(items);
-    if !pipe_list.is_empty() {
-        let pb = pipes::bounds(pipe_list, scale as f64);
+    let mut bounds = items_bounds(p.items);
+    if !p.pipes.is_empty() {
+        let pb = pipes::bounds(p.pipes, scale as f64);
         bounds.add(pb.min);
         bounds.add(pb.max);
     }
-    let systems = pipes::systems_present(pipe_list);
-    let dashes = pipe_dashes(&systems);
+    if !p.ents.is_empty() || !p.inserts.is_empty() {
+        let mut extra: Vec<Item> = p.ents.iter().map(|e| prim_item(&e.prim)).collect();
+        for ins in &p.inserts {
+            if let Some(b) = p.blocks.iter().find(|b| b.name == ins.block) {
+                for prim in &b.prims {
+                    extra.push(prim_item(&offset_prim(prim, ins.at)));
+                }
+            }
+            bounds.add(ins.at);
+        }
+        let eb = items_bounds(&extra);
+        bounds.add(eb.min);
+        bounds.add(eb.max);
+    }
+    let systems = pipes::systems_present(p.pipes);
+    let mut dashes = pipe_dashes(&systems);
+    for d in [Dash::Dashed, Dash::DashDot] {
+        if p.dashes.contains(&d) && !dashes.contains(&d) {
+            dashes.push(d);
+        }
+    }
+    dashes.sort_by_key(|d| match d {
+        Dash::Dashed => 0,
+        _ => 1,
+    });
     let (min, max) = if bounds.is_empty() {
         (v(0.0, 0.0), v(0.0, 0.0))
     } else {
@@ -216,10 +332,7 @@ pub fn write(items: &[Item], pipe_list: &[PlanPipe], scale: u32) -> String {
     };
 
     w.pair(999, "Guhit Studio plan export");
-    w.pair(
-        999,
-        &format!("Units: millimeters, model space 1:1, y is north. Text sized for plotting at 1:{scale}"),
-    );
+    w.pair(999, &p.comment);
 
     // HEADER
     w.pair(0, "SECTION");
@@ -263,20 +376,28 @@ pub fn write(items: &[Item], pipe_list: &[PlanPipe], scale: u32) -> String {
 
     w.pair(0, "TABLE");
     w.pair(2, "LAYER");
-    w.int(70, Cat::ALL.len() as i64 + 1 + systems.len() as i64);
+    let arch = if p.arch_layers { Cat::ALL.len() as i64 } else { 0 };
+    w.int(70, arch + 1 + systems.len() as i64 + p.layers.len() as i64);
     w.pair(0, "LAYER");
     w.pair(2, "0");
     w.int(70, 0);
     w.int(62, 7);
     w.pair(6, "CONTINUOUS");
-    for cat in dxf_layer_order() {
+    for cat in dxf_layer_order().into_iter().filter(|_| p.arch_layers) {
         w.pair(0, "LAYER");
         w.pair(2, cat.dxf_layer());
         w.int(70, 0);
-        w.int(62, layer_color(cat) as i64);
+        w.int(62, p.arch_color.unwrap_or(layer_color(cat) as i64));
         w.pair(6, "CONTINUOUS");
     }
     write_pipe_layers(&mut w.s, &systems);
+    for l in &p.layers {
+        w.pair(0, "LAYER");
+        w.pair(2, &l.name);
+        w.int(70, 0);
+        w.int(62, l.color);
+        w.pair(6, l.linetype);
+    }
     w.pair(0, "ENDTAB");
 
     w.pair(0, "TABLE");
@@ -296,23 +417,158 @@ pub fn write(items: &[Item], pipe_list: &[PlanPipe], scale: u32) -> String {
 
     w.pair(0, "ENDSEC");
 
-    // BLOCKS (none)
+    // BLOCKS
     w.pair(0, "SECTION");
     w.pair(2, "BLOCKS");
+    for b in &p.blocks {
+        block_def(&mut w, b);
+    }
     w.pair(0, "ENDSEC");
 
     // ENTITIES
     w.pair(0, "SECTION");
     w.pair(2, "ENTITIES");
     for cat in dxf_layer_order() {
-        for item in items.iter().filter(|i| i.cat == cat) {
+        for item in p.items.iter().filter(|i| i.cat == cat) {
             entity(&mut w, item);
         }
     }
-    write_pipe_entities(&mut w.s, pipe_list, scale as f64);
+    write_pipe_entities(&mut w.s, p.pipes, scale as f64);
+    for ins in &p.inserts {
+        insert(&mut w, ins);
+    }
+    for e in &p.ents {
+        prim_on(&mut w, &e.layer, &e.prim, e.linetype);
+    }
     w.pair(0, "ENDSEC");
     w.pair(0, "EOF");
     w.s
+}
+
+/// A primitive moved by `at`.
+pub(crate) fn offset_prim(p: &Prim, at: V) -> Prim {
+    let t = |q: V| q + at;
+    match p {
+        Prim::Line { a, b } => Prim::Line { a: t(*a), b: t(*b) },
+        Prim::Poly { pts, closed, fill } => Prim::Poly {
+            pts: pts.iter().map(|q| t(*q)).collect(),
+            closed: *closed,
+            fill: *fill,
+        },
+        Prim::Arc { c, r, start_deg, end_deg } => Prim::Arc {
+            c: t(*c),
+            r: *r,
+            start_deg: *start_deg,
+            end_deg: *end_deg,
+        },
+        Prim::Circle { c, r, fill } => Prim::Circle { c: t(*c), r: *r, fill: *fill },
+        Prim::Text { pos, height, rot_deg, align, text, bold } => Prim::Text {
+            pos: t(*pos),
+            height: *height,
+            rot_deg: *rot_deg,
+            align: *align,
+            text: text.clone(),
+            bold: *bold,
+        },
+    }
+}
+
+fn block_def(w: &mut Writer, b: &BlockDef) {
+    w.pair(0, "BLOCK");
+    w.pair(8, "0");
+    w.pair(2, &b.name);
+    w.int(70, if b.attrs.is_empty() { 0 } else { 2 });
+    w.point(10, v(0.0, 0.0));
+    w.pair(3, &b.name);
+    for prim in &b.prims {
+        prim_on(w, "0", prim, None);
+    }
+    for tag in &b.attrs {
+        w.pair(0, "ATTDEF");
+        w.pair(8, "0");
+        w.point(10, v(0.0, 0.0));
+        w.num(40, b.attr_height);
+        w.pair(1, "");
+        w.pair(3, tag);
+        w.pair(2, tag);
+        w.int(70, 1);
+        w.pair(7, "STANDARD");
+    }
+    w.pair(0, "ENDBLK");
+    w.pair(8, "0");
+}
+
+fn insert(w: &mut Writer, ins: &Insert) {
+    w.pair(0, "INSERT");
+    w.pair(8, ins.layer);
+    if !ins.attrs.is_empty() {
+        w.int(66, 1);
+    }
+    w.pair(2, &ins.block);
+    w.point(10, ins.at);
+    for (tag, value) in &ins.attrs {
+        w.pair(0, "ATTRIB");
+        w.pair(8, ins.layer);
+        w.point(10, ins.at);
+        w.num(40, ins.attr_height);
+        w.pair(1, &dxf_text(value));
+        w.pair(2, tag);
+        w.int(70, 1);
+        w.pair(7, "STANDARD");
+    }
+    if !ins.attrs.is_empty() {
+        w.pair(0, "SEQEND");
+        w.pair(8, ins.layer);
+    }
+}
+
+/// One primitive on `layer`: fills as SOLIDs and donuts, the rest as the
+/// plan writes them.
+fn prim_on(w: &mut Writer, layer: &str, prim: &Prim, linetype: Option<&str>) {
+    let lt = |w: &mut Writer| {
+        if let Some(t) = linetype {
+            w.pair(6, t);
+        }
+    };
+    match prim {
+        Prim::Poly { pts, fill: Fill::Ink, .. } if pts.len() >= 3 => {
+            for i in 1..pts.len() - 1 {
+                let (a, b, c) = (pts[0], pts[i], pts[i + 1]);
+                w.pair(0, "SOLID");
+                w.pair(8, layer);
+                w.point(10, a);
+                w.point(11, b);
+                w.point(12, c);
+                w.point(13, c);
+            }
+            let outline = Prim::Poly {
+                pts: pts.clone(),
+                closed: true,
+                fill: Fill::None,
+            };
+            entity_on(w, layer, &outline, lt);
+        }
+        Prim::Circle { c, r, fill: Fill::Ink } => {
+            // A donut: a closed polyline of two half circles, as wide as the
+            // radius, fills the disk.
+            w.pair(0, "POLYLINE");
+            w.pair(8, layer);
+            w.int(66, 1);
+            w.point(10, v(0.0, 0.0));
+            w.int(70, 1);
+            w.num(40, *r);
+            w.num(41, *r);
+            for x in [c.x - r / 2.0, c.x + r / 2.0] {
+                w.pair(0, "VERTEX");
+                w.pair(8, layer);
+                w.point(10, v(x, c.y));
+                w.num(42, 1.0);
+            }
+            w.pair(0, "SEQEND");
+            w.pair(8, layer);
+        }
+        other => entity_on(w, layer, other, lt),
+    }
 }
 
 /// Layer table order, walls first.
@@ -331,17 +587,24 @@ pub fn dxf_layer_order() -> [Cat; 9] {
 }
 
 fn entity(w: &mut Writer, item: &Item) {
-    let layer = item.cat.dxf_layer();
-    match &item.prim {
+    entity_on(w, item.cat.dxf_layer(), &item.prim, |_| {});
+}
+
+/// One primitive on a layer. `linetype` may add a group 6 right after the
+/// layer.
+fn entity_on(w: &mut Writer, layer: &str, prim: &Prim, linetype: impl Fn(&mut Writer)) {
+    match prim {
         Prim::Line { a, b } => {
             w.pair(0, "LINE");
             w.pair(8, layer);
+            linetype(w);
             w.point(10, *a);
             w.point(11, *b);
         }
         Prim::Poly { pts, closed, .. } => {
             w.pair(0, "POLYLINE");
             w.pair(8, layer);
+            linetype(w);
             w.int(66, 1);
             w.point(10, v(0.0, 0.0));
             w.int(70, if *closed { 1 } else { 0 });
@@ -363,6 +626,7 @@ fn entity(w: &mut Writer, item: &Item) {
             // the same convention as the primitive.
             w.pair(0, "ARC");
             w.pair(8, layer);
+            linetype(w);
             w.point(10, *c);
             w.num(40, *r);
             w.num(50, norm_deg(*start_deg));
@@ -371,6 +635,7 @@ fn entity(w: &mut Writer, item: &Item) {
         Prim::Circle { c, r, .. } => {
             w.pair(0, "CIRCLE");
             w.pair(8, layer);
+            linetype(w);
             w.point(10, *c);
             w.num(40, *r);
         }

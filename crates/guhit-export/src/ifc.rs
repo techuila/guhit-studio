@@ -297,6 +297,7 @@ enum Val {
     Length(f64),
     PositiveLength(f64),
     Count(i64),
+    Real(f64),
 }
 
 impl Val {
@@ -308,6 +309,7 @@ impl Val {
             Val::Length(l) => format!("IFCLENGTHMEASURE({})", r(*l)),
             Val::PositiveLength(l) => format!("IFCPOSITIVELENGTHMEASURE({})", r(*l)),
             Val::Count(c) => format!("IFCCOUNTMEASURE({c})"),
+            Val::Real(x) => format!("IFCREAL({})", r(*x)),
         }
     }
 }
@@ -438,6 +440,14 @@ pub struct Counts {
     pub annotations: usize,
     pub pipe_segments: usize,
     pub pipe_systems: usize,
+    pub outlets: usize,
+    pub switches: usize,
+    pub light_fixtures: usize,
+    pub boards: usize,
+    pub sensors: usize,
+    pub alarms: usize,
+    pub unitary: usize,
+    pub cable_segments: usize,
 }
 
 impl<'a> Build<'a> {
@@ -955,14 +965,49 @@ pub fn write_with_counts(
                 let ax = build.step.axis_at(0.0, 0.0, 0.0);
                 build.step.placement(Some(place_parent), ax)
             };
-            let furn = build.step.add(&format!(
-                "IFCFURNISHINGELEMENT({},$,{},$,$,{place},{shape},{})",
+            let Some((entity, kind)) = device_entity(a) else {
+                let furn = build.step.add(&format!(
+                    "IFCFURNISHINGELEMENT({},$,{},$,$,{place},{shape},{})",
+                    s(&guid(&a.id)),
+                    s(&a.name),
+                    s(&a.catalog_key)
+                ));
+                build.contained[i].push(furn);
+                build.counts.furnishings += 1;
+                continue;
+            };
+            // Devices: outlets, switches, fixtures, boards, detectors, bells
+            // and aircon units, each a box of its size at its height.
+            let device = build.step.add(&format!(
+                "{entity}({},$,{},$,$,{place},{shape},{},{kind})",
                 s(&guid(&a.id)),
                 s(&a.name),
                 s(&a.catalog_key)
             ));
-            build.contained[i].push(furn);
-            build.counts.furnishings += 1;
+            build.contained[i].push(device);
+            match entity {
+                "IFCOUTLET" => build.counts.outlets += 1,
+                "IFCSWITCHINGDEVICE" => build.counts.switches += 1,
+                "IFCLIGHTFIXTURE" => build.counts.light_fixtures += 1,
+                "IFCELECTRICDISTRIBUTIONBOARD" => build.counts.boards += 1,
+                "IFCSENSOR" => build.counts.sensors += 1,
+                "IFCALARM" => build.counts.alarms += 1,
+                _ => build.counts.unitary += 1,
+            }
+            let mut props: Vec<(&str, Val)> = vec![
+                ("CatalogKey", Val::Text(a.catalog_key.clone())),
+                ("Device", Val::Text(crate::services::type_label(a))),
+                ("MountingHeight", Val::Length(a.elevation_mm + a.height_mm / 2.0)),
+            ];
+            let circuit = crate::text::clean(&a.circuit);
+            if !circuit.is_empty() {
+                props.push(("Circuit", Val::Text(circuit)));
+            }
+            if let Some(light) = a.light {
+                props.push(("Lumens", Val::Real(light.lumens)));
+                props.push(("Kelvin", Val::Real(light.kelvin)));
+            }
+            build.pset("Guhit_Pset_Device", &a.id, &props, &[device]);
         }
 
         // ------------------------------------------------- annotations
@@ -999,11 +1044,37 @@ pub fn write_with_counts(
 
         // ------------------------------------------------------- pipes
         for p in &ls.pipes {
-            let segments = pipe_segments(&mut build, p, body_ctx, place_parent);
+            let conduit = p.system == guhit_model::PipeSystem::Conduit;
+            let segments = if conduit {
+                run_segments(&mut build, p, body_ctx, place_parent, "IFCCABLECARRIERSEGMENT", ".CONDUITSEGMENT.", "conduit-segment")
+            } else {
+                run_segments(&mut build, p, body_ctx, place_parent, "IFCPIPESEGMENT", ".RIGIDSEGMENT.", "pipe-segment")
+            };
             if segments.is_empty() {
                 continue;
             }
             build.contained[i].extend_from_slice(&segments);
+            if conduit {
+                build.counts.cable_segments += segments.len();
+                build.material_named(pipes::material_label(p.material), &segments);
+                match system_members.iter_mut().find(|(s, _)| *s == p.system) {
+                    Some((_, list)) => list.extend_from_slice(&segments),
+                    None => system_members.push((p.system, segments.clone())),
+                }
+                build.pset(
+                    "Guhit_Pset_Conduit",
+                    &p.id,
+                    &[
+                        ("System", Val::Text(pipes::label(p.system).to_string())),
+                        ("Material", Val::Text(pipes::material_label(p.material).to_string())),
+                        ("NominalDiameter", Val::PositiveLength(p.diameter_mm)),
+                        ("RunId", Val::Text(p.id.clone())),
+                        ("SegmentCount", Val::Count(segments.len() as i64)),
+                    ],
+                    &segments,
+                );
+                continue;
+            }
             build.counts.pipe_segments += segments.len();
             build.material_named(pipes::material_label(p.material), &segments);
             match system_members.iter_mut().find(|(s, _)| *s == p.system) {
@@ -1153,7 +1224,7 @@ pub fn write_with_counts(
             "IFCDISTRIBUTIONSYSTEM({},$,{},{},$,$,{})",
             s(&guid_for(&format!("pipe-system-{key}"), &project.id)),
             s(pipes::label(system)),
-            s("Coordination model from Guhit Studio. Pipe sizes as drawn, not a plumbing design."),
+            s(system_note(system)),
             pipes::ifc_system(system)
         ));
         build.step.add(&format!(
@@ -1211,15 +1282,48 @@ pub fn write_with_counts(
     Ok((out, build.counts))
 }
 
-/// One IfcPipeSegment per straight segment of a pipe: a circle of the pipe
-/// size swept from the segment start along its direction, in storey local
-/// coordinates. Named after the pipe; the GlobalId comes from the pipe id and
-/// the segment index.
-fn pipe_segments(
+/// What an IfcDistributionSystem says about itself: sizes as drawn, not a
+/// design, for the trade of its system.
+fn system_note(system: guhit_model::PipeSystem) -> &'static str {
+    use guhit_model::PipeSystem as P;
+    match system {
+        P::Conduit => "Coordination model from Guhit Studio. Conduit sizes as drawn, not an electrical design.",
+        P::Refrigerant | P::Condensate => {
+            "Coordination model from Guhit Studio. Line set and drain sizes as drawn, not a mechanical design."
+        }
+        _ => "Coordination model from Guhit Studio. Pipe sizes as drawn, not a plumbing design.",
+    }
+}
+
+/// The IFC entity and predefined type of an object that is a device, None
+/// for furniture and fixtures (they stay IfcFurnishingElement).
+fn device_entity(a: &guhit_model::Asset) -> Option<(&'static str, &'static str)> {
+    use crate::services::Sym;
+    let sym = crate::services::symbol_of(a)?;
+    Some(match sym {
+        s if s.is_light() => ("IFCLIGHTFIXTURE", ".POINTSOURCE."),
+        Sym::Switch(_) => ("IFCSWITCHINGDEVICE", ".TOGGLESWITCH."),
+        Sym::PushButton => ("IFCSWITCHINGDEVICE", ".MOMENTARYSWITCH."),
+        Sym::Outlet | Sym::OutdoorOutlet | Sym::Spo | Sym::AirconOutlet => ("IFCOUTLET", ".POWEROUTLET."),
+        Sym::Panelboard => ("IFCELECTRICDISTRIBUTIONBOARD", ".DISTRIBUTIONBOARD."),
+        Sym::SmokeDetector => ("IFCSENSOR", ".SMOKESENSOR."),
+        Sym::Chime => ("IFCALARM", ".BELL."),
+        Sym::AcWindow => ("IFCUNITARYEQUIPMENT", ".AIRCONDITIONINGUNIT."),
+        _ => ("IFCUNITARYEQUIPMENT", ".SPLITSYSTEM."),
+    })
+}
+
+/// One segment entity per straight segment of a run: a circle of the run
+/// size swept along the segment, in storey local coordinates. Named after
+/// the run; the GlobalId comes from the run id, `role` and the index.
+fn run_segments(
     build: &mut Build,
     p: &guhit_model::Pipe,
     body_ctx: Ref,
     place_parent: Ref,
+    entity: &str,
+    predefined: &str,
+    role: &str,
 ) -> Vec<Ref> {
     let Some(d) = pipes::diameter(p) else {
         return Vec::new();
@@ -1255,8 +1359,8 @@ fn pipe_segments(
             build.step.placement(Some(place_parent), ax)
         };
         out.push(build.step.add(&format!(
-            "IFCPIPESEGMENT({},$,{},{},$,{place},{shape},$,.RIGIDSEGMENT.)",
-            s(&guid_for(&format!("pipe-segment-{k}"), &p.id)),
+            "{entity}({},$,{},{},$,{place},{shape},$,{predefined})",
+            s(&guid_for(&format!("{role}-{k}"), &p.id)),
             s(&name),
             s(&format!("Segment {} of {total}", k + 1))
         )));
@@ -1298,6 +1402,14 @@ pub fn count_entities(ifc: &str) -> Counts {
         annotations: n("IFCANNOTATION"),
         pipe_segments: n("IFCPIPESEGMENT"),
         pipe_systems: n("IFCDISTRIBUTIONSYSTEM"),
+        outlets: n("IFCOUTLET"),
+        switches: n("IFCSWITCHINGDEVICE"),
+        light_fixtures: n("IFCLIGHTFIXTURE"),
+        boards: n("IFCELECTRICDISTRIBUTIONBOARD"),
+        sensors: n("IFCSENSOR"),
+        alarms: n("IFCALARM"),
+        unitary: n("IFCUNITARYEQUIPMENT"),
+        cable_segments: n("IFCCABLECARRIERSEGMENT"),
     }
 }
 

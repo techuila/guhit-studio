@@ -3,4 +3,4 @@
 /**
  * The building service a pipe belongs to. Each system has its own layer.
  */
-export type PipeSystem = "cold_water" | "hot_water" | "drainage" | "vent";
+export type PipeSystem = "cold_water" | "hot_water" | "drainage" | "vent" | "storm" | "conduit" | "refrigerant" | "condensate";

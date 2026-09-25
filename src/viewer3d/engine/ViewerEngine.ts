@@ -29,25 +29,41 @@ import {
   type ModelBounds,
   type PosePreset,
 } from "../geom/cameraMath";
-import { buildCollisionWorld } from "../geom/collision";
+import { WALKER_RADIUS_MM } from "../geom/collision";
 import { cameraToPose, worldToVec3, type WorldPose } from "../geom/coords";
 import { signedArea } from "../geom/polygon";
-import { hiddenAt, pipeMostlyHidden, roomsOn, walkStartPose, walkToPose, type HiddenReason, type WalkPose } from "../geom/walkStart";
+import { hiddenAt, pipeMostlyHidden, walkStartPose, walkToPose, type HiddenReason, type WalkPose } from "../geom/walkStart";
 import { buildExportGroup, exportDAE, exportGLB, exportOBJ } from "../scene/exportScene";
 import { BuildCache } from "../scene/buildCache";
 import { buildScene, CUTAWAY_MM, levelFilter, type BuiltScene } from "../scene/buildScene";
 import { MaterialLibrary } from "../scene/materials";
 import { loadPackManifest, modelPack } from "../scene/pack";
 import { PIPE_PICK_LAYER, pipeShown } from "../scene/pipes";
+import { DoorSwing } from "../walk/doors";
+import { glideDurationMs, hitTarget, levelTarget } from "../walk/glide";
 import { Minimap, type MinimapScene } from "../walk/minimap";
+import { WalkWorlds } from "../walk/worlds";
 import type { NavMode, ShellMode } from "../viewerStore";
 import { Animator } from "./animator";
 import { Environment } from "./environment";
+import { LightRig } from "../light/LightRig";
 import { Highlight, spec, type HighlightState } from "./highlights";
 import { MeshFade, meshesUnder } from "./meshFade";
 import { ReferenceModelStore, type ReferenceModelPlacement } from "./referenceModels";
 import { ShellView } from "./shell";
-import { pointerLockSupported, WALK_FOV, WalkControls, WalkState, type WalkMode } from "./walker";
+import {
+  EYE_MAX_MM,
+  EYE_MIN_MM,
+  pointerLockSupported,
+  SPEED_MAX_MM_S,
+  SPEED_MIN_MM_S,
+  WALK_FOV,
+  WalkControls,
+  WalkState,
+  type GlideTarget,
+  type TouchMove,
+  type WalkMode,
+} from "./walker";
 
 export type PresetKind = "eye_level" | "exterior_corner" | "top" | "axonometric" | "room_interior" | "fit";
 
@@ -81,6 +97,16 @@ export interface EngineCallbacks {
    * solid shell would hide the finding (in a wall, under the floor), or null.
    */
   onWalkTo?: (hidden: HiddenReason | null) => void;
+}
+
+/** Walk overlay hooks (walk/useWalkSync.ts sets them with `setWalkHandlers`). */
+export interface WalkHandlers {
+  /** The wheel changed the walking speed, m/s. */
+  onSpeed?: (speed: number) => void;
+  /** The walker is on another level now: a stair, a glide, a landing or the app's level. */
+  onLevel?: (levelId: string | null) => void;
+  /** A click on an element while walking or flying. True when it was used (a switch), so it does not select. */
+  onWalkClick?: (id: string) => boolean;
 }
 
 export interface Highlights {
@@ -168,6 +194,8 @@ export class ViewerEngine {
   readonly controls: OrbitControls;
   readonly anim = new Animator();
   private env: Environment;
+  /** Sun, sky, lamps, exposure, refine and the sun path (light/LightRig.ts). */
+  private lighting: LightRig;
   private lib = new MaterialLibrary();
   /** Built forms of elements that survive a rebuild untouched. */
   private cache = new BuildCache();
@@ -266,6 +294,12 @@ export class ViewerEngine {
   private minimapScene: MinimapScene | null = null;
   private minimapVersion = 0;
   private minimapDirty = false;
+  /** Every level and stair for the walker, rebuilt with the document or the eye height (walk/worlds.ts). */
+  private walkWorlds: WalkWorlds | null = null;
+  private walkWorldEye = 0;
+  /** Door leaves open as the walker comes up to them, view only (walk/doors.ts). */
+  private walkDoors = new DoorSwing();
+  private walkHandlers: WalkHandlers = {};
 
   constructor(
     private container: HTMLElement,
@@ -305,6 +339,19 @@ export class ViewerEngine {
 
     this.env = new Environment(this.scene);
     this.env.bakeEnvironment(this.renderer);
+    // Every frame the light asks for goes through `schedule()`: the rig has
+    // no loop of its own (light/LightRig.ts).
+    this.lighting = new LightRig({
+      renderer: this.renderer,
+      scene: this.scene,
+      camera: this.camera,
+      env: this.env,
+      invalidate: () => this.invalidate(),
+      requestFrame: () => this.schedule(),
+      renderLive: () => this.renderNow(),
+      shadowDirty: () => this.shadowDirty(),
+      compileTargets: () => [this.built?.root, this.refs.root, ...this.env.compileTargets()].filter((o): o is THREE.Object3D => !!o),
+    });
     this.anim.set("shadow", 1);
     this.anim.set("breath", PREVIEW_OPACITY);
     // 1 is "the HDRI look, fully applied". It only takes effect once the HDRI
@@ -346,6 +393,12 @@ export class ViewerEngine {
       blocked: () => this.cb.keysBlocked?.() ?? false,
       lockChange: (locked) => this.cb.onPointerLock?.(locked),
       lockError: () => this.cb.onPointerLockError?.(),
+      nudge: (forwardPx, rightPx) => {
+        this.walker.nudgePx(forwardPx, rightPx);
+        this.invalidate();
+      },
+      speedWheel: (deltaPx) => this.walkHandlers.onSpeed?.(this.walker.wheelSpeed(deltaPx) / 1000),
+      dblclick: (x, y) => this.glideToPick(x, y),
     });
     this.controls.addEventListener("change", this.onControlChange);
     this.controls.addEventListener("start", this.onControlStart);
@@ -587,6 +640,7 @@ export class ViewerEngine {
       this.framed = false;
       this.docKey = "";
       this.refreshPickables();
+      this.lighting.attach(null, null);
       return;
     }
     try {
@@ -609,6 +663,7 @@ export class ViewerEngine {
     this.shadowDirty();
     const north = this.doc.project.settings?.north_angle_deg ?? 0;
     this.env.fit(this.built.bounds, this.built.groundY, Number.isFinite(north) ? north : 0, this.built.contact);
+    this.lighting.attach(this.built, this.doc);
     const radius = this.radius();
     this.controls.maxDistance = Math.max(radius * 30, 60);
     if (this.clip) this.applyClipToModel(this.clip);
@@ -636,6 +691,8 @@ export class ViewerEngine {
     // Cached forms nothing holds any more can go. Anything still playing its
     // exit fade is parented into `leaving` and is swept when that lands.
     this.cache.sweep();
+    // New door leaves take the opening the walk gave the old ones.
+    this.walkDoors.attach(this.built.root, this.doc);
     this.syncHighlights();
   }
 
@@ -1271,6 +1328,8 @@ export class ViewerEngine {
     return {
       id: "",
       name,
+      // Saving a view keeps its time, sky, exposure and lamps (docs/CONTRACT.md, "Sun and light").
+      light: this.lighting.viewLight(),
       preset: "custom",
       position: round(worldToVec3(p.x, p.y, p.z)),
       target: round(worldToVec3(t.x, t.y, t.z)),
@@ -1361,6 +1420,7 @@ export class ViewerEngine {
     this.nav = mode;
     this.controls.enabled = false;
     this.walkControls.attach();
+    this.walkDoors.setWalking(true, performance.now());
     this.lastWalkAt = 0;
     this.minimapDirty = true;
     this.applyWalkerCamera();
@@ -1386,8 +1446,9 @@ export class ViewerEngine {
     const w = this.walker;
     w.mode = mode;
     w.vz = 0;
-    // Back on foot: step out of anything flown into; the eye settles to 1600 mm.
-    if (mode === "walk") w.settle();
+    // Back on foot: onto the floor below (a flight, or the highest level under
+    // the feet), out of anything flown into; the eye settles to eye height.
+    if (mode === "walk") w.land();
     this.nav = mode;
     this.lastWalkAt = 0;
     this.minimapDirty = true;
@@ -1412,6 +1473,7 @@ export class ViewerEngine {
     const eye = this.camera.position.clone();
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion).normalize();
     this.walkControls.detach();
+    this.walkDoors.setWalking(false, performance.now());
     this.nav = "orbit";
     this.walkBlend = null;
     this.anim.remove("walk");
@@ -1504,11 +1566,11 @@ export class ViewerEngine {
     if (this.nav === "orbit") {
       this.walkLevelId = levelId;
       this.refreshWalkWorld();
-      this.enterWalk("walk", walkToPose(doc, levelId, this.walker.world, loc), levelId);
+      this.enterWalk("walk", walkToPose(doc, levelId, this.walker.world, loc, WALKER_RADIUS_MM, this.walker.eyeMm), levelId);
     } else {
       this.walkLevelId = levelId;
       this.refreshWalkWorld();
-      const pose = walkToPose(doc, levelId, this.walker.world, loc);
+      const pose = walkToPose(doc, levelId, this.walker.world, loc, WALKER_RADIUS_MM, this.walker.eyeMm);
       this.beginWalkBlend();
       const wasFly = this.nav === "fly";
       this.walker.mode = "walk";
@@ -1566,41 +1628,34 @@ export class ViewerEngine {
     this.refreshWalkWorld();
   }
 
-  /** Rebuilds what blocks the walker and what the minimap shows, when the document or level changed. */
+  /**
+   * Rebuilds what blocks the walker, what it can stand on (levels, stairs)
+   * and what the minimap shows, when the document, the level or the eye
+   * height changed (walk/worlds.ts).
+   */
   private refreshWalkWorld(): void {
     const doc = this.doc;
+    const w = this.walker;
     const levelId = this.walkLevelId ?? this.activeLevelIdOrLowest();
-    if (doc === this.walkWorldDoc && levelId === this.walkWorldLevel) return;
+    if (doc === this.walkWorldDoc && levelId === this.walkWorldLevel && w.eyeMm === this.walkWorldEye) return;
+    const rebuilt = doc !== this.walkWorldDoc || w.eyeMm !== this.walkWorldEye;
     this.walkWorldDoc = doc;
     this.walkWorldLevel = levelId;
-    const world = buildCollisionWorld(doc, levelId);
-    const w = this.walker;
-    w.world = world;
-    const level = doc?.project.levels.find((l) => l.id === levelId);
-    w.floorZ = level?.elevation_mm ?? 0;
+    this.walkWorldEye = w.eyeMm;
+    if (rebuilt) this.walkWorlds = doc ? new WalkWorlds(doc, w.eyeMm) : null;
+    const worlds = this.walkWorlds;
+    const id = worlds ? worlds.levelId(levelId) : null;
+    if (rebuilt) w.setNav(worlds, id);
+    else if (w.levelId !== id) w.setLevel(id);
     const b = this.bounds();
     w.area = { minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY };
     w.minZ = (this.built?.groundY ?? -0.15) * 1000 - 2500;
     w.maxZ = b.maxZ + 20000;
-    const layerOn = (key: string) => doc?.project.layers?.find((l) => l.key === key)?.visible !== false;
-    this.minimapScene = {
-      version: ++this.minimapVersion,
-      world,
-      rooms: doc && levelId ? roomsOn(doc, levelId).map((r) => r.polygon) : [],
-      pipes: (doc?.project.elements ?? []).flatMap((e) =>
-        e.kind === "pipe" && layerOn(e.system) && (world.levelId === null || this.levelIdOf(e.level_id) === world.levelId)
-          ? [{ system: e.system, points: e.points, diameterMm: e.diameter_mm }]
-          : [],
-      ),
-    };
+    this.minimapScene = worlds ? worlds.minimapScene(id, ++this.minimapVersion) : null;
     this.minimapDirty = true;
-    if (this.nav === "walk") w.settle();
-  }
-
-  private levelIdOf(levelId: string): string | null {
-    const levels = this.doc?.project.levels ?? [];
-    if (levels.some((l) => l.id === levelId)) return levelId;
-    return [...levels].sort((a, b) => a.elevation_mm - b.elevation_mm)[0]?.id ?? null;
+    // A glide lands where it was aimed; stepping out of walls waits for it.
+    if (this.nav === "walk" && !w.gliding()) w.settle();
+    this.walkHandlers.onLevel?.(id);
   }
 
   /** Puts the walker's eyes on the camera, blended with the entrance while it runs. */
@@ -1628,9 +1683,35 @@ export class ViewerEngine {
   }
 
   /** The walker as the overlay needs it, in plan mm. */
-  walkerPose(): { x: number; y: number; z: number; yaw: number; pitch: number; mode: WalkMode } {
+  walkerPose(): {
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    pitch: number;
+    mode: WalkMode;
+    levelId: string | null;
+    stairId: string | null;
+    floorZ: number;
+    eyeMm: number;
+    speed: number;
+    gliding: boolean;
+  } {
     const w = this.walker;
-    return { x: w.x, y: w.y, z: w.z, yaw: w.yaw, pitch: w.pitch, mode: w.mode };
+    return {
+      x: w.x,
+      y: w.y,
+      z: w.z,
+      yaw: w.yaw,
+      pitch: w.pitch,
+      mode: w.mode,
+      levelId: w.levelId,
+      stairId: w.stair?.id ?? null,
+      floorZ: w.floorZ,
+      eyeMm: w.eyeMm,
+      speed: w.speedMmS / 1000,
+      gliding: w.gliding(),
+    };
   }
 
   /** The overlay's minimap canvas, or null when it unmounts. */
@@ -1643,7 +1724,119 @@ export class ViewerEngine {
     this.minimapDirty = false;
     if (!this.minimap || this.nav === "orbit" || !this.minimapScene) return;
     const w = this.walker;
-    this.minimap.draw(this.minimapScene, { x: w.x, y: w.y, yaw: w.yaw });
+    this.minimap.draw(this.minimapScene, { x: w.x, y: w.y, yaw: w.yaw, target: w.glideTarget() });
+  }
+
+  /** Walk settings (viewerStore `walk`): eye height 800 to 2500 mm, speed 0.3 to 6 m/s. */
+  setWalkSettings(settings: { eyeHeightMm: number; speed: number }): void {
+    if (this.disposed) return;
+    const w = this.walker;
+    const eye = Math.min(Math.max(Number(settings.eyeHeightMm) || w.eyeMm, EYE_MIN_MM), EYE_MAX_MM);
+    const speed = Math.min(Math.max((Number(settings.speed) || w.speedMmS / 1000) * 1000, SPEED_MIN_MM_S), SPEED_MAX_MM_S);
+    w.speedMmS = speed;
+    if (eye === w.eyeMm) return;
+    // A new eye height changes which hung objects block, and the eye eases to it.
+    w.eyeMm = eye;
+    this.refreshWalkWorld();
+    if (this.nav !== "orbit") this.invalidate();
+  }
+
+  /**
+   * A switch clicked while walking: flips the fixtures it links in the view
+   * only (the light rig's lamps, light/LightRig.ts). False when none of them
+   * is a lamp in the view.
+   */
+  switchLamps(ids: string[]): boolean {
+    return this.lighting.toggleLamps(ids);
+  }
+
+  /** Hooks for the walk overlay. Replaces the previous ones. */
+  setWalkHandlers(handlers: WalkHandlers): void {
+    this.walkHandlers = handlers;
+  }
+
+  /** An on-screen arrow (touch screens) went down or up. */
+  walkPress(move: TouchMove, down: boolean): void {
+    if (this.nav === "orbit" && down) return;
+    this.walkControls.press(move, down);
+  }
+
+  /** A click on the minimap at this client point: glide there, on the level the minimap shows. */
+  minimapGlide(clientX: number, clientY: number): boolean {
+    const worlds = this.walkWorlds;
+    const levelId = worlds?.levelId(this.walkLevelId ?? this.walker.levelId) ?? null;
+    const p = this.minimap?.toPlan(clientX, clientY) ?? null;
+    if (this.nav === "orbit" || !worlds || !levelId || !p) return false;
+    this.startWalkGlide(levelTarget(worlds, levelId, p));
+    return true;
+  }
+
+  /**
+   * A double click while walking or flying: glide to the floor under the
+   * pointer at eye height, or up to the wall or object there. Nothing drawn
+   * under it (the open ground): the floor plane of the walker's level.
+   */
+  private glideToPick(clientX: number, clientY: number): void {
+    const worlds = this.walkWorlds;
+    const w = this.walker;
+    if (this.nav === "orbit" || !worlds) return;
+    const hit = this.pickHit(clientX, clientY, false);
+    let target: GlideTarget | null = null;
+    if (hit) {
+      const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : null;
+      const p = worldToVec3(hit.point.x, hit.point.y, hit.point.z);
+      target = hitTarget(worlds, { x: p.x, y: p.y, z: p.z, up: n ? n.y : 0 }, { x: w.x, y: w.y, levelId: w.levelId });
+    } else if (w.levelId && this.aimRay(clientX, clientY)) {
+      const floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), -worlds.elevation(w.levelId) / 1000);
+      const at = this.raycaster.ray.intersectPlane(floor, new THREE.Vector3());
+      if (at && at.distanceTo(this.camera.position) < 80) target = levelTarget(worlds, w.levelId, { x: at.x * 1000, y: -at.z * 1000 });
+    }
+    if (target) this.startWalkGlide(target);
+  }
+
+  private startWalkGlide(target: GlideTarget): void {
+    const w = this.walker;
+    w.startGlide(target, glideDurationMs(Math.hypot(target.x - w.x, target.y - w.y)));
+    this.lastWalkAt = 0;
+    this.minimapDirty = true;
+    this.invalidate();
+  }
+
+  /**
+   * Walk and fly for one frame, inside the one frame loop: steps the walker
+   * (keys, scroll, glides, stairs), follows it to another level (the minimap
+   * with it), and moves the door leaves. True while any of it still moves;
+   * standing still with every door at rest asks for no frame at all.
+   */
+  private stepWalk(now: number): boolean {
+    let active = false;
+    if (this.nav !== "orbit") {
+      // Frame-rate independent: the step uses the real gap (clamped inside),
+      // and the first frame after standing still counts as one 60 Hz frame.
+      const dt = this.lastWalkAt > 0 ? (now - this.lastWalkAt) / 1000 : 1 / 60;
+      const w = this.walker;
+      const moving = w.step(dt, this.walkControls.input());
+      this.lastWalkAt = moving ? now : 0;
+      if (moving) {
+        active = true;
+        this.needsRender = true;
+        this.minimapDirty = true;
+        this.beginInteraction(now);
+      }
+      if (w.levelId !== null && w.levelId !== this.walkLevelId) {
+        this.walkLevelId = w.levelId;
+        this.refreshWalkWorld();
+      }
+      this.applyWalkerCamera();
+      this.walkDoors.update(w, this.walkLevelId, now);
+    }
+    const doors = this.walkDoors.sample(now);
+    if (doors.moved) {
+      // A leaf casts a shadow: the sun has to see where it went.
+      this.needsRender = true;
+      this.shadowDirty();
+    }
+    return active || doors.animating;
   }
 
   pointerLockAvailable(): boolean {
@@ -1749,8 +1942,18 @@ export class ViewerEngine {
    * halfway through a rise, a fade or a cutaway.
    */
   capture(width = 1920, height = 1080): string {
+    return this.captureCanvas(width, height, (canvas) => canvas.toDataURL("image/png"));
+  }
+
+  /**
+   * `capture`, handing the canvas to `use` right after the frame is drawn and
+   * before anything else touches it: the shadow study copies its frames out
+   * this way instead of encoding a PNG per frame.
+   */
+  captureCanvas<T>(width: number, height: number, use: (canvas: HTMLCanvasElement) => T): T {
     if (this.disposed || this.contextLost) throw new Error("The 3D view is not available right now.");
     this.anim.finishAll();
+    this.walkDoors.finish();
     this.applyAnimated();
     this.releaseHighlights();
     this.syncPipes();
@@ -1763,8 +1966,9 @@ export class ViewerEngine {
       this.camera.updateProjectionMatrix();
       this.env.followCamera(this.camera);
       this.shadowDirty();
+      this.lighting.beforeRender(width, height);
       this.renderer.render(this.scene, this.camera);
-      return this.renderer.domElement.toDataURL("image/png");
+      return use(this.renderer.domElement);
     } finally {
       this.renderer.setPixelRatio(prevRatio);
       this.renderer.setSize(Math.max(this.width, 1), Math.max(this.height, 1), false);
@@ -1929,20 +2133,8 @@ export class ViewerEngine {
       if (this.anim.moved().some((k) => !isViewOnlyTrack(k))) this.shadowDirty();
     }
     if (this.anim.animating()) active = true;
-    if (this.nav !== "orbit") {
-      // Frame-rate independent: the step uses the real gap (clamped inside),
-      // and the first frame after standing still counts as one 60 Hz frame.
-      const dt = this.lastWalkAt > 0 ? (now - this.lastWalkAt) / 1000 : 1 / 60;
-      const moving = this.walker.step(dt, this.walkControls.input());
-      this.lastWalkAt = moving ? now : 0;
-      if (moving) {
-        active = true;
-        this.needsRender = true;
-        this.minimapDirty = true;
-        this.beginInteraction(now);
-      }
-      this.applyWalkerCamera();
-    }
+    // Walking, flying, and door leaves settling after a walk.
+    if (this.stepWalk(now)) active = true;
     // No hover raycast while the camera is being driven or a button is down:
     // the pointer is orbiting, not pointing at anything.
     if (this.hoverQueued) {
@@ -1972,6 +2164,9 @@ export class ViewerEngine {
     }
     if (this.interacting && !active && now >= this.interactionTail) this.endInteraction();
     if (this.needsRender || active) this.renderNow();
+    // At rest: the exposure settles and the refine passes run, one frame at a
+    // time, each asked for here (light/LightRig.ts).
+    else if (!this.interacting && !this.pointerDown && this.lighting.idleFrame(now)) this.schedule();
     if (this.minimapDirty) this.drawMinimap();
     this.noteFrameCost(performance.now() - started, interval);
     // The interaction tail needs frames of its own to land the clean one.
@@ -1983,6 +2178,7 @@ export class ViewerEngine {
     this.needsRender = false;
     this.syncPipes();
     this.env.followCamera(this.camera);
+    this.lighting.beforeRender();
     this.renderer.render(this.scene, this.camera);
     if (!this.firstRendered) {
       this.firstRendered = true;
@@ -2022,24 +2218,35 @@ export class ViewerEngine {
   }
 
   private pick(clientX: number, clientY: number): string | null {
+    const hit = this.pickHit(clientX, clientY, this.shell.mode !== "solid");
+    if (!hit || hit.object.userData.locked) return null;
+    return (hit.object.userData.elementId as string | undefined) ?? null;
+  }
+
+  /** Points the raycaster from the camera through a client point. False when the canvas has no size. */
+  private aimRay(clientX: number, clientY: number): boolean {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return false;
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    return true;
+  }
+
+  /**
+   * The first visible surface under a client point, locked or not. With
+   * `preferPipes` (an X-ray or hidden shell) a pipe anywhere along the ray
+   * wins over the faint building in front of it.
+   */
+  private pickHit(clientX: number, clientY: number, preferPipes: boolean): THREE.Intersection | null {
     const targets: THREE.Object3D[] = this.pickables;
     const refs = this.refs.root.children.length > 0 ? [this.refs.root] : [];
     if (targets.length === 0 && refs.length === 0) return null;
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return null;
-    const ndc = new THREE.Vector2(
-      ((clientX - rect.left) / rect.width) * 2 - 1,
-      -((clientY - rect.top) / rect.height) * 2 + 1,
-    );
-    this.raycaster.setFromCamera(ndc, this.camera);
+    if (!this.aimRay(clientX, clientY)) return null;
     const hits = this.raycaster.intersectObjects(targets, false);
     if (refs.length > 0) {
       hits.push(...this.raycaster.intersectObjects(refs, true));
       hits.sort((a, b) => a.distance - b.distance);
     }
-    // Through an X-ray or hidden shell the pipes are what you point at: a
-    // pipe anywhere along the ray wins over the faint building in front of it.
-    const preferPipes = this.shell.mode !== "solid";
     let fallback: THREE.Intersection | null = null;
     for (const hit of hits) {
       let visible = true;
@@ -2056,14 +2263,9 @@ export class ViewerEngine {
         fallback ??= hit;
         continue;
       }
-      if (hit.object.userData.locked) return null;
-      return (hit.object.userData.elementId as string | undefined) ?? null;
+      return hit;
     }
-    if (fallback) {
-      if (fallback.object.userData.locked) return null;
-      return (fallback.object.userData.elementId as string | undefined) ?? null;
-    }
-    return null;
+    return fallback;
   }
 
   private onPointerDown = (e: PointerEvent): void => {
@@ -2075,7 +2277,13 @@ export class ViewerEngine {
     this.pointerDown = null;
     if (!down || e.button !== 0) return;
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
-    this.cb.onPick(this.pick(e.clientX, e.clientY), e.shiftKey);
+    const id = this.pick(e.clientX, e.clientY);
+    // Walking, a click on a switch flips its lights instead of selecting it.
+    if (this.nav !== "orbit" && id && this.walkHandlers.onWalkClick?.(id)) {
+      this.flashElement(id, performance.now());
+      return;
+    }
+    this.cb.onPick(id, e.shiftKey);
   };
 
   private onPointerMove = (e: PointerEvent): void => {
@@ -2150,6 +2358,7 @@ export class ViewerEngine {
     // HDRI's PMREM with it.
     this.env.bakeEnvironment(this.renderer);
     this.env.reloadHdri(this.renderer);
+    this.lighting.contextRestored();
     this.shadowDirty();
     this.cb.onContextLost(false);
     this.invalidate();
@@ -2188,6 +2397,8 @@ export class ViewerEngine {
       nav: this.nav,
       shell: this.shell.mode,
       walker: this.nav === "orbit" ? null : this.walkerPose(),
+      /** Door leaves: open ones, how many still move, how many there are. */
+      doors: this.walkDoors.stats(),
       pipes: {
         solos: this.built?.pipes.size ?? 0,
         batches: this.built?.pipes.batches.length ?? 0,
@@ -2201,7 +2412,29 @@ export class ViewerEngine {
         textures: this.lib.packStats(),
         hdri: this.env.hdriActive,
       },
+      /** Sun, sky, exposure, lamps and refine (light/LightRig.ts). */
+      light: this.lighting.stats(),
     };
+  }
+
+  // ------------------------------------------------------------------ light
+
+  /** The light rig: the shadow study and the Render button read the light from it. */
+  lightRig(): LightRig {
+    return this.lighting;
+  }
+
+  /**
+   * Walk mode's switches: flips these fixtures in the view only, all on when
+   * any is off, else all off. False when none of them is a lamp in the view.
+   */
+  toggleLamps(ids: string[]): boolean {
+    return this.lighting.toggleLamps(ids);
+  }
+
+  /** Switches fixtures on or off in the view only; `null` lets them follow the model again. */
+  setFixturesOn(ids: string[], on: boolean | null): void {
+    this.lighting.setFixturesOn(ids, on);
   }
 
   dispose(): void {
@@ -2246,6 +2479,7 @@ export class ViewerEngine {
     this.refs.dispose();
     this.scene.remove(this.refs.root);
     this.lib.dispose();
+    this.lighting.dispose();
     this.env.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

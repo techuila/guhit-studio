@@ -16,6 +16,7 @@ const camera: Camera = {
   id: "c1",
   name: "Front",
   preset: "exterior_corner",
+  light: null,
   position: { x: 0, y: 0, z: 0 },
   target: { x: 0, y: 0, z: 0 },
   fov_deg: 50,
@@ -33,6 +34,7 @@ function rec(id: string, at: string, extra: Partial<RenderRecord> = {}): RenderR
     image_path: `/p/${id}.png`,
     source_render_id: null,
     provider: null,
+    info: null,
     ...extra,
   };
 }

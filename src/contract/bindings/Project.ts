@@ -4,10 +4,16 @@ import type { Layer } from "./Layer";
 import type { Level } from "./Level";
 import type { Material } from "./Material";
 import type { ProjectSettings } from "./ProjectSettings";
+import type { ReviewMark } from "./ReviewMark";
 import type { Roof } from "./Roof";
 
 export type Project = { schema_version: number, id: string, name: string, 
 /**
  * RFC 3339 timestamps.
  */
-created_at: string, updated_at: string, settings: ProjectSettings, levels: Array<Level>, layers: Array<Layer>, materials: Array<Material>, elements: Array<Element>, roof: Roof, };
+created_at: string, updated_at: string, settings: ProjectSettings, levels: Array<Level>, layers: Array<Layer>, materials: Array<Material>, elements: Array<Element>, roof: Roof, 
+/**
+ * Review items the designer set aside, with a note. Open is the default
+ * and is not stored; resolved is derived (`Derived::review_resolved`).
+ */
+review: Array<ReviewMark>, };

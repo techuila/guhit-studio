@@ -1,16 +1,10 @@
 // Readable names for elements and tools, and the starter suggestions.
 import type { AiProposal, DocState, Element } from "../contract/bindings";
+import { PIPE_GROUP, PIPE_SYSTEM_LABEL } from "../contract/pipes";
 
 function mm(v: number): string {
   return `${Math.round(v).toLocaleString("en-US")} mm`;
 }
-
-const PIPE_SYSTEM_LABEL: Record<Extract<Element, { kind: "pipe" }>["system"], string> = {
-  cold_water: "Cold water",
-  hot_water: "Hot water",
-  drainage: "Drainage",
-  vent: "Vent",
-};
 
 const USAGE_LABEL: Record<string, string> = {
   master_bedroom: "master bedroom",
@@ -43,8 +37,11 @@ export function elementName(el: Element): string {
       return el.name;
     case "reference_model":
       return el.name;
-    case "pipe":
-      return el.name || `${PIPE_SYSTEM_LABEL[el.system]} pipe, ${Math.round(el.diameter_mm)} mm`;
+    case "pipe": {
+      // "Cold water pipe, 20 mm", "Conduit, 20 mm", "Refrigerant line set, 9.52 mm".
+      const run = PIPE_GROUP[el.system] === "plumbing" ? `${PIPE_SYSTEM_LABEL[el.system]} pipe` : PIPE_SYSTEM_LABEL[el.system];
+      return el.name || `${run}, ${Math.round(el.diameter_mm * 100) / 100} mm`;
+    }
   }
 }
 

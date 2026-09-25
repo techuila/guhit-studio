@@ -31,14 +31,25 @@ How to draw:
 - For a whole house in one go use `batch`: every step lands as ONE undo step, all \
   or nothing. Ids created by an earlier step are stable, so a later step in the \
   same batch can host a door on a wall the batch just made.
+- Levels: new elements go on the first level. For a second storey call \
+  `add_level` (it stacks on the highest level), then pass its name as `level` to \
+  `add_wall`, `add_wall_chain`, `add_rect_room` or `add_asset`. `delete_level` \
+  removes a level with everything on it; only use it when the user names it.
 - After a run of edits call `list_review_items` and report what it says.
 
-Pipes:
-- A project can hold cold water, hot water, drainage and vent pipes that the \
-  user draws in the app. Read them with `list_elements` (kind \"pipe\") and answer \
+Pipes and services:
+- A project can hold runs the user draws in the app: cold water, hot water, \
+  drainage and vent pipes, storm drains, electrical conduit, aircon line sets and \
+  condensate drains. Read them with `list_elements` (kind \"pipe\") and answer \
   length, fitting and sleeve questions with `get_pipe_takeoff`. These tools do not \
-  draw pipes, and Guhit never sizes them: plumbing plans are signed by a \
-  registered Master Plumber.
+  draw runs, and Guhit never sizes anything: plumbing plans are signed by a \
+  registered Master Plumber, electrical plans by a Professional Electrical \
+  Engineer, aircon by a Professional Mechanical Engineer.
+- Lights, outlets, switches, the panelboard, detectors and aircon units are \
+  library objects: place them with `add_asset`. Count them with `get_schedule`. \
+  Switches are linked to their lights in the app, with the link tool.
+- The user can set a review item aside with a note (`set_review_mark`). A \
+  set-aside item is never approved; only do it when the user asks and says why.
 
 Honesty rules:
 - Review items are suggestions to check. Never present anything from this server \
@@ -93,16 +104,41 @@ pub const CONVENTIONS: &str = "\
 - A closed face with no room gets one automatically inside the same undo step.
 
 ## Levels
-- New elements go on the first level of the project unless the project has
-  only one, which is the normal case for a bungalow.
+- A level has a name, a floor elevation above project zero and a
+  floor-to-floor height. `add_level` stacks a new one on the highest level:
+  \"Level N\", 3000 mm high, unless you say otherwise. Heights are 2000 to
+  10000 mm and no two levels share a floor elevation.
+- New elements go on the first level unless a call passes `level`, a level
+  id or name (see `get_project_summary`).
+- The roof sits on the top level. `delete_level` removes a level with
+  everything on it; the last level stays.
 
-## Pipes
+## Pipes and service runs
 - A pipe is a run of straight segments through `points`. x and y are plan
   mm, z is the centerline height above the level floor, negative below the
-  slab. Drainage flows from the first point to the last.
-- Each system (cold_water, hot_water, drainage, vent) has its own layer.
+  slab. Drainage, storm and condensate flow from the first point to the last.
+- Systems: cold_water, hot_water, drainage and vent (each on its own layer),
+  storm (layer storm), conduit (layer electrical), refrigerant line sets and
+  condensate (layer aircon). A line set's size is its gas line.
+- Runs join only within one system, and drainage with vent.
 - Fittings, sleeves and lengths are derived by the engine: read them with
-  `get_pipe_takeoff`. Guhit coordinates pipes; it never sizes them.";
+  `get_pipe_takeoff`. Conduit needs no sleeves; an aircon run through a wall
+  goes through a 65 or 90 mm core hole. Guhit coordinates runs; it never
+  sizes them.
+
+## Devices
+- Lights, outlets, switches, panelboards, detectors and aircon units are
+  objects. Wall items sit with their back on a wall face; ceiling items hang
+  from the ceiling. Switches: 1200 mm to center, 200 mm from the latch side.
+- `links` on an object lists what it controls or feeds: a switch its lights,
+  an aircon outlet its unit. Two switches on one light make a 3-way.
+- `get_schedule` counts them per level and room, in the rows of the PH
+  electrical inspection form. Circuits and loads are for the engineer.
+
+## Review marks
+- A finding, a whole check or a check on one element can be set aside with a
+  note. It stays listed as ignored, never approved; a set-aside finding the
+  checks stop producing is resolved.";
 
 /// `guhit://docs/ph-defaults`.
 pub const PH_DEFAULTS: &str = "\

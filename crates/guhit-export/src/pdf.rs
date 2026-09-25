@@ -108,6 +108,69 @@ pub fn svg_to_pdf_with(svg: &str, db: Arc<fontdb::Database>) -> Result<Vec<u8>, 
     Ok(pdf)
 }
 
+/// Several sheet SVGs as one PDF, one page each at its true paper size.
+/// Each page is converted on its own and placed as a form XObject.
+pub fn svgs_to_pdf(svgs: &[String]) -> Result<Vec<u8>, ExportError> {
+    use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, TextStr};
+    let db = system_fonts();
+    if db.is_empty() {
+        return Err(ExportError::Failed(
+            "no fonts were found on this system, so the sheet text cannot be written to PDF. Install a sans-serif font such as Arial or DejaVu Sans, or export SVG instead".into(),
+        ));
+    }
+    let options = usvg::Options {
+        fontdb: db,
+        ..usvg::Options::default()
+    };
+    let mut alloc = Ref::new(1);
+    let catalog = alloc.bump();
+    let tree_id = alloc.bump();
+    let mut pdf = Pdf::new();
+    let mut page_ids = Vec::new();
+    for svg in svgs {
+        let tree = usvg::Tree::from_str(svg, &options)
+            .map_err(|e| ExportError::Failed(format!("could not read the sheet SVG: {e}")))?;
+        let expected = svg.matches("<text ").count();
+        let found = count_text_nodes(tree.root());
+        if found < expected {
+            return Err(ExportError::Failed(format!(
+                "{} of {expected} text labels could not be drawn with the fonts on this system. Install a sans-serif font such as Arial or DejaVu Sans, or export SVG instead",
+                expected - found
+            )));
+        }
+        let (chunk, xobject) = svg2pdf::to_chunk(&tree, svg2pdf::ConversionOptions::default())
+            .map_err(|e| ExportError::Failed(format!("PDF conversion failed: {e}")))?;
+        let mut map = std::collections::HashMap::new();
+        let chunk = chunk.renumber(|old| *map.entry(old).or_insert_with(|| alloc.bump()));
+        let xobject = map
+            .get(&xobject)
+            .copied()
+            .ok_or_else(|| ExportError::Failed("PDF conversion lost the page content".into()))?;
+        // usvg sizes are CSS pixels at 96 per inch; PDF points are 72 per inch.
+        let (w, h) = (tree.size().width() * 0.75, tree.size().height() * 0.75);
+        let page_id = alloc.bump();
+        let content_id = alloc.bump();
+        page_ids.push(page_id);
+        {
+            let mut page = pdf.page(page_id);
+            page.media_box(Rect::new(0.0, 0.0, w, h));
+            page.parent(tree_id);
+            page.contents(content_id);
+            page.resources().x_objects().pair(Name(b"S1"), xobject);
+            page.finish();
+        }
+        let mut content = Content::new();
+        content.transform([w, 0.0, 0.0, h, 0.0, 0.0]);
+        content.x_object(Name(b"S1"));
+        pdf.stream(content_id, &content.finish());
+        pdf.extend(&chunk);
+    }
+    pdf.catalog(catalog).pages(tree_id);
+    pdf.pages(tree_id).kids(page_ids.iter().copied()).count(page_ids.len() as i32);
+    pdf.document_info(alloc.bump()).producer(TextStr("Guhit Studio"));
+    Ok(pdf.finish())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

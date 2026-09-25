@@ -15,7 +15,7 @@ use crate::ExportError;
 /// Line and text color: deep blueprint navy.
 pub const INK: &str = "#14283f";
 /// Small field captions in the title block.
-const MUTED: &str = "#56657a";
+pub(crate) const MUTED: &str = "#56657a";
 /// Font stack written into the SVG. The PDF path resolves it through fontdb.
 pub const FONT_FAMILY: &str = "Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif";
 
@@ -46,7 +46,7 @@ pub fn paper_name(paper: PaperSize) -> &'static str {
 }
 
 /// Stroke width in paper mm.
-fn pen_width(pen: Pen) -> f64 {
+pub(crate) fn pen_width(pen: Pen) -> f64 {
     match pen {
         Pen::Heavy => 0.35,
         Pen::Medium => 0.25,
@@ -116,7 +116,7 @@ pub fn pick_scale(avail_w: f64, avail_h: f64, mut size_at: impl FnMut(u32) -> (f
 }
 
 /// Compact number for SVG attributes.
-fn num(x: f64) -> String {
+pub(crate) fn num(x: f64) -> String {
     let x = if x.is_finite() { x } else { 0.0 };
     let s = format!("{x:.3}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
@@ -127,12 +127,12 @@ fn num(x: f64) -> String {
     }
 }
 
-struct Svg {
-    s: String,
+pub(crate) struct Svg {
+    pub(crate) s: String,
 }
 
 impl Svg {
-    fn line(&mut self, a: (f64, f64), b: (f64, f64), w: f64) {
+    pub(crate) fn line(&mut self, a: (f64, f64), b: (f64, f64), w: f64) {
         self.s.push_str(&format!(
             "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{INK}\" stroke-width=\"{}\"/>\n",
             num(a.0),
@@ -143,7 +143,7 @@ impl Svg {
         ));
     }
 
-    fn rect(&mut self, x: f64, y: f64, w: f64, h: f64, stroke_w: f64, fill: &str) {
+    pub(crate) fn rect(&mut self, x: f64, y: f64, w: f64, h: f64, stroke_w: f64, fill: &str) {
         self.s.push_str(&format!(
             "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{fill}\" stroke=\"{INK}\" stroke-width=\"{}\"/>\n",
             num(x),
@@ -154,7 +154,7 @@ impl Svg {
         ));
     }
 
-    fn polygon(&mut self, pts: &[(f64, f64)], fill: &str, stroke_w: f64) {
+    pub(crate) fn polygon(&mut self, pts: &[(f64, f64)], fill: &str, stroke_w: f64) {
         let p: Vec<String> = pts.iter().map(|p| format!("{},{}", num(p.0), num(p.1))).collect();
         self.s.push_str(&format!(
             "<polygon points=\"{}\" fill=\"{fill}\" stroke=\"{INK}\" stroke-width=\"{}\" stroke-linejoin=\"round\"/>\n",
@@ -164,7 +164,8 @@ impl Svg {
     }
 
     /// Upright text. `anchor` is start, middle or end.
-    fn text(&mut self, x: f64, y: f64, size: f64, anchor: &str, bold: bool, color: &str, text: &str) {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn text(&mut self, x: f64, y: f64, size: f64, anchor: &str, bold: bool, color: &str, text: &str) {
         if text.is_empty() {
             return;
         }
@@ -198,6 +199,7 @@ pub fn render(
                 show_room_labels: opts.show_room_labels,
                 show_assets: opts.show_assets,
                 unicode: true,
+                skip_devices: false,
             },
         )
     };
@@ -316,7 +318,8 @@ pub fn render(
             (system, widest.clamp(pipes::paper::STROKE_MIN, LEGEND_MAX_STROKE))
         })
         .collect();
-    furniture(&mut svg, project, &clean(&level.name), opts, &layout, scale, &legend);
+    let frame = Frame::plan(&clean(&level.name), scale, &legend);
+    furniture(&mut svg, project, opts, &layout, &frame);
 
     svg.s.push_str("</svg>\n");
     Ok((svg.s, scale))
@@ -324,7 +327,7 @@ pub fn render(
 
 /// Room labels mask what is under them (furniture outlines, door arcs) so the
 /// name and area always read cleanly: one white box per room.
-fn label_masks(s: &mut String, group: &[&Item], n: f64, to_paper: &dyn Fn(V) -> (f64, f64)) {
+pub(crate) fn label_masks(s: &mut String, group: &[&Item], n: f64, to_paper: &dyn Fn(V) -> (f64, f64)) {
     let pad = 0.6 * n;
     let mut boxes: Vec<Bounds> = Vec::new();
     for item in group {
@@ -356,9 +359,9 @@ fn label_masks(s: &mut String, group: &[&Item], n: f64, to_paper: &dyn Fn(V) -> 
 }
 
 /// Widest line a legend sample gets, paper mm.
-const LEGEND_MAX_STROKE: f64 = 0.7;
+pub(crate) const LEGEND_MAX_STROKE: f64 = 0.7;
 
-fn dash_attr(pattern: &[f64]) -> String {
+pub(crate) fn dash_attr(pattern: &[f64]) -> String {
     if pattern.is_empty() {
         return String::new();
     }
@@ -369,7 +372,7 @@ fn dash_attr(pattern: &[f64]) -> String {
 /// The pattern of a legend sample `length` mm long, stretched or shrunk a
 /// little so the sample starts and ends on a full dash. A cut dash at the
 /// end would read as a dot and make a dashed sample look dash-dot.
-fn legend_pattern(d: Dash, width: f64, length: f64) -> Vec<f64> {
+pub(crate) fn legend_pattern(d: Dash, width: f64, length: f64) -> Vec<f64> {
     let p = pipes::dash_pattern(d, width);
     if p.is_empty() {
         return p;
@@ -380,7 +383,7 @@ fn legend_pattern(d: Dash, width: f64, length: f64) -> Vec<f64> {
     p.iter().map(|x| x * k).collect()
 }
 
-fn line_cap(d: Dash) -> &'static str {
+pub(crate) fn line_cap(d: Dash) -> &'static str {
     match d {
         Dash::Solid => "round",
         Dash::Dashed | Dash::DashDot => "butt",
@@ -390,7 +393,7 @@ fn line_cap(d: Dash) -> &'static str {
 /// The pipe group: one sub-group per system in its color, wide systems
 /// first, and inside each the wider pipes first. Risers are white circles
 /// over the line they end, so the line reads as turning up or down there.
-fn write_pipes(s: &mut String, list: &[PlanPipe], n: f64, to_paper: &dyn Fn(V) -> (f64, f64)) {
+pub(crate) fn write_pipes(s: &mut String, list: &[PlanPipe], n: f64, to_paper: &dyn Fn(V) -> (f64, f64)) {
     s.push_str("<g id=\"pipes\" fill=\"none\" stroke-linejoin=\"round\">\n");
     for system in pipes::DRAW_ORDER {
         let mut group: Vec<&PlanPipe> = list.iter().filter(|p| p.system == system).collect();
@@ -480,8 +483,10 @@ fn pipe_legend(
     };
     let mut rows = count.clamp(1, 2);
     // Keep room for the drawing title; one column when two would crowd it.
-    if count > 2 && right - width(rows) - title_x < 46.0 * k && width(count) < width(rows) {
-        rows = count;
+    // The band holds four rows at most.
+    let tall = count.min(4);
+    if count > 2 && right - width(rows) - title_x < 46.0 * k && width(tall) < width(rows) {
+        rows = tall;
     }
     let total = width(rows);
     let left = right - total;
@@ -528,8 +533,33 @@ fn pipe_legend(
     left
 }
 
-fn write_item(s: &mut String, item: &Item, n: f64, to_paper: &dyn Fn(V) -> (f64, f64)) {
-    let sw = num(pen_width(item.pen));
+/// How plan primitives are inked: fill and text color, and the stroke width
+/// of each pen. Strokes take the color of their group.
+pub(crate) struct Ink {
+    pub fill: &'static str,
+    pub text: &'static str,
+    pub pen: fn(Pen) -> f64,
+}
+
+/// The plan sheet: navy ink, the usual pens.
+pub(crate) const PLAN_INK: Ink = Ink {
+    fill: INK,
+    text: INK,
+    pen: pen_width,
+};
+
+pub(crate) fn write_item(s: &mut String, item: &Item, n: f64, to_paper: &dyn Fn(V) -> (f64, f64)) {
+    write_item_in(s, item, n, to_paper, &PLAN_INK);
+}
+
+pub(crate) fn write_item_in(
+    s: &mut String,
+    item: &Item,
+    n: f64,
+    to_paper: &dyn Fn(V) -> (f64, f64),
+    ink: &Ink,
+) {
+    let sw = num((ink.pen)(item.pen));
     match &item.prim {
         Prim::Line { a, b } => {
             let (a, b) = (to_paper(*a), to_paper(*b));
@@ -551,7 +581,7 @@ fn write_item(s: &mut String, item: &Item, n: f64, to_paper: &dyn Fn(V) -> (f64,
                 .collect();
             let tag = if *closed { "polygon" } else { "polyline" };
             let fill = match fill {
-                Fill::Ink => format!(" fill=\"{INK}\""),
+                Fill::Ink => format!(" fill=\"{}\"", ink.fill),
                 Fill::None => String::new(),
             };
             s.push_str(&format!(
@@ -584,7 +614,7 @@ fn write_item(s: &mut String, item: &Item, n: f64, to_paper: &dyn Fn(V) -> (f64,
         Prim::Circle { c, r, fill } => {
             let q = to_paper(*c);
             let fill = match fill {
-                Fill::Ink => format!(" fill=\"{INK}\""),
+                Fill::Ink => format!(" fill=\"{}\"", ink.fill),
                 Fill::None => String::new(),
             };
             s.push_str(&format!(
@@ -613,9 +643,10 @@ fn write_item(s: &mut String, item: &Item, n: f64, to_paper: &dyn Fn(V) -> (f64,
                 format!("translate({} {}) rotate({})", num(q.0), num(q.1), num(-rot_deg))
             };
             s.push_str(&format!(
-                "<text transform=\"{transform}\" font-size=\"{}\" text-anchor=\"{anchor}\"{} fill=\"{INK}\" stroke=\"none\">{}</text>\n",
+                "<text transform=\"{transform}\" font-size=\"{}\" text-anchor=\"{anchor}\"{} fill=\"{}\" stroke=\"none\">{}</text>\n",
                 num(height / n),
                 if *bold { " font-weight=\"bold\"" } else { "" },
+                ink.text,
                 xml_escape(text)
             ));
         }
@@ -623,7 +654,7 @@ fn write_item(s: &mut String, item: &Item, n: f64, to_paper: &dyn Fn(V) -> (f64,
 }
 
 /// Drawing title under the plan, for example "GROUND FLOOR PLAN".
-fn drawing_title(level_name: &str) -> String {
+pub(crate) fn drawing_title(level_name: &str) -> String {
     let name = level_name.trim();
     if name.is_empty() {
         return "FLOOR PLAN".into();
@@ -678,19 +709,50 @@ fn meters_label(mm: f64) -> String {
     }
 }
 
-fn furniture(
-    svg: &mut Svg,
-    project: &Project,
-    level_name: &str,
-    opts: &PlanExportOptions,
-    l: &Layout,
-    scale: u32,
-    legend: &[(PipeSystem, f64)],
-) {
+/// Which way the north arrow in the band points.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum North {
+    /// Plan north: paper up turned by the project's north angle.
+    Plan,
+    /// A unit direction on paper (x right, y down), for a diagram.
+    Paper(f64, f64),
+}
+
+/// What the band and the title block say about the drawing.
+pub(crate) struct Frame<'a> {
+    /// Drawing title in capitals, for example "GROUND FLOOR PLAN".
+    pub title: String,
+    /// The line under the title: "SCALE 1:100" or "NOT TO SCALE".
+    pub scale_text: String,
+    /// The scale the graphic scale bar shows. None draws no bar.
+    pub bar: Option<u32>,
+    pub north: North,
+    /// Pipe legend in the band, right aligned against the scale bar.
+    pub legend: &'a [(PipeSystem, f64)],
+    /// The SCALE cell of the title block.
+    pub block_scale: String,
+}
+
+impl Frame<'_> {
+    /// The plan sheet's frame: title from the level, scale bar, plan north.
+    pub(crate) fn plan<'a>(level_name: &str, scale: u32, legend: &'a [(PipeSystem, f64)]) -> Frame<'a> {
+        Frame {
+            title: drawing_title(level_name),
+            scale_text: format!("SCALE 1:{scale}"),
+            bar: Some(scale),
+            north: North::Plan,
+            legend,
+            block_scale: format!("1:{scale}"),
+        }
+    }
+}
+
+pub(crate) fn furniture(svg: &mut Svg, project: &Project, opts: &PlanExportOptions, l: &Layout, f: &Frame) {
     let k = l.k;
     let m = l.margin;
     let (w, h) = (l.width, l.height);
     let inner_w = w - 2.0 * m;
+    let legend = f.legend;
     svg.s.push_str("<g id=\"sheet\">\n");
 
     // Border.
@@ -704,11 +766,16 @@ fn furniture(
     // North arrow.
     let r = 5.2 * k;
     let nc = (w - m - pad - r - 1.5 * k, band_mid);
-    let a = project.settings.north_angle_deg;
-    let a = if a.is_finite() { a } else { 0.0 };
-    // North on paper: +y (up) rotated counter-clockwise by the north angle.
-    let (sn, cs) = a.to_radians().sin_cos();
-    let d = (-sn, -cs);
+    let d = match f.north {
+        North::Plan => {
+            let a = project.settings.north_angle_deg;
+            let a = if a.is_finite() { a } else { 0.0 };
+            // North on paper: +y (up) rotated counter-clockwise by the north angle.
+            let (sn, cs) = a.to_radians().sin_cos();
+            (-sn, -cs)
+        }
+        North::Paper(x, y) => (x, y),
+    };
     let p = (-d.1, d.0);
     let at = |fd: f64, fp: f64| (nc.0 + d.0 * fd * r + p.0 * fp * r, nc.1 + d.1 * fd * r + p.1 * fp * r);
     svg.s.push_str(&format!(
@@ -726,11 +793,43 @@ fn furniture(
 
     // Scale bar, right aligned next to the north arrow.
     let bar_right = nc.0 - r - 4.2 * k - pad;
+    let bar_x = match f.bar {
+        Some(scale) => scale_bar(svg, l, scale, bar_right, band_mid),
+        None => bar_right,
+    };
+
+    // Pipe legend between the drawing title and the scale bar.
+    let title_x = m + pad;
+    let title_right = if legend.is_empty() {
+        bar_x
+    } else {
+        pipe_legend(svg, legend, l, bar_x - pad, title_x, band_mid)
+    };
+
+    // Drawing title.
+    let title_max = (title_right - pad - title_x).max(20.0);
+    let (title, title_size) = fit(&f.title, 4.2 * k, 2.4 * k, title_max, true);
+    let title_w = est_width(&title, title_size, true).min(title_max);
+    let base = band_mid - 0.4 * k;
+    svg.text(title_x, base, title_size, "start", true, INK, &title);
+    svg.line((title_x, base + 1.8 * k), (title_x + title_w + 2.0 * k, base + 1.8 * k), 0.5);
+    svg.text(title_x, base + 5.6 * k, 2.6 * k, "start", false, INK, &f.scale_text);
+
+    if opts.title_block {
+        title_block(svg, project, &title_case(&f.title), opts, l, &f.block_scale);
+    }
+    svg.s.push_str("</g>\n");
+}
+
+/// The graphic scale bar, right aligned at `right`. Returns its left edge.
+fn scale_bar(svg: &mut Svg, l: &Layout, scale: u32, right: f64, band_mid: f64) -> f64 {
+    let k = l.k;
+    let inner_w = l.width - 2.0 * l.margin;
     let max_bar = (inner_w * 0.3).min(70.0 * k);
     let seg_mm = scale_bar_segment_mm(scale, max_bar);
     let seg = seg_mm / scale as f64;
     let bar_w = seg * 4.0;
-    let bar_x = bar_right - bar_w;
+    let bar_x = right - bar_w;
     let bar_h = 1.5 * k;
     let bar_y = band_mid - bar_h / 2.0 + 0.6 * k;
     svg.rect(bar_x, bar_y, bar_w, bar_h, 0.18, "#ffffff");
@@ -757,45 +856,33 @@ fn furniture(
         MUTED,
         "GRAPHIC SCALE",
     );
-
-    // Pipe legend between the drawing title and the scale bar.
-    let title_x = m + pad;
-    let title_right = if legend.is_empty() {
-        bar_x
-    } else {
-        pipe_legend(svg, legend, l, bar_x - pad, title_x, band_mid)
-    };
-
-    // Drawing title.
-    let title_max = (title_right - pad - title_x).max(20.0);
-    let (title, title_size) = fit(&drawing_title(level_name), 4.2 * k, 2.4 * k, title_max, true);
-    let title_w = est_width(&title, title_size, true).min(title_max);
-    let base = band_mid - 0.4 * k;
-    svg.text(title_x, base, title_size, "start", true, INK, &title);
-    svg.line((title_x, base + 1.8 * k), (title_x + title_w + 2.0 * k, base + 1.8 * k), 0.5);
-    svg.text(
-        title_x,
-        base + 5.6 * k,
-        2.6 * k,
-        "start",
-        false,
-        INK,
-        &format!("SCALE 1:{scale}"),
-    );
-
-    if opts.title_block {
-        title_block(svg, project, level_name, opts, l, scale);
-    }
-    svg.s.push_str("</g>\n");
+    bar_x
 }
 
-fn title_block(
+/// Title case of a capitals title, for the DRAWING cell.
+pub(crate) fn title_case(t: &str) -> String {
+    let mut out = String::new();
+    for (i, word) in t.split_whitespace().enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        let mut cs = word.chars();
+        if let Some(f) = cs.next() {
+            out.extend(f.to_uppercase());
+            out.push_str(&cs.as_str().to_lowercase());
+        }
+    }
+    out
+}
+
+/// The title block strip. `drawing` goes into the DRAWING cell as given.
+pub(crate) fn title_block(
     svg: &mut Svg,
     project: &Project,
-    level_name: &str,
+    drawing: &str,
     opts: &PlanExportOptions,
     l: &Layout,
-    scale: u32,
+    block_scale: &str,
 ) {
     let k = l.k;
     let m = l.margin;
@@ -813,22 +900,7 @@ fn title_block(
             c
         }
     };
-    let drawing = {
-        let t = drawing_title(level_name);
-        // Title case reads better than capitals inside the block.
-        let mut out = String::new();
-        for (i, word) in t.split_whitespace().enumerate() {
-            if i > 0 {
-                out.push(' ');
-            }
-            let mut cs = word.chars();
-            if let Some(f) = cs.next() {
-                out.extend(f.to_uppercase());
-                out.push_str(&cs.as_str().to_lowercase());
-            }
-        }
-        out
-    };
+    let drawing = clean(drawing);
     let paper = format!(
         "{} {}",
         paper_name(opts.paper),
@@ -854,7 +926,7 @@ fn title_block(
             ("DATE", sheet_date(project), false),
         ],
         [
-            ("SCALE", format!("1:{scale}"), true),
+            ("SCALE", block_scale.to_string(), true),
             ("PAPER", paper, false),
         ],
     ];

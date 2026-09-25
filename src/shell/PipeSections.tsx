@@ -2,7 +2,7 @@
 // take-off shown when nothing is selected, and system and size for several
 // selected pipes. Quantities come from `Derived::pipes`, computed by the
 // engine; nothing here measures on its own.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { Command, DocState, Element, PipeSystem } from "../contract/bindings";
 import { useApp } from "../state/store";
 import { Button, Field, Section, Select, cx } from "../ui/controls";
@@ -15,12 +15,13 @@ import {
   PIPE_SIZES,
   PIPE_SYSTEMS,
   PIPE_SYSTEM_LABEL,
-  TAKEOFF_NOTE,
   fittingsLine,
   runCount,
   sizeLabel,
   sizeShort,
   takeoffCsv,
+  takeoffNote,
+  takeoffTitle,
   withSystem,
 } from "./pipes";
 import { useSection, useShell } from "./shellStore";
@@ -33,7 +34,7 @@ const dispatch = (command: Command) => void useApp.getState().dispatch(command);
 // ---------------------------------------------------------------- copy button
 
 /** A button whose label cross-fades to "Copied" with a drawn check mark, then back. */
-function CopyButton({ label, text }: { label: string; text: () => string }) {
+export function CopyButton({ label, text }: { label: string; text: () => string }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -64,41 +65,55 @@ function CopyButton({ label, text }: { label: string; text: () => string }) {
   );
 }
 
-// ---------------------------------------------------------------- take-off
+// ---------------------------------------------------------------- reveal
 
-/** The reveal token already scrolled to, so a remount does not scroll again. */
-let revealedToken = 0;
+/** The reveal tokens already scrolled to, per section, so a remount does not scroll again. */
+const revealed = new Map<string, number>();
+
+/**
+ * A palette request to show an inspector section ("Show the pipe take-off",
+ * "Show the device schedules"): scroll it into view and flash it once.
+ * Returns true while the flash plays.
+ */
+export function useReveal(key: string, ref: RefObject<HTMLElement | null>): boolean {
+  const reveal = useShell((st) => st.revealRequest);
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (!reveal || reveal.key !== key || reveal.token === revealed.get(key)) return;
+    revealed.set(key, reveal.token);
+    // Wait a frame so a section that just opened has its height.
+    const raf = requestAnimationFrame(() => {
+      ref.current?.scrollIntoView({ block: "start", behavior: motionOK() ? "smooth" : "auto" });
+      setFlash(true);
+    });
+    setFlash(false);
+    const t = window.setTimeout(() => setFlash(false), 900);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, [reveal, key, ref]);
+  return flash;
+}
+
+// ---------------------------------------------------------------- take-off
 
 export function PlumbingSection({ doc }: { doc: DocState }) {
   const [open, toggle] = useSection("plumbing", true);
   const net = doc.derived.pipes ?? EMPTY_NETWORK;
   const rows = net.takeoff;
   const ref = useRef<HTMLDivElement>(null);
-  const reveal = useShell((st) => st.revealRequest);
-  const [flash, setFlash] = useState(false);
-
-  // "Show the pipe take-off" from the palette: scroll here and flash once.
-  useEffect(() => {
-    if (!reveal || reveal.key !== "plumbing" || reveal.token === revealedToken) return;
-    revealedToken = reveal.token;
-    ref.current?.scrollIntoView({ block: "start", behavior: motionOK() ? "smooth" : "auto" });
-    setFlash(false);
-    const raf = requestAnimationFrame(() => setFlash(true));
-    const t = window.setTimeout(() => setFlash(false), 900);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.clearTimeout(t);
-    };
-  }, [reveal]);
+  const flash = useReveal("plumbing", ref);
+  const title = takeoffTitle(rows);
 
   return (
     <div ref={ref} className={cx(s.reveal, flash && s.revealFlash)}>
       <Section
-        title="Plumbing"
+        title={title}
         icon="pipe"
         open={open}
         onToggle={toggle}
-        aside={rows.length > 0 ? <span className={s.sectionAside}>{net.total_length_m.toFixed(2)} m of pipe</span> : null}
+        aside={rows.length > 0 ? <span className={s.sectionAside}>{net.total_length_m.toFixed(2)} m of {title === "Plumbing" ? "pipe" : "runs"}</span> : null}
       >
         {rows.length === 0 ? (
           <p className={s.note}>The take-off appears once the engine has measured the pipe runs.</p>
@@ -135,14 +150,14 @@ export function PlumbingSection({ doc }: { doc: DocState }) {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={2}>All pipe</td>
+                  <td colSpan={2}>{title === "Plumbing" ? "All pipe" : "All runs"}</td>
                   <td className={s.num}>{net.total_length_m.toFixed(2)} m</td>
                   <td className={s.num}>{runCount(rows)}</td>
                 </tr>
               </tfoot>
             </table>
             <p className={s.takeoffFittings}>{fittingsLine(net)}.</p>
-            <p className={s.disclaimer}>{TAKEOFF_NOTE}</p>
+            <p className={s.disclaimer}>{takeoffNote(rows)}</p>
             <div className={s.actionsRow}>
               <CopyButton label="Copy as CSV" text={() => takeoffCsv(net)} />
             </div>

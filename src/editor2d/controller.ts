@@ -4,13 +4,14 @@
 
 import type {
   Annotation,
-  Asset,
   Camera,
   CatalogItem,
   Column,
   Command,
   Dimension,
   Element,
+  LayerKey,
+  Mount,
   OpeningStyle,
   PipeSystem,
   Room,
@@ -19,6 +20,7 @@ import type {
   Wall,
 } from "../contract/bindings";
 import { ipc } from "../contract/ipc";
+import { PIPE_LAYER } from "../contract/pipes";
 import { bus } from "../state/bus";
 import { useApp, type AppState, type Tool } from "../state/store";
 import { dur, ease, motionOK } from "../ui/motion";
@@ -26,11 +28,28 @@ import { useViewer } from "../viewer3d/viewerStore";
 import { Anim, breathe, mix, mixP } from "./anim";
 import type { Grip } from "./edit";
 import { gripsFor, hitGrip, jointInset, normalDelta, rotationFromGrip } from "./edit";
-import type { P, Rect } from "./geom";
-import { add, angleDeg, dirDeg, dist, dot, mul, normDeg, rectFromPoints, rectIsEmpty, sub, unit } from "./geom";
-import { hitTest, marqueeSelect } from "./hit";
+import type { P, Rect, Seg } from "./geom";
+import { add, angleDeg, cross, dirDeg, dist, dot, mul, normDeg, rectFromPoints, rectIsEmpty, sub, unit } from "./geom";
+import { hitTest, hitsElement, marqueeSelect } from "./hit";
+import type { AssetEl, Linkable, LinkPair } from "./links";
+import { allLinks, defaultBow, deviceKindOf, linkArc, linkKey, linkables, linksOf, resolveLinkClick, threeWaySwitches, trimLink } from "./links";
 import type { DocIndex, OpeningEl, WallEl } from "./model";
-import { boundsOfIds, buildIndex, isLocked, keyPoints, modelBounds, wallOutline } from "./model";
+import { boundsOfIds, buildIndex, isLocked, keyPoints, layerOf, modelBounds, symbolMmOf, wallOutline } from "./model";
+import type { LatchGuide, WallFace, WallMount, WindowHost } from "./mount";
+import {
+  ceilingElevation,
+  ceilingHeightMm,
+  facesOfWall,
+  latchGuides,
+  mountAtGuide,
+  mountHeightLabel,
+  mountInWindow,
+  nearestGuide,
+  nearestWindow,
+  roomCenterSnap,
+  snapToWallFace,
+  usableGuides,
+} from "./mount";
 import { drawOverlay } from "./overlay";
 import type { FaceSnap, OpeningPlacement, OpeningSpan } from "./place";
 import { doorSwingSide, findHostWall, placeOnWall, roomSideOfWall, snapToFace } from "./place";
@@ -42,7 +61,7 @@ import {
   addRunPoint,
   finishRun,
   fixturePoints,
-  isPlumbingFixture,
+  isServiceFixture,
   movePipeNode,
   pipeNodes,
   pipeSpec,
@@ -57,6 +76,8 @@ import { DEFAULT_PALETTE, drawElement, drawFlash, drawGrid, drawHighlight, drawM
 import { decideResize } from "./resizePolicy";
 import type { SnapResult, SnapScene } from "./snap";
 import { computeIntersections, emptyScene, snap } from "./snap";
+import { assetSymbolAnchor } from "./symbols";
+import type { Box } from "./tags";
 import type { TypedState } from "./typed";
 import { emptyTyped, formatArea, isTypedKey, typedIsEmpty, typedKey, typedValues } from "./typed";
 import type { View } from "./view";
@@ -65,6 +86,31 @@ import { fitRect, panBy, snapStep, toScreen, toWorld, zoomAt } from "./view";
 export const SNAP_PX = 10;
 const DRAG_PX = 4;
 const GRIP_PX = 9;
+/** Radius of a link's flip handle, CSS pixels. */
+export const HANDLE_PX = 5;
+
+/** Layer names as the layer panel and the engine's messages give them (`layer_name`). */
+const LAYER_LABEL: Record<LayerKey, string> = {
+  walls: "Walls",
+  openings: "Openings",
+  rooms: "Rooms",
+  columns: "Columns",
+  stairs: "Stairs",
+  assets: "Assets",
+  annotations: "Annotations",
+  dimensions: "Dimensions",
+  underlays: "Underlays",
+  cold_water: "Cold water",
+  hot_water: "Hot water",
+  drainage: "Drainage",
+  vent: "Vent",
+  storm: "Storm drainage",
+  electrical: "Electrical",
+  aircon: "Aircon",
+};
+function layerLabel(key: LayerKey): string {
+  return LAYER_LABEL[key] ?? key;
+}
 /** Two presses closer than this in time and place are a double click. */
 const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_PX = 5;
@@ -112,7 +158,28 @@ export const K = {
   /** The ring where the pipe tool placed a point, and the height tag after a height change. */
   pipePulse: "pipe.pulse",
   pipeHeight: "pipe.h",
+  /** A refused placement: the reason pill bumps once. */
+  placeRefused: "place.no",
+  /** `lnk:<key>` a new link drawing in, `lnx:<key>` a removed one fading, `bow:<key>` a flip sweeping. */
+  linkGrow: "lnk:",
+  linkGone: "lnx:",
+  bow: "bow:",
+  /** `bowh:<key>`: the flip handle under the pointer grows. */
+  bowHover: "bowh:",
+  /** `tagi:<id>` a fall or height tag fading in, `tago:<id>` one the layout dropped fading out. */
+  tagIn: "tagi:",
+  tagOut: "tago:",
 } as const;
+
+/** A fall or height tag as drawn: its box in CSS pixels and how it looks. */
+export interface TagDraw {
+  id: string;
+  box: Box;
+  text: string;
+  color: string;
+  filled: boolean;
+  alpha: number;
+}
 
 /** Grips beyond this many share the last stagger step (docs/MOTION.md: at most 8). */
 const GRIP_STAGGER = 8;
@@ -137,7 +204,9 @@ export type Op =
   | { kind: "pipe"; points: Vec3[]; penZ: number; typed: TypedState | null; committing: boolean }
   | { kind: "rect"; origin: P; downScreen: P; typed: TypedState | null; committing: boolean }
   | { kind: "dimension"; a: P; b: P | null; committing: boolean }
-  | { kind: "camera"; position: P; committing: boolean };
+  | { kind: "camera"; position: P; committing: boolean }
+  /** Link tool with a device picked: each click on a load toggles its link. */
+  | { kind: "link"; sourceId: string; committing: boolean };
 
 export interface InlineEditor {
   mode: "room" | "annotation" | "new_text";
@@ -164,6 +233,37 @@ export interface OpeningGhost {
 export interface PlacementGhost {
   element: Element;
   faceSnap: FaceSnap | null;
+  /** How a mounted object sits (`CatalogItem::mount`). Null for columns and stairs. */
+  mount: MountGhost | null;
+}
+
+export interface MountGhost {
+  kind: Mount;
+  /** False when a click would place nothing. `reason` says why. */
+  valid: boolean;
+  reason: string | null;
+  /** The mounting height shown near the cursor: "Center +1200". */
+  heightLabel: string | null;
+  /** The wall face the back sits on. */
+  face: Seg | null;
+  /** The latch-side switch guide of the nearest door, and whether the switch snapped to it. */
+  guide: (LatchGuide & { snapped: boolean }) | null;
+  /** The window a window aircon goes into. */
+  window: Seg | null;
+}
+
+/** A link as drawn this frame: both anchors, the bow (animated) and whether it takes a flip handle. */
+export interface DrawnLink {
+  key: string;
+  controllerId: string;
+  loadId: string;
+  from: P;
+  to: P;
+  bow: number;
+  /** Full strength (the selection's links), else a faint overview line. */
+  strong: boolean;
+  /** Where the flip handle sits: the middle of the curve. Null when it has none. */
+  handle: P | null;
 }
 
 const DOOR_STYLES: OpeningStyle[] = ["swing_single", "swing_double", "sliding"];
@@ -213,6 +313,24 @@ export class PlanController {
   placementGhost: PlacementGhost | null = null;
   editor: InlineEditor | null = null;
   images = new Map<string, HTMLImageElement>();
+  /** Links whose bow the user flipped. View only: never saved, gone on reload. */
+  private bowFlipped = new Set<string>();
+  /** The side each link first bowed to, so a new load never flips the others. */
+  private bowDefaults = new Map<string, 1 | -1>();
+  /** Links a change removed, still drawn from where they were while they fade. */
+  fadingLinks: { key: string; controllerId: string; loadId: string; from: P; to: P; bow: number }[] = [];
+  /** The link flip handle under the pointer. */
+  hoverHandle: string | null = null;
+  /** Link tool: a refused click (a locked layer) shows its reason here. */
+  linkNotice: string | null = null;
+  /** Dev checks: the last tag layout, how many tags asked for a spot, where they went and what they kept clear of. */
+  tagLayout: { asked: number; placed: { id: string; box: Box }[]; obstacles: Box[] } | null = null;
+  /** Fall and height tags drawn last frame, and the ones the layout dropped, fading out. */
+  private tagMemo = new Map<string, TagDraw>();
+  private fadingTags = new Map<string, TagDraw>();
+  private catalogCache: { catalog: CatalogItem[]; map: Map<string, CatalogItem> } | null = null;
+  private deviceCache: { elements: Element[]; catalog: Map<string, CatalogItem>; all: Map<string, Linkable>; threeWay: Set<string> } | null = null;
+  private faceCache: { index: DocIndex; faces: WallFace[] } | null = null;
 
   /** Every animated value on this canvas. Sampled while drawing, never in logic. */
   readonly anim = new Anim();
@@ -307,6 +425,7 @@ export class PlanController {
         prev = s;
         if (s.doc !== p.doc || s.preview !== p.preview || s.activeLevelId !== p.activeLevelId) this.syncDoc();
         if (s.tool !== p.tool) this.onToolChange(p.tool, s.tool);
+        else if (s.tool === "link" && s.selection !== p.selection) this.followLinkSelection(s.selection);
         if (s.selection !== p.selection || s.hoverId !== p.hoverId || s.tool !== p.tool) this.syncHighlight(p, s);
         if (s.toolOptions.pipeElevationMm !== p.toolOptions.pipeElevationMm) this.onPipeHeightOption(s.toolOptions.pipeElevationMm);
         if (
@@ -392,8 +511,9 @@ export class PlanController {
     if (tool === "select") {
       if (this.op.kind === "move" || this.op.kind === "grip" || this.op.kind === "slide") return "grabbing";
       if (this.hoverGrip !== null) return "grab";
-      return useApp.getState().hoverId ? "pointer" : "default";
+      return useApp.getState().hoverId || this.hoverHandle ? "pointer" : "default";
     }
+    if (tool === "link") return useApp.getState().hoverId || this.hoverHandle ? "pointer" : "crosshair";
     if (tool === "text") return "text";
     return "crosshair";
   }
@@ -413,7 +533,9 @@ export class PlanController {
       case "window":
         return this.openingGhost ? "Click to place. F flips the side, H flips the hinge" : `Hover a wall to place a ${tool}`;
       case "asset":
-        return "Click to place. R rotates. Snaps to wall faces";
+        return this.assetHint();
+      case "link":
+        return this.linkHint();
       case "column":
         return "Click to place a column. R rotates";
       case "stair":
@@ -427,15 +549,54 @@ export class PlanController {
         return op.kind === "camera" ? "Click what the camera looks at" : "Click where the camera stands";
       case "pipe": {
         if (op.kind === "pipe") return "Click the next point. PageUp, PageDown or h adds a riser. Enter finishes, Escape steps back";
-        const name = PIPE_SYSTEM_LABEL[this.pipeSpec().system];
+        const system = this.pipeSpec().system;
+        const name = PIPE_SYSTEM_LABEL[system];
+        const layerName = layerLabel(PIPE_LAYER[system]);
         const layer = this.pipeLayer();
-        if (layer.locked) return `The ${name} layer is locked. Unlock it to draw`;
-        if (layer.hidden) return `The ${name} layer is hidden. New pipes show when it is on`;
+        if (layer.locked) return `The ${layerName} layer is locked. Unlock it to draw ${name.toLowerCase()} runs`;
+        if (layer.hidden) return `The ${layerName} layer is hidden. New runs show when it is on`;
         return `Click to start a ${name.toLowerCase()} run. PageUp or PageDown sets the height, or type h and a height`;
       }
       default:
         return null;
     }
+  }
+
+  private assetHint(): string {
+    const item = this.catalogItem();
+    switch (item?.mount ?? "floor") {
+      case "wall":
+        return item && this.isSwitchItem(item)
+          ? "Click to place on a wall face. Snaps 200 mm from the latch side of the nearest door"
+          : "Click to place on a wall face";
+      case "ceiling":
+        return "Click to place on the ceiling. Snaps to the middle of the room";
+      case "opening":
+        return "Hover a window to set the unit into it, then click";
+      default:
+        return "Click to place. R rotates. Snaps to wall faces";
+    }
+  }
+
+  private linkHint(): string {
+    const source = this.linkSource();
+    const role = source ? this.devices().all.get(source)?.role : null;
+    switch (role) {
+      case "switch":
+        return "Click lights to link or unlink them. Esc ends";
+      case "outlet":
+        return "Click the aircon unit it feeds to link or unlink it. Esc ends";
+      case "light":
+        return "Click the switches that control this light. Esc ends";
+      case "unit":
+        return "Click the outlet that feeds this unit. Esc ends";
+      default:
+        return "Click a switch or an aircon outlet, then the lights or unit it controls";
+    }
+  }
+
+  private isSwitchItem(item: CatalogItem): boolean {
+    return (item.device ?? (item.key.startsWith("switch-") ? "switch" : null)) === "switch";
   }
 
   // ------------------------------------------------------------ document sync
@@ -454,10 +615,16 @@ export class PlanController {
       this.resetOp();
       this.anim.clearAll();
       this.fading.length = 0;
+      this.fadingLinks = [];
+      this.bowFlipped.clear();
+      this.bowDefaults.clear();
       this.areaText.clear();
       this.areaPrev.clear();
       this.returning = null;
     }
+    // The device being linked is gone (deleted, undone, another level): linking ends.
+    const op = this.op;
+    if (op.kind === "link" && !op.committing && !this.index?.visibleIds.has(op.sourceId)) this.op = { kind: "idle" };
     // Change motion comes from a diff of the committed document, so placing,
     // deleting, undo, redo and an accepted AI proposal all animate the same way.
     this.diffCommitted(this.realIndex ?? this.index);
@@ -499,6 +666,7 @@ export class PlanController {
         this.anim.to(key, 0, leave, { from: 1, easing: ease.in, drop: true });
       }
     }
+    this.diffLinks(prev.index, index);
     this.recordAreas(index, enter > 0);
   }
 
@@ -688,6 +856,7 @@ export class PlanController {
     const looping = this.breathing();
     if (this.returning && !this.anim.has(K.back)) this.returning = null;
     if (this.fading.length > 0) this.dropFinishedFades();
+    if (this.fadingLinks.length > 0) this.fadingLinks = this.fadingLinks.filter((f) => this.anim.has(`${K.linkGone}${f.key}`));
     if (this.dirty || running > 0 || looping) {
       this.dirty = false;
       this.frames++;
@@ -717,6 +886,7 @@ export class PlanController {
       unit: this.index.doc.project.settings.display_unit,
       images: this.images,
       uiScale: 1,
+      threeWay: this.devices().threeWay,
     };
   }
 
@@ -785,7 +955,7 @@ export class PlanController {
     }
 
     const selected = new Set(s.selection);
-    if (this.op.kind === "idle") {
+    if (this.op.kind === "idle" || this.op.kind === "link") {
       anim.each(K.hover, (id, v) => {
         if (v <= 0.002 || selected.has(id) || id === s.hoverId) return;
         const el = this.index?.byId.get(id);
@@ -834,6 +1004,7 @@ export class PlanController {
         images: this.images,
         uiScale: 1.7,
         forExport: true,
+        threeWay: threeWaySwitches([...linkables(doc.project.elements, this.catalogMap()).values()]),
       };
       drawModel(rc, { styleOf: () => null, hidden: new Set(), activeCameraId: null, showCameras: false });
     }
@@ -959,6 +1130,286 @@ export class PlanController {
       default:
         return null;
     }
+  }
+
+  // ------------------------------------------------------------ devices and links
+
+  /** The catalog by key, for device kinds. */
+  catalogMap(): Map<string, CatalogItem> {
+    const catalog = useApp.getState().catalog;
+    if (this.catalogCache?.catalog !== catalog) this.catalogCache = { catalog, map: new Map(catalog.map((c) => [c.key, c] as const)) };
+    return this.catalogCache.map;
+  }
+
+  /**
+   * Every object that links, in the whole project (a stair light is switched
+   * from both floors), and the switches that make a 3-way.
+   */
+  devices(): { all: Map<string, Linkable>; threeWay: Set<string> } {
+    const elements = this.index?.doc.project.elements ?? [];
+    const catalog = this.catalogMap();
+    const c = this.deviceCache;
+    if (c && c.elements === elements && c.catalog === catalog) return c;
+    const all = linkables(elements, catalog);
+    const next = { elements, catalog, all, threeWay: threeWaySwitches([...all.values()]) };
+    this.deviceCache = next;
+    return next;
+  }
+
+  /** The linkable object under a plan point, on the active level. Locked ones too: a load is never changed. */
+  deviceAt(world: P): string | null {
+    const index = this.index;
+    if (!index) return null;
+    const { all } = this.devices();
+    const opt = { ...this.hitOptions(), includeLocked: true };
+    for (let i = index.visible.length - 1; i >= 0; i--) {
+      const el = index.visible[i];
+      if (el.kind === "asset" && all.has(el.id) && hitsElement(world, el, index, opt)) return el.id;
+    }
+    return null;
+  }
+
+  /** Where links attach to an object's symbol, and the radius the symbol keeps clear. */
+  anchorOf(el: AssetEl): P & { r: number } {
+    return assetSymbolAnchor(el, { symbolMm: this.index ? symbolMmOf(this.index) : undefined });
+  }
+
+  /** The drawn ends of a link: trimmed to the symbols it joins. */
+  linkEnds(controller: AssetEl, load: AssetEl): { from: P; to: P } | null {
+    return trimLink(this.anchorOf(controller), this.anchorOf(load));
+  }
+
+  /** The device the link tool links from, when one is picked. */
+  linkSource(): string | null {
+    return this.op.kind === "link" ? this.op.sourceId : null;
+  }
+
+  /**
+   * The links drawn this frame: the ones of the selection (or of the device
+   * the link tool picked) at full strength with a flip handle, and while the
+   * link tool is on, every other link faintly. Both ends must be visible, so
+   * links follow the electrical and aircon layers.
+   */
+  linkDrawList(): DrawnLink[] {
+    const index = this.index;
+    if (!index) return [];
+    const s = useApp.getState();
+    const { all } = this.devices();
+    const source = this.linkSource();
+    const focus = s.tool === "link" ? (source ? [source] : []) : s.selection;
+    const strong = linksOf(focus, all);
+    const pairs: { pair: LinkPair; strong: boolean; handle: boolean }[] = strong.map((pair) => ({ pair, strong: true, handle: true }));
+    const seen = new Set(strong.map((p) => p.key));
+    // Links an AI proposal adds or changes show without a selection, in the preview color.
+    if (s.preview) {
+      for (const pair of linksOf([...s.preview.diff.added, ...s.preview.diff.modified], all)) {
+        if (seen.has(pair.key)) continue;
+        seen.add(pair.key);
+        pairs.push({ pair, strong: true, handle: false });
+      }
+    }
+    if (s.tool === "link") {
+      for (const pair of allLinks(all)) if (!seen.has(pair.key)) pairs.push({ pair, strong: false, handle: false });
+    }
+    const out: DrawnLink[] = [];
+    for (const { pair, strong: isStrong, handle } of pairs) {
+      if (!index.visibleIds.has(pair.controllerId) || !index.visibleIds.has(pair.loadId)) continue;
+      const c = all.get(pair.controllerId);
+      const l = all.get(pair.loadId);
+      if (!c || !l) continue;
+      const ends = this.linkEnds(c.el, l.el);
+      if (!ends) continue;
+      const { from, to } = ends;
+      const bow = this.anim.value(`${K.bow}${pair.key}`, this.bowTarget(pair, from, to, all));
+      out.push({ ...pair, from, to, bow, strong: isStrong, handle: handle ? linkArc(from, to, bow).apex : null });
+    }
+    return out;
+  }
+
+  /** The side a link bows to: its first default, or the other side once flipped. */
+  private bowTarget(pair: LinkPair, from: P, to: P, all: Map<string, Linkable>): 1 | -1 {
+    let d = this.bowDefaults.get(pair.key);
+    if (d === undefined) {
+      const c = all.get(pair.controllerId)?.el;
+      const others: P[] = [];
+      for (const id of c?.links ?? []) {
+        const o = id !== pair.loadId ? all.get(id)?.el : undefined;
+        if (o) others.push(this.anchorOf(o));
+      }
+      d = defaultBow(from, to, others);
+      this.bowDefaults.set(pair.key, d);
+    }
+    return this.bowFlipped.has(pair.key) ? (d === 1 ? -1 : 1) : d;
+  }
+
+  /** The bow a link between these two is drawn with: the one it keeps once it exists. */
+  linkBow(controllerId: string, loadId: string, from: P, to: P): number {
+    const pair = { key: linkKey(controllerId, loadId), controllerId, loadId };
+    return this.anim.value(`${K.bow}${pair.key}`, this.bowTarget(pair, from, to, this.devices().all));
+  }
+
+  /** Flips one link to its other side: it sweeps through the straight line. View only. */
+  flipBow(key: string): void {
+    const d = this.bowDefaults.get(key) ?? 1;
+    const before = this.bowFlipped.has(key) ? -d : d;
+    if (this.bowFlipped.has(key)) this.bowFlipped.delete(key);
+    else this.bowFlipped.add(key);
+    this.animate(`${K.bow}${key}`, -before, dur("base"), { from: before, easing: ease.inOut, drop: true });
+  }
+
+  /** The flip handle under a screen point. */
+  private handleAt(screen: P): string | null {
+    let best: string | null = null;
+    let bestD = HANDLE_PX + 3;
+    for (const l of this.linkDrawList()) {
+      if (!l.handle) continue;
+      const d = dist(toScreen(this.view, l.handle), screen);
+      if (d <= bestD) {
+        bestD = d;
+        best = l.key;
+      }
+    }
+    return best;
+  }
+
+  /** The handle under the pointer grows on hover and shrinks back when left. */
+  private setHoverHandle(key: string | null): void {
+    if (key === this.hoverHandle) return;
+    if (this.hoverHandle) this.animate(`${K.bowHover}${this.hoverHandle}`, 0, exitDur("hover"), { drop: true });
+    if (key) this.animate(`${K.bowHover}${key}`, 1, dur("hover"), { from: 0 });
+    this.hoverHandle = key;
+  }
+
+  /** New links draw in and removed ones fade, whatever changed them (link tool, undo, the copilot). */
+  private diffLinks(before: DocIndex, after: DocIndex): void {
+    const enter = dur("base");
+    const leave = exitDur("base");
+    const same = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
+    for (const el of after.doc.project.elements) {
+      if (el.kind !== "asset") continue;
+      const old = before.byId.get(el.id);
+      const was = old && old.kind === "asset" ? old.links : [];
+      if (same(was, el.links)) continue;
+      if (enter > 0) {
+        for (const id of el.links) if (!was.includes(id)) this.anim.to(`${K.linkGrow}${linkKey(el.id, id)}`, 1, enter, { from: 0, easing: ease.out, drop: true });
+      }
+      for (const id of was) if (!el.links.includes(id)) this.fadeLink(before, el.id, id, leave);
+    }
+    for (const old of before.doc.project.elements) {
+      if (old.kind === "asset" && old.links.length > 0 && !after.byId.has(old.id)) for (const id of old.links) this.fadeLink(before, old.id, id, leave);
+    }
+  }
+
+  private fadeLink(index: DocIndex, controllerId: string, loadId: string, ms: number): void {
+    if (ms <= 0) return;
+    const c = index.byId.get(controllerId);
+    const l = index.byId.get(loadId);
+    if (!c || c.kind !== "asset" || !l || l.kind !== "asset") return;
+    const key = linkKey(controllerId, loadId);
+    const ends = this.linkEnds(c, l);
+    if (!ends) return;
+    const d = this.bowDefaults.get(key) ?? 1;
+    this.fadingLinks.push({ key, controllerId, loadId, ...ends, bow: this.bowFlipped.has(key) ? -d : d });
+    this.anim.to(`${K.linkGone}${key}`, 0, ms, { from: 1, easing: ease.in, drop: true });
+  }
+
+  /**
+   * Tags the layout placed this frame fade in the first time; the ones it
+   * dropped fade out where they were. Returns those still fading out.
+   */
+  syncTags(placed: readonly TagDraw[]): TagDraw[] {
+    const now = new Set(placed.map((t) => t.id));
+    for (const t of placed) {
+      if (!this.tagMemo.has(t.id)) {
+        const from = this.anim.value(`${K.tagOut}${t.id}`, 0);
+        this.anim.clear(`${K.tagOut}${t.id}`);
+        this.fadingTags.delete(t.id);
+        if (dur("hover") > 0) this.animate(`${K.tagIn}${t.id}`, 1, dur("hover"), { from, drop: true });
+      }
+      this.tagMemo.set(t.id, t);
+    }
+    for (const [id, t] of this.tagMemo) {
+      if (now.has(id)) continue;
+      this.tagMemo.delete(id);
+      const from = this.anim.value(`${K.tagIn}${id}`, 1);
+      this.anim.clear(`${K.tagIn}${id}`);
+      if (exitDur("hover") > 0) {
+        this.fadingTags.set(id, t);
+        this.animate(`${K.tagOut}${id}`, 0, exitDur("hover"), { from, easing: ease.in, drop: true });
+      }
+    }
+    for (const id of this.fadingTags.keys()) if (!this.anim.has(`${K.tagOut}${id}`)) this.fadingTags.delete(id);
+    return [...this.fadingTags.values()];
+  }
+
+  /** One click of the link tool. */
+  private linkClick(): void {
+    const world = this.cursorWorld;
+    const index = this.index;
+    if (!world || !index) return;
+    const op = this.op;
+    if (op.kind === "link" && op.committing) return;
+    const s = useApp.getState();
+    const { all } = this.devices();
+    const sourceId = this.linkSource();
+    const r = resolveLinkClick(sourceId, this.deviceAt(world), (id) => all.get(id) ?? null);
+    this.linkNotice = null;
+    switch (r.kind) {
+      case "none":
+        return;
+      case "clear":
+        this.op = { kind: "idle" };
+        s.select([]);
+        return;
+      case "pick":
+        this.op = { kind: "link", sourceId: r.id, committing: false };
+        s.select([r.id]);
+        return;
+      case "toggle": {
+        const controller = all.get(r.controllerId)?.el;
+        if (!controller || !sourceId) return;
+        if (isLocked(controller, index)) {
+          this.refuseLink(`The ${layerLabel(layerOf(controller))} layer is locked. Unlock it to link`);
+          return;
+        }
+        const next: Op = { kind: "link", sourceId, committing: false };
+        if (op.kind === "link") op.committing = true;
+        void this.run(r.command, undefined, next);
+        return;
+      }
+    }
+  }
+
+  /** A link click that cannot apply: say why near the cursor, with a bump. */
+  private refuseLink(reason: string): void {
+    this.linkNotice = reason;
+    this.anim.clear(K.placeRefused);
+    this.animate(K.placeRefused, 0, dur("base"), { from: 1, easing: ease.out, drop: true });
+  }
+
+  /**
+   * Link tool: the selection picks the device being linked, so the
+   * inspector's "link from here" works while the tool is already on.
+   */
+  private followLinkSelection(selection: readonly string[]): void {
+    const op = this.op;
+    if (op.kind === "link" && op.committing) return;
+    if (selection.length === 0) {
+      if (op.kind === "link") this.op = { kind: "idle" };
+      return;
+    }
+    const id = selection.length === 1 ? selection[0] : null;
+    if (!id || this.linkSource() === id) return;
+    if (this.devices().all.has(id) && this.index?.visibleIds.has(id)) this.op = { kind: "link", sourceId: id, committing: false };
+    this.invalidate();
+  }
+
+  /** Link tool: picks the selected device right away, so L with a switch selected starts linking it. */
+  private startLinkTool(): void {
+    const s = useApp.getState();
+    if (s.selection.length !== 1) return;
+    const id = s.selection[0];
+    if (this.devices().all.has(id) && this.index?.visibleIds.has(id)) this.op = { kind: "link", sourceId: id, committing: false };
   }
 
   // ------------------------------------------------------------ dev hooks
@@ -1117,6 +1568,12 @@ export class PlanController {
       case "pipe":
         this.pipeClick(presses);
         break;
+      case "link": {
+        const handle = this.handleAt(screen);
+        if (handle) this.flipBow(handle);
+        else this.linkClick();
+        break;
+      }
       default:
         break;
     }
@@ -1156,6 +1613,8 @@ export class PlanController {
     const s = useApp.getState();
     const op = this.op;
     this.snapResult = null;
+    const handles = (s.tool === "select" && op.kind === "idle") || (s.tool === "link" && !this.isBusy());
+    this.setHoverHandle(handles && this.pointerInside ? this.handleAt(screen) : null);
 
     switch (op.kind) {
       case "pan":
@@ -1183,9 +1642,9 @@ export class PlanController {
     }
     if (this.op.kind === "idle" && s.tool === "select") {
       const grips = this.gripList();
-      const grip = grips.length > 0 ? hitGrip(grips, world, GRIP_PX / this.view.scale) : null;
+      const grip = grips.length > 0 && !this.hoverHandle ? hitGrip(grips, world, GRIP_PX / this.view.scale) : null;
       this.setHoverGrip(grip ? grips.indexOf(grip) : null);
-      const id = hitTest(world, this.index, this.hitOptions());
+      const id = this.hoverHandle ? null : hitTest(world, this.index, this.hitOptions());
       if (id !== s.hoverId) s.setHover(id);
     } else {
       this.setHoverGrip(null);
@@ -1240,6 +1699,12 @@ export class PlanController {
       case "asset":
         this.placementGhost = this.computePlacementGhost(world, tool);
         break;
+      case "link": {
+        const id = this.hoverHandle ? null : this.deviceAt(world);
+        const s = useApp.getState();
+        if (id !== s.hoverId) s.setHover(id);
+        break;
+      }
       case "pipe": {
         const spec = this.pipeSpec();
         if (op.kind === "pipe") {
@@ -1344,6 +1809,7 @@ export class PlanController {
     this.pointerInside = false;
     if (this.isDragOp()) return;
     this.setHoverGrip(null);
+    this.setHoverHandle(null);
     this.openingGhost = null;
     this.placementGhost = null;
     const s = useApp.getState();
@@ -1410,6 +1876,12 @@ export class PlanController {
 
   private selectDown(screen: P, world: P, e: PointerEvent): void {
     if (!this.index) return;
+    // A link's flip handle, drawn over everything while its device is selected.
+    const handle = this.handleAt(screen);
+    if (handle) {
+      this.flipBow(handle);
+      return;
+    }
     const grip = hitGrip(this.gripList(), world, GRIP_PX / this.view.scale);
     if (grip) {
       const el = this.index.byId.get(grip.elementId);
@@ -1772,20 +2244,22 @@ export class PlanController {
 
   /** The layer of the system being drawn. Locked stops the tool, hidden only warns. */
   pipeLayer(): { locked: boolean; hidden: boolean } {
-    const key = this.pipeSpec().system;
+    const key = PIPE_LAYER[this.pipeSpec().system];
     const l = this.index?.doc.project.layers.find((x) => x.key === key);
     return { locked: !!l?.locked, hidden: !!l && !l.visible };
   }
 
-  private pipeSnapScene(exclude: readonly string[] = []): PipeSnapScene {
+  /** Runs and the objects a run of `system` starts at: fixtures, devices, aircon units. */
+  private pipeSnapScene(system: PipeSystem, exclude: readonly string[] = []): PipeSnapScene {
     const pipes: PipeEl[] = [];
     const fixtures: FixturePoint[] = [];
     if (this.index) {
       const skip = new Set(exclude);
+      const catalog = this.catalogMap();
       for (const el of this.index.visible) {
         if (skip.has(el.id)) continue;
         if (el.kind === "pipe") pipes.push(el);
-        else if (el.kind === "asset" && isPlumbingFixture(el)) fixtures.push(...fixturePoints(el));
+        else if (el.kind === "asset" && isServiceFixture(el, system, deviceKindOf(el, catalog))) fixtures.push(...fixturePoints(el));
       }
     }
     return { pipes, fixtures };
@@ -1796,7 +2270,7 @@ export class PlanController {
     const s = useApp.getState();
     if (s.snapEnabled && this.index) {
       const ortho = (s.orthoEnabled || this.shift) && !!anchor;
-      const hit = snapToPipes(world, this.pipeSnapScene(o.exclude), { tol: SNAP_PX / this.view.scale, system: o.system, penZ: o.penZ, anchor, ortho });
+      const hit = snapToPipes(world, this.pipeSnapScene(o.system, o.exclude), { tol: SNAP_PX / this.view.scale, system: o.system, penZ: o.penZ, anchor, ortho });
       if (hit) {
         return {
           point: hit.point,
@@ -2138,7 +2612,7 @@ export class PlanController {
         rotation_deg: rot,
         material_id: null,
       };
-      return { element: el, faceSnap: null };
+      return { element: el, faceSnap: null, mount: null };
     }
     if (tool === "stair") {
       const r = this.snapAt(world, null);
@@ -2155,44 +2629,211 @@ export class PlanController {
         run_mm: risers * 250, // contract: going depth = run_mm / riser_count
         riser_count: risers,
       };
-      return { element: el, faceSnap: null };
+      return { element: el, faceSnap: null, mount: null };
     }
     const item = this.catalogItem();
     if (!item) return null;
+    return this.assetGhost(world, item, level);
+  }
+
+  /**
+   * The object the asset tool would place, by how it mounts
+   * (`CatalogItem::mount`): wall objects with their back on the nearest wall
+   * face at the catalog height (switches also at the latch side of the
+   * nearest door), ceiling objects hanging from the level height, a window
+   * aircon in a window, the rest on the floor against a face when near one.
+   */
+  private assetGhost(world: P, item: CatalogItem, level: string): PlacementGhost {
     const s = useApp.getState();
-    let position = world;
-    let rotation = rot;
-    let faceSnap: FaceSnap | null = null;
-    if (s.snapEnabled) {
-      faceSnap = snapToFace(world, this.scene().faces, item.width_mm, item.depth_mm, this.turns, 28 / this.view.scale, this.gridStep());
-      if (faceSnap) {
-        position = faceSnap.position;
-        rotation = faceSnap.rotationDeg;
-      } else {
-        const step = this.gridStep();
-        if (step > 0) position = { x: Math.round(world.x / step) * step, y: Math.round(world.y / step) * step };
-      }
-    }
-    const el: Asset & { kind: "asset" } = {
+    const index = this.index;
+    const el: AssetEl = {
       kind: "asset",
       id: "",
       level_id: level,
       catalog_key: item.key,
       name: item.name,
       category: item.category,
-      position,
-      rotation_deg: rotation,
+      position: world,
+      rotation_deg: normDeg(this.turns * 90),
       width_mm: item.width_mm,
       depth_mm: item.depth_mm,
       height_mm: item.height_mm,
       elevation_mm: item.elevation_mm,
+      light: item.light ?? null,
+      links: [],
+      circuit: "",
     };
-    return { element: el, faceSnap };
+    const kind: Mount = item.mount ?? "floor";
+    const m: MountGhost = { kind, valid: true, reason: null, heightLabel: null, face: null, guide: null, window: null };
+    const step = this.gridStep();
+    const grid = (p: P): P => (step > 0 ? { x: Math.round(p.x / step) * step, y: Math.round(p.y / step) * step } : p);
+    let faceSnap: FaceSnap | null = null;
+    switch (kind) {
+      case "wall": {
+        // Generous: a wall object never goes anywhere but a wall face.
+        const reach = Math.max(80 / this.view.scale, item.depth_mm / 2 + 900);
+        const w = snapToWallFace(world, this.mountFaces(), item.width_mm, item.depth_mm, reach, step);
+        if (!w) {
+          el.position = grid(world);
+          m.valid = false;
+          m.reason = "Move onto a wall face";
+        } else {
+          el.position = w.position;
+          el.rotation_deg = w.rotationDeg;
+          m.face = { a: w.face.a, b: w.face.b };
+          if (!w.valid) {
+            m.valid = false;
+            m.reason = w.reason === "short" ? "The wall is too short here" : "A door or window is in the way";
+          }
+        }
+        if (this.isSwitchItem(item)) this.latchSnap(world, el, m, w);
+        break;
+      }
+      case "ceiling": {
+        const levels = index?.doc.project.levels ?? [];
+        const lv = levels.find((l) => l.id === level);
+        el.elevation_mm = ceilingElevation(ceilingHeightMm(lv, levels), item);
+        const rooms = index ? index.doc.derived.rooms.filter((r) => index.visibleIds.has(r.room_id)) : [];
+        const center = s.snapEnabled ? roomCenterSnap(world, rooms, Math.max((SNAP_PX * 2) / this.view.scale, 150)) : null;
+        el.position = center ?? grid(world);
+        if (center) this.snapResult = { point: center, type: "midpoint", guides: [], angleLocked: false, label: "Room center" };
+        break;
+      }
+      case "opening": {
+        const host = nearestWindow(world, this.windowHosts(), Math.max(40 / this.view.scale, 300));
+        if (!host || !index) {
+          el.position = grid(world);
+          m.valid = false;
+          m.reason = "Move onto a window";
+          break;
+        }
+        // The back (the condenser) goes outside: away from the room, else away from the cursor.
+        const exterior = index.wallGeo.get(host.wall.id)?.exterior ?? false;
+        const roomSide = exterior ? roomSideOfWall(host.wall, index.doc.derived.rooms) : null;
+        const cursorSide: 1 | -1 = cross(unit(sub(host.wall.end, host.wall.start)), sub(world, host.wall.start)) >= 0 ? 1 : -1;
+        const outside: 1 | -1 = roomSide !== null ? (roomSide === 1 ? -1 : 1) : cursorSide === 1 ? -1 : 1;
+        const size = { width: item.width_mm, depth: item.depth_mm, height: item.height_mm, elevation: item.elevation_mm };
+        const w = mountInWindow(world, host, size, outside, (SNAP_PX * 2) / this.view.scale);
+        el.position = w.position;
+        el.rotation_deg = w.rotationDeg;
+        el.elevation_mm = w.elevation;
+        m.window = w.span;
+        if (!w.fits) {
+          m.valid = false;
+          m.reason = "The unit does not fit this window";
+        } else if (w.centered) {
+          this.snapResult = { point: w.position, type: "midpoint", guides: [], angleLocked: false, label: "Centered" };
+        }
+        break;
+      }
+      default: {
+        if (s.snapEnabled) {
+          faceSnap = snapToFace(world, this.scene().faces, item.width_mm, item.depth_mm, this.turns, 28 / this.view.scale, step);
+          if (faceSnap) {
+            el.position = faceSnap.position;
+            el.rotation_deg = faceSnap.rotationDeg;
+          } else el.position = grid(world);
+        }
+      }
+    }
+    m.heightLabel = mountHeightLabel(kind, el, index?.doc.project.settings.display_unit ?? "mm");
+    return { element: el, faceSnap, mount: m };
+  }
+
+  /**
+   * Switches: the latch-side guide of the nearest door, on the cursor's side
+   * of its wall. Near it, the switch snaps there: 200 mm from the latch jamb.
+   */
+  private latchSnap(world: P, el: AssetEl, m: MountGhost, onWall: WallMount | null): void {
+    const found = this.nearestDoor(world);
+    if (!found) return;
+    const faces = this.mountFaces();
+    const guides = usableGuides(latchGuides(found.door, found.wall), faces, el.width_mm);
+    if (guides.length === 0) return;
+    const dir = unit(sub(found.wall.end, found.wall.start));
+    const side: 1 | -1 = cross(dir, sub(world, found.wall.start)) >= 0 ? 1 : -1;
+    const onSide = guides.filter((g) => g.side === side);
+    const near = nearestGuide(world, onSide.length > 0 ? onSide : guides);
+    if (!near) return;
+    // Near means: the switch slid along the guide's face to within reach of
+    // it, or the cursor itself is that close to the guide point.
+    const reach = Math.max((SNAP_PX * 2) / this.view.scale, 150);
+    const sameFace = !!onWall && onWall.face.wallId === near.guide.wallId && onWall.face.side === near.guide.side;
+    const along = sameFace && onWall ? Math.abs(dot(sub(onWall.position, near.guide.point), near.guide.away)) : Infinity;
+    const snapped = useApp.getState().snapEnabled && (along <= reach || near.d <= reach);
+    if (snapped) {
+      const at = mountAtGuide(near.guide, el.depth_mm);
+      el.position = at.position;
+      el.rotation_deg = at.rotationDeg;
+      const face = faces.find((f) => f.wallId === near.guide.wallId && f.side === near.guide.side);
+      if (face) m.face = { a: face.a, b: face.b };
+      m.valid = true;
+      m.reason = null;
+      this.snapResult = { point: near.guide.point, type: "face", guides: [], angleLocked: false, label: "Latch side" };
+    }
+    m.guide = { ...near.guide, snapped };
+  }
+
+  /** The door nearest a plan point, within reach, with its host wall. */
+  private nearestDoor(world: P): { door: OpeningEl; wall: WallEl } | null {
+    const index = this.index;
+    if (!index) return null;
+    let best: { door: OpeningEl; wall: WallEl } | null = null;
+    let bestD = Math.max(2500, 80 / this.view.scale);
+    for (const el of index.visible) {
+      if (el.kind !== "opening" || el.opening_type !== "door") continue;
+      const wall = index.byId.get(el.wall_id);
+      if (!wall || wall.kind !== "wall" || !index.visibleIds.has(wall.id)) continue;
+      const c = add(wall.start, mul(unit(sub(wall.end, wall.start)), el.offset_mm));
+      const d = dist(world, c);
+      if (d < bestD) {
+        bestD = d;
+        best = { door: el, wall };
+      }
+    }
+    return best;
+  }
+
+  /** Faces of the visible walls, with their openings as gaps. */
+  private mountFaces(): WallFace[] {
+    const index = this.index;
+    if (!index) return [];
+    if (this.faceCache?.index === index) return this.faceCache.faces;
+    const openings = new Map<string, OpeningEl[]>();
+    for (const e of index.byId.values()) {
+      if (e.kind !== "opening") continue;
+      const list = openings.get(e.wall_id);
+      if (list) list.push(e);
+      else openings.set(e.wall_id, [e]);
+    }
+    const faces: WallFace[] = [];
+    for (const el of index.visible) if (el.kind === "wall") faces.push(...facesOfWall(el, wallOutline(el, index), openings.get(el.id) ?? []));
+    this.faceCache = { index, faces };
+    return faces;
+  }
+
+  /** Visible windows with their walls, for the window aircon. */
+  private windowHosts(): (WindowHost & { wall: WallEl })[] {
+    const index = this.index;
+    if (!index) return [];
+    const out: (WindowHost & { wall: WallEl })[] = [];
+    for (const el of index.visible) {
+      if (el.kind !== "opening" || el.opening_type !== "window") continue;
+      const wall = index.byId.get(el.wall_id);
+      if (wall && wall.kind === "wall") out.push({ opening: el, wall });
+    }
+    return out;
   }
 
   private placeElement(): void {
     const g = this.placementGhost;
     if (!g || this.placing) return;
+    if (g.mount && !g.mount.valid) {
+      // Nothing is placed: the reason near the cursor bumps once.
+      this.anim.clear(K.placeRefused);
+      this.animate(K.placeRefused, 0, dur("base"), { from: 1, easing: ease.out, drop: true });
+      return;
+    }
     this.placing = true;
     void this.run({ type: "add_element", element: g.element }).then(() => {
       this.placing = false;
@@ -2260,6 +2901,7 @@ export class PlanController {
       position: { x: op.position.x, y: op.position.y, z: 1600 },
       target: { x: p.x, y: p.y, z: 1600 },
       fov_deg: 60,
+      light: null,
     };
     op.committing = true;
     void this.run({ type: "add_element", element });
@@ -2310,6 +2952,7 @@ export class PlanController {
   private resetOp(): void {
     this.op = { kind: "idle" };
     this.heightEntry = null;
+    this.linkNotice = null;
     this.panReturn = { kind: "idle" };
     this.snapResult = null;
     this.openingGhost = null;
@@ -2326,7 +2969,9 @@ export class PlanController {
     this.flipHinge = false;
     this.turns = 0;
     const s = useApp.getState();
-    if (_to === "asset" && s.catalog.length === 0) void s.loadCatalog();
+    if ((_to === "asset" || _to === "link") && s.catalog.length === 0) void s.loadCatalog();
+    this.linkNotice = null;
+    if (_to === "link" && !this.isBusy()) this.startLinkTool();
     if (s.hoverId) s.setHover(null);
     this.syncGrips(s);
     this.refreshToolGhost();
@@ -2394,6 +3039,15 @@ export class PlanController {
       if (op.kind === "pipe") {
         this.pipeOpKey(e, op);
         swallow();
+        return;
+      }
+      if (op.kind === "link") {
+        // Escape or Enter ends linking. Tool letters and Delete still reach the app.
+        if (e.key === "Escape" || e.key === "Enter") {
+          this.resetOp();
+          s.select([]);
+          swallow();
+        }
         return;
       }
       if (e.key === "Escape") {
@@ -2501,3 +3155,4 @@ export class PlanController {
 }
 
 type Ctx2D = CanvasRenderingContext2D;
+

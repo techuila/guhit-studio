@@ -141,6 +141,9 @@ pub fn sample_bungalow() -> Project {
         depth_mm: 1900.0,
         height_mm: 500.0,
         elevation_mm: 0.0,
+        light: None,
+        links: vec![],
+        circuit: String::new(),
     }));
     elements.push(Element::Dimension(Dimension {
         id: "00000000-0000-4000-8000-000000000501".into(),
@@ -165,6 +168,7 @@ pub fn sample_bungalow() -> Project {
             z: 1200.0,
         },
         fov_deg: 50.0,
+        light: None,
     }));
     project.elements = elements;
     project
@@ -174,17 +178,22 @@ fn v(x: f64, y: f64, z: f64) -> Vec3 {
     Vec3 { x, y, z }
 }
 
-/// "Bungalow with plumbing" (template id `plumbing-demo`): the house of the
-/// approved plumbing walkthrough concept. An 8.0 x 6.0 m bungalow with a
-/// T&B, six 200 x 200 columns on the grid, a gable roof, fixtures from the
-/// catalog and 16 pipe runs of the four systems. Ids and timestamps are fixed
-/// so `fixtures/plumbing-demo.docstate.json` is stable.
+/// "Bungalow with services" (template id `plumbing-demo`): the house of the
+/// approved plumbing walkthrough concept, with its electrical and aircon
+/// services. An 8.0 x 6.0 m bungalow with a T&B, six 200 x 200 columns on the
+/// grid, a gable roof, fixtures from the catalog, the 16 plumbing runs of the
+/// concept, two storm downspouts, lights, switches, outlets, a panelboard, a
+/// smoke detector and a split aircon for the bedroom with its line set and
+/// condensate drain. Ids and timestamps are fixed so
+/// `fixtures/plumbing-demo.docstate.json` is stable.
 ///
-/// It is drawn to show the pipe checks: the heater feed crosses the T&B door,
-/// the cold water chase runs through a column, the kitchen sink waste falls
-/// too little, and seven pipes need a sleeve or flashing.
+/// It is drawn to show the checks: the heater feed crosses the T&B door, the
+/// cold water chase runs through a column, the kitchen sink waste falls too
+/// little, seven pipes need a sleeve or flashing and the aircon lines one
+/// core hole, the T&B light has no switch yet, and the line set runs past the
+/// 3 m a standard installation includes. Nothing else is flagged.
 pub fn plumbing_demo() -> Project {
-    let mut project = defaults::new_project("Bungalow with plumbing");
+    let mut project = defaults::new_project("Bungalow with services");
     project.id = "00000000-0000-4000-8000-000000000002".into();
     project.levels[0].id = "00000000-0000-4000-8000-0000000000a2".into();
     project.created_at = "2026-09-23T00:00:00Z".into();
@@ -372,11 +381,34 @@ pub fn plumbing_demo() -> Project {
     }
 
     // Fixtures and furniture from the catalog, at their catalog sizes. Local
-    // +y is the back, so the counter, lavatory, WC and shower face south from
-    // the north wall, the sofa backs onto the west wall and the bed head is on
-    // the south wall. The shower screen, the water heater, the meter and the
-    // septic tank have no catalog item and are left out.
+    // +y is the back, so the counters, range, lavatory, WC and shower face
+    // south from the north wall, the sofa backs onto the west wall and the bed
+    // head is on the south wall. The washer stands outside, against the north
+    // wall. The water heater, the meter and the septic tank are left out; the
+    // runs show where they go.
     let catalog = defaults::asset_catalog();
+    let object = |block: u32, n: u32, key: &str, position: Point, rotation: f64, links: &[Id]| {
+        let item = catalog
+            .iter()
+            .find(|c| c.key == key)
+            .expect("the demo only uses catalog items");
+        Element::Asset(Asset {
+            id: id(block, n),
+            level_id: level.clone(),
+            catalog_key: item.key.clone(),
+            name: item.name.clone(),
+            category: item.category,
+            position,
+            rotation_deg: rotation,
+            width_mm: item.width_mm,
+            depth_mm: item.depth_mm,
+            height_mm: item.height_mm,
+            elevation_mm: item.elevation_mm,
+            light: item.light,
+            links: links.to_vec(),
+            circuit: String::new(),
+        })
+    };
     let assets = [
         ("kitchen-sink", p(2000.0, 5625.0), 0.0),
         ("lavatory", p(6300.0, 5715.0), 0.0),
@@ -385,25 +417,57 @@ pub fn plumbing_demo() -> Project {
         ("sofa-3", p(550.0, 2600.0), 90.0),
         ("dining-4", p(3300.0, 3900.0), 0.0),
         ("bed-double", p(6695.0, 1035.0), 180.0),
+        ("range", p(1000.0, 5625.0), 0.0),
+        ("kitchen-counter", p(3500.0, 5625.0), 0.0),
+        ("washing-machine", p(3500.0, 6380.0), 180.0),
     ];
     for (i, (key, position, rotation)) in assets.iter().enumerate() {
-        let item = catalog
-            .iter()
-            .find(|c| c.key == *key)
-            .expect("the demo only uses catalog items");
-        elements.push(Element::Asset(Asset {
-            id: id(150, i as u32 + 1),
-            level_id: level.clone(),
-            catalog_key: item.key.clone(),
-            name: item.name.clone(),
-            category: item.category,
-            position: *position,
-            rotation_deg: *rotation,
-            width_mm: item.width_mm,
-            depth_mm: item.depth_mm,
-            height_mm: item.height_mm,
-            elevation_mm: item.elevation_mm,
-        }));
+        elements.push(object(150, i as u32 + 1, key, *position, *rotation, &[]));
+    }
+    let range = id(150, 8);
+    let washer = id(150, 10);
+
+    // Lighting, power and aircon (docs/CONTRACT.md, "Devices, fixtures and
+    // links"). Wall devices sit with their back on a wall face: the inner
+    // faces are at x = 75, x = 4950 and 5050 (the partition), x = 7925,
+    // y = 75 and y = 5925, the outer ones at y = -75 and y = 6075. Switches
+    // are 200 mm from the latch side of their door. The bedroom light has two
+    // switches, a 3-way: one by the door, one by the bed. The T&B light has
+    // no switch yet.
+    let dev = |n: u32| id(180, n);
+    let devices: [(u32, &str, Point, f64, Vec<Id>); 22] = [
+        // Lights: one per room, the dining pendant, the light by the front door.
+        (1, "light-ceiling", p(2500.0, 1800.0), 0.0, vec![]),
+        (2, "light-pendant", p(3300.0, 3900.0), 0.0, vec![]),
+        (3, "light-ceiling", p(6500.0, 2400.0), 0.0, vec![]),
+        (4, "light-ceiling", p(6800.0, 4700.0), 0.0, vec![]),
+        (5, "light-outdoor", p(800.0, -150.0), 0.0, vec![]),
+        // Switches. The front door latches at x = 1950, the bedroom door at
+        // y = 2800.
+        (6, "switch-2", p(2150.0, 95.0), 180.0, vec![dev(1), dev(5)]),
+        (7, "switch-1", p(4930.0, 3000.0), 270.0, vec![dev(2)]),
+        (8, "switch-1", p(5070.0, 3000.0), 90.0, vec![dev(3)]),
+        (9, "switch-1", p(5850.0, 95.0), 180.0, vec![dev(3)]),
+        // Outlets: two in the living area, one each side of the bed, two
+        // over the kitchen counter, the range and washer outlets.
+        (10, "outlet-duplex", p(95.0, 1300.0), 90.0, vec![]),
+        (11, "outlet-duplex", p(4600.0, 95.0), 180.0, vec![]),
+        (12, "outlet-duplex", p(5650.0, 95.0), 180.0, vec![]),
+        (13, "outlet-duplex", p(7650.0, 95.0), 180.0, vec![]),
+        (14, "outlet-counter", p(3000.0, 5905.0), 0.0, vec![]),
+        (15, "outlet-counter", p(4100.0, 5905.0), 0.0, vec![]),
+        (16, "outlet-spo", p(600.0, 5905.0), 0.0, vec![range.clone()]),
+        (17, "outlet-spo", p(4000.0, 6095.0), 180.0, vec![washer.clone()]),
+        (18, "panelboard", p(125.0, 700.0), 90.0, vec![]),
+        (19, "smoke-detector", p(3700.0, 2200.0), 0.0, vec![]),
+        // The bedroom split aircon: the indoor unit on the east wall, the
+        // outdoor unit outside it, 320 mm off the wall, and its outlet.
+        (20, "aircon-indoor-1hp", p(7810.0, 3400.0), 270.0, vec![]),
+        (21, "aircon-outdoor-1hp", p(8550.0, 1800.0), 90.0, vec![]),
+        (22, "outlet-aircon", p(7905.0, 3950.0), 270.0, vec![dev(20)]),
+    ];
+    for (n, key, position, rotation, links) in devices.iter() {
+        elements.push(object(180, *n, key, *position, *rotation, links));
     }
 
     // Every run lists its points in flow order: supply from the source,
@@ -597,6 +661,73 @@ pub fn plumbing_demo() -> Project {
         }));
     }
 
+    // Service runs. The downspouts come down the south and north faces from
+    // the gutters under the eaves and fall 1.5 percent to the yard. The line
+    // set leaves the back of the indoor unit, goes through the east wall 7 mm
+    // down to the outside, drops and runs to the outdoor unit; the condensate
+    // drain goes through the same core hole and falls to the ground outside.
+    use PipeMaterial::{Copper, Pvc};
+    use PipeSystem::{Condensate, Refrigerant, Storm};
+    let services: [(&str, PipeSystem, PipeMaterial, f64, Vec<Vec3>); 4] = [
+        (
+            "Downspout, front",
+            Storm,
+            Upvc,
+            100.0,
+            vec![
+                v(7700.0, -200.0, 2900.0),
+                v(7700.0, -200.0, -300.0),
+                v(7700.0, -1400.0, -318.0),
+            ],
+        ),
+        (
+            "Downspout, back",
+            Storm,
+            Upvc,
+            100.0,
+            vec![
+                v(300.0, 6200.0, 2900.0),
+                v(300.0, 6200.0, -300.0),
+                v(300.0, 7400.0, -318.0),
+            ],
+        ),
+        (
+            "Bedroom line set",
+            Refrigerant,
+            Copper,
+            9.52,
+            vec![
+                v(7880.0, 3100.0, 2400.0),
+                v(8250.0, 3100.0, 2393.0),
+                v(8250.0, 3100.0, 350.0),
+                v(8250.0, 2300.0, 350.0),
+                v(8450.0, 2300.0, 350.0),
+            ],
+        ),
+        (
+            "Bedroom aircon condensate",
+            Condensate,
+            Pvc,
+            20.0,
+            vec![
+                v(7880.0, 3200.0, 2310.0),
+                v(8250.0, 3200.0, 2280.0),
+                v(8250.0, 3200.0, 150.0),
+            ],
+        ),
+    ];
+    for (i, (name, system, material, diameter, points)) in services.into_iter().enumerate() {
+        elements.push(Element::Pipe(Pipe {
+            id: id(190, i as u32 + 1),
+            level_id: level.clone(),
+            system,
+            material,
+            diameter_mm: diameter,
+            points,
+            name: name.into(),
+        }));
+    }
+
     elements.push(Element::Camera(Camera {
         id: id(170, 1),
         name: "Plumbing overview".into(),
@@ -604,6 +735,7 @@ pub fn plumbing_demo() -> Project {
         position: v(12300.0, -6800.0, 7400.0),
         target: v(4600.0, 3300.0, 300.0),
         fov_deg: 42.0,
+        light: None,
     }));
     project.elements = elements;
     project

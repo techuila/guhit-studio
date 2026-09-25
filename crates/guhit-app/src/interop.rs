@@ -517,6 +517,8 @@ async fn export_model(app: &AppService, args: Value) -> IpcResult {
                 show_assets: true,
                 title_block: false,
                 show_pipes: true,
+                sheet: SheetKind::Plan,
+                review_page: false,
             };
             let dxf = guhit_export::plan_dxf(&project, &derived, &opts).map_err(export_err)?;
             let dir = data_dir.clone();

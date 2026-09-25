@@ -434,6 +434,7 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
                 show_room_labels: true,
                 show_assets: true,
                 unicode: false,
+                skip_devices: false,
             },
         );
         if let Ok(mut b) = built {

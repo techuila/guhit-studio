@@ -22,14 +22,15 @@ letters, Delete and `?`. MOD shortcuts keep working. Escape returns to orbit.
 | N | Window |
 | C | Column |
 | S | Stair |
-| O | Objects (opens the object library flyout) |
-| P | Pipe. System, size and start height are in the rail button's flyout |
+| O | Objects (opens the object library flyout: furniture, lighting, electrical, aircon, utility; search finds names, form rows and keys such as "spo" or "1.5 hp") |
+| P | Services: pipes, conduit and aircon lines. The rail button's flyout groups the eight systems by trade (Plumbing, Electrical, Aircon) with size and start height |
+| L | Link: click a switch (or an outlet), then the lights (or the unit) it controls. The inspector's "Link more" starts it from the selected device |
 | M | Dimension |
 | T | Text |
 | K | Camera |
 | H | Pan (a hand tool; holding Space still pans temporarily) |
 
-### While the pipe tool is active
+### While the services tool is active
 
 With the pointer over the plan (H is the Pan tool anywhere else). Handled by
 the plan canvas (`src/editor2d/controller.ts`).
@@ -40,6 +41,16 @@ the plan canvas (`src/editor2d/controller.ts`).
 | H, then a number, Enter | Type the height |
 | Enter | Finish the run, or apply a typed length |
 | Escape, or Backspace | Step back: the pending riser, then the last point, then the whole run |
+
+### While the link tool is active
+
+Handled by the plan canvas. Click a switch (or an outlet), then each light
+(or unit) it controls.
+
+| Key | Action |
+|---|---|
+| Escape, or Enter | End linking |
+| Tool letters | Still switch tools, as everywhere else |
 
 ## Toggles
 
@@ -60,6 +71,42 @@ the plan canvas (`src/editor2d/controller.ts`).
 | MOD+= | Zoom in |
 | MOD+- | Zoom out |
 | Z | Zoom to the selection (zoom to fit when nothing is selected) |
+
+## Sun and render
+
+The live light is `useViewer().light`: view state, never saved in the
+project and never an undo step (docs/CONTRACT.md, "Sun and light"). These
+keys work from the plan or the 3D view; the status bar shows the new time for
+a moment. Not while typing, not while walking or flying.
+
+| Key | Action |
+|---|---|
+| U, I | Sun 15 minutes earlier or later, on the quarter hour. Holding the key repeats, so it scrubs |
+| Shift+U, Shift+I | Previous or next preset: Morning 8:00 AM, Noon, Afternoon 3:00 PM, Dusk (sunset at the site plus 20 minutes, lamps on), Night 8:00 PM. Wraps around |
+| Shift+N | Lamps on, or back to auto (on after sunset) |
+| MOD+Alt+R | Render this view with the path tracer (works while walking, like every MOD key). Esc cancels the render |
+
+WebView2 keeps its browser keys on (reload, DevTools, zoom), so none of these
+use Ctrl+R, F5 or F12.
+
+The palette also has Render this view, Render all saved views, Shadow study,
+each sun preset, the sun 15 minutes earlier or later, the lamps, Show or hide
+the sun path, Refine the 3D view when it rests (on or off) and Set the site for
+the sun.
+
+## Review list
+
+With the review list focused (click an item, or Tab to it) in the project
+inspector:
+
+| Key | Action |
+|---|---|
+| Up, Down | Move between items, set-aside rows included. Home and End jump |
+| S | Set the item aside: the note field takes focus. Enter sets it aside, Escape cancels |
+| O | Reopen a set-aside row |
+| Enter | Show it: select its objects and zoom to them |
+
+MOD keys pass through (MOD+S still saves a version).
 
 ## Walk and X-ray (3D view)
 
@@ -85,8 +132,12 @@ Switching to the plan-only view (the 2D button, or the palette) ends a walk,
 so the plan gets its keys back.
 
 The palette also has Walk through the building, Fly through the building,
-X-ray the building, Hide the building, Show the building solid, and Show the
-pipe take-off.
+X-ray the building, Hide the building, Show the building solid, Show the
+pipe take-off, Show the device schedules, Show the review list, Add level
+above (stacks a level on the top floor and works on it) and Delete this level
+(asks inline in the inspector's Levels section, with the number of elements
+that go with it; never for the last level). Clicking the level name in the
+status bar opens the Levels section.
 
 ## Edit
 

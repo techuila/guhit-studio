@@ -460,7 +460,10 @@ export function Section({
       {/* Height reveal via grid-template-rows 0fr -> 1fr (MOTION.md rule 5), not a
           layout-property animation loop: it only runs once per toggle. */}
       <div className={cx(s.sectionReveal, open && s.sectionRevealOpen)} inert={!open}>
-        <div className={s.sectionBody}>{children}</div>
+        {/* The clip takes the 0fr row; the padded body inside it collapses fully. */}
+        <div className={s.sectionClip}>
+          <div className={s.sectionBody}>{children}</div>
+        </div>
       </div>
     </section>
   );

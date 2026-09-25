@@ -17,16 +17,21 @@
 //! in 3D and IfcPipeSegments grouped into IfcDistributionSystems in IFC.
 //! A project without pipes exports exactly as it did before pipes existed.
 
-use guhit_model::{Derived, PlanExportOptions, Project};
+use guhit_model::{Derived, PlanExportOptions, Project, SheetKind};
 
 pub mod dxf;
 pub mod dxf3d;
 pub mod geom;
 pub mod ifc;
+pub mod iso;
 pub mod model3d;
+pub(crate) mod panel;
 pub mod pdf;
 pub mod pipes;
 pub mod plan;
+pub mod review;
+pub(crate) mod service_sheet;
+pub mod services;
 pub mod sheet;
 pub mod text;
 
@@ -53,11 +58,24 @@ pub fn plan_svg(
     derived: &Derived,
     opts: &PlanExportOptions,
 ) -> Result<PlanOutput<String>, ExportError> {
-    let (data, scale_denominator) = sheet::render(project, derived, opts)?;
+    let (data, scale_denominator) = render_sheet(project, derived, opts)?;
     Ok(PlanOutput {
         data,
         scale_denominator,
     })
+}
+
+/// The SVG of the sheet `opts.sheet` asks for.
+fn render_sheet(
+    project: &Project,
+    derived: &Derived,
+    opts: &PlanExportOptions,
+) -> Result<(String, u32), ExportError> {
+    match opts.sheet {
+        SheetKind::Plan => sheet::render(project, derived, opts),
+        SheetKind::PlumbingIsometric => iso::render(project, derived, opts),
+        _ => service_sheet::render(project, derived, opts),
+    }
 }
 
 /// Same sheet as `plan_svg`, as a vector PDF at true paper size.
@@ -66,8 +84,14 @@ pub fn plan_pdf(
     derived: &Derived,
     opts: &PlanExportOptions,
 ) -> Result<PlanOutput<Vec<u8>>, ExportError> {
-    let (svg, scale_denominator) = sheet::render(project, derived, opts)?;
-    let data = pdf::svg_to_pdf(&svg)?;
+    let (svg, scale_denominator) = render_sheet(project, derived, opts)?;
+    let data = if opts.review_page {
+        let mut pages = vec![svg];
+        pages.extend(review::pages(project, derived, opts));
+        pdf::svgs_to_pdf(&pages)?
+    } else {
+        pdf::svg_to_pdf(&svg)?
+    };
     Ok(PlanOutput {
         data,
         scale_denominator,
@@ -86,6 +110,17 @@ pub fn plan_dxf(
     derived: &Derived,
     opts: &PlanExportOptions,
 ) -> Result<PlanOutput<String>, ExportError> {
+    match opts.sheet {
+        SheetKind::Plan => {}
+        SheetKind::PlumbingIsometric => {
+            let (data, scale_denominator) = iso::dxf(project, opts)?;
+            return Ok(PlanOutput { data, scale_denominator });
+        }
+        _ => {
+            let (data, scale_denominator) = service_sheet::dxf(project, derived, opts)?;
+            return Ok(PlanOutput { data, scale_denominator });
+        }
+    }
     let level = plan::resolve_level(project, opts.level_id.as_ref())?;
     let scale = opts
         .scale_denominator
@@ -102,6 +137,7 @@ pub fn plan_dxf(
             show_room_labels: opts.show_room_labels,
             show_assets: opts.show_assets,
             unicode: false,
+            skip_devices: false,
         },
     );
     let pipe_list = if opts.show_pipes {

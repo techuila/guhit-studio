@@ -1,12 +1,13 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DocState, Element } from "../contract/bindings";
 import { useApp, useVisibleDoc } from "../state/store";
 import { cx } from "../ui/controls";
 import { Icon, type IconName } from "../ui/icons";
 import { formatArea, formatAreaMm2, formatLength, lengthToInput } from "../ui/units";
 import { useViewer, type ShellMode } from "../viewer3d/viewerStore";
-import { TOOLS } from "./actions";
-import { PIPE_SYSTEM_LABEL, pipeLength, sizeLabel } from "./pipes";
+import { TOOLS, currentSunPresets, showProjectSection } from "./actions";
+import { pipeLength, runLabel, sizeLabel } from "./pipes";
+import { formatClock, presetAtTime } from "./sun";
 import s from "./chrome.module.css";
 
 const KIND_LABEL: Record<Element["kind"], [string, string]> = {
@@ -38,7 +39,7 @@ function selectionSummary(doc: DocState, selection: string[]): string {
     if (e.kind === "room") parts.push(e.name || "Room");
     else if (e.kind === "opening") parts.push(e.opening_type === "door" ? "Door" : "Window");
     else if (e.kind === "asset") parts.push(e.name);
-    else if (e.kind === "pipe") parts.push(`${PIPE_SYSTEM_LABEL[e.system]} pipe, ${sizeLabel(e.material, e.diameter_mm)}`);
+    else if (e.kind === "pipe") parts.push(`${runLabel(e.system)}, ${sizeLabel(e.material, e.diameter_mm)}`);
     else parts.push(KIND_LABEL[e.kind][0].replace(/^./, (c) => c.toUpperCase()));
   } else if (kinds.size === 1) {
     parts.push(`${picked.length} ${KIND_LABEL[picked[0].kind][1]}`);
@@ -111,6 +112,38 @@ function ShellStatus() {
   );
 }
 
+/** How long the sun readout stays after the light changes. */
+const SUN_STATUS_MS = 2400;
+
+/**
+ * The live sun time, for a moment after it changes (U, I, the presets,
+ * Shift+N), so the keys answer even while only the plan is on screen.
+ */
+function SunStatus() {
+  const light = useViewer((st) => st.light);
+  const [shown, setShown] = useState(false);
+  // Only a change shows it: not the first render, nor StrictMode's second run.
+  const seen = useRef(`${light.minutes}/${light.lamps}`);
+  useEffect(() => {
+    const now = `${light.minutes}/${light.lamps}`;
+    if (now === seen.current) return;
+    seen.current = now;
+    setShown(true);
+    const t = window.setTimeout(() => setShown(false), SUN_STATUS_MS);
+    return () => window.clearTimeout(t);
+  }, [light.minutes, light.lamps]);
+  const preset = presetAtTime(currentSunPresets(), light.minutes);
+  const dark = light.minutes < 6 * 60 || light.minutes >= 18 * 60;
+  return (
+    <span className={cx(s.statusToggle, s.statusToggleOn, s.sunStatus, !shown && s.sunStatusOff)} aria-live="polite" aria-hidden={!shown}>
+      <Icon name={dark ? "moon" : "sun"} size={13} />
+      {preset ? `${preset.label}, ` : "Sun "}
+      {formatClock(light.minutes)}
+      {light.lamps === "on" ? ", lamps on" : ""}
+    </span>
+  );
+}
+
 export function StatusBar() {
   const doc = useVisibleDoc();
   const cursor = useApp((st) => st.cursor);
@@ -162,8 +195,21 @@ export function StatusBar() {
       </div>
 
       <div className={s.statusRight}>
+        <SunStatus />
         <ShellStatus />
-        {level ? <span data-tip="Active level" data-tip-side="top">{level.name}</span> : null}
+        {level ? (
+          <button
+            key={level.id}
+            type="button"
+            className={s.levelStatus}
+            data-tip={levels.length > 1 ? `Working on ${level.name}. Click for the levels` : "Click to add a level"}
+            data-tip-side="top"
+            onClick={() => showProjectSection("level")}
+          >
+            <Icon name="level" size={12} />
+            {level.name}
+          </button>
+        ) : null}
         <span data-tip="Drawing scale" data-tip-side="top">1:{settings.scale_denominator}</span>
         <span data-tip={`${doc.derived.totals.room_count} rooms, gross ${formatArea(doc.derived.totals.gross_area_m2)}`} data-tip-side="top-end">
           Floor area <b>{formatArea(doc.derived.totals.floor_area_m2)}</b>

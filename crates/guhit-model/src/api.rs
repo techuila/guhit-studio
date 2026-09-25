@@ -132,6 +132,35 @@ pub struct PlanExportOptions {
     /// on its own layer. Older callers that omit it get true.
     #[serde(default = "default_true")]
     pub show_pipes: bool,
+    /// Which sheet to make. Older callers that omit it get the plan.
+    #[serde(default)]
+    pub sheet: SheetKind,
+    /// Add a page listing open and set-aside review items with their notes
+    /// (PDF only). Wording stays "suggestion", never approval.
+    #[serde(default)]
+    pub review_page: bool,
+}
+
+/// The plan sheets a PH permit and hand-off set asks for. Every sheet keeps
+/// the title block; the signing professional's fields stay blank.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum SheetKind {
+    /// The architectural plan. Pipes follow `show_pipes`.
+    #[default]
+    Plan,
+    /// Lighting layout: fixtures, switches and their links, a legend and counts.
+    Lighting,
+    /// Power layout: outlets, special purpose outlets, panelboard, conduit,
+    /// a legend, counts and a schedule of loads with blank ratings for the PEE.
+    Power,
+    /// Plumbing layout: water, drainage, vent and storm, legend, fixture table.
+    Plumbing,
+    /// Water and sanitary isometric diagrams, not to scale, with a legend.
+    PlumbingIsometric,
+    /// Aircon layout: units, line sets, condensate, core holes, a legend.
+    Aircon,
 }
 
 fn default_true() -> bool {
@@ -319,6 +348,55 @@ pub enum RenderSource {
     AiVisualization,
 }
 
+/// How a model view image was made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum RenderKind {
+    /// The live 3D view as it was on screen.
+    Capture,
+    /// A path traced render.
+    PathTraced,
+    /// The live view refined with jittered samples, when the path tracer
+    /// cannot run on this computer.
+    Enhanced,
+    /// A contact sheet of sun positions.
+    ShadowStudy,
+}
+
+/// The path tracer's time and sample budget: Quick aims at a minute at HD,
+/// Final at five.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum TraceQuality {
+    Quick,
+    Final,
+}
+
+/// How a model view image was made, kept with its record so every computer
+/// that opens the project can say so.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RenderInfo {
+    pub kind: RenderKind,
+    /// Image size in pixels.
+    pub width: u32,
+    pub height: u32,
+    /// Samples per pixel of a path traced render, else 0.
+    #[serde(default)]
+    pub samples: u32,
+    /// How long it took, seconds.
+    #[serde(default)]
+    pub seconds: f64,
+    #[serde(default)]
+    pub quality: Option<TraceQuality>,
+    /// The graphics adapter it ran on, as the browser names it. Empty when
+    /// unknown.
+    #[serde(default)]
+    pub gpu: String,
+}
+
 /// A saved visual, always tied to the model revision and camera it came from.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -339,6 +417,10 @@ pub struct RenderRecord {
     /// For an AI visualization: provider and model, for example "gemini/gemini-3.1-flash-image".
     #[serde(default)]
     pub provider: Option<String>,
+    /// For a model view: how it was made. None for older records and AI
+    /// visualizations.
+    #[serde(default)]
+    pub info: Option<RenderInfo>,
 }
 
 // ------------------------------------------------------- AI visualization

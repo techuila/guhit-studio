@@ -1,8 +1,8 @@
 {
   "project": {
-    "schema_version": 2,
+    "schema_version": 3,
     "id": "00000000-0000-4000-8000-000000000002",
-    "name": "Bungalow with plumbing",
+    "name": "Bungalow with services",
     "created_at": "2026-09-23T00:00:00Z",
     "updated_at": "2026-09-23T00:00:00Z",
     "settings": {
@@ -14,7 +14,8 @@
       "grid_mm": 100.0,
       "client_name": "Sample Client",
       "location": "Quezon City",
-      "designer": ""
+      "designer": "",
+      "site": null
     },
     "levels": [
       {
@@ -87,6 +88,21 @@
       },
       {
         "key": "vent",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "storm",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "electrical",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "aircon",
         "visible": true,
         "locked": false
       }
@@ -654,7 +670,10 @@
         "width_mm": 1200.0,
         "depth_mm": 600.0,
         "height_mm": 900.0,
-        "elevation_mm": 0.0
+        "elevation_mm": 0.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
       },
       {
         "kind": "asset",
@@ -671,7 +690,10 @@
         "width_mm": 500.0,
         "depth_mm": 420.0,
         "height_mm": 200.0,
-        "elevation_mm": 650.0
+        "elevation_mm": 650.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
       },
       {
         "kind": "asset",
@@ -688,7 +710,10 @@
         "width_mm": 400.0,
         "depth_mm": 700.0,
         "height_mm": 780.0,
-        "elevation_mm": 0.0
+        "elevation_mm": 0.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
       },
       {
         "kind": "asset",
@@ -705,7 +730,10 @@
         "width_mm": 900.0,
         "depth_mm": 900.0,
         "height_mm": 50.0,
-        "elevation_mm": 0.0
+        "elevation_mm": 0.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
       },
       {
         "kind": "asset",
@@ -722,7 +750,10 @@
         "width_mm": 2100.0,
         "depth_mm": 900.0,
         "height_mm": 800.0,
-        "elevation_mm": 0.0
+        "elevation_mm": 0.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
       },
       {
         "kind": "asset",
@@ -739,7 +770,10 @@
         "width_mm": 1200.0,
         "depth_mm": 800.0,
         "height_mm": 750.0,
-        "elevation_mm": 0.0
+        "elevation_mm": 0.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
       },
       {
         "kind": "asset",
@@ -756,7 +790,545 @@
         "width_mm": 1370.0,
         "depth_mm": 1900.0,
         "height_mm": 500.0,
-        "elevation_mm": 0.0
+        "elevation_mm": 0.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015008",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "range",
+        "name": "Cooking range",
+        "category": "appliance",
+        "position": {
+          "x": 1000.0,
+          "y": 5625.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 600.0,
+        "depth_mm": 600.0,
+        "height_mm": 900.0,
+        "elevation_mm": 0.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015009",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "kitchen-counter",
+        "name": "Kitchen counter",
+        "category": "kitchen",
+        "position": {
+          "x": 3500.0,
+          "y": 5625.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 1800.0,
+        "depth_mm": 600.0,
+        "height_mm": 900.0,
+        "elevation_mm": 0.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015010",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "washing-machine",
+        "name": "Washing machine",
+        "category": "appliance",
+        "position": {
+          "x": 3500.0,
+          "y": 6380.0
+        },
+        "rotation_deg": 180.0,
+        "width_mm": 600.0,
+        "depth_mm": 600.0,
+        "height_mm": 850.0,
+        "elevation_mm": 0.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018001",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "light-ceiling",
+        "name": "Ceiling light",
+        "category": "lighting",
+        "position": {
+          "x": 2500.0,
+          "y": 1800.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 300.0,
+        "depth_mm": 300.0,
+        "height_mm": 60.0,
+        "elevation_mm": 2940.0,
+        "light": {
+          "lumens": 900.0,
+          "kelvin": 3000.0,
+          "on": true
+        },
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018002",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "light-pendant",
+        "name": "Pendant light",
+        "category": "lighting",
+        "position": {
+          "x": 3300.0,
+          "y": 3900.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 350.0,
+        "depth_mm": 350.0,
+        "height_mm": 400.0,
+        "elevation_mm": 2000.0,
+        "light": {
+          "lumens": 900.0,
+          "kelvin": 2700.0,
+          "on": true
+        },
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018003",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "light-ceiling",
+        "name": "Ceiling light",
+        "category": "lighting",
+        "position": {
+          "x": 6500.0,
+          "y": 2400.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 300.0,
+        "depth_mm": 300.0,
+        "height_mm": 60.0,
+        "elevation_mm": 2940.0,
+        "light": {
+          "lumens": 900.0,
+          "kelvin": 3000.0,
+          "on": true
+        },
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018004",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "light-ceiling",
+        "name": "Ceiling light",
+        "category": "lighting",
+        "position": {
+          "x": 6800.0,
+          "y": 4700.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 300.0,
+        "depth_mm": 300.0,
+        "height_mm": 60.0,
+        "elevation_mm": 2940.0,
+        "light": {
+          "lumens": 900.0,
+          "kelvin": 3000.0,
+          "on": true
+        },
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018005",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "light-outdoor",
+        "name": "Outdoor wall light",
+        "category": "lighting",
+        "position": {
+          "x": 800.0,
+          "y": -150.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 150.0,
+        "depth_mm": 150.0,
+        "height_mm": 250.0,
+        "elevation_mm": 2100.0,
+        "light": {
+          "lumens": 700.0,
+          "kelvin": 3000.0,
+          "on": true
+        },
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018006",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "switch-2",
+        "name": "Switch, two gang",
+        "category": "electrical",
+        "position": {
+          "x": 2150.0,
+          "y": 95.0
+        },
+        "rotation_deg": 180.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 1143.0,
+        "light": null,
+        "links": [
+          "00000000-0000-4000-8000-000000018001",
+          "00000000-0000-4000-8000-000000018005"
+        ],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018007",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "switch-1",
+        "name": "Switch, one gang",
+        "category": "electrical",
+        "position": {
+          "x": 4930.0,
+          "y": 3000.0
+        },
+        "rotation_deg": 270.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 1143.0,
+        "light": null,
+        "links": [
+          "00000000-0000-4000-8000-000000018002"
+        ],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018008",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "switch-1",
+        "name": "Switch, one gang",
+        "category": "electrical",
+        "position": {
+          "x": 5070.0,
+          "y": 3000.0
+        },
+        "rotation_deg": 90.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 1143.0,
+        "light": null,
+        "links": [
+          "00000000-0000-4000-8000-000000018003"
+        ],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018009",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "switch-1",
+        "name": "Switch, one gang",
+        "category": "electrical",
+        "position": {
+          "x": 5850.0,
+          "y": 95.0
+        },
+        "rotation_deg": 180.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 1143.0,
+        "light": null,
+        "links": [
+          "00000000-0000-4000-8000-000000018003"
+        ],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018010",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "outlet-duplex",
+        "name": "Convenience outlet, duplex",
+        "category": "electrical",
+        "position": {
+          "x": 95.0,
+          "y": 1300.0
+        },
+        "rotation_deg": 90.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 243.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018011",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "outlet-duplex",
+        "name": "Convenience outlet, duplex",
+        "category": "electrical",
+        "position": {
+          "x": 4600.0,
+          "y": 95.0
+        },
+        "rotation_deg": 180.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 243.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018012",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "outlet-duplex",
+        "name": "Convenience outlet, duplex",
+        "category": "electrical",
+        "position": {
+          "x": 5650.0,
+          "y": 95.0
+        },
+        "rotation_deg": 180.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 243.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018013",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "outlet-duplex",
+        "name": "Convenience outlet, duplex",
+        "category": "electrical",
+        "position": {
+          "x": 7650.0,
+          "y": 95.0
+        },
+        "rotation_deg": 180.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 243.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018014",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "outlet-counter",
+        "name": "Counter outlet",
+        "category": "electrical",
+        "position": {
+          "x": 3000.0,
+          "y": 5905.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 1043.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018015",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "outlet-counter",
+        "name": "Counter outlet",
+        "category": "electrical",
+        "position": {
+          "x": 4100.0,
+          "y": 5905.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 1043.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018016",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "outlet-spo",
+        "name": "Special purpose outlet",
+        "category": "electrical",
+        "position": {
+          "x": 600.0,
+          "y": 5905.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 243.0,
+        "light": null,
+        "links": [
+          "00000000-0000-4000-8000-000000015008"
+        ],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018017",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "outlet-spo",
+        "name": "Special purpose outlet",
+        "category": "electrical",
+        "position": {
+          "x": 4000.0,
+          "y": 6095.0
+        },
+        "rotation_deg": 180.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 243.0,
+        "light": null,
+        "links": [
+          "00000000-0000-4000-8000-000000015010"
+        ],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018018",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "panelboard",
+        "name": "Panelboard",
+        "category": "electrical",
+        "position": {
+          "x": 125.0,
+          "y": 700.0
+        },
+        "rotation_deg": 90.0,
+        "width_mm": 350.0,
+        "depth_mm": 100.0,
+        "height_mm": 450.0,
+        "elevation_mm": 1500.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018019",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "smoke-detector",
+        "name": "Smoke detector",
+        "category": "electrical",
+        "position": {
+          "x": 3700.0,
+          "y": 2200.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 120.0,
+        "depth_mm": 120.0,
+        "height_mm": 50.0,
+        "elevation_mm": 2950.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018020",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "aircon-indoor-1hp",
+        "name": "Split aircon indoor unit, 1.0 to 1.5 HP",
+        "category": "aircon",
+        "position": {
+          "x": 7810.0,
+          "y": 3400.0
+        },
+        "rotation_deg": 270.0,
+        "width_mm": 800.0,
+        "depth_mm": 230.0,
+        "height_mm": 295.0,
+        "elevation_mm": 2300.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018021",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "aircon-outdoor-1hp",
+        "name": "Aircon outdoor unit, 1.0 to 1.5 HP",
+        "category": "aircon",
+        "position": {
+          "x": 8550.0,
+          "y": 1800.0
+        },
+        "rotation_deg": 90.0,
+        "width_mm": 770.0,
+        "depth_mm": 305.0,
+        "height_mm": 555.0,
+        "elevation_mm": 0.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000018022",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "outlet-aircon",
+        "name": "Aircon outlet",
+        "category": "electrical",
+        "position": {
+          "x": 7905.0,
+          "y": 3950.0
+        },
+        "rotation_deg": 270.0,
+        "width_mm": 70.0,
+        "depth_mm": 40.0,
+        "height_mm": 115.0,
+        "elevation_mm": 1943.0,
+        "light": null,
+        "links": [
+          "00000000-0000-4000-8000-000000018020"
+        ],
+        "circuit": ""
       },
       {
         "kind": "pipe",
@@ -1220,6 +1792,120 @@
         "name": "Vent stack"
       },
       {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000019001",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "storm",
+        "material": "upvc",
+        "diameter_mm": 100.0,
+        "points": [
+          {
+            "x": 7700.0,
+            "y": -200.0,
+            "z": 2900.0
+          },
+          {
+            "x": 7700.0,
+            "y": -200.0,
+            "z": -300.0
+          },
+          {
+            "x": 7700.0,
+            "y": -1400.0,
+            "z": -318.0
+          }
+        ],
+        "name": "Downspout, front"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000019002",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "storm",
+        "material": "upvc",
+        "diameter_mm": 100.0,
+        "points": [
+          {
+            "x": 300.0,
+            "y": 6200.0,
+            "z": 2900.0
+          },
+          {
+            "x": 300.0,
+            "y": 6200.0,
+            "z": -300.0
+          },
+          {
+            "x": 300.0,
+            "y": 7400.0,
+            "z": -318.0
+          }
+        ],
+        "name": "Downspout, back"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000019003",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "refrigerant",
+        "material": "copper",
+        "diameter_mm": 9.52,
+        "points": [
+          {
+            "x": 7880.0,
+            "y": 3100.0,
+            "z": 2400.0
+          },
+          {
+            "x": 8250.0,
+            "y": 3100.0,
+            "z": 2393.0
+          },
+          {
+            "x": 8250.0,
+            "y": 3100.0,
+            "z": 350.0
+          },
+          {
+            "x": 8250.0,
+            "y": 2300.0,
+            "z": 350.0
+          },
+          {
+            "x": 8450.0,
+            "y": 2300.0,
+            "z": 350.0
+          }
+        ],
+        "name": "Bedroom line set"
+      },
+      {
+        "kind": "pipe",
+        "id": "00000000-0000-4000-8000-000000019004",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "system": "condensate",
+        "material": "pvc",
+        "diameter_mm": 20.0,
+        "points": [
+          {
+            "x": 7880.0,
+            "y": 3200.0,
+            "z": 2310.0
+          },
+          {
+            "x": 8250.0,
+            "y": 3200.0,
+            "z": 2280.0
+          },
+          {
+            "x": 8250.0,
+            "y": 3200.0,
+            "z": 150.0
+          }
+        ],
+        "name": "Bedroom aircon condensate"
+      },
+      {
         "kind": "camera",
         "id": "00000000-0000-4000-8000-000000017001",
         "name": "Plumbing overview",
@@ -1234,7 +1920,8 @@
           "y": 3300.0,
           "z": 300.0
         },
-        "fov_deg": 42.0
+        "fov_deg": 42.0,
+        "light": null
       }
     ],
     "roof": {
@@ -1244,7 +1931,8 @@
       "thickness_mm": 100.0,
       "ridge_axis": "x",
       "material_id": "mat-roof-longspan"
-    }
+    },
+    "review": []
   },
   "derived": {
     "walls": [
@@ -1671,7 +2359,9 @@
           "x": 6500.0,
           "y": 4200.0,
           "z": 1500.0
-        }
+        },
+        "status": "open",
+        "note": ""
       },
       {
         "id": "pipe_through_column:00000000-0000-4000-8000-000000016002,00000000-0000-4000-8000-000000014005",
@@ -1686,7 +2376,9 @@
           "x": 5000.0,
           "y": 6000.0,
           "z": 300.0
-        }
+        },
+        "status": "open",
+        "note": ""
       },
       {
         "id": "drain_slope_low:00000000-0000-4000-8000-000000016014",
@@ -1700,22 +2392,56 @@
           "x": 4150.0,
           "y": 5700.0,
           "z": -317.0
-        }
+        },
+        "status": "open",
+        "note": ""
       },
       {
-        "id": "pipe_penetrations:00000000-0000-4000-8000-000000016001,00000000-0000-4000-8000-000000016011,00000000-0000-4000-8000-000000016012,00000000-0000-4000-8000-000000016013,00000000-0000-4000-8000-000000016014,00000000-0000-4000-8000-000000016016",
+        "id": "pipe_penetrations:00000000-0000-4000-8000-000000016001,00000000-0000-4000-8000-000000016011,00000000-0000-4000-8000-000000016012,00000000-0000-4000-8000-000000016013,00000000-0000-4000-8000-000000016014,00000000-0000-4000-8000-000000016016,00000000-0000-4000-8000-000000019003,00000000-0000-4000-8000-000000019004",
         "severity": "info",
         "code": "pipe_penetrations",
-        "message": "7 pipe penetrations need sleeves or flashing: 6 through the floor slab, 1 through the roof. Set the sleeves before the pour or the blockwork, and detail the flashing before the roofing.",
+        "message": "7 pipe penetrations need sleeves or flashing: 6 through the floor slab, 1 through the roof. Set the sleeves before the pour or the blockwork, and detail the flashing before the roofing. 1 aircon core hole goes through a wall: 65 mm, sloped 5 to 7 mm down to the outside. Drill it before the wall is finished.",
         "element_ids": [
           "00000000-0000-4000-8000-000000016001",
           "00000000-0000-4000-8000-000000016011",
           "00000000-0000-4000-8000-000000016012",
           "00000000-0000-4000-8000-000000016013",
           "00000000-0000-4000-8000-000000016014",
-          "00000000-0000-4000-8000-000000016016"
+          "00000000-0000-4000-8000-000000016016",
+          "00000000-0000-4000-8000-000000019003",
+          "00000000-0000-4000-8000-000000019004"
         ],
-        "location": null
+        "location": null,
+        "status": "open",
+        "note": ""
+      },
+      {
+        "id": "light_no_switch:00000000-0000-4000-8000-000000018004",
+        "severity": "info",
+        "code": "light_no_switch",
+        "message": "T&B ceiling light has no switch. Link a switch with the link tool (L).",
+        "element_ids": [
+          "00000000-0000-4000-8000-000000018004"
+        ],
+        "location": {
+          "x": 6800.0,
+          "y": 4700.0,
+          "z": 2970.0
+        },
+        "status": "open",
+        "note": ""
+      },
+      {
+        "id": "lineset_extra:00000000-0000-4000-8000-000000019003",
+        "severity": "info",
+        "code": "lineset_extra",
+        "message": "Bedroom line set is 3.41 m long, 0.41 m more than the 3 m a standard installation includes. Installers usually charge for each extra meter.",
+        "element_ids": [
+          "00000000-0000-4000-8000-000000019003"
+        ],
+        "location": null,
+        "status": "open",
+        "note": ""
       }
     ],
     "pipes": {
@@ -2135,6 +2861,84 @@
           },
           "diameter_mm": 50.0,
           "angle_deg": 91.145763
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000019001",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 7700.0,
+            "y": -200.0,
+            "z": -300.0
+          },
+          "diameter_mm": 100.0,
+          "angle_deg": 89.140628
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000019002",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 300.0,
+            "y": 6200.0,
+            "z": -300.0
+          },
+          "diameter_mm": 100.0,
+          "angle_deg": 89.140628
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000019003",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 8250.0,
+            "y": 3100.0,
+            "z": 2393.0
+          },
+          "diameter_mm": 9.52,
+          "angle_deg": 88.916155
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000019003",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 8250.0,
+            "y": 3100.0,
+            "z": 350.0
+          },
+          "diameter_mm": 9.52,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000019003",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 8250.0,
+            "y": 2300.0,
+            "z": 350.0
+          },
+          "diameter_mm": 9.52,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000019004",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 8250.0,
+            "y": 3200.0,
+            "z": 2280.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 85.364537
         }
       ],
       "penetrations": [
@@ -2256,6 +3060,40 @@
             "z": 1.0
           },
           "diameter_mm": 50.0
+        },
+        {
+          "kind": "wall",
+          "pipe_id": "00000000-0000-4000-8000-000000019003",
+          "host_id": "00000000-0000-4000-8000-000000011002",
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 8000.0,
+            "y": 3100.0,
+            "z": 2397.72973
+          },
+          "direction": {
+            "x": 0.999821085,
+            "y": 0.0,
+            "z": -0.018915534
+          },
+          "diameter_mm": 9.52
+        },
+        {
+          "kind": "wall",
+          "pipe_id": "00000000-0000-4000-8000-000000019004",
+          "host_id": "00000000-0000-4000-8000-000000011002",
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 8000.0,
+            "y": 3200.0,
+            "z": 2300.27027
+          },
+          "direction": {
+            "x": 0.996729048,
+            "y": 0.0,
+            "z": -0.080815869
+          },
+          "diameter_mm": 20.0
         }
       ],
       "takeoff": [
@@ -2300,13 +3138,221 @@
           "diameter_mm": 50.0,
           "length_m": 4.257,
           "run_count": 1
+        },
+        {
+          "system": "storm",
+          "material": "upvc",
+          "diameter_mm": 100.0,
+          "length_m": 8.8,
+          "run_count": 2
+        },
+        {
+          "system": "refrigerant",
+          "material": "copper",
+          "diameter_mm": 9.52,
+          "length_m": 3.413,
+          "run_count": 1
+        },
+        {
+          "system": "condensate",
+          "material": "pvc",
+          "diameter_mm": 20.0,
+          "length_m": 2.501,
+          "run_count": 1
         }
       ],
-      "total_length_m": 44.94,
-      "elbow_count": 23,
+      "total_length_m": 59.654,
+      "elbow_count": 29,
       "tee_count": 9,
-      "sleeve_count": 7
-    }
+      "sleeve_count": 9
+    },
+    "schedule": [
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013001",
+        "group": "plumbing",
+        "catalog_key": "kitchen-sink",
+        "device": null,
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013001",
+        "group": "electrical",
+        "catalog_key": "light-ceiling",
+        "device": "lighting_outlet",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013001",
+        "group": "electrical",
+        "catalog_key": "light-pendant",
+        "device": "lighting_outlet",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013001",
+        "group": "electrical",
+        "catalog_key": "outlet-counter",
+        "device": "convenience_receptacle",
+        "count": 2
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013001",
+        "group": "electrical",
+        "catalog_key": "outlet-duplex",
+        "device": "convenience_receptacle",
+        "count": 2
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013001",
+        "group": "electrical",
+        "catalog_key": "outlet-spo",
+        "device": "special_purpose_outlet",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013001",
+        "group": "electrical",
+        "catalog_key": "panelboard",
+        "device": "panelboard",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013001",
+        "group": "electrical",
+        "catalog_key": "smoke-detector",
+        "device": "smoke_detector",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013001",
+        "group": "electrical",
+        "catalog_key": "switch-1",
+        "device": "switch",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013001",
+        "group": "electrical",
+        "catalog_key": "switch-2",
+        "device": "switch",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013002",
+        "group": "electrical",
+        "catalog_key": "light-ceiling",
+        "device": "lighting_outlet",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013002",
+        "group": "electrical",
+        "catalog_key": "outlet-aircon",
+        "device": "special_purpose_outlet",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013002",
+        "group": "electrical",
+        "catalog_key": "outlet-duplex",
+        "device": "convenience_receptacle",
+        "count": 2
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013002",
+        "group": "electrical",
+        "catalog_key": "switch-1",
+        "device": "switch",
+        "count": 2
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013002",
+        "group": "aircon",
+        "catalog_key": "aircon-indoor-1hp",
+        "device": "aircon_indoor",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013003",
+        "group": "plumbing",
+        "catalog_key": "lavatory",
+        "device": null,
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013003",
+        "group": "plumbing",
+        "catalog_key": "shower",
+        "device": null,
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013003",
+        "group": "plumbing",
+        "catalog_key": "wc",
+        "device": null,
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013003",
+        "group": "electrical",
+        "catalog_key": "light-ceiling",
+        "device": "lighting_outlet",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": null,
+        "group": "plumbing",
+        "catalog_key": "washing-machine",
+        "device": null,
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": null,
+        "group": "electrical",
+        "catalog_key": "light-outdoor",
+        "device": "lighting_outlet",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": null,
+        "group": "electrical",
+        "catalog_key": "outlet-spo",
+        "device": "special_purpose_outlet",
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": null,
+        "group": "aircon",
+        "catalog_key": "aircon-outdoor-1hp",
+        "device": "aircon_outdoor",
+        "count": 1
+      }
+    ],
+    "review_resolved": []
   },
   "revision": 0,
   "can_undo": false,

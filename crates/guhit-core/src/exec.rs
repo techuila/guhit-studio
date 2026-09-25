@@ -2,7 +2,7 @@
 //! caller (`Document`) only commits the copy when it returns Ok, so every
 //! command is atomic and a `Batch` is all or nothing.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use guhit_model::*;
 
@@ -10,6 +10,7 @@ use crate::dimensions;
 use crate::error::CoreError;
 use crate::geom::*;
 use crate::ids::IdGen;
+use crate::issues::clean_review_target;
 use crate::rooms::{assign_by_seed, face, next_room_name, reconcile};
 use crate::topo::analyze;
 use crate::validate::*;
@@ -72,6 +73,16 @@ fn run(project: &mut Project, command: &Command) -> Result<Outcome, CoreError> {
     let before = project.clone();
     let mut out = leaf(project, command, ids)?;
     post_validate(&before, project)?;
+    // Deleted objects leave every `links` list in this same command. This
+    // runs after `post_validate` on purpose, like the dimensions below: a
+    // link to an object that is gone says nothing, so a locked layer does
+    // not keep it.
+    if matches!(
+        command,
+        Command::DeleteElements { .. } | Command::DeleteLevel { .. }
+    ) {
+        prune_links(project);
+    }
     // A dimension snapped to a wall follows it, in this same command and undo
     // step. This runs after `post_validate` on purpose: a dimension is derived
     // from the geometry it measures, so a locked Dimensions layer does not
@@ -142,6 +153,78 @@ fn run(project: &mut Project, command: &Command) -> Result<Outcome, CoreError> {
         _ => {}
     }
     Ok(out)
+}
+
+/// The level an element stands on. Openings (on their wall) and cameras
+/// have none of their own.
+fn element_level(el: &Element) -> Option<&Id> {
+    match el {
+        Element::Wall(e) => Some(&e.level_id),
+        Element::Room(e) => Some(&e.level_id),
+        Element::Column(e) => Some(&e.level_id),
+        Element::Stair(e) => Some(&e.level_id),
+        Element::Asset(e) => Some(&e.level_id),
+        Element::Annotation(e) => Some(&e.level_id),
+        Element::Dimension(e) => Some(&e.level_id),
+        Element::Underlay(e) => Some(&e.level_id),
+        Element::Linework(e) => Some(&e.level_id),
+        Element::ReferenceModel(e) => Some(&e.level_id),
+        Element::Pipe(e) => Some(&e.level_id),
+        Element::Opening(_) | Element::Camera(_) => None,
+    }
+}
+
+/// "Level 2", or the next free number.
+fn next_level_name(project: &Project) -> String {
+    let mut n = project.levels.len() + 1;
+    loop {
+        let name = format!("Level {n}");
+        if !project.levels.iter().any(|l| l.name.trim() == name) {
+            return name;
+        }
+        n += 1;
+    }
+}
+
+/// Remove, from every object's links, the ids of objects that no longer
+/// exist. Returns how many objects lost a link.
+fn prune_links(project: &mut Project) -> usize {
+    let objects: BTreeSet<Id> = project
+        .elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Asset(a) => Some(a.id.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut changed = 0;
+    for el in project.elements.iter_mut() {
+        if let Element::Asset(a) = el {
+            let before = a.links.len();
+            a.links.retain(|l| objects.contains(l));
+            if a.links.len() != before {
+                changed += 1;
+            }
+        }
+    }
+    changed
+}
+
+/// A review mark target with its strings trimmed, without any other check:
+/// how stored marks are compared.
+fn trimmed_target(target: &ReviewTarget) -> ReviewTarget {
+    match target {
+        ReviewTarget::Issue { id } => ReviewTarget::Issue {
+            id: id.trim().to_string(),
+        },
+        ReviewTarget::Check { code } => ReviewTarget::Check {
+            code: code.trim().to_string(),
+        },
+        ReviewTarget::Element { code, element_id } => ReviewTarget::Element {
+            code: code.trim().to_string(),
+            element_id: element_id.trim().to_string(),
+        },
+    }
 }
 
 pub fn resolve_level(project: &Project, level_id: &Option<Id>) -> Result<Id, CoreError> {
@@ -892,6 +975,9 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
 
         Command::AddElement { element } => {
             let mut element = element.clone();
+            if let Element::Asset(a) = &mut element {
+                a.circuit = a.circuit.trim().to_string();
+            }
             ensure_element_unlocked(project, &element)?;
             if element.id().is_empty() {
                 *element.id_mut() = ids.next_id();
@@ -964,6 +1050,9 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 if new.name != old.name {
                     new.auto_named = false;
                 }
+            }
+            if let Element::Asset(a) = &mut element {
+                a.circuit = a.circuit.trim().to_string();
             }
             let label = format!("Edit {}", kind_noun(element.kind()));
             *slot = element;
@@ -1131,6 +1220,8 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
             finite_delta("Copy offset", *delta)?;
             let snapshot = project.elements.clone();
             let mut copies: Vec<Element> = vec![];
+            // Original id to copy id, for the links between copied objects.
+            let mut copied: BTreeMap<Id, Id> = BTreeMap::new();
             let mut count = 0;
             for el in &snapshot {
                 if !sel.contains(el.id()) {
@@ -1150,10 +1241,12 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                                     let mut oc = o.clone();
                                     oc.id = ids.next_id();
                                     oc.wall_id = copy.id.clone();
+                                    copied.insert(o.id.clone(), oc.id.clone());
                                     copies.push(Element::Opening(oc));
                                 }
                             }
                         }
+                        copied.insert(w.id.clone(), copy.id.clone());
                         copies.push(Element::Wall(copy));
                         count += 1;
                     }
@@ -1168,6 +1261,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                         let mut oc = o.clone();
                         oc.id = ids.next_id();
                         oc.offset_mm += along;
+                        copied.insert(o.id.clone(), oc.id.clone());
                         copies.push(Element::Opening(oc));
                         count += 1;
                     }
@@ -1180,6 +1274,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                             // Named after the copies are in, see below.
                             rc.name = String::new();
                         }
+                        copied.insert(r.id.clone(), rc.id.clone());
                         copies.push(Element::Room(rc));
                         count += 1;
                     }
@@ -1190,8 +1285,20 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                         if let Element::Camera(cam) = &mut c {
                             cam.name = format!("{} copy", cam.name);
                         }
+                        copied.insert(other.id().clone(), c.id().clone());
                         copies.push(c);
                         count += 1;
+                    }
+                }
+            }
+            // A copied switch controls the copy of a light copied with it,
+            // and keeps its links to everything that was not copied.
+            for c in copies.iter_mut() {
+                if let Element::Asset(a) = c {
+                    for link in a.links.iter_mut() {
+                        if let Some(new) = copied.get(link) {
+                            *link = new.clone();
+                        }
                     }
                 }
             }
@@ -1387,12 +1494,119 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
             Ok(outcome("Edit level"))
         }
 
+        Command::AddLevel {
+            name,
+            elevation_mm,
+            height_mm,
+        } => {
+            // Default: on top of the highest level, "Level N", default height.
+            let highest = project
+                .levels
+                .iter()
+                .filter(|l| l.elevation_mm.is_finite() && l.height_mm.is_finite())
+                .fold(None::<&Level>, |best, l| match best {
+                    Some(b) if b.elevation_mm >= l.elevation_mm => Some(b),
+                    _ => Some(l),
+                });
+            let elevation = elevation_mm
+                .unwrap_or_else(|| highest.map(|l| l.elevation_mm + l.height_mm).unwrap_or(0.0));
+            let height = height_mm.unwrap_or(defaults::DEFAULT_LEVEL_HEIGHT_MM);
+            let name = match name {
+                Some(n) => n.clone(),
+                None => next_level_name(project),
+            };
+            let name = validate_new_level(project, &name, elevation, height)?;
+            let level = Level {
+                id: ids.next_id(),
+                name: name.clone(),
+                elevation_mm: elevation,
+                height_mm: height,
+            };
+            // Levels stay in elevation order when they are in order already.
+            let at = project
+                .levels
+                .iter()
+                .position(|l| l.elevation_mm > elevation)
+                .unwrap_or(project.levels.len());
+            project.levels.insert(at, level);
+            Ok(Outcome {
+                label: "Add level".into(),
+                summary: Some(format!(
+                    "Added {name}, floor at {elevation:.0} mm, {height:.0} mm floor to floor"
+                )),
+            })
+        }
+
+        Command::DeleteLevel { level_id } => {
+            require_level(project, level_id)?;
+            if project.levels.len() <= 1 {
+                return Err(CoreError::invalid(
+                    "last_level",
+                    "A project needs at least one level, so its last level cannot be deleted.",
+                ));
+            }
+            let name = project
+                .levels
+                .iter()
+                .find(|l| &l.id == level_id)
+                .map(|l| l.name.clone())
+                .unwrap_or_default();
+            let walls: BTreeSet<Id> = project
+                .elements
+                .iter()
+                .filter_map(|e| match e {
+                    Element::Wall(w) if &w.level_id == level_id => Some(w.id.clone()),
+                    _ => None,
+                })
+                .collect();
+            // Everything on the level, and the doors and windows of its walls.
+            project.elements.retain(|e| match e {
+                Element::Opening(o) => !walls.contains(&o.wall_id),
+                other => element_level(other) != Some(level_id),
+            });
+            project.levels.retain(|l| &l.id != level_id);
+            Ok(outcome(&format!("Delete level {}", name.trim())))
+        }
+
         Command::SetLayer { layer } => {
             match project.layers.iter_mut().find(|l| l.key == layer.key) {
                 Some(slot) => *slot = layer.clone(),
                 None => project.layers.push(layer.clone()),
             }
             Ok(outcome("Edit layer"))
+        }
+
+        Command::SetReviewMark { target, note } => {
+            // A mark names a known check; one per target, replaced in place.
+            let target = clean_review_target(target)?;
+            let at = project
+                .review
+                .iter()
+                .position(|m| trimmed_target(&m.target) == target);
+            match (note, at) {
+                (Some(note), Some(i)) => {
+                    project.review[i] = ReviewMark {
+                        target,
+                        note: note.trim().to_string(),
+                    };
+                    Ok(outcome("Edit a review note"))
+                }
+                (Some(note), None) => {
+                    project.review.push(ReviewMark {
+                        target,
+                        note: note.trim().to_string(),
+                    });
+                    Ok(outcome("Set a review item aside"))
+                }
+                (None, Some(i)) => {
+                    project.review.remove(i);
+                    Ok(outcome("Reopen a review item"))
+                }
+                (None, None) => Err(CoreError::invalid(
+                    "no_review_mark",
+                    "That review item is not set aside, so there is nothing to reopen.",
+                )),
+            }
         }
     }
 }
@@ -1420,14 +1634,45 @@ fn move_summary(walls: usize, others: usize, stretched: usize) -> String {
 }
 
 /// Noun for one element. Openings say what they are, so the undo label of a
-/// door reads "Add door" whichever command made it.
+/// door reads "Add door" whichever command made it; devices say what they
+/// are too ("Add switch").
 fn element_noun(el: &Element) -> &'static str {
     match el {
         Element::Opening(o) => match o.opening_type {
             OpeningType::Door => "door",
             OpeningType::Window => "window",
         },
+        other => diff_noun(other),
+    }
+}
+
+/// Noun for one element in a diff summary: "light", "switch", "outlet" and
+/// "aircon unit" for devices, the kind noun for everything else.
+pub fn diff_noun(el: &Element) -> &'static str {
+    match el {
+        Element::Asset(a) => match a.catalog_key.as_str() {
+            k if k.starts_with("light-") => "light",
+            k if k.starts_with("switch-") => "switch",
+            k if k.starts_with("outlet-") => "outlet",
+            k if k.starts_with("aircon-") => "aircon unit",
+            "panelboard" => "panelboard",
+            "smoke-detector" => "smoke detector",
+            "doorbell-button" => "doorbell button",
+            "doorbell-chime" => "doorbell chime",
+            _ => "object",
+        },
         other => kind_noun(other.kind()),
+    }
+}
+
+/// "1 switch", "2 switches", "3 lights".
+pub fn count_noun(n: usize, noun: &str) -> String {
+    if n == 1 {
+        format!("1 {noun}")
+    } else if ["ch", "sh", "s", "x"].iter().any(|end| noun.ends_with(end)) {
+        format!("{n} {noun}es")
+    } else {
+        format!("{n} {noun}s")
     }
 }
 

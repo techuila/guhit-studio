@@ -1,0 +1,410 @@
+/* Walk and fly overlay parts (walk/WalkOverlay.tsx). The overlay frame, the
+   crosshair, the hint pill and the toolbar buttons come from
+   Viewer3D.module.css; everything here is the walk's own. Motion follows
+   docs/MOTION.md: tokens only, exits faster than entrances, nothing under
+   reduced motion (the tokens drop to ~0). */
+
+/* Minimap: click a spot to glide there. */
+.map {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 208px;
+  height: 152px;
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(6px);
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
+}
+
+.map:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-2);
+}
+
+.mapCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* Where a click sent the walker: one ring, once. */
+.ping {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  animation: ping var(--dur-scene) var(--ease-out);
+}
+
+@keyframes ping {
+  from {
+    opacity: 0.95;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+
+/* The level the walker is on; a new level slides in. */
+.level {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  max-width: calc(100% - 12px);
+  padding: 1px 7px;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  animation: levelIn var(--dur-base) var(--ease-out);
+}
+
+@keyframes levelIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* The key hint sits between the minimap and the buttons. */
+.hintRow {
+  position: absolute;
+  left: 232px;
+  right: 236px;
+  bottom: 14px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* The wheel changed the pace: a short readout above the hint. */
+.speed {
+  position: absolute;
+  left: 50%;
+  bottom: 70px;
+  padding: 4px 11px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--chrome) 88%, transparent);
+  color: var(--chrome-text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  box-shadow: var(--shadow-1);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity calc(var(--dur-base) * 0.7) var(--ease-in),
+    transform calc(var(--dur-base) * 0.7) var(--ease-in);
+}
+
+.speed[data-on="true"] {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition-duration: var(--dur-base);
+  transition-timing-function: var(--ease-out);
+}
+
+/* Settings and mouse lock, bottom right. */
+.controls {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+}
+
+/* Walk settings: grows from its button, leaves faster than it came. */
+.popover {
+  position: absolute;
+  right: 10px;
+  bottom: 50px;
+  z-index: 2;
+  width: 268px;
+  padding: 12px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  pointer-events: auto;
+  transform-origin: 100% 100%;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.popover[data-stage="enter"] {
+  opacity: 0;
+  transform: scale(0.96) translateY(4px);
+}
+
+.popover[data-stage="exit"] {
+  opacity: 0;
+  transform: scale(0.96);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.popTitle {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.row output {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Eye height presets: one pill slides to the chosen one. */
+.chips {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+}
+
+.chipPill {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  pointer-events: none;
+  opacity: 1;
+  transition:
+    transform var(--dur-base) var(--ease-in-out),
+    width var(--dur-base) var(--ease-in-out),
+    opacity var(--dur-hover) var(--ease-out);
+}
+
+.chipPill[data-shown="false"] {
+  opacity: 0;
+}
+
+.chip {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.3;
+  cursor: pointer;
+  transition:
+    color var(--dur-hover) var(--ease-out),
+    background var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.chip:hover {
+  color: var(--ink);
+}
+
+.chip:active {
+  transform: scale(var(--press-scale));
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.chip[data-active="true"] {
+  color: var(--accent-strong);
+}
+
+.chip b {
+  font-weight: 600;
+}
+
+.chip span {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+/* Sliders: the track fills up to the thumb; the thumb grows under the pointer. */
+.slider {
+  --fill: 50%;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--accent) var(--fill), var(--line) var(--fill));
+}
+
+.slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--accent) var(--fill), var(--line) var(--fill));
+}
+
+.slider::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: var(--shadow-1);
+  appearance: none;
+  transition: transform var(--dur-hover) var(--ease-out);
+}
+
+.slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur-hover) var(--ease-out);
+}
+
+.slider:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+.slider:active::-webkit-slider-thumb {
+  transform: scale(1.25);
+  transition-duration: var(--dur-press);
+}
+
+.slider:hover::-moz-range-thumb {
+  transform: scale(1.15);
+}
+
+.slider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.note {
+  margin: 2px 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+
+/* On-screen arrows, touch screens only: hold to move. */
+.pad {
+  position: absolute;
+  right: 12px;
+  bottom: 56px;
+  display: grid;
+  grid-template-areas:
+    ". f ."
+    "l b r";
+  grid-template-columns: repeat(3, 46px);
+  grid-template-rows: repeat(2, 46px);
+  gap: 4px;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.padBtn {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--ink);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(6px);
+  touch-action: none;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.padBtn[data-down="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  transform: scale(var(--press-scale));
+}
+
+.padBtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@container (max-width: 640px) {
+  .map {
+    width: 140px;
+    height: 104px;
+  }
+  .hintRow {
+    left: 12px;
+    right: 12px;
+    top: 96px;
+    bottom: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ping {
+    display: none;
+  }
+  .level {
+    animation: none;
+  }
+}
