@@ -86,10 +86,50 @@ jobs:
             echo "::warning title=No updater key::TAURI_SIGNING_PRIVATE_KEY is not set, so this release has installers but no update files. See docs/RELEASING.md."
           fi
 
+      # macOS: sign with the Developer ID certificate and notarize, when the
+      # secrets are there (docs/RELEASING.md). They have the same names as in
+      # the other Aliteo Mac apps, so one certificate and one routine serve
+      # them all. Without them the app stays ad-hoc signed
+      # (bundle.macOS.signingIdentity "-") and Gatekeeper blocks its first
+      # open. Tauri counts a variable that is set but empty as present, so
+      # each one goes into the environment only when it has a value. The
+      # identity only has to be part of the certificate's name.
+      - name: Set up Apple signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERT_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          NOTARY_ID: ${{ secrets.APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$CERTIFICATE" ] || [ -z "$CERTIFICATE_PASSWORD" ]; then
+            echo "::warning title=Not signed::MACOS_CERT_P12 is not set, so the macOS app is ad-hoc signed and macOS blocks its first open. See docs/RELEASING.md."
+            exit 0
+          fi
+          # One line of base64, whatever wrapping the secret was saved with.
+          CERTIFICATE=$(printf '%s' "$CERTIFICATE" | tr -d '\r\n ')
+          echo "::add-mask::$CERTIFICATE"
+          {
+            echo "APPLE_CERTIFICATE=$CERTIFICATE"
+            echo "APPLE_CERTIFICATE_PASSWORD=$CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=${IDENTITY:-Developer ID Application}"
+          } >> "$GITHUB_ENV"
+          if [ -n "$NOTARY_ID" ] && [ -n "$NOTARY_PASSWORD" ] && [ -n "$TEAM_ID" ]; then
+            {
+              echo "APPLE_ID=$NOTARY_ID"
+              echo "APPLE_PASSWORD=$NOTARY_PASSWORD"
+              echo "APPLE_TEAM_ID=$TEAM_ID"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::warning title=Signed, not notarized::APPLE_ID, APPLE_APP_PASSWORD or APPLE_TEAM_ID is not set, so macOS still blocks the first open. See docs/RELEASING.md."
+          fi
+
       # Builds, signs the update artifacts when the key is there, then creates
-      # the release and uploads the bundles. macOS bundles are ad-hoc signed
-      # (bundle.macOS.signingIdentity "-"); there is no Developer ID or Windows
-      # certificate yet (docs/RELEASING.md).
+      # the release and uploads the bundles. There is no Windows certificate
+      # yet (docs/RELEASING.md).
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
         env:
@@ -110,6 +150,37 @@ jobs:
           # An MSI update cannot replace a running installation cleanly.
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }} ${{ steps.updater.outputs.on != 'true' && '--config ''{"bundle":{"createUpdaterArtifacts":false}}''' || '' }}
+
+      # Tauri notarizes and staples the app and signs the DMG, but does not
+      # notarize the DMG. A downloaded DMG is checked on its own, so notarize
+      # and staple it too, check it the way a fresh Mac would, and replace the
+      # copy tauri-action already uploaded (GitHub turns the spaces in its
+      # name into dots).
+      - name: Notarize the DMG
+        if: runner.os == 'macOS' && env.APPLE_ID != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dmg=$(find target -path "*/bundle/dmg/*.dmg" -type f | head -n 1)
+          if [ -z "$dmg" ]; then
+            echo "::error::No DMG found under target/"
+            exit 1
+          fi
+          out=$(xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --output-format json)
+          status=$(printf '%s' "$out" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("status", ""))')
+          if [ "$status" != "Accepted" ]; then
+            id=$(printf '%s' "$out" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("id", ""))')
+            echo "::error::Notarization of the DMG ended with status '$status'"
+            [ -n "$id" ] && xcrun notarytool log "$id" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID"
+            exit 1
+          fi
+          xcrun stapler staple "$dmg"
+          spctl --assess --type open --context context:primary-signature -v "$dmg"
+          spctl --assess --type exec -v "$(find target -maxdepth 6 -path "*/bundle/macos/*.app" -type d | head -n 1)"
+          name=$(basename "$dmg" | tr ' ' '.')
+          cp "$dmg" "$name"
+          gh release upload "${{ github.ref_name }}" "$name" --clobber --repo "${{ github.repository }}"
 
       # The website's download buttons link straight to
       # releases/latest/download/<name>, which starts the download without
