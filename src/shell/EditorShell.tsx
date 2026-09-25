@@ -1,5 +1,5 @@
 // Editor frame: top bar, tool rail, canvas area (2D, split, 3D), inspector,
-// side dock (Copilot, Visuals), status bar, plus the overlays.
+// side dock (Copilot, Visuals, Chat), status bar, plus the overlays.
 import { Suspense, lazy, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ipc, onDocChanged } from "../contract/ipc";
 import { bus } from "../state/bus";
@@ -8,6 +8,7 @@ import { Spinner, cx } from "../ui/controls";
 import { PanelBoundary } from "../ui/feedback";
 import { Icon } from "../ui/icons";
 import { Presence, useLastTruthy, useSlidingIndicator } from "../ui/motionDom";
+import { UnreadBadge } from "../live/UnreadBadge";
 import { useViewer } from "../viewer3d/viewerStore";
 import { CommandPalette } from "./CommandPalette";
 import { ExportDialog } from "./ExportDialog";
@@ -30,6 +31,7 @@ const PlanCanvas = lazy(() => import("../editor2d/PlanCanvas").then((m) => ({ de
 const Viewer3D = lazy(() => import("../viewer3d/Viewer3D").then((m) => ({ default: m.Viewer3D })));
 const RenderPanel = lazy(() => import("../viewer3d/RenderPanel").then((m) => ({ default: m.RenderPanel })));
 const AiDock = lazy(() => import("../ai/AiDock").then((m) => ({ default: m.AiDock })));
+const ChatPanel = lazy(() => import("../live/ChatPanel").then((m) => ({ default: m.ChatPanel })));
 
 function Panel({ name, probe, tone, children }: { name: string; probe: string; tone?: "light" | "dark"; children: ReactNode }) {
   return (
@@ -137,9 +139,10 @@ function CanvasArea() {
   );
 }
 
-const DOCK_TABS: Array<{ key: DockTab; label: string; icon: "copilot" | "visuals" }> = [
+const DOCK_TABS: Array<{ key: DockTab; label: string; icon: "copilot" | "visuals" | "chat" }> = [
   { key: "copilot", label: "Copilot", icon: "copilot" },
   { key: "visuals", label: "Visuals", icon: "visuals" },
+  { key: "chat", label: "Chat", icon: "chat" },
 ];
 
 function RightColumn() {
@@ -193,6 +196,7 @@ function RightColumn() {
               >
                 <Icon name={t.icon} size={15} />
                 <span>{t.label}</span>
+                {t.key === "chat" ? <UnreadBadge /> : null}
               </button>
             ))}
             {!collapsed && tabIndicator.visible ? (
@@ -225,6 +229,11 @@ function RightColumn() {
           <div className={s.dockPanel} role="tabpanel" hidden={tab !== "visuals"}>
             <Panel name="Visuals" probe="visuals">
               <RenderPanel />
+            </Panel>
+          </div>
+          <div className={s.dockPanel} role="tabpanel" hidden={tab !== "chat"}>
+            <Panel name="The chat" probe="chat">
+              <ChatPanel />
             </Panel>
           </div>
         </div>

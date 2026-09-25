@@ -89,6 +89,16 @@ const PATHS = {
   aside: "M3 4.5h14v3H3zM4.5 7.5v8h11v-8M8 10.5h4",
   reopen: "M7 4.5L3.5 8 7 11.5M3.5 8h8.2a4.3 4.3 0 0 1 0 8.6H9",
   resolved: "M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM6.8 10.2l2.2 2.2 4.2-4.6",
+  /** Two people: a live session, Share. */
+  people: "M7.5 9.3a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4zM2.5 16.5c0-2.9 2.2-4.9 5-4.9s5 2 5 4.9M13.2 9.1a2.4 2.4 0 1 0-.6-4.7M14.5 11.8c1.8.5 3 2.2 3 4.7",
+  /** Two speech bubbles: the live session chat. */
+  chat: "M2.5 3.5h10v7H6.5l-3 2.5v-2.5h-1zM12.5 7h5v7h-1v2.5l-3-2.5H8.5v-3.5",
+  /** An arrow going in: join a live session. */
+  join: "M11.5 3.5h4v13h-4M3 10h9M9 6.8l3.2 3.2L9 13.2",
+  /** An arrow up: send. */
+  send: "M10 16V4.5M5.5 9L10 4.5 14.5 9",
+  /** The plan pointer: show on the plan. */
+  pointer: "M5 3.2l9.8 6.6-4.4 1L8 15.4z",
 } as const;
 
 export type IconName = keyof typeof PATHS;

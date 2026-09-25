@@ -52,6 +52,27 @@ Handled by the plan canvas. Click a switch (or an outlet), then each light
 | Escape, or Enter | End linking |
 | Tool letters | Still switch tools, as everywhere else |
 
+## Live session
+
+With the pointer on the plan, in a live session (DECISIONS D29). Handled by
+the live session layer over the plan (`src/live/LiveLayer.tsx`).
+
+| Key | Action |
+|---|---|
+| / | Cursor chat: a bubble opens at your pointer, in your color, and follows it. The others see what you type as you type it |
+| Enter | Send the message (160 characters at most). It stays in the bubble a few seconds, and it is in the Chat tab with "Show on plan". An empty Enter closes the bubble |
+| Escape | Close the bubble without sending. Clicking elsewhere closes it too |
+
+"/" does nothing while a text field has focus, while a drawing, drag or
+typed entry is in progress on the plan, while walking or flying in 3D, or
+under a dialog. Outside a live session it shows a short hint at the pointer
+instead.
+
+In the Chat tab of the side dock, Enter sends and Shift+Enter starts a new
+line. The palette has Start live session, Show the live session, Copy invite
+(while hosting), Join a live session, Open chat, and End or Leave the live
+session.
+
 ## Toggles
 
 | Key | Action |

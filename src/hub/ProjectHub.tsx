@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { IpcError, ProjectMeta } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
+import { EndedBanner } from "../live/EndedBanner";
+import { openJoin } from "../live/session";
 import { useShell } from "../shell/shellStore";
 import { UpdateNotice } from "../shell/UpdateNotice";
 import { useApp } from "../state/store";
@@ -144,6 +146,9 @@ export function ProjectHub() {
               />
             </label>
           ) : null}
+          <Button icon="join" onClick={openJoin}>
+            Join a live session
+          </Button>
           <Button icon="import" onClick={() => useShell.getState().requestImport("bundle")}>
             Open bundle
           </Button>
@@ -151,6 +156,8 @@ export function ProjectHub() {
             New project
           </Button>
         </header>
+
+        <EndedBanner onSaved={() => void refresh()} />
 
         <div className={s.scroll}>
           {loading ? (

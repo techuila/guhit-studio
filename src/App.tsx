@@ -7,6 +7,7 @@ import { BusyOverlay, PanelBoundary, Toasts } from "./ui/feedback";
 import { dur } from "./ui/motion";
 import { ipc, onDocChanged } from "./contract/ipc";
 import { startWindowTasks } from "./shell/windowTasks";
+import { LiveRoot } from "./live/LiveRoot";
 
 function isTextTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -85,6 +86,8 @@ export default function App() {
       <Toasts />
       <BusyOverlay />
       <ImportController />
+      {/* Live sessions: wiring, share and join dialogs, confirmations (DECISIONS D29). */}
+      <LiveRoot />
     </>
   );
 }
