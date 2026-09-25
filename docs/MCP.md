@@ -86,9 +86,9 @@ back in square metres. The plan is +x east, +y north.
 | Tool | What it does |
 |---|---|
 | `list_projects` | Every project on this machine, newest first |
-| `open_project` | Open one by id; it becomes the document every tool acts on |
-| `create_project` | Create and open one: `blank`, `sample-bungalow` or `plumbing-demo` (the bungalow with services) |
-| `close_project` | Close it; the window goes back to the hub |
+| `open_project` | Open one by id; it becomes the document every tool acts on. In a live session, `force` after the user confirms |
+| `create_project` | Create and open one: `blank`, `sample-bungalow` or `plumbing-demo` (the bungalow with services). In a live session, `force` after the user confirms |
+| `close_project` | Close it; the window goes back to the hub. In a live session, `force` after the user confirms |
 | `get_project_summary` | Totals: areas, wall length, counts |
 | `list_rooms` | Rooms with areas, perimeters and bounding wall ids |
 | `list_elements` | All elements of one kind, with ids |
@@ -281,6 +281,12 @@ like the guest's own.
   marked as sent by AI.
 - Undo is one shared history. `undo` and `redo` refuse a step someone else made
   (`other_author`, naming them); pass `force` only after the user confirms.
+- Opening, creating or closing a project ends a session this computer hosts,
+  for everyone, and closing leaves a session it joined. The window asks first;
+  `open_project`, `create_project` and `close_project` refuse with
+  `live_session` (naming who is in) until the call passes `force`, which a
+  client does only after the user confirms. Opening the shared project itself
+  changes nothing and is not refused.
 
 ### `batch` and element ids
 

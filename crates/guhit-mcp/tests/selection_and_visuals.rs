@@ -380,3 +380,76 @@ async fn session_tools_without_a_session() {
     let undone = ok(&app, "undo", json!({"force": true})).await;
     assert_eq!(undone["what"], "undone");
 }
+
+/// A computer with its profile name set, as hosting and joining need.
+async fn named(name: &str) -> (AppService, tempfile::TempDir) {
+    let (app, dir) = app();
+    app.handle("profile_set", json!({ "name": name })).await.unwrap();
+    (app, dir)
+}
+
+async fn live(app: &AppService) -> LiveStatus {
+    serde_json::from_value(app.handle("live_status", json!({})).await.unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn a_hosted_session_ends_only_when_the_user_says_so() {
+    let (ana, _dir) = named("Ana").await;
+    let other = ok(&ana, "create_project", json!({"name": "Iba", "template": "blank"})).await;
+    let shared = ok(&ana, "create_project", json!({"name": "Bahay", "template": "blank"})).await;
+    ana.handle("live_host", json!({})).await.unwrap();
+
+    let other_id = other["project_id"].as_str().unwrap();
+    for (name, args) in [
+        ("open_project", json!({"id": other_id})),
+        ("create_project", json!({"name": "Bago"})),
+        ("close_project", json!({})),
+    ] {
+        let refused = fail(&ana, name, args).await;
+        assert!(refused.starts_with("live_session"), "{name}: {refused}");
+        assert!(refused.contains("ends it for everyone") && refused.contains("force"), "{name}: {refused}");
+    }
+    let status = live(&ana).await;
+    assert_eq!(status.mode, LiveMode::Hosting, "nothing ended");
+    assert_eq!(status.project_id.as_deref(), shared["project_id"].as_str());
+
+    // The shared project is already open: opening it changes nothing.
+    ok(&ana, "open_project", json!({"id": shared["project_id"]})).await;
+    assert_eq!(live(&ana).await.mode, LiveMode::Hosting);
+
+    // The user agreed.
+    ok(&ana, "open_project", json!({"id": other_id, "force": true})).await;
+    assert_eq!(live(&ana).await.mode, LiveMode::Off);
+    let open = ok(&ana, "get_project_summary", json!({})).await;
+    assert_eq!(open["project_name"], "Iba", "unexpected: {open}");
+}
+
+#[tokio::test]
+async fn a_guest_leaves_only_when_the_user_says_so() {
+    let (ana, _a) = named("Ana").await;
+    ok(&ana, "create_project", json!({"name": "Bahay", "template": "blank"})).await;
+    let hosted: LiveStatus = serde_json::from_value(ana.handle("live_host", json!({})).await.unwrap()).unwrap();
+    let (ben, _b) = named("Ben").await;
+    ben.handle("live_join", json!({"invite": hosted.invite.unwrap()})).await.unwrap();
+    assert_eq!(live(&ben).await.mode, LiveMode::Joined);
+
+    // The host's refusal names who would be dropped.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while live(&ana).await.participants.len() < 2 {
+        assert!(std::time::Instant::now() < deadline, "Ben never showed up at the host");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let host_refused = fail(&ana, "close_project", json!({})).await;
+    assert!(host_refused.contains("hosting a live session with Ben"), "unexpected: {host_refused}");
+
+    let refused = fail(&ben, "close_project", json!({})).await;
+    assert!(refused.starts_with("live_session") && refused.contains("Ana hosts") && refused.contains("leaves it"), "unexpected: {refused}");
+    assert_eq!(live(&ben).await.mode, LiveMode::Joined, "still in");
+    // A guest cannot open another project at all; the app says why.
+    let open = fail(&ben, "create_project", json!({"name": "Akin"})).await;
+    assert!(open.starts_with("host_only"), "unexpected: {open}");
+
+    ok(&ben, "close_project", json!({"force": true})).await;
+    assert_eq!(live(&ben).await.mode, LiveMode::Off);
+    assert_eq!(live(&ana).await.mode, LiveMode::Hosting, "the host goes on");
+}

@@ -6,7 +6,7 @@ use guhit_app::AppService;
 use guhit_model::*;
 use serde_json::{json, Value};
 
-use crate::tools::{obj, req_str, Output, ToolDef, ToolFail, MM};
+use crate::tools::{obj, opt_bool, req_str, Output, ToolDef, ToolFail, MM};
 
 /// Chat messages `get_session` hands back, the newest.
 const RECENT_CHAT: usize = 30;
@@ -155,4 +155,74 @@ async fn send_chat_message(app: &AppService, args: &Value) -> Result<Output, Too
     let text = req_str(args, "text")?;
     let message = app.chat_send(&text, None, None, true).await?;
     Ok(Output::Json(json!({"ok": true, "message": message})))
+}
+
+// ---------------------------------------------------- leaving a live session
+
+/// What a hub tool does to the open project.
+#[derive(Clone, Copy)]
+pub(crate) enum Switch<'a> {
+    /// `open_project` of this project id.
+    Open(&'a str),
+    Create,
+    Close,
+}
+
+/// The `force` argument of `open_project`, `create_project` and `close_project`.
+pub(crate) fn switch_force_schema() -> Value {
+    json!({"type": "boolean", "description": "Go ahead in a live session although it ends the session for everyone (or, on a computer that joined one, leaves it). Only after the user confirms. Defaults to false."})
+}
+
+/// In a live session, opening, creating or closing a project ends the session
+/// for everyone when this computer hosts it, and closing leaves it when this
+/// computer joined. The window asks first; here the tool refuses with
+/// `live_session` unless `force` is true (DECISIONS D29). Opening or creating
+/// on a computer that joined is left to the app, which refuses it.
+pub(crate) async fn guard_switch(app: &AppService, args: &Value, what: Switch<'_>) -> Result<(), ToolFail> {
+    if opt_bool(args, "force")?.unwrap_or(false) {
+        return Ok(());
+    }
+    let status = app.live_status().await;
+    let doing = match what {
+        // The shared project is already open: nothing changes.
+        Switch::Open(id) if status.project_id.as_deref() == Some(id) => return Ok(()),
+        Switch::Open(_) => "Opening another project",
+        Switch::Create => "Creating a project",
+        Switch::Close => "Closing the project",
+    };
+    let ask = "Ask the user first, and call again with force true only after they agree";
+    match status.mode {
+        LiveMode::Hosting => {
+            let others: Vec<&str> = status
+                .participants
+                .iter()
+                .filter(|p| status.self_id.as_deref() != Some(p.id.as_str()))
+                .map(|p| p.name.as_str())
+                .collect();
+            let with = if others.is_empty() { String::new() } else { format!(" with {}", names(&others)) };
+            Err(ToolFail(format!(
+                "live_session: the user is hosting a live session{with}. {doing} ends it for everyone. {ask}"
+            )))
+        }
+        LiveMode::Joined | LiveMode::Reconnecting if matches!(what, Switch::Close) => {
+            let host = status
+                .participants
+                .iter()
+                .find(|p| p.role == ParticipantRole::Host)
+                .map_or_else(|| "the host".to_string(), |p| p.name.clone());
+            Err(ToolFail(format!(
+                "live_session: the user joined the live session {host} hosts. Closing the project leaves it. {ask}"
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// "Ben", "Ben and Carla", "Ben, Carla and Dan".
+fn names(list: &[&str]) -> String {
+    match list {
+        [] => String::new(),
+        [one] => (*one).to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
