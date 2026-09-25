@@ -5,10 +5,11 @@
 // bridges with `?bridge=`. Ana hosts the services demo from the Share dialog,
 // Ben joins from the hub with the invite. Then it checks, both ways: the
 // other's pointer on the plan, cursor chat, the Chat panel, an edit crossing
-// over, undo of someone else's step asking first, and the end of the session.
-// It also drives the MCP endpoint of Ana's bridge: get_selection, the
-// "Only the selection" limit, get_session, send_chat_message, and a plan
-// picture drawn by Ana's tab.
+// over, undo of someone else's step asking first, opening a bundle asking
+// first, and the end of the session. It also drives the MCP endpoint of
+// Ana's bridge: get_selection, the "Only the selection" limit, get_session,
+// send_chat_message, a plan picture drawn by Ana's tab, and close_project
+// refusing while she hosts.
 //
 //   cargo build -p guhit-devbridge
 //   node scripts/live-check.mjs            # screenshots go to ./live-check/
@@ -288,6 +289,18 @@ try {
   await shot(ana, "06-ana-after-mcp");
   await shot(ben, "07-ben-after-mcp");
 
+  // ---- Opening a bundle would end the session: Ana is asked first.
+  await ana.getByRole("button", { name: "Import", exact: true }).click();
+  await ana.getByRole("menuitem", { name: "Open .guhit bundle" }).click();
+  const bundleAsk = await ana.getByRole("dialog", { name: "End the live session?" }).textContent({ timeout: 5000 }).catch(() => null);
+  check("opening a bundle while hosting asks first", !!bundleAsk && bundleAsk.includes("the other person"), bundleAsk);
+  await ana.waitForTimeout(500); // the dialog's entrance
+  await shot(ana, "08-ana-bundle-asks");
+  await ana.getByRole("dialog", { name: "End the live session?" }).getByRole("button", { name: "Cancel" }).click();
+  check("cancelling keeps the session", (await ipc(A, "live_status")).mode === "hosting");
+  const mcpClose = await tool(A, "close_project");
+  check("MCP close_project asks first too", mcpClose.isError && mcpClose.text.startsWith("live_session") && mcpClose.text.includes(B.name), mcpClose.text);
+
   // ---- Ana ends the session; Ben goes back to the hub with a notice.
   await ipc(A, "live_leave");
   const benOff = await until("Ben's session to end", async () => (await ipc(B, "live_status")).mode === "off", 10000).catch(() => false);
@@ -295,7 +308,7 @@ try {
   const benHub = await until("Ben's hub", async () => ben.evaluate(() => window.__app.getState().screen === "hub"), 10000).catch(() => false);
   check("Ben's window goes back to the hub", benHub);
   await ben.waitForTimeout(600);
-  await shot(ben, "08-ben-session-ended");
+  await shot(ben, "09-ben-session-ended");
 
   check("no console errors in Ana's tab", ana.errors === 0, String(ana.errors));
   check("no console errors in Ben's tab", ben.errors === 0, String(ben.errors));
