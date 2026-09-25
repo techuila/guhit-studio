@@ -390,7 +390,26 @@ DECISIONS D29. Types: `crates/guhit-model/src/live.rs`. Code:
   certificate for each session. Frames are a 4-byte big-endian length and a
   UTF-8 JSON message; at most 64 KiB before the guest is authenticated,
   48 MiB after. The frame messages are internal to `guhit-app` (host and
-  guest are the same code).
+  guest are the same code, `live/wire.rs`): guest to host `hello`,
+  `request` (apply, undo, redo, chat, file get, file put; the reply carries
+  its id), `presence`, `ping`, `bye`; host to guest `welcome`, `refused`,
+  `reply`, `doc`, `presence`, `participants`, `chat`, `ping`, `end`. A
+  frame that is too big or not a message closes that connection only.
+- A side with nothing to send pings after 5 s; 20 s without a frame means
+  the connection is lost. Each connection has one writer with a queue of
+  64 frames: presence for a slow guest waits for the next batch, but a
+  guest whose queue is full for a document, chat, participants or reply
+  frame is disconnected (it reconnects and gets the current plan).
+- The host sends a document frame (project, revision, undo meta, who made
+  the change, and the host's change counter, which orders the frames)
+  after every change of its document, whoever made it, and before the
+  reply to the guest edit that made it. So a guest's `doc_apply`,
+  `doc_undo` and `doc_redo` return its copy at the new revision or later
+  (with the host's diff for `doc_apply`). Renaming the open project also
+  notifies watchers, so guests get the new name.
+- Underlays and reference models travel in pieces of 2 MiB, so the 50 MB
+  model limit fits under the frame limit. The host stores them with the
+  same name, type and size checks as the window's own uploads.
 - Invite: `guhit-live:` then base64url (no padding) of
   `{"v":1,"secret":...,"pin":...,"addrs":["192.168.1.20:1460",...],"project":"Bungalow"}`.
   `secret` is 128 random bits. `pin` is the SHA-256 of the certificate
@@ -399,30 +418,40 @@ DECISIONS D29. Types: `crates/guhit-model/src/live.rs`. Code:
   the secret in constant time, answers a wrong secret after a 1 s delay and
   keeps at most 8 connections waiting to authenticate.
 - Listening: the desktop app on every IPv4 interface, port `live_port` in
-  `settings.json` (default 1460, else the next free one up to 1469, else
-  one the system picks), only while a session runs. The dev bridge on
-  127.0.0.1 only. `LiveStatus::addresses` lists the computer's LAN address
-  first and 127.0.0.1 last.
+  `settings.json` (default 1460, else the next free one of the nine after
+  it, else one the system picks), only while a session runs. A `port`
+  given to `live_host` must be free (`invalid` otherwise). The dev bridge
+  on 127.0.0.1 only. `LiveStatus::addresses` lists the computer's LAN
+  address first (found without sending anything) and 127.0.0.1 last.
 - Names: `profile_get`/`profile_set` (`settings.json` key `profile_name`,
   1 to 40 characters, control characters removed). Hosting and joining need
   one (`bad_args` otherwise). Colors: the host is 0, each guest gets the
-  lowest color no one in the session has; at most 16 participants
-  (`live_refused` beyond).
+  lowest color no one in the session has, the least used one once all
+  eight are taken; at most 16 participants (`live_refused` beyond). The
+  host's participant id stays the same for every session while the app
+  runs, so its steps stay its own.
+- Why a join failed goes into `LiveStatus::notice` too.
 - Ends: the host's `live_leave`, or the host closing or switching the
   project (`hub_close`, `hub_open` of another, `hub_create`, `bundle_open`,
-  `hub_delete` of it) ends the session for everyone; guests get
-  `LiveStatus::notice` ("Ana ended the live session."), their document
-  closes and their window goes to the hub. A guest's `live_leave` or
-  `hub_close` leaves. `live_remove` (host only) removes a guest with a
-  notice.
+  `hub_delete` of it, from the window or an MCP client) ends the session
+  for everyone; guests get `LiveStatus::notice` ("Ana ended the live
+  session.", or "Ana closed the project."), their document closes and
+  their window goes to the hub. The host's own notice after a close: "The
+  live session ended because the project closed." A guest's `live_leave`
+  or `hub_close` leaves. `live_remove` (host only) removes a guest with a
+  notice ("Ana removed you from the live session.").
 - A guest that loses the connection is `reconnecting`: its window keeps the
   last plan, edits fail with `live_lost`, and it retries after 1, 2, 4 and
   8 s with the same invite, asking for its old participant id and color
-  back (the host keeps them 60 s). Back in: `joined` and the host's current
-  state. Otherwise: `off`, notice "Lost the connection to the host.", the
-  document closes.
+  back (the host keeps them 60 s). The welcome gives each guest a token
+  for this, so no one else can take its place. Back in: `joined` and the
+  host's current state. Otherwise: `off`, notice "Lost the connection to
+  the host.", the document closes. A guest the host removed is not let
+  back in as the same participant.
 - `live_save_copy` (guest, also after the session ended until another
-  project opens) saves the last copy as a new local project with a new id.
+  project opens) saves the last copy as a new local project with a new id,
+  named "<name> (copy)". While the session runs, the underlay images and
+  reference models the plan uses come along.
 
 On a guest, these go to the host: `doc_apply`, `doc_undo`, `doc_redo`,
 `AppService::commit` and `commit_if_revision` (copilot Apply, MCP edits,
@@ -430,7 +459,9 @@ On a guest, these go to the host: `doc_apply`, `doc_undo`, `doc_redo`,
 `model_data`, `chat_send`. These use the local copy: `doc_state`,
 `doc_revision`, `doc_preview`, `doc_query`, exports, the copilot's reading
 and staging, MCP reads. Renders, exports and the AI log go to
-`<data>/live/<project-id>/`, the guest's folder for the shared project.
+`<data>/live/<project-id>/`, the guest's folder for the shared project
+(exports without a path to its `exports/`). The copy is never saved to
+`projects/`.
 Refused on a guest with `host_only`: `snapshot_create`, `snapshot_list`,
 `snapshot_restore`, `hub_rename` of the shared project, `bundle_save`.
 Refused while joined, with `host_only` and "Leave the live session first":
@@ -450,13 +481,17 @@ with no author (made before the session) are its own.
 Presence: `presence_set` stores this window's `Presence`. MCP
 `get_selection` reads it. In a session it goes to the others at most 20
 times a second (the host sends batches every 50 ms, latest wins); `typing`
-is cut to 160 characters and `selection` to 2000 ids. Everyone else's
+is cut to 160 characters and `selection` to 2000 ids, and ids longer than
+64 characters are dropped. Everyone else's
 arrives as `AppEvent::Presence`; `presence_list` returns the latest of
 each, for a window that loads mid-session. A participant who leaves gets
 `presence: None`.
 
-Chat: `chat_send` (live only, `not_live` otherwise). Text is trimmed, 1 to
-2000 characters, or 160 with `at` (cursor chat). The host stamps the id,
+Chat: `chat_send` (live only, `not_live` otherwise). Text is trimmed, with
+control characters other than line breaks and tabs removed, 1 to 2000
+characters, or 160 with `at` (cursor chat); `bad_args` otherwise, and for
+an `at` that is not a number or a `level_id` that is not an id. The host
+stamps the id,
 author, color and time, appends the message to `<project>/chat.jsonl` on the
 host (one JSON object per line, best effort) and sends `AppEvent::Chat` to
 every window, the sender's included. `chat_list` returns the last 500 of
@@ -577,7 +612,7 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | `chat_list` | | `ChatMessage[]` | the open project's chat, oldest first, last 500 |
 | `window_reply` | `id`, `reply?`, `error?` | `null` | the window's answer to a `WindowRequest` |
 
-External changes: after every commit, undo, redo, open, create, close, delete and restore, `AppService::watch_changes()` fires `{revision, project_id, seq}`. The desktop shell forwards it as the Tauri event `doc_changed {revision}`; the dev bridge serves `/mcp` on its port and the UI polls `doc_revision`. The frontend subscribes with `onDocChanged` (`src/contract/ipc.ts`): `App.tsx` switches hub to editor, `EditorShell` refetches state. Full MCP tool list: `docs/MCP.md`.
+External changes: after every commit, undo, redo, open, create, close, delete and restore, a rename of the open project, and every document a live session guest receives, `AppService::watch_changes()` fires `{revision, project_id, seq}`. The desktop shell forwards it as the Tauri event `doc_changed {revision}`; the dev bridge serves `/mcp` on its port and the UI polls `doc_revision`. The frontend subscribes with `onDocChanged` (`src/contract/ipc.ts`): `App.tsx` switches hub to editor, `EditorShell` refetches state. Full MCP tool list: `docs/MCP.md`.
 
 Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (no address answered), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request). An AI edit outside its scope is `invalid` with a message that starts with `out_of_scope:`.
 
