@@ -3,7 +3,7 @@
   grid-template-columns: 300px minmax(0, 1fr);
   height: 100%;
   background: var(--surface-2);
-  animation: ui-scene-in var(--dur-scene) var(--ease-out);
+  animation: global(ui-scene-in) var(--dur-scene) var(--ease-out);
 }
 
 /* brand panel */
@@ -189,7 +189,7 @@
 
 /* First-appearance stagger, capped at 8 cards (index >= 8 gets no class). */
 .cardRise {
-  animation: ui-rise-in var(--dur-base) var(--ease-out) both;
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out) both;
   animation-delay: calc(var(--i, 0) * 30ms);
 }
 
