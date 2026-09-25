@@ -5,7 +5,9 @@
 //! - the MCP server on 127.0.0.1, so Claude Code and other MCP clients can
 //!   drive the open project (docs/MCP.md),
 //! - a forwarder that turns every document change into the Tauri event
-//!   `doc_changed`, so the window refreshes after an edit it did not make.
+//!   `doc_changed`, so the window refreshes after an edit it did not make,
+//!   and every app event (live session, presence, chat, window requests)
+//!   into the Tauri event `app_event`.
 
 use guhit_app::AppService;
 use guhit_model::IpcError;
@@ -30,6 +32,23 @@ fn forward_changes(handle: tauri::AppHandle, service: &AppService) {
         while changes.changed().await.is_ok() {
             let revision = changes.borrow_and_update().revision;
             let _ = handle.emit_to("main", "doc_changed", serde_json::json!({ "revision": revision }));
+        }
+    });
+}
+
+/// Forward every app event to the window as `app_event`. A receiver that
+/// falls behind skips what it missed; one that is closed ends the loop.
+fn forward_events(handle: tauri::AppHandle, service: &AppService) {
+    let mut events = service.events();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match events.recv().await {
+                Ok(event) => {
+                    let _ = handle.emit_to("main", "app_event", event);
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
         }
     });
 }
@@ -67,6 +86,7 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let service = AppService::new(data_dir.clone());
             forward_changes(app.handle().clone(), &service);
+            forward_events(app.handle().clone(), &service);
             start_mcp(service.clone(), data_dir);
             app.manage(service);
             Ok(())

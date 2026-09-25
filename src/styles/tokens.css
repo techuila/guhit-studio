@@ -50,6 +50,17 @@
   --pipe-conduit: #d49a1a;
   --pipe-refrigerant: #b0428f;
   --pipe-condensate: #6c8fb3;
+  /* live session participants (Participant::color indexes these). Dark
+     enough for white labels; no teal (selection) and no purple (AI). */
+  --peer-0: #c92a2a;
+  --peer-1: #1864ab;
+  --peer-2: #2b8a3e;
+  --peer-3: #c2410c;
+  --peer-4: #c2255c;
+  --peer-5: #7a5c00;
+  --peer-6: #3b5bdb;
+  --peer-7: #495057;
+  --peer-ink: #ffffff;
 
   /* type */
   --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;

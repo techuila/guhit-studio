@@ -9,8 +9,16 @@ import type {
   AiResolveResult,
   AiSettings,
   AiTurn,
+  AppEvent,
   ApplyResult,
   Camera,
+  ChatMessage,
+  LiveStatus,
+  Point,
+  Presence,
+  PresenceEntry,
+  Profile,
+  WindowReply,
   DwgConverterStatus,
   ImportInspection,
   ImportOptions,
@@ -109,6 +117,64 @@ export function onDocChanged(handler: (revision: number) => void): () => void {
   return () => window.clearInterval(id);
 }
 
+type AppEventHandler = (event: AppEvent) => void;
+const appEventHandlers = new Set<AppEventHandler>();
+let appEventStop: (() => void) | null = null;
+
+function openAppEvents(): () => void {
+  const deliver = (event: AppEvent) => {
+    for (const h of [...appEventHandlers]) {
+      try {
+        h(event);
+      } catch (e) {
+        console.error("app_event handler failed", e);
+      }
+    }
+  };
+  if (isTauri) {
+    let stop: (() => void) | null = null;
+    let cancelled = false;
+    void import("@tauri-apps/api/event").then(({ listen }) =>
+      listen<AppEvent>("app_event", (e) => deliver(e.payload)).then((un) => {
+        if (cancelled) un();
+        else stop = un;
+      }),
+    );
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }
+  // Dev bridge: server-sent events. EventSource reconnects by itself.
+  const source = new EventSource(`${BRIDGE_URL}/events`);
+  source.onmessage = (m) => {
+    try {
+      deliver(JSON.parse(m.data as string) as AppEvent);
+    } catch {
+      // not an event we understand
+    }
+  };
+  return () => source.close();
+}
+
+/**
+ * Subscribe to what the backend pushes to the window (docs/CONTRACT.md,
+ * "Live sessions" and "Window requests"): live session changes, other
+ * people's presence, chat messages and window requests. One connection is
+ * shared by every subscriber. Returns an unsubscribe function.
+ */
+export function onAppEvent(handler: AppEventHandler): () => void {
+  appEventHandlers.add(handler);
+  if (!appEventStop) appEventStop = openAppEvents();
+  return () => {
+    appEventHandlers.delete(handler);
+    if (appEventHandlers.size === 0 && appEventStop) {
+      appEventStop();
+      appEventStop = null;
+    }
+  };
+}
+
 export type FileSource = { path: string } | { file_name: string; data: string };
 
 export const ipc = {
@@ -129,8 +195,9 @@ export const ipc = {
   docState: () => call<DocState | null>("doc_state"),
   docApply: (command: Command) => call<ApplyResult>("doc_apply", { command }),
   docPreview: (command: Command) => call<ApplyResult>("doc_preview", { command }),
-  docUndo: () => call<DocState>("doc_undo"),
-  docRedo: () => call<DocState>("doc_redo"),
+  /** In a live session, undoing someone else's step fails with `other_author` unless `force`. */
+  docUndo: (force = false) => call<DocState>("doc_undo", { force }),
+  docRedo: (force = false) => call<DocState>("doc_redo", { force }),
   docQuery: (query: Query) => call<unknown>("doc_query", { query }),
 
   // versions
@@ -210,4 +277,35 @@ export const ipc = {
   aiChat: (request: AiRequest) => call<AiTurn>("ai_chat", { request }),
   aiResolve: (proposalId: string, accept: boolean) =>
     call<AiResolveResult>("ai_resolve", { proposal_id: proposalId, accept }),
+
+  // presence: this window's pointer, selection, cursor chat and AI scope.
+  // MCP `get_selection` reads it; a live session sends it to the others.
+  presenceSet: (presence: Presence) => call<null>("presence_set", { presence }),
+  /** Everyone else's latest presence in the live session. */
+  presenceList: () => call<PresenceEntry[]>("presence_list"),
+
+  // live sessions (docs/CONTRACT.md, "Live sessions")
+  profileGet: () => call<Profile>("profile_get"),
+  /** 1 to 40 characters. */
+  profileSet: (name: string) => call<Profile>("profile_set", { name }),
+  liveStatus: () => call<LiveStatus>("live_status"),
+  /** Shares the open project. Needs a profile name. */
+  liveHost: (port: number | null = null) => call<LiveStatus>("live_host", { port }),
+  /** Opens the project an invite shares. Needs a profile name. */
+  liveJoin: (invite: string) => call<DocState>("live_join", { invite }),
+  /** Host: ends the session for everyone. Guest: leaves it; the window goes to the hub. */
+  liveLeave: () => call<LiveStatus>("live_leave"),
+  /** Host only. */
+  liveRemove: (participantId: string) => call<LiveStatus>("live_remove", { participant_id: participantId }),
+  /** Guest: a copy of the shared project in this computer's projects, with a new id. */
+  liveSaveCopy: () => call<ProjectMeta>("live_save_copy"),
+  /** Live session only. `at` and `levelId` place a cursor chat message on the plan. */
+  chatSend: (text: string, at: Point | null = null, levelId: string | null = null) =>
+    call<ChatMessage>("chat_send", { text, at, level_id: levelId }),
+  /** The open project's chat, oldest first. */
+  chatList: () => call<ChatMessage[]>("chat_list"),
+
+  /** The window's answer to a `WindowRequest` (docs/CONTRACT.md, "Window requests"). */
+  windowReply: (id: string, reply: WindowReply | null, error: IpcError | null) =>
+    call<null>("window_reply", { id, reply, error }),
 };

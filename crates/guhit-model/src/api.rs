@@ -6,6 +6,7 @@ use ts_rs::TS;
 
 use crate::command::Command;
 use crate::derived::*;
+use crate::live::*;
 use crate::model::*;
 
 /// Full document state. Sent to the frontend after every change. Projects are
@@ -21,6 +22,14 @@ pub struct DocState {
     pub can_redo: bool,
     pub undo_label: Option<String>,
     pub redo_label: Option<String>,
+    /// Who made the step an undo would take back: a live session
+    /// participant id. None outside a live session, and for steps made on the
+    /// host before the session started.
+    #[serde(default)]
+    pub undo_by: Option<Id>,
+    /// Who made the step a redo would bring back.
+    #[serde(default)]
+    pub redo_by: Option<Id>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
@@ -47,7 +56,12 @@ pub struct ApplyResult {
 #[ts(export)]
 pub struct IpcError {
     /// Machine code: "not_found", "invalid", "no_document", "stale",
-    /// "io", "ai_not_configured", "ai_failed", "unknown_command", "bad_args".
+    /// "io", "ai_not_configured", "ai_failed", "unknown_command", "bad_args",
+    /// "forbidden", "out_of_scope" (an AI edit reached outside the selection
+    /// it was limited to), "other_author" (undo or redo of someone else's
+    /// step in a live session without `force`), "not_live", "host_only",
+    /// "live_refused", "live_unreachable", "live_pin" (the host's certificate
+    /// does not match the invite), "live_lost", "no_window".
     pub code: String,
     pub message: String,
     pub element_ids: Vec<Id>,
@@ -295,6 +309,29 @@ pub struct AiRequest {
     pub active_level_id: Option<Id>,
     /// Prior turns of this conversation, oldest first.
     pub history: Vec<AiMessage>,
+    /// Limits every edit of this turn to the selection (DECISIONS D30). None:
+    /// the copilot may edit anything the user asks for.
+    #[serde(default)]
+    pub scope: Option<EditScope>,
+}
+
+/// Limits an AI edit to part of the plan (DECISIONS D30). The engine checks
+/// every command the AI stages or commits against it (`guhit_core::scope`)
+/// and refuses one that reaches outside with the code `out_of_scope`, naming
+/// the element. The copilot and MCP clients are held to it alike.
+///
+/// What the selection reaches is derived, never stored: a room reaches its
+/// bounding walls, their doors and windows, and what stands inside it; a
+/// wall reaches its doors and windows; any other element reaches itself. New
+/// elements must land inside the area of the selection on its level.
+/// Project-wide changes (roof, levels, layers, settings) are outside every
+/// scope. Changes the engine makes as a consequence (connected walls
+/// stretching, dimensions following, links removed) are allowed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct EditScope {
+    /// The selected elements. At least one.
+    pub ids: Vec<Id>,
 }
 
 /// A change the copilot wants to make. Nothing is committed until the user
@@ -468,4 +505,95 @@ pub struct RenderAiResult {
     pub record: RenderRecord,
     /// Seconds the provider took.
     pub seconds: f64,
+}
+
+// ------------------------------------------------------------- app events
+
+/// Pushed to the window: the Tauri event `app_event` in the desktop app,
+/// `GET /events` (server-sent events) on the dev bridge. Document changes keep
+/// their own `doc_changed` event.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export)]
+pub enum AppEvent {
+    /// The live session changed: it started or ended, someone joined or
+    /// left, the connection dropped or came back.
+    Live { status: LiveStatus },
+    /// Someone else's pointer, selection, level or cursor chat changed. None:
+    /// they left, or their presence is gone.
+    Presence {
+        participant_id: Id,
+        presence: Option<Presence>,
+    },
+    /// A chat message was sent in the live session, by anyone, this computer
+    /// included.
+    Chat { message: ChatMessage },
+    /// The backend needs the window to do something only the window can:
+    /// render or capture. Answer with `window_reply`.
+    WindowRequest { request: WindowRequest },
+}
+
+// ---------------------------------------------------------- window requests
+
+/// A task for the window, because the 3D renderer and the plan canvas live
+/// there (DECISIONS D31). MCP render and capture tools use it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct WindowRequest {
+    pub id: Id,
+    pub task: WindowTask,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export)]
+pub enum WindowTask {
+    /// Render with the path tracer and save every image to Visuals, as the
+    /// Render button does. `views`: camera ids of saved views, rendered one
+    /// after the other; empty renders the current 3D view.
+    Render {
+        views: Vec<Id>,
+        quality: TraceQuality,
+        size: RenderSize,
+    },
+    /// Save a capture of the live 3D view (Tier 1), seen from a saved view
+    /// when `camera_id` is set.
+    CaptureView { camera_id: Option<Id> },
+    /// Draw the plan of a level (None: the level on screen) on white and
+    /// answer it as `WindowReply::image`. Nothing is saved.
+    CapturePlan { level_id: Option<Id> },
+}
+
+/// Render sizes, as the render panel offers them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum RenderSize {
+    /// 1920 x 1080.
+    Hd,
+    /// 2560 x 1440.
+    Qhd,
+    /// 3840 x 2160.
+    #[serde(rename = "4k")]
+    #[ts(rename = "4k")]
+    Uhd,
+    /// 2048 x 2048.
+    Square,
+}
+
+/// What the window answers to a `WindowRequest`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct WindowReply {
+    /// Records saved to Visuals (render, capture_view), in order.
+    #[serde(default)]
+    pub render_ids: Vec<Id>,
+    /// PNG or JPEG data URL: the plan (capture_plan), or a preview of the
+    /// first saved image at most 1568 px on its long side.
+    #[serde(default)]
+    pub image: Option<String>,
+    /// One sentence for the caller: how the render went, what was saved, or
+    /// why it is an enhanced capture instead of a path traced render.
+    #[serde(default)]
+    pub note: String,
 }

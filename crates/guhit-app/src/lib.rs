@@ -11,10 +11,12 @@
 pub mod ai;
 pub mod files;
 pub mod interop;
+pub mod live;
 pub mod render_ai;
 pub mod renders;
 pub mod snapshots;
 pub mod store;
+pub mod window;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,13 +26,15 @@ use guhit_core::Document;
 use guhit_model::*;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{broadcast, watch, Mutex};
 
 use files::ImageKind;
 
 pub type IpcResult = Result<Value, IpcError>;
 
 const MAX_PROJECT_NAME_CHARS: usize = 120;
+/// App events buffered per receiver before a slow one starts skipping.
+const EVENT_BUFFER: usize = 1024;
 
 /// Mutable session state, shared with the AI module.
 pub struct Session {
@@ -74,6 +78,16 @@ pub struct AppService {
     /// Fires after every commit, undo, redo, open, close and restore.
     changes: Arc<watch::Sender<DocChange>>,
     change_seq: Arc<AtomicU64>,
+    /// Pushed to the window. CONTRACT: the desktop shell emits each one as
+    /// the Tauri event `app_event`, the dev bridge on `GET /events`.
+    events: broadcast::Sender<AppEvent>,
+    /// Requests waiting for the window's answer (DECISIONS D31).
+    pub(crate) window: Arc<window::WindowState>,
+    /// Live session, this window's presence (DECISIONS D29).
+    pub(crate) live: Arc<live::LiveState>,
+    /// True when a live session may listen on every network interface (the
+    /// desktop app). False keeps it on loopback (the dev bridge).
+    pub(crate) lan: bool,
 }
 
 /// Deserialize one named argument out of the args object.
@@ -221,6 +235,7 @@ impl AppService {
 
     fn build(data_dir: PathBuf, external_paths: bool) -> Self {
         let (changes, _) = watch::channel(DocChange { revision: 0, project_id: None, seq: 0 });
+        let (events, _) = broadcast::channel(EVENT_BUFFER);
         Self {
             ai: Arc::new(ai::AiState::for_data_dir(&data_dir)),
             render_ai: Arc::new(render_ai::RenderAiState::for_data_dir(&data_dir)),
@@ -233,7 +248,30 @@ impl AppService {
             external_paths,
             changes: Arc::new(changes),
             change_seq: Arc::new(AtomicU64::new(0)),
+            events,
+            window: Arc::new(window::WindowState::default()),
+            live: Arc::new(live::LiveState::default()),
+            lan: external_paths,
         }
+    }
+
+    /// Everything pushed to the window: live session changes, presence, chat
+    /// and window requests. CONTRACT: the desktop shell forwards each one as
+    /// the Tauri event `app_event`, the dev bridge on `GET /events`. A slow
+    /// receiver skips what it missed (presence is sent again soon anyway).
+    pub fn events(&self) -> broadcast::Receiver<AppEvent> {
+        self.events.subscribe()
+    }
+
+    /// Push one event to every window. Never fails: with no window listening
+    /// the event is dropped.
+    pub fn emit(&self, event: AppEvent) {
+        let _ = self.events.send(event);
+    }
+
+    /// How many transports listen for app events right now.
+    pub fn event_listeners(&self) -> usize {
+        self.events.receiver_count()
     }
 
     /// Watch the open document. The receiver fires after every commit, undo,
@@ -307,6 +345,12 @@ impl AppService {
         }
         if interop::OWNS.contains(&cmd) {
             return interop::handle(self, cmd, args).await;
+        }
+        if live::OWNS.contains(&cmd) {
+            return live::handle(self, cmd, args).await;
+        }
+        if window::OWNS.contains(&cmd) {
+            return window::handle(self, cmd, args).await;
         }
         match cmd {
             // ------------------------------------------------------ library
@@ -458,6 +502,9 @@ impl AppService {
                 to_value(&result)
             }
             "doc_undo" | "doc_redo" => {
+                // In a live session someone else's step needs `force`
+                // (docs/CONTRACT.md, "Live sessions"). Alone, every step is yours.
+                let _force: Option<bool> = arg(&args, "force")?;
                 let mut s = self.session.lock().await;
                 let doc = s.doc.as_mut().ok_or_else(no_document)?;
                 let state = if cmd == "doc_undo" { doc.undo()? } else { doc.redo()? };

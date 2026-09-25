@@ -84,6 +84,9 @@ struct HistoryEntry {
     label: String,
     #[allow(dead_code)]
     origin: Origin,
+    /// Who made the step: a live session participant id (DECISIONS D29).
+    /// None outside a live session.
+    author: Option<Id>,
     /// For an undo entry: the project before the command.
     /// For a redo entry: the project after it.
     project: Project,
@@ -145,6 +148,8 @@ impl Document {
             can_redo: !self.redo.is_empty(),
             undo_label: self.undo.last().map(|h| h.label.clone()),
             redo_label: self.redo.last().map(|h| h.label.clone()),
+            undo_by: self.undo.last().and_then(|h| h.author.clone()),
+            redo_by: self.redo.last().and_then(|h| h.author.clone()),
         }
     }
 
@@ -168,6 +173,18 @@ impl Document {
     /// Validate and commit a command as one undo step.
     /// On error the document is unchanged.
     pub fn apply(&mut self, command: Command, origin: Origin) -> Result<ApplyResult, CoreError> {
+        self.apply_as(command, origin, None)
+    }
+
+    /// `apply`, recording who made the step: a live session participant id
+    /// (DECISIONS D29). `DocState::undo_by` reports it while the step is on
+    /// top of the undo stack, and `redo_by` once it is undone.
+    pub fn apply_as(
+        &mut self,
+        command: Command,
+        origin: Origin,
+        author: Option<Id>,
+    ) -> Result<ApplyResult, CoreError> {
         let mut next = self.project.clone();
         let outcome = exec::execute(&mut next, &command)?;
         let diff = diff_projects(&self.project, &next, &outcome);
@@ -178,6 +195,7 @@ impl Document {
         self.undo.push(HistoryEntry {
             label: outcome.label,
             origin,
+            author,
             project: before,
         });
         if self.undo.len() > MAX_HISTORY {
@@ -207,6 +225,8 @@ impl Document {
                 can_redo: false,
                 undo_label: Some(outcome.label),
                 redo_label: None,
+                undo_by: None,
+                redo_by: None,
             },
             diff,
         })
@@ -218,6 +238,7 @@ impl Document {
         self.redo.push(HistoryEntry {
             label: entry.label,
             origin: entry.origin,
+            author: entry.author,
             project: current,
         });
         self.derived = compute_derived(&self.project);
@@ -231,6 +252,7 @@ impl Document {
         self.undo.push(HistoryEntry {
             label: entry.label,
             origin: entry.origin,
+            author: entry.author,
             project: current,
         });
         self.derived = compute_derived(&self.project);

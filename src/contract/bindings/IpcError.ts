@@ -6,6 +6,11 @@
 export type IpcError = { 
 /**
  * Machine code: "not_found", "invalid", "no_document", "stale",
- * "io", "ai_not_configured", "ai_failed", "unknown_command", "bad_args".
+ * "io", "ai_not_configured", "ai_failed", "unknown_command", "bad_args",
+ * "forbidden", "out_of_scope" (an AI edit reached outside the selection
+ * it was limited to), "other_author" (undo or redo of someone else's
+ * step in a live session without `force`), "not_live", "host_only",
+ * "live_refused", "live_unreachable", "live_pin" (the host's certificate
+ * does not match the invite), "live_lost", "no_window".
  */
 code: string, message: string, element_ids: Array<string>, };
