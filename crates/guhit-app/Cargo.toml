@@ -13,7 +13,9 @@ guhit-import.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { version = "1", features = ["sync", "fs", "rt", "macros", "time"] }
+# tokio: "net" and "io-util" for live sessions (the TCP listener, guest
+# connections and length-prefixed frames).
+tokio = { version = "1", features = ["sync", "fs", "rt", "macros", "time", "net", "io-util"] }
 
 # --- backend agent deps below this line ---
 # base64: PNG/JPEG data URLs cross IPC and are stored as files.
@@ -21,6 +23,18 @@ base64 = "0.22"
 # zip: the `.guhit` project bundle. Pure Rust deflate only, so a Windows build
 # needs no C toolchain.
 zip = { version = "1.1", default-features = false, features = ["deflate"] }
+
+# --- live session deps (DECISIONS D29) ---
+# tokio-rustls: TLS 1.3 over the live session's TCP connections, on the same
+# rustls 0.23 as below. Ring provider only: no aws-lc, which needs cmake and
+# NASM to build on Windows.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+# rcgen: the self-signed certificate made for each session (ECDSA P-256). Ring
+# backend, no aws-lc, no PEM (the certificate never leaves memory).
+rcgen = { version = "0.14", default-features = false, features = ["ring"] }
+# ring: already in the tree through rustls. Random session secrets, the SHA-256
+# certificate pin and the constant-time secret check.
+ring = "0.17"
 
 # --- ai agent deps below this line ---
 # reqwest: HTTPS client for the Claude Messages API. rustls with the ring

@@ -6,6 +6,10 @@
 //! the MCP tool `get_selection` reads with or without a session, and the
 //! display name (`profile_get`, `profile_set`).
 
+pub mod invite;
+pub mod tls;
+pub mod wire;
+
 use std::path::{Path, PathBuf};
 
 use guhit_model::*;
