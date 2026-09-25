@@ -1,20 +1,26 @@
 // Contextual inspector. Shows only what is relevant to the selection:
-// nothing selected -> project, level, roof, layers, review; one element ->
-// its fields; several -> shared actions.
-import { useMemo } from "react";
-import type { Command, DocState, Element, Issue, Layer, LayerKey, Level, PaperSize, ProjectSettings, Roof } from "../contract/bindings";
+// nothing selected -> project, review, schedules, site, level, roof, layers;
+// one element -> its fields; several -> shared actions.
+import { useEffect, useMemo, useRef } from "react";
+import type { Command, DocState, Element, Layer, LayerKey, PaperSize, ProjectSettings, Roof, Site } from "../contract/bindings";
 import { bus } from "../state/bus";
 import { useApp, useVisibleDoc } from "../state/store";
 import { MaterialPicker } from "../ui/MaterialPicker";
 import { Button, Field, IconButton, NumberField, Section, Segmented, Select, TextField, cx } from "../ui/controls";
-import { Icon, type IconName } from "../ui/icons";
+import { Icon } from "../ui/icons";
 import { formatArea } from "../ui/units";
-import { useListPresence } from "../ui/useListPresence";
+import { DevicesMultiFields } from "./DeviceFields";
+import { catalogItem, isDevice, type AssetEl } from "./devices";
 import { ElementFields, elementTitle } from "./ElementFields";
-import { PipesMultiFields, PlumbingSection } from "./PipeSections";
-import { ROOF_KINDS, deleteSelection, walkTo } from "./actions";
-import { EMPTY_NETWORK, PIPE_COLOR, isPipeIssue, isPipeLayer, lengthBySystem, orderIssues } from "./pipes";
-import { useProjectName, useSection } from "./shellStore";
+import { LevelsSection } from "./LevelsSection";
+import { PipesMultiFields, PlumbingSection, useReveal } from "./PipeSections";
+import { ReviewSection } from "./ReviewSection";
+import { SchedulesSection } from "./SchedulesSection";
+import { ROOF_KINDS, deleteSelection } from "./actions";
+import { EMPTY_NETWORK, SERVICE_LAYER_COLOR, SERVICE_LAYER_ORDER, isServiceLayer, lengthByLayer } from "./pipes";
+import { hasScheduledDevices } from "./schedules";
+import { CUSTOM_SITE, SITE_PRESETS, editSite, presetByKey, siteFromPreset, siteLabel, siteOf, utcLabel } from "./site";
+import { isReviewShown, useProjectName, useSection, useShell } from "./shellStore";
 import s from "./Inspector.module.css";
 
 const dispatch = (command: Command) => void useApp.getState().dispatch(command);
@@ -43,6 +49,9 @@ const LAYER_LABEL: Record<LayerKey, string> = {
   hot_water: "Hot water",
   drainage: "Drainage",
   vent: "Vent",
+  storm: "Storm drainage",
+  electrical: "Electrical",
+  aircon: "Aircon",
 };
 
 function ProjectSection({ doc }: { doc: DocState }) {
@@ -105,39 +114,49 @@ function DrawingSection({ doc }: { doc: DocState }) {
       <Field label="Grid spacing">
         <NumberField label="Grid spacing" kind="length" unit={unit} min={10} max={5000} value={st.grid_mm} onCommit={(v) => set({ grid_mm: v })} />
       </Field>
-      <Field label="North angle" hint="Rotation of true north from the top of the sheet, counter-clockwise">
-        <NumberField label="North angle" suffix="deg" min={-360} max={360} step={5} value={st.north_angle_deg} onCommit={(v) => set({ north_angle_deg: v })} />
-        <Icon name="north" size={16} className={s.north} style={{ transform: `rotate(${-st.north_angle_deg}deg)` }} />
-      </Field>
     </Section>
   );
 }
 
-function LevelSection({ doc }: { doc: DocState }) {
-  const [open, toggle] = useSection("level", true);
-  const activeLevelId = useApp((st) => st.activeLevelId);
-  const levels = doc.project.levels;
-  const level = levels.find((l) => l.id === activeLevelId) ?? levels[0];
-  if (!level) return null;
-  const unit = doc.project.settings.display_unit;
-  const set = (patch: Partial<Level>) => dispatch({ type: "update_level", level: { ...level, ...patch } });
+const CITY_OPTIONS = [...SITE_PRESETS.map((p) => ({ value: p.key, label: p.label })), { value: CUSTOM_SITE, label: "Custom" }];
+
+/** Where the house stands and which way is north, for the sun (docs/CONTRACT.md, "Sun and light"). */
+function SiteSection({ doc }: { doc: DocState }) {
+  const [open, toggle] = useSection("site", false);
+  const ref = useRef<HTMLDivElement>(null);
+  const flash = useReveal("site", ref);
+  const st = doc.project.settings;
+  const site = siteOf(st);
+  const set = (patch: Partial<ProjectSettings>) => dispatch({ type: "set_project_settings", settings: { ...st, ...patch } });
+  const setSite = (next: Site) => set({ site: next });
   return (
-    <Section title="Level" icon="level" open={open} onToggle={toggle}>
-      {levels.length > 1 ? (
-        <Field label="Working on">
-          <Select label="Active level" value={level.id} onChange={(id) => useApp.getState().setActiveLevel(id)} options={levels.map((l) => ({ value: l.id, label: l.name }))} />
+    <div ref={ref} className={cx(s.reveal, flash && s.revealFlash)}>
+      <Section title="Site" icon="pin" open={open} onToggle={toggle} aside={<span className={s.sectionAside}>{siteLabel(site)}</span>}>
+        <Field label="City" hint="Sets the latitude, the longitude and Philippine time">
+          <Select
+            label="City"
+            value={presetByKey(site.city) ? site.city : CUSTOM_SITE}
+            options={CITY_OPTIONS}
+            onChange={(key) => setSite(siteFromPreset(key) ?? { ...site, city: CUSTOM_SITE })}
+          />
         </Field>
-      ) : null}
-      <Field label="Name">
-        <TextField label="Level name" value={level.name} required onCommit={(v) => set({ name: v })} />
-      </Field>
-      <Field label="Floor height" hint="Floor to floor. Walls without their own height use this.">
-        <NumberField label="Floor to floor height" kind="length" unit={unit} min={1800} max={12000} step={50} value={level.height_mm} onCommit={(v) => set({ height_mm: v })} />
-      </Field>
-      <Field label="Elevation" hint="Height of this floor above the ground reference">
-        <NumberField label="Elevation" kind="length" unit={unit} step={50} value={level.elevation_mm} onCommit={(v) => set({ elevation_mm: v })} />
-      </Field>
-    </Section>
+        <Field label="Latitude" hint="Degrees, north positive">
+          <NumberField label="Latitude" suffix="°N" min={-90} max={90} step={0.1} decimals={4} value={site.latitude_deg} onCommit={(v) => setSite(editSite(site, { latitude_deg: v }))} />
+        </Field>
+        <Field label="Longitude" hint="Degrees, east positive">
+          <NumberField label="Longitude" suffix="°E" min={-180} max={180} step={0.1} decimals={4} value={site.longitude_deg} onCommit={(v) => setSite(editSite(site, { longitude_deg: v }))} />
+        </Field>
+        <Field label="UTC offset" hint="Hours from UTC. Philippine time is +8 all year, with no daylight saving">
+          <NumberField label="UTC offset in hours" suffix="h" min={-12} max={14} step={0.5} decimals={2} value={site.utc_offset_min / 60} onCommit={(h) => setSite(editSite(site, { utc_offset_min: Math.round(h * 60) }))} />
+          <span className={s.fieldAfter}>{utcLabel(site.utc_offset_min)}</span>
+        </Field>
+        <Field label="North angle" hint="Rotation of true north from the top of the sheet, counter-clockwise">
+          <NumberField label="North angle" suffix="deg" min={-360} max={360} step={5} value={st.north_angle_deg} onCommit={(v) => set({ north_angle_deg: v })} />
+          <Icon name="north" size={16} className={s.north} style={{ transform: `rotate(${-st.north_angle_deg}deg)` }} />
+        </Field>
+        <p className={s.note}>Places the sun in the 3D view, renders and shadow studies. City presets are built in; nothing is looked up online.</p>
+      </Section>
+    </div>
   );
 }
 
@@ -218,12 +237,27 @@ function LayerRow({ layer, swatch, meta }: { layer: Layer; swatch?: string; meta
   );
 }
 
+/** Objects drawn on a service layer: lights and electrical devices on electrical, units on aircon. */
+function objectsOnLayer(doc: DocState, key: LayerKey): number {
+  if (key !== "electrical" && key !== "aircon") return 0;
+  return doc.project.elements.filter(
+    (e) => e.kind === "asset" && (key === "aircon" ? e.category === "aircon" : e.category === "electrical" || e.category === "lighting"),
+  ).length;
+}
+
 function LayersSection({ doc }: { doc: DocState }) {
   const [open, toggle] = useSection("layers", false);
   const hidden = doc.project.layers.filter((l) => !l.visible).length;
-  const building = doc.project.layers.filter((l) => !isPipeLayer(l.key));
-  const pipeLayers = doc.project.layers.filter((l) => isPipeLayer(l.key));
-  const lengths = lengthBySystem((doc.derived.pipes ?? EMPTY_NETWORK).takeoff);
+  const building = doc.project.layers.filter((l) => !isServiceLayer(l.key));
+  // Services in display order: plumbing, storm, electrical, aircon.
+  const services = SERVICE_LAYER_ORDER.map((key) => doc.project.layers.find((l) => l.key === key)).filter((l): l is Layer => l !== undefined);
+  const lengths = lengthByLayer((doc.derived.pipes ?? EMPTY_NETWORK).takeoff);
+  const meta = (key: LayerKey) => {
+    const m = lengths[key] ?? 0;
+    const n = objectsOnLayer(doc, key);
+    const parts = [m > 0 ? `${m.toFixed(1)} m` : null, n > 0 ? `${n} obj` : null].filter(Boolean);
+    return parts.length > 0 ? parts.join(", ") : null;
+  };
   return (
     <Section title="Layers" icon="layers" open={open} onToggle={toggle} aside={hidden > 0 ? <span className={s.sectionAside}>{hidden} hidden</span> : null}>
       <ul className={s.layers}>
@@ -231,14 +265,13 @@ function LayersSection({ doc }: { doc: DocState }) {
           <LayerRow key={layer.key} layer={layer} />
         ))}
       </ul>
-      {pipeLayers.length > 0 ? (
+      {services.length > 0 ? (
         <>
-          <div className={s.layerSubhead}>Pipes</div>
+          <div className={s.layerSubhead}>Services</div>
           <ul className={s.layers}>
-            {pipeLayers.map((layer) => {
-              const system = layer.key as keyof typeof lengths;
-              return <LayerRow key={layer.key} layer={layer} swatch={PIPE_COLOR[system]} meta={lengths[system] > 0 ? `${lengths[system].toFixed(2)} m` : null} />;
-            })}
+            {services.map((layer) => (
+              <LayerRow key={layer.key} layer={layer} swatch={SERVICE_LAYER_COLOR[layer.key]} meta={meta(layer.key)} />
+            ))}
           </ul>
         </>
       ) : null}
@@ -246,92 +279,23 @@ function LayersSection({ doc }: { doc: DocState }) {
   );
 }
 
-const SEVERITY_ICON: Record<Issue["severity"], IconName> = { info: "info", warning: "warning", error: "warning" };
-
-const issueKey = (issue: Issue) => issue.id;
-
-function ReviewSection({ doc }: { doc: DocState }) {
-  const [open, toggle] = useSection("review", true);
-  const select = useApp((st) => st.select);
-  // Warnings first; the penetration summary is a note, after the list.
-  const { items, notes } = useMemo(() => orderIssues(doc.derived.issues), [doc.derived.issues]);
-  const rows = useListPresence(items, issueKey);
-  const noteRows = useListPresence(notes, issueKey);
-  const known = (issue: Issue) => issue.element_ids.filter((id) => doc.project.elements.some((e) => e.id === id));
-  const focus = (issue: Issue) => {
-    const ids = known(issue);
-    if (ids.length === 0) return;
-    select(ids);
-    bus.emit("focus_elements", ids);
-  };
-  const walk = (issue: Issue) => void walkTo(known(issue), issue.location);
-  return (
-    <Section title="Review" icon="check" count={items.length} open={open} onToggle={toggle}>
-      {items.length === 0 && notes.length === 0 ? <p className={s.note}>Nothing to flag right now.</p> : null}
-      {rows.length > 0 ? (
-        <ul className={s.issues}>
-          {rows.map(({ key, item: issue, entering, leaving }) => (
-            <li key={key} className={cx(s.issueRow, entering && s.issueRowIn, leaving && s.issueRowOut)} inert={leaving}>
-              <div className={s.issueRowInner}>
-                {isPipeIssue(issue) ? (
-                  <div className={cx(s.issue, s.issueStatic, s[`issue_${issue.severity}`])}>
-                    <Icon name={SEVERITY_ICON[issue.severity]} size={15} className={s.issueIcon} />
-                    <div className={s.issueBody}>
-                      <span>{issue.message}</span>
-                      <div className={s.issueActions}>
-                        <Button size="sm" icon="fit" onClick={() => focus(issue)} disabled={known(issue).length === 0}>
-                          Show
-                        </Button>
-                        {issue.location ? (
-                          <Button size="sm" icon="walk" onClick={() => walk(issue)} disabled={known(issue).length === 0}>
-                            Walk to it
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <button type="button" className={cx(s.issue, s[`issue_${issue.severity}`])} onClick={() => focus(issue)} disabled={issue.element_ids.length === 0}>
-                    <Icon name={SEVERITY_ICON[issue.severity]} size={15} className={s.issueIcon} />
-                    <span>{issue.message}</span>
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {noteRows.map(({ key, item: note, entering, leaving }) => (
-        <div key={key} className={cx(s.issueRow, entering && s.issueRowIn, leaving && s.issueRowOut)} inert={leaving}>
-          <div className={s.issueRowInner}>
-            <div className={s.reviewNote}>
-              <Icon name="info" size={15} className={s.issueIcon} />
-              <div className={s.issueBody}>
-                <span>{note.message}</span>
-                <div className={s.issueActions}>
-                  <Button size="sm" icon="fit" onClick={() => focus(note)} disabled={known(note).length === 0}>
-                    Show
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ))}
-      <p className={s.disclaimer}>Suggestions from a design check, for you to judge. This is not a permit, structural, plumbing or building code review.</p>
-    </Section>
-  );
-}
-
-function ProjectInspector({ doc }: { doc: DocState }) {
+/** Nothing selected, or the review's shown objects: `shown` counts those. */
+function ProjectInspector({ doc, shown = 0 }: { doc: DocState; shown?: number }) {
   const t = doc.derived.totals;
+  const catalog = useApp((st) => st.catalog);
+  const scheduled = useMemo(() => hasScheduledDevices(doc, catalog), [doc, catalog]);
   return (
     <>
       <header className={s.head}>
         <div className={s.headText}>
           <strong>Project</strong>
-          <span>Nothing selected</span>
+          <span>{shown > 0 ? `Showing ${shown === 1 ? "1 object" : `${shown} objects`} from the review` : "Nothing selected"}</span>
         </div>
+        {shown > 0 ? (
+          <Button size="sm" className={s.headButton} onClick={() => useShell.getState().setReviewShown(null)}>
+            Edit {shown === 1 ? "it" : "them"}
+          </Button>
+        ) : null}
       </header>
       <div className={s.scroll}>
         <dl className={s.totals}>
@@ -353,10 +317,12 @@ function ProjectInspector({ doc }: { doc: DocState }) {
           </div>
         </dl>
         <ReviewSection doc={doc} />
+        {scheduled ? <SchedulesSection doc={doc} /> : null}
         {doc.project.elements.some((e) => e.kind === "pipe") ? <PlumbingSection doc={doc} /> : null}
         <ProjectSection doc={doc} />
         <DrawingSection doc={doc} />
-        <LevelSection doc={doc} />
+        <SiteSection doc={doc} />
+        <LevelsSection doc={doc} />
         <RoofSection doc={doc} />
         <LayersSection doc={doc} />
       </div>
@@ -383,6 +349,8 @@ const KIND_PLURAL: Record<Element["kind"], [string, string]> = {
 };
 
 function MultiInspector({ doc, picked }: { doc: DocState; picked: Element[] }) {
+  const catalog = useApp((st) => st.catalog);
+  const devices = picked.filter((e): e is AssetEl => e.kind === "asset" && isDevice(e, catalogItem(catalog, e.catalog_key)));
   const counts = useMemo(() => {
     const map = new Map<Element["kind"], number>();
     for (const e of picked) map.set(e.kind, (map.get(e.kind) ?? 0) + 1);
@@ -440,7 +408,8 @@ function MultiInspector({ doc, picked }: { doc: DocState; picked: Element[] }) {
             </Field>
           ) : null}
           {pipes.length > 0 ? <PipesMultiFields pipes={pipes} /> : null}
-          {withMaterial.length === 0 && rooms.length === 0 && pipes.length === 0 ? <p className={s.note}>These items have no shared settings. Select one to edit it.</p> : null}
+          {devices.length > 0 ? <DevicesMultiFields devices={devices} /> : null}
+          {withMaterial.length === 0 && rooms.length === 0 && pipes.length === 0 && devices.length === 0 ? <p className={s.note}>These items have no shared settings. Select one to edit it.</p> : null}
         </div>
         <div className={s.group}>
           <Button variant="danger" icon="trash" onClick={deleteSelection}>
@@ -461,6 +430,12 @@ export function Inspector() {
   const previewing = useApp((st) => st.preview !== null);
   const selection = useApp((st) => st.selection);
   const picked = useMemo(() => (doc ? doc.project.elements.filter((e) => selection.includes(e.id)) : []), [doc, selection]);
+  const reviewShown = useShell((st) => st.reviewShown);
+  const fromReview = isReviewShown(reviewShown, selection);
+  // A selection made anywhere else ends the review's hold on the inspector.
+  useEffect(() => {
+    if (reviewShown && !fromReview) useShell.getState().setReviewShown(null);
+  }, [reviewShown, fromReview]);
 
   if (!doc) return null;
   const head = picked.length === 1 ? elementTitle(picked[0], doc) : null;
@@ -475,8 +450,8 @@ export function Inspector() {
       {/* Read-only while a preview is pending: fields would edit a ghost the
           user has not accepted yet. `inert` also pulls focus and tabbing out. */}
       <div className={s.inspectorBody} inert={previewing}>
-        {picked.length === 0 ? (
-          <ProjectInspector doc={doc} />
+        {picked.length === 0 || fromReview ? (
+          <ProjectInspector doc={doc} shown={fromReview ? picked.length : 0} />
         ) : head ? (
           <>
             <header className={s.head}>

@@ -304,30 +304,6 @@
   height: 2px;
 }
 
-.minimap {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  width: 208px;
-  height: 152px;
-  background: color-mix(in srgb, var(--surface) 90%, transparent);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-1);
-  backdrop-filter: blur(6px);
-}
-
-/* The hint sits between the minimap and the lock button. */
-.walkHintRow {
-  position: absolute;
-  left: 232px;
-  right: 140px;
-  bottom: 14px;
-  display: flex;
-  justify-content: center;
-  pointer-events: none;
-}
-
 .walkHint {
   padding: 5px 10px;
   border-radius: var(--radius-lg);
@@ -358,25 +334,6 @@
   background: rgba(255, 255, 255, 0.16);
   font: 600 10.5px/16px var(--font-mono);
   text-align: center;
-}
-
-.lockGroup {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-}
-
-@container (max-width: 640px) {
-  .minimap {
-    width: 140px;
-    height: 104px;
-  }
-  .walkHintRow {
-    left: 12px;
-    right: 12px;
-    top: 96px;
-    bottom: auto;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

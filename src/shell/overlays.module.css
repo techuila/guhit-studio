@@ -218,6 +218,15 @@
   border-top: 1px solid var(--line);
 }
 
+.scaleNts {
+  display: flex;
+  align-items: center;
+  min-height: 26px;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  animation: ui-fade-in var(--dur-hover) var(--ease-out);
+}
+
 .exportNote {
   margin: 4px 0;
   color: var(--ink-2);
@@ -490,11 +499,11 @@
 }
 
 /* ------------------------------------------------------------ shortcuts sheet */
-/* Groups flow down two balanced columns, so a long group (Draw) does not
+/* Groups flow down three balanced columns, so a long group (Draw) does not
    leave a gap beside a short one (Toggles). */
 .sheet {
-  columns: 2;
-  column-gap: 28px;
+  columns: 3;
+  column-gap: 26px;
 }
 
 .sheet section {
@@ -509,25 +518,37 @@
   font-weight: 500;
 }
 
+/* One table per group: the key column is as wide as its widest key. */
 .sheet dl {
+  display: table;
+  width: 100%;
   margin: 0;
+  border-collapse: collapse;
 }
 
 .sheet dl div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 25px;
+  display: table-row;
+}
+
+.sheet dt,
+.sheet dd {
+  display: table-cell;
+  height: 25px;
+  padding: 2px 0;
+  vertical-align: middle;
 }
 
 .sheet dt {
-  flex: 0 0 64px;
+  width: 1%;
+  padding-right: 10px;
+  white-space: nowrap;
 }
 
 .sheet dd {
   margin: 0;
   color: var(--ink);
   font-size: var(--text-sm);
+  line-height: 1.35;
 }
 
 .sheet kbd {
@@ -540,4 +561,88 @@
   font-family: var(--font-ui);
   font-size: var(--text-xs);
   white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ export sheets */
+.sheetBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sheetLabel {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+/* Chips that wrap, with one highlight sliding between them. */
+.sheetChips {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sheetChipPill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  border: 1px solid var(--accent);
+  border-radius: 13px;
+  background: var(--accent-soft);
+  pointer-events: none;
+  transition:
+    transform var(--dur-base) var(--ease-in-out),
+    width var(--dur-base) var(--ease-in-out),
+    height var(--dur-base) var(--ease-in-out);
+}
+
+.instant {
+  transition-duration: 0.01ms;
+}
+
+.sheetChip {
+  position: relative;
+  z-index: 1;
+  height: 26px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: default;
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.sheetChip:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.sheetChip:active {
+  transform: scale(var(--press-scale));
+}
+
+.sheetChipOn,
+.sheetChipOn:hover {
+  border-color: transparent;
+  color: var(--accent-strong);
+}
+
+.sheetAbout {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  animation: ui-fade-in var(--dur-hover) var(--ease-out);
 }

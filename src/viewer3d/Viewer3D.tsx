@@ -1,15 +1,22 @@
 // Live 3D view of the model (Tier 1: deterministic, always in sync with the
 // plan). Fills its parent. The three.js work lives in engine/ViewerEngine.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ipc } from "../contract/ipc";
 import { bus } from "../state/bus";
 import { useApp, useVisibleDoc, type ExportScene } from "../state/store";
 import { isModalOpen } from "../ui/Dialog";
-import { usePresence } from "../ui/motion";
 import type { HiddenReason } from "./geom/walkStart";
 import { liveEngineCount, ViewerEngine, type PresetKind } from "./engine/ViewerEngine";
 import { useViewer, type NavMode, type ShellMode } from "./viewerStore";
+import { useWalkSync } from "./walk/useWalkSync";
+import { WalkOverlay } from "./walk/WalkOverlay";
+import { fromViewLight } from "./light/model";
+import { SunControl } from "./light/SunControl";
+import { useLiveView } from "./render/liveView";
+import { RenderButton } from "./render/RenderButton";
+// Loads the render queue, which answers `bus.emit("render", ...)`.
+import "./render/renderQueue";
 import styles from "./Viewer3D.module.css";
 
 const CAPTURE_W = 1920;
@@ -166,7 +173,7 @@ export function Viewer3D() {
   const activeLevelId = useApp((s) => s.activeLevelId);
   const activeCameraId = useApp((s) => s.activeCameraId);
 
-  const { roofVisible, cutaway, shadows, toggleRoof, toggleCutaway, toggleShadows } = useViewer();
+  const { roofVisible, cutaway, shadows, toggleRoof, toggleCutaway } = useViewer();
   const captureFlash = useViewer((s) => s.captureFlash);
   const nav = useViewer((s) => s.nav);
   const shell = useViewer((s) => s.shell);
@@ -238,6 +245,8 @@ export function Viewer3D() {
       camera: engine.currentCamera(viewLabel.current),
     });
     useApp.getState().registerCaptureView(capture);
+    // Renders and the shadow study read the camera and the light from here.
+    useLiveView.getState().register(engine, () => viewLabel.current);
 
     const exportScene: ExportScene = (format) => engine.exportScene(format);
     useApp.getState().registerExportScene(exportScene);
@@ -251,6 +260,8 @@ export function Viewer3D() {
     const offCamera = bus.on("apply_camera", (camera) => {
       viewLabel.current = camera.name || "Saved view";
       setActivePreset(null);
+      // A view saved with its light brings it back: time, sky, exposure, lamps.
+      if (camera.light) useViewer.getState().setLight(fromViewLight(camera.light));
       engine.flyToCamera(camera);
     });
 
@@ -259,6 +270,7 @@ export function Viewer3D() {
       offFocus();
       offCamera();
       if (useApp.getState().captureView === capture) useApp.getState().registerCaptureView(null);
+      useLiveView.getState().unregister(engine);
       if (useApp.getState().exportScene === exportScene) useApp.getState().registerExportScene(null);
       if (useApp.getState().hoverId) useApp.getState().setHover(null);
       engine.dispose();
@@ -271,6 +283,9 @@ export function Viewer3D() {
       }, 0);
     };
   }, []);
+
+  // Walk settings, the wheel's speed, the walker's level and switch clicks (walk/useWalkSync.ts).
+  useWalkSync(engineRef);
 
   // A proposal's removed elements are gone from `doc` (the preview state).
   // Draw them from the committed project so a delete is visible in 3D.
@@ -322,6 +337,7 @@ export function Viewer3D() {
     if (!el || el.kind !== "camera") return;
     viewLabel.current = el.name || "Saved view";
     setActivePreset(null);
+    if (el.light) useViewer.getState().setLight(fromViewLight(el.light));
     engineRef.current?.flyToCamera(el);
   }, [activeCameraId]);
 
@@ -435,9 +451,8 @@ export function Viewer3D() {
           <Toggle id="toggle-cutaway" on={cutaway} onClick={toggleCutaway} title="Cut the walls at 1200 mm to see inside">
             Cutaway
           </Toggle>
-          <Toggle id="toggle-shadows" on={shadows} onClick={toggleShadows} title="Sun shadows">
-            Shadows
-          </Toggle>
+          {/* Sun and light: time, sky, lamps; shadows moved into its popover. */}
+          <SunControl lockedEv={() => engineRef.current?.lightRig().lockedEv() ?? 0} />
         </div>
 
         <div className={styles.group}>
@@ -455,6 +470,7 @@ export function Viewer3D() {
             </svg>
             <span className={styles.label}>Save view</span>
           </button>
+          <RenderButton disabled={!doc || empty} />
         </div>
       </div>
 
@@ -523,102 +539,6 @@ function Segmented<T extends string>(props: {
           <span className={styles.label}>{o.label}</span>
         </button>
       ))}
-    </div>
-  );
-}
-
-/** How long the key hint stays before it fades, and how long after the pointer leaves it. */
-const HINT_SHOW_MS = 4200;
-const HINT_LINGER_MS = 2200;
-
-/**
- * Walk and fly overlay: a minimap of the level, a crosshair, the key hint and
- * a mouse lock button where the browser supports pointer lock.
- */
-function WalkOverlay(props: {
-  open: boolean;
-  nav: NavMode;
-  engineRef: RefObject<ViewerEngine | null>;
-  locked: boolean;
-  lockable: boolean;
-}) {
-  const presence = usePresence(props.open, "base");
-  const [hintOn, setHintOn] = useState(true);
-  const timer = useRef<number | undefined>(undefined);
-  const { engineRef } = props;
-
-  const fadeLater = useCallback((ms: number) => {
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setHintOn(false), ms);
-  }, []);
-
-  // The hint comes back on every entry and on every walk and fly switch.
-  useEffect(() => {
-    if (!props.open) return;
-    setHintOn(true);
-    fadeLater(HINT_SHOW_MS);
-    return () => window.clearTimeout(timer.current);
-  }, [props.open, props.nav, fadeLater]);
-
-  const minimapRef = useCallback(
-    (el: HTMLCanvasElement | null) => {
-      engineRef.current?.setMinimap(el);
-    },
-    [engineRef],
-  );
-
-  if (!presence.mounted) return null;
-  const fly = props.nav === "fly";
-  return (
-    <div className={styles.walkOverlay} data-stage={presence.stage} data-testid="walk-overlay" aria-hidden={!props.open}>
-      <div className={styles.crosshair} aria-hidden="true" />
-      <canvas ref={minimapRef} className={styles.minimap} data-testid="walk-minimap" aria-label="Minimap of this level" role="img" />
-      <div className={styles.walkHintRow}>
-      <div
-        className={styles.walkHint}
-        data-on={hintOn}
-        data-testid="walk-hint"
-        onPointerEnter={() => {
-          window.clearTimeout(timer.current);
-          setHintOn(true);
-        }}
-        onPointerLeave={() => fadeLater(HINT_LINGER_MS)}
-      >
-        {fly ? (
-          <>
-            <kbd>W</kbd>
-            <kbd>A</kbd>
-            <kbd>S</kbd>
-            <kbd>D</kbd> fly · <kbd>E</kbd> up · <kbd>Q</kbd> down · drag to look · <kbd>Shift</kbd> faster · <kbd>F</kbd> walk · <kbd>X</kbd> shell ·{" "}
-            <kbd>Esc</kbd> orbit
-          </>
-        ) : (
-          <>
-            <kbd>W</kbd>
-            <kbd>A</kbd>
-            <kbd>S</kbd>
-            <kbd>D</kbd> walk · drag to look · <kbd>Shift</kbd> run · <kbd>F</kbd> fly · <kbd>X</kbd> shell · <kbd>Esc</kbd> orbit
-          </>
-        )}
-      </div>
-      </div>
-      {props.lockable && (
-        <div className={`${styles.group} ${styles.lockGroup}`}>
-          <button
-            type="button"
-            className={styles.btn}
-            data-active={props.locked}
-            data-testid="walk-lock"
-            title={props.locked ? "Press Esc to free the mouse" : "Lock the mouse to look without dragging"}
-            onClick={() => (props.locked ? engineRef.current?.exitPointerLock() : engineRef.current?.requestPointerLock())}
-          >
-            <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-              <path {...stroke} d="M4.5 7.2h7v6.3h-7zM6 7.2V5.3a2 2 0 0 1 4 0v1.9" />
-            </svg>
-            <span className={styles.labelAlways}>{props.locked ? "Esc to unlock" : "Lock mouse"}</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }

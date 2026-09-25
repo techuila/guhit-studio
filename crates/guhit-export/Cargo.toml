@@ -13,6 +13,9 @@ thiserror.workspace = true
 # SVG to vector PDF. Brings usvg (SVG parsing, text layout) and fontdb
 # (system font discovery) as re-exports, so the versions always match.
 svg2pdf = { version = "0.13", default-features = false, features = ["text"] }
+# Joins the pages of a multi-page PDF (the sheet and its review page).
+# svg2pdf already builds on this exact version; it writes one page per SVG.
+pdf-writer = "0.12"
 
 [dev-dependencies]
 # Rasterize the sheet to PNG for visual checks. Must match svg2pdf's usvg.

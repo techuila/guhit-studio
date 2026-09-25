@@ -4,4 +4,4 @@ import type { ElementKind } from "./ElementKind";
 /**
  * Read-only questions answered from model data, never estimated.
  */
-export type Query = { "type": "project_summary" } | { "type": "room_list" } | { "type": "rooms_without_exterior_window" } | { "type": "describe", ids: Array<string>, } | { "type": "list_elements", kind: ElementKind, } | { "type": "issues" } | { "type": "pipe_takeoff" };
+export type Query = { "type": "project_summary" } | { "type": "room_list" } | { "type": "rooms_without_exterior_window" } | { "type": "describe", ids: Array<string>, } | { "type": "list_elements", kind: ElementKind, } | { "type": "issues" } | { "type": "pipe_takeoff" } | { "type": "schedule" };

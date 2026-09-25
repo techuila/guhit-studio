@@ -19,13 +19,16 @@ import type {
   Underlay,
   Wall,
 } from "../contract/bindings";
+import { PIPE_COLOR_HEX, PIPE_COLOR_VAR, PIPE_SYSTEM_ORDER, pipeFalls } from "../contract/pipes";
 import type { P } from "./geom";
 import { add, angleDeg, dirDeg, dist, lerp, mul, orientedRect, readableDeg, sub, unit } from "./geom";
 import type { DocIndex } from "./model";
-import { ANNOTATION_LINE, dimensionGeometry, elementShape, openingFrame, openingRect, stairOutline, wallOutline } from "./model";
+import { ANNOTATION_LINE, dimensionGeometry, elementShape, openingFrame, openingRect, stairOutline, symbolMmOf, wallOutline } from "./model";
 import type { PipePlan, PipeShape } from "./pipe";
-import { pipePlan, pipeWidthPx, riserRadiusPx } from "./pipe";
+import { lineSetPx, pipeBandHalfPx, pipePlan, pipeRiserRadiusPx, pipeWidthPx } from "./pipe";
 import { drawAssetSymbol } from "./symbols";
+import type { Box } from "./tags";
+import { boxAround } from "./tags";
 import { formatArea, formatLength } from "./typed";
 import type { View } from "./view";
 import { gridSteps, toScreen, toWorld } from "./view";
@@ -48,10 +51,8 @@ export interface Palette {
   ink3: string;
   danger: string;
   warn: string;
-  pipeCold: string;
-  pipeHot: string;
-  pipeDrain: string;
-  pipeVent: string;
+  /** Every service run color, from the tokens in PIPE_COLOR_VAR. */
+  pipes: Record<PipeSystem, string>;
   fontUi: string;
   fontMono: string;
 }
@@ -72,10 +73,7 @@ export const DEFAULT_PALETTE: Palette = {
   ink3: "#7b8896",
   danger: "#c0392b",
   warn: "#c07a12",
-  pipeCold: "#2b7bd0",
-  pipeHot: "#e0563a",
-  pipeDrain: "#9b6a35",
-  pipeVent: "#3a9a5c",
+  pipes: { ...PIPE_COLOR_HEX },
   fontUi: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   fontMono: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace',
 };
@@ -101,10 +99,7 @@ export function readPalette(el: HTMLElement): Palette {
     ink3: v("--ink-3", d.ink3),
     danger: v("--danger", d.danger),
     warn: v("--warn", d.warn),
-    pipeCold: v("--pipe-cold", d.pipeCold),
-    pipeHot: v("--pipe-hot", d.pipeHot),
-    pipeDrain: v("--pipe-drain", d.pipeDrain),
-    pipeVent: v("--pipe-vent", d.pipeVent),
+    pipes: Object.fromEntries(PIPE_SYSTEM_ORDER.map((s) => [s, v(PIPE_COLOR_VAR[s], d.pipes[s])])) as Record<PipeSystem, string>,
     fontUi: v("--font-ui", d.fontUi),
     fontMono: v("--font-mono", d.fontMono),
   };
@@ -142,6 +137,8 @@ export interface RenderContext {
   uiScale: number;
   /** True for capturePlan: no placeholders for things that did not load. */
   forExport?: boolean;
+  /** Switches that share a light with another switch: drawn "S3". */
+  threeWay?: ReadonlySet<string>;
 }
 
 export const LABEL_PX = 12;
@@ -548,7 +545,12 @@ export function drawAsset(rc: RenderContext, a: Asset, style: ElementStyle | nul
   ctx.strokeStyle = style?.color ?? palette.ink2;
   ctx.fillStyle = style?.hollow ? "rgba(255,255,255,0)" : "rgba(255,255,255,0.78)";
   if (style?.dashed) ctx.setLineDash([5 * px, 4 * px]);
-  let label = drawAssetSymbol(ctx, a.catalog_key, a.width_mm, a.depth_mm, px);
+  // Devices draw at the symbol size D of the plan scale; a switch sharing a light reads "S3".
+  let label = drawAssetSymbol(ctx, a.catalog_key, a.width_mm, a.depth_mm, px, {
+    symbolMm: symbolMmOf(rc.index),
+    threeWay: rc.threeWay?.has(a.id) ?? false,
+    font: palette.fontUi,
+  });
   if (label === null) {
     ctx.beginPath();
     ctx.rect(-a.width_mm / 2, -a.depth_mm / 2, a.width_mm, a.depth_mm);
@@ -629,6 +631,49 @@ export function drawDimension(
   ctx.restore();
   ctx.fillText(text, 0, -5 * k);
   ctx.restore();
+}
+
+/**
+ * The screen box of a dimension's text, as `drawDimension` paints it (its
+ * paper backing, rotated with the line). Fall and height tags keep clear of it.
+ */
+export function dimensionTextBox(rc: RenderContext, d: Pick<Dimension, "a" | "b" | "offset_mm" | "text_override">): Box | null {
+  if (dist(d.a, d.b) < 1e-6) return null;
+  const { ctx, palette, view } = rc;
+  const k = rc.uiScale;
+  const g = dimensionGeometry(d.a, d.b, d.offset_mm);
+  const m = toScreen(view, g.mid);
+  const rot = (-readableDeg(angleDeg(g.dir)) * Math.PI) / 180;
+  ctx.save();
+  ctx.font = `${11 * k}px ${palette.fontMono}`;
+  const tw = ctx.measureText(dimensionText(d, rc.unit)).width;
+  ctx.restore();
+  const c = Math.cos(rot);
+  const sn = Math.sin(rot);
+  const corners = [
+    { x: -tw / 2 - 3 * k, y: -15 * k },
+    { x: tw / 2 + 3 * k, y: -15 * k },
+    { x: tw / 2 + 3 * k, y: -3 * k },
+    { x: -tw / 2 - 3 * k, y: -3 * k },
+  ].map((p) => ({ x: m.x + p.x * c - p.y * sn, y: m.y + p.x * sn + p.y * c }));
+  return boxAround(corners);
+}
+
+/** The screen box of a room's name and area, as `drawRoomLabel` paints them. Null when hidden at this zoom. */
+export function roomLabelTextBox(rc: RenderContext, room: Room): Box | null {
+  const { ctx, palette, view } = rc;
+  if (view.scale * 1000 < 4 * rc.uiScale && rc.uiScale === 1) return null;
+  const g = rc.index.roomGeo.get(room.id);
+  const at = toScreen(view, g ? g.label_point : room.seed);
+  const px = LABEL_PX * rc.uiScale;
+  ctx.save();
+  ctx.font = `600 ${px}px ${palette.fontUi}`;
+  const nameW = ctx.measureText(room.name).width;
+  ctx.font = `${px * 0.92}px ${palette.fontMono}`;
+  const areaW = ctx.measureText(g ? formatArea(g.area_mm2) : "open").width;
+  ctx.restore();
+  const w = Math.max(nameW, areaW);
+  return { x: at.x - w / 2, y: at.y - px * 1.2, w, h: px * 2.45 };
 }
 
 export function drawAnnotation(rc: RenderContext, a: Annotation, style: ElementStyle | null): void {
@@ -806,24 +851,20 @@ export function drawReferenceModel(rc: RenderContext, m: ReferenceModel, style: 
 
 // ---------------------------------------------------------------- pipes
 
-/** The system color from the tokens (--pipe-cold, --pipe-hot, --pipe-drain, --pipe-vent). */
+/** The system color from the tokens (PIPE_COLOR_VAR in src/contract/pipes.ts). */
 export function pipeColor(palette: Palette, system: PipeSystem): string {
-  switch (system) {
-    case "cold_water":
-      return palette.pipeCold;
-    case "hot_water":
-      return palette.pipeHot;
-    case "drainage":
-      return palette.pipeDrain;
-    case "vent":
-      return palette.pipeVent;
-  }
+  return palette.pipes[system] ?? PIPE_COLOR_HEX[system];
 }
 
-/** Line pattern per system in CSS pixels: water solid, drainage dashed, vent dash-dot. */
-function pipeDash(system: PipeSystem, k: number): number[] {
-  if (system === "drainage") return [9 * k, 5 * k];
+/**
+ * Line pattern per system in CSS pixels: water and line sets solid, runs that
+ * fall (drainage, storm, condensate) dashed, vent dash-dot, conduit in short
+ * dashes so it never reads as a drain.
+ */
+export function pipeDash(system: PipeSystem, k: number): number[] {
+  if (pipeFalls(system)) return [9 * k, 5 * k];
   if (system === "vent") return [11 * k, 4 * k, 2 * k, 4 * k];
+  if (system === "conduit") return [4 * k, 3 * k];
   return [];
 }
 
@@ -831,12 +872,94 @@ function pipeDash(system: PipeSystem, k: number): number[] {
 const PIPE_DOUBLE_PX = 4;
 
 /**
+ * A polyline moved `d` pixels to its left (screen space, y down), with
+ * mitred corners. The miter is capped so a sharp turn never spikes.
+ */
+export function offsetPolyline(pts: readonly P[], d: number): P[] {
+  const n = pts.length;
+  if (n < 2 || d === 0) return pts.slice();
+  const normals: P[] = [];
+  for (let i = 0; i + 1 < n; i++) {
+    const dx = pts[i + 1].x - pts[i].x;
+    const dy = pts[i + 1].y - pts[i].y;
+    const L = Math.hypot(dx, dy) || 1;
+    normals.push({ x: dy / L, y: -dx / L });
+  }
+  const out: P[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = normals[Math.max(0, i - 1)];
+    const b = normals[Math.min(normals.length - 1, i)];
+    let mx = a.x + b.x;
+    let my = a.y + b.y;
+    const ml = Math.hypot(mx, my);
+    if (ml < 1e-9) {
+      mx = b.x;
+      my = b.y;
+    } else {
+      mx /= ml;
+      my /= ml;
+    }
+    const cos = mx * b.x + my * b.y;
+    const k = Math.min(4, 1 / Math.max(0.25, cos));
+    out.push({ x: pts[i].x + mx * d * k, y: pts[i].y + my * d * k });
+  }
+  return out;
+}
+
+function tracePolylines(ctx: Ctx, runs: readonly (readonly P[])[]): void {
+  ctx.beginPath();
+  for (const run of runs) run.forEach((q, i) => (i === 0 ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y)));
+}
+
+/**
+ * Strokes traced runs as one pipe of width `w`: a hollow outline for removed
+ * elements, edges with a tinted paper core and the patterned centerline when
+ * wide, else a solid patterned line.
+ */
+function strokeRuns(ctx: Ctx, runs: readonly (readonly P[])[], w: number, color: string, paper: string, dash: number[], k: number, alpha: number, hollow: boolean): void {
+  tracePolylines(ctx, runs);
+  ctx.strokeStyle = color;
+  if (hollow) {
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = 1.5 * k;
+    ctx.lineCap = "round";
+    ctx.setLineDash(dash);
+    ctx.stroke();
+  } else if (w > PIPE_DOUBLE_PX * k) {
+    ctx.lineCap = "round";
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.lineWidth = w;
+    ctx.stroke();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = paper;
+    ctx.lineWidth = w - 2 * k;
+    ctx.stroke();
+    ctx.globalAlpha = alpha * 0.16;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = 1.3 * k;
+    ctx.lineCap = dash.length > 0 ? "butt" : "round";
+    ctx.setLineDash(dash);
+    ctx.stroke();
+  } else {
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = w;
+    ctx.lineCap = dash.length > 0 ? "butt" : "round";
+    ctx.setLineDash(dash);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+
+/**
  * A pipe in plan, split the way the exports split it (pipe.ts `pipePlan`):
  * its stretches at its size at this zoom (never thinner than PIPE_MIN_PX) in
- * the system color, drainage dashed with flow arrows pointing from the first
- * point to the last, vent dash-dot. A riser is a circle marked up or down in
- * run order, never a line. A thin paper casing lets a pipe read over walls
- * and breaks the pipe it crosses.
+ * the system color, falling runs dashed with flow arrows pointing from the
+ * first point to the last, vent dash-dot, conduit short dashes. A refrigerant
+ * line set is two lines side by side, gas and liquid, at plan scale. A riser
+ * is a circle marked up or down in run order, never a line. A thin paper
+ * casing lets a pipe read over walls and breaks the pipe it crosses.
  */
 export function drawPipe(rc: RenderContext, pipe: PipeShape, style: ElementStyle | null, parts: "all" | "lines" | "risers" = "all"): void {
   const { ctx, view, palette } = rc;
@@ -848,54 +971,31 @@ export function drawPipe(rc: RenderContext, pipe: PipeShape, style: ElementStyle
   const k = rc.uiScale;
   const color = style?.color ?? pipeColor(palette, pipe.system);
   const alpha = style?.alpha ?? 1;
+  const hollow = !!style?.hollow;
   const w = pipeWidthPx(pipe.diameter_mm, view.scale, k);
   const runs = plan.runs.map((run) => run.map((q) => toScreen(view, q)));
   const dash = style?.dashed ? [6 * k, 4 * k] : pipeDash(pipe.system, k);
   ctx.save();
   ctx.lineJoin = "round";
   if (runs.length > 0) {
-    ctx.beginPath();
-    for (const run of runs) run.forEach((q, i) => (i === 0 ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y)));
-    ctx.strokeStyle = color;
-    if (style?.hollow) {
-      ctx.globalAlpha = alpha;
-      ctx.lineWidth = 1.5 * k;
-      ctx.lineCap = "round";
-      ctx.setLineDash(dash);
-      ctx.stroke();
-    } else if (w > PIPE_DOUBLE_PX * k) {
-      // Edges, a paper core tinted with the system color, then the patterned centerline.
-      ctx.lineCap = "round";
-      ctx.globalAlpha = alpha * 0.85;
-      ctx.lineWidth = w;
-      ctx.stroke();
-      ctx.globalAlpha = alpha;
-      ctx.strokeStyle = palette.paper;
-      ctx.lineWidth = w - 2 * k;
-      ctx.stroke();
-      ctx.globalAlpha = alpha * 0.16;
-      ctx.strokeStyle = color;
-      ctx.stroke();
-      ctx.globalAlpha = alpha;
-      ctx.lineWidth = 1.3 * k;
-      ctx.lineCap = dash.length > 0 ? "butt" : "round";
-      ctx.setLineDash(dash);
-      ctx.stroke();
-    } else {
+    const band = pipeBandHalfPx(pipe, view.scale, k) * 2;
+    if (!hollow) {
+      // The paper casing under the whole band.
+      tracePolylines(ctx, runs);
       ctx.lineCap = "round";
       ctx.globalAlpha = alpha * 0.85;
       ctx.strokeStyle = palette.paper;
-      ctx.lineWidth = w + 2.5 * k;
-      ctx.stroke();
-      ctx.globalAlpha = alpha;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = w;
-      ctx.lineCap = dash.length > 0 ? "butt" : "round";
-      ctx.setLineDash(dash);
+      ctx.lineWidth = band + 2.5 * k;
       ctx.stroke();
     }
-    ctx.setLineDash([]);
-    if (pipe.system === "drainage" && !style?.hollow) for (const run of runs) drawFlowArrows(ctx, run, color, w, k, alpha);
+    if (pipe.system === "refrigerant") {
+      const ls = lineSetPx(pipe.diameter_mm, view.scale, k);
+      strokeRuns(ctx, runs.map((r) => offsetPolyline(r, ls.sep / 2)), ls.gasW, color, palette.paper, dash, k, alpha, hollow);
+      strokeRuns(ctx, runs.map((r) => offsetPolyline(r, -ls.sep / 2)), ls.liquidW, color, palette.paper, dash, k, alpha, hollow);
+    } else {
+      strokeRuns(ctx, runs, w, color, palette.paper, dash, k, alpha, hollow);
+    }
+    if (pipeFalls(pipe.system) && !hollow) for (const run of runs) drawFlowArrows(ctx, run, color, w, k, alpha);
   }
   ctx.restore();
   if (parts === "all") drawPipeRisers(rc, pipe, style, plan);
@@ -905,7 +1005,7 @@ export function drawPipe(rc: RenderContext, pipe: PipeShape, style: ElementStyle
 function drawPipeRisers(rc: RenderContext, pipe: PipeShape, style: ElementStyle | null, plan: PipePlan = pipePlan(pipe.points)): void {
   const k = rc.uiScale;
   const color = style?.color ?? pipeColor(rc.palette, pipe.system);
-  const r = riserRadiusPx(pipeWidthPx(pipe.diameter_mm, rc.view.scale, k), k);
+  const r = pipeRiserRadiusPx(pipe, rc.view.scale, k);
   for (const q of plan.risers) {
     drawRiserMark(rc.ctx, toScreen(rc.view, q.point), r, q.zTo > q.zFrom, color, rc.palette.paper, k, style?.alpha ?? 1, !!style?.hollow);
   }
@@ -1139,7 +1239,7 @@ export function drawHighlight(rc: RenderContext, el: Element, strength: "hover" 
   if (el.kind === "pipe") {
     // A halo along the stretches and a ring around each riser, wider than the pipe itself.
     const plan = pipePlan(el.points);
-    const w = pipeWidthPx(el.diameter_mm, rc.view.scale, rc.uiScale);
+    const w = pipeBandHalfPx(el, rc.view.scale, rc.uiScale) * 2;
     ctx.lineCap = "round";
     ctx.globalAlpha = (sel ? 0.3 : 0.2) * alpha;
     ctx.lineWidth = w + (sel ? 9 : 7);
@@ -1149,7 +1249,7 @@ export function drawHighlight(rc: RenderContext, el: Element, strength: "hover" 
     }
     ctx.globalAlpha = (sel ? 1 : 0.7) * alpha;
     ctx.lineWidth = sel ? 1.8 : 1.3;
-    const r = riserRadiusPx(w, rc.uiScale) + 3;
+    const r = pipeRiserRadiusPx(el, rc.view.scale, rc.uiScale) + 3;
     for (const q of plan.risers) {
       const s = toScreen(rc.view, q.point);
       ctx.beginPath();

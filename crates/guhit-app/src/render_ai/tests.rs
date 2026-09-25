@@ -51,6 +51,7 @@ fn camera() -> Camera {
         position: Vec3 { x: 12000.0, y: -9000.0, z: 6000.0 },
         target: Vec3 { x: 0.0, y: 0.0, z: 1200.0 },
         fov_deg: 45.0,
+        light: None,
     }
 }
 
@@ -444,4 +445,54 @@ async fn the_copilot_settings_are_left_alone() {
     let ai: AiSettings = serde_json::from_value(v).expect("AiSettings");
     assert_eq!(ai.model, "claude-opus-5", "one settings file, two independent keys");
     assert_eq!(rig.settings(json!({})).await.expect("get").model, "flash");
+}
+
+#[tokio::test]
+async fn a_render_keeps_how_it_was_made_and_the_revision_it_started_from() {
+    let r = rig().await;
+    let url = files::encode_data_url(files::ImageKind::Png, &tiny_png());
+    let doc: DocState = serde_json::from_value(r.app.handle("doc_state", json!({})).await.expect("doc_state")).expect("DocState");
+    let started = doc.revision;
+    // The model changes while the render runs.
+    r.app
+        .handle("doc_apply", json!({"command": {"type": "add_level", "name": null, "elevation_mm": null, "height_mm": null}}))
+        .await
+        .expect("a level is added");
+    let now: DocState = serde_json::from_value(r.app.handle("doc_state", json!({})).await.expect("doc_state")).expect("DocState");
+    assert!(now.revision > started);
+    let info = json!({"kind": "path_traced", "width": 1920, "height": 1080, "samples": 384, "seconds": 61.5, "quality": "quick", "gpu": "Apple M5\u{7}"});
+    let v = r
+        .app
+        .handle("render_capture", json!({"camera": camera(), "png": url, "revision": started, "info": info}))
+        .await
+        .expect("render saved");
+    let record: RenderRecord = serde_json::from_value(v).expect("RenderRecord");
+    assert_eq!(record.revision, started);
+    let info = record.info.expect("info");
+    assert_eq!((info.kind, info.width, info.height, info.samples), (RenderKind::PathTraced, 1920, 1080, 384));
+    assert_eq!(info.quality, Some(TraceQuality::Quick));
+    assert_eq!(info.gpu, "Apple M5", "control characters are dropped");
+    // It survives the index.
+    assert_eq!(r.list().await.iter().find(|x| x.id == record.id).and_then(|x| x.info.clone()), Some(info));
+
+    // A plain capture has no info and the current revision.
+    let plain = r.capture(&tiny_png()).await;
+    assert_eq!(plain.info, None);
+
+    // A revision from the future and a zero-sized image are refused.
+    let e = r
+        .app
+        .handle("render_capture", json!({"camera": camera(), "png": url, "revision": started + 1000}))
+        .await
+        .expect_err("future revision");
+    assert_eq!(e.code, "bad_args");
+    let e = r
+        .app
+        .handle(
+            "render_capture",
+            json!({"camera": camera(), "png": url, "info": {"kind": "capture", "width": 0, "height": 10}}),
+        )
+        .await
+        .expect_err("empty size");
+    assert_eq!(e.code, "bad_args");
 }

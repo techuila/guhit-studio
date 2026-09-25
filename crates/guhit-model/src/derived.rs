@@ -21,6 +21,49 @@ pub struct Derived {
     /// Pipe fittings, penetrations and quantities. Empty without pipes.
     #[serde(default)]
     pub pipes: PipeNetwork,
+    /// Object counts per level and room, for fixture tables and device
+    /// schedules. Only objects whose catalog item has a `device` kind or is a
+    /// sanitary, lighting, electrical, aircon or utility item, plus the
+    /// kitchen sink and the washing machine, which count as plumbing fixtures.
+    #[serde(default)]
+    pub schedule: Vec<ScheduleRow>,
+    /// Review marks whose finding the checks no longer produce: resolved.
+    #[serde(default)]
+    pub review_resolved: Vec<ReviewMark>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ScheduleGroup {
+    Plumbing,
+    Electrical,
+    Aircon,
+    Utility,
+}
+
+/// How many of one catalog item stand in one room of one level.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ScheduleRow {
+    pub level_id: Id,
+    /// The room the objects stand in. None when outside every room.
+    pub room_id: Option<Id>,
+    pub group: ScheduleGroup,
+    pub catalog_key: String,
+    /// From the catalog item, when it is a device.
+    pub device: Option<DeviceKind>,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum IssueStatus {
+    #[default]
+    Open,
+    /// Set aside by the designer with a note (`Project::review`).
+    Ignored,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -98,6 +141,12 @@ pub struct Issue {
     /// Plan x and y in mm, z above the floor of the first element's level.
     #[serde(default)]
     pub location: Option<Vec3>,
+    /// Open, or ignored by a review mark. Never "approved".
+    #[serde(default)]
+    pub status: IssueStatus,
+    /// The note of the review mark that ignores it. Empty when open.
+    #[serde(default)]
+    pub note: String,
 }
 
 // ------------------------------------------------------------------ pipes

@@ -91,9 +91,10 @@ impl ServerHandler for GuhitMcp {
                 // Nothing here reaches outside this machine.
                 annotations.open_world_hint = Some(false);
                 if !d.read_only {
-                    // Every edit is one undo step, and `delete_elements` does
-                    // remove work the user may want back.
-                    annotations.destructive_hint = Some(d.name == "delete_elements");
+                    // Every edit is one undo step, and `delete_elements` and
+                    // `delete_level` do remove work the user may want back.
+                    annotations.destructive_hint =
+                        Some(matches!(d.name, "delete_elements" | "delete_level"));
                 }
                 tool.annotations = Some(annotations);
                 tool
@@ -133,7 +134,7 @@ impl ServerHandler for GuhitMcp {
         Ok(no_cache!(ListResourcesResult::with_all_items(vec![
             Resource::new(RESOURCE_CURRENT, "Current project")
                 .with_description(
-                    "Compact JSON summary of the project open in Guhit Studio right now: id, name, revision, totals, rooms with their areas, and open review items. Empty when no project is open.",
+                    "Compact JSON summary of the project open in Guhit Studio right now: id, name, revision, totals, rooms with their areas, and review items with their status. Empty when no project is open.",
                 )
                 .with_mime_type("application/json"),
             Resource::new(RESOURCE_CONVENTIONS, "Guhit conventions")
@@ -222,9 +223,12 @@ async fn current_project(app: &AppService) -> Value {
         "totals": derived.totals,
         "rooms": rooms,
         "review_items": derived.issues.iter().map(|i| json!({
+            "id": i.id,
             "severity": i.severity,
             "code": i.code,
             "message": i.message,
+            "status": i.status,
+            "note": i.note,
         })).collect::<Vec<_>>(),
     })
 }

@@ -29,6 +29,7 @@ import type {
   RenderAiRequest,
   RenderAiResult,
   RenderAiSettings,
+  RenderInfo,
   RenderRecord,
   RenderStyle,
   SnapshotMeta,
@@ -157,9 +158,13 @@ export const ipc = {
   // renders
   renderStyles: () => call<RenderStyle[]>("render_styles"),
   renderList: () => call<RenderRecord[]>("render_list"),
-  /** Saves a deterministic capture of the 3D view (Tier 1). `png` is a data URL. */
-  renderCapture: (camera: Camera, png: string) =>
-    call<RenderRecord>("render_capture", { camera, png }),
+  /**
+   * Saves a model view image (Tier 1): a capture of the 3D view, or a render
+   * of it. `png` is a data URL. A render passes the revision it started from
+   * and how it was made.
+   */
+  renderCapture: (camera: Camera, png: string, opts: { revision?: number; info?: RenderInfo } = {}) =>
+    call<RenderRecord>("render_capture", { camera, png, revision: opts.revision ?? null, info: opts.info ?? null }),
   /** Returns a data URL. */
   renderData: (id: string) => call<string>("render_data", { id }),
   renderDelete: (id: string) => call<null>("render_delete", { id }),

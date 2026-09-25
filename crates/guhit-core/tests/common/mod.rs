@@ -473,6 +473,7 @@ pub fn assert_invariants(state: &DocState) {
     }
 
     assert_pipe_invariants(state);
+    assert_service_invariants(state);
 }
 
 /// Pipes follow the validation rules, and `Derived::pipes` agrees with them.
@@ -490,7 +491,7 @@ pub fn assert_pipe_invariants(state: &DocState) {
         let Element::Pipe(p) = e else { continue };
         pipe_count += 1;
         assert!(p.points.len() >= 2, "pipe {} has one point", p.id);
-        assert!((10.0..=300.0).contains(&p.diameter_mm));
+        assert!((6.0..=300.0).contains(&p.diameter_mm));
         assert!(project.levels.iter().any(|l| l.id == p.level_id));
         for w in p.points.windows(2) {
             let d =
@@ -541,10 +542,138 @@ pub fn assert_pipe_invariants(state: &DocState) {
         assert!((mm - mm.round()).abs() < 1e-6, "row not rounded to the mm");
     }
     for i in &state.derived.issues {
-        let pipe_item = matches!(
-            i.code.as_str(),
-            "pipe_through_column" | "pipe_across_opening" | "pipes_cross" | "drain_slope_low"
-        );
-        assert_eq!(i.location.is_some(), pipe_item, "{} location", i.code);
+        assert_eq!(i.location.is_some(), is_located(&i.code), "{} location", i.code);
+    }
+}
+
+/// Review items that point at one place: every pipe and device item except
+/// the two summaries of a whole run or project.
+pub fn is_located(code: &str) -> bool {
+    matches!(
+        code,
+        "pipe_through_column"
+            | "pipe_across_opening"
+            | "pipes_cross"
+            | "drain_slope_low"
+            | "condensate_slope_low"
+            | "condensate_open_end"
+            | "light_no_switch"
+            | "switch_no_load"
+            | "switch_behind_door"
+            | "aircon_no_outlet"
+            | "lineset_long"
+            | "lineset_rise"
+            | "lineset_short"
+            | "indoor_unit_clearance"
+            | "outdoor_unit_clearance"
+            | "outdoor_unit_unsupported"
+            | "unit_near_tv"
+    )
+}
+
+/// Links, the schedule and review marks agree with the model; levels are
+/// unique and every element stands on one of them.
+pub fn assert_service_invariants(state: &DocState) {
+    let project = &state.project;
+    let derived = &state.derived;
+    assert!(!project.levels.is_empty(), "a project has a level");
+    for (i, l) in project.levels.iter().enumerate() {
+        assert!(!project.levels[..i].iter().any(|o| o.id == l.id), "level id {} twice", l.id);
+        assert!(!l.name.trim().is_empty());
+    }
+    for e in &project.elements {
+        let v = serde_json::to_value(e).unwrap();
+        if let Some(level) = v.get("level_id").and_then(|l| l.as_str()) {
+            assert!(
+                project.levels.iter().any(|l| l.id == level),
+                "{} stands on a level that is gone",
+                e.id()
+            );
+        }
+    }
+    let objects: Vec<&Asset> = project
+        .elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Asset(a) => Some(a),
+            _ => None,
+        })
+        .collect();
+    for a in &objects {
+        for (i, link) in a.links.iter().enumerate() {
+            assert_ne!(link, &a.id, "{} links itself", a.id);
+            assert!(!a.links[..i].contains(link), "{} links {link} twice", a.id);
+            assert!(
+                objects.iter().any(|o| &o.id == link),
+                "{} links {link}, which is not an object",
+                a.id
+            );
+        }
+        assert!(a.circuit.chars().count() <= 16);
+        assert_eq!(a.circuit, a.circuit.trim());
+        if let Some(l) = a.light {
+            assert!((0.0..=20_000.0).contains(&l.lumens));
+            assert!((1500.0..=10_000.0).contains(&l.kelvin));
+        }
+    }
+
+    // Schedule: one row per level, room and key, counts add up to the
+    // counted objects, rows name real levels and rooms.
+    let catalog = defaults::asset_catalog();
+    let counted = objects
+        .iter()
+        .filter(|a| {
+            let (category, device) = match catalog.iter().find(|c| c.key == a.catalog_key) {
+                Some(i) => (i.category, i.device),
+                None => (a.category, None),
+            };
+            device.is_some()
+                || matches!(a.catalog_key.as_str(), "kitchen-sink" | "washing-machine")
+                || matches!(
+                    category,
+                    AssetCategory::Sanitary
+                        | AssetCategory::Lighting
+                        | AssetCategory::Electrical
+                        | AssetCategory::Aircon
+                        | AssetCategory::Utility
+                )
+        })
+        .count();
+    let total: u32 = derived.schedule.iter().map(|r| r.count).sum();
+    assert_eq!(total as usize, counted, "schedule counts do not add up");
+    for (i, r) in derived.schedule.iter().enumerate() {
+        assert!(r.count > 0);
+        if matches!(r.catalog_key.as_str(), "kitchen-sink" | "washing-machine") {
+            assert_eq!(r.group, ScheduleGroup::Plumbing, "{} is a plumbing fixture", r.catalog_key);
+        }
+        if let Some(room) = &r.room_id {
+            assert!(rooms(project).iter().any(|x| &x.id == room), "schedule names a missing room");
+        }
+        for other in &derived.schedule[..i] {
+            assert!(
+                !(other.level_id == r.level_id
+                    && other.room_id == r.room_id
+                    && other.catalog_key == r.catalog_key),
+                "two schedule rows for one key in one room"
+            );
+        }
+    }
+
+    // Every finding comes from a known check. Review status follows the
+    // marks, and only marks for one finding are resolved.
+    for i in &derived.issues {
+        assert!(guhit_core::is_review_code(&i.code), "unknown code {}", i.code);
+        if i.status == IssueStatus::Open {
+            assert!(i.note.is_empty(), "an open item carries a note: {}", i.id);
+        }
+    }
+    for m in &derived.review_resolved {
+        match &m.target {
+            ReviewTarget::Issue { id } => {
+                assert!(!derived.issues.iter().any(|i| &i.id == id), "a present finding is resolved")
+            }
+            other => panic!("only single findings resolve: {other:?}"),
+        }
+        assert!(project.review.contains(m));
     }
 }

@@ -12,7 +12,7 @@ external converter.
 | In | DWG | same | Needs the ODA File Converter |
 | In | glTF, GLB, OBJ | `model_store` | Reference model in the 3D view |
 | In | `.guhit` bundle | `bundle_open` | A whole project |
-| Out | PDF, SVG, DXF (2D plan) | `export_plan` | Sheet or model space, pipes when `show_pipes` (see "Pipes in the exports") |
+| Out | PDF, SVG, DXF (2D plan) | `export_plan` | The plan or a service sheet (`sheet`, see "Service sheets"), pipes when `show_pipes`, a review page in PDF when `review_page` |
 | Out | DWG (2D plan) | `export_model` `dwg` | Needs the converter |
 | Out | IFC4, 3D DXF | `export_model` `ifc`, `dxf3d` | Whole model with pipes, written by `guhit-export` |
 | Out | GLB, OBJ, DAE | `export_bytes` | Made in the 3D view |
@@ -216,6 +216,12 @@ design or code compliance. Plumbing plans are signed by a registered Master
 Plumber (RA 1378). A project without pipes exports exactly as it did before
 pipes existed, byte for byte.
 
+The service runs of DECISIONS D21 (storm drainage, electrical conduit,
+aircon refrigerant line sets and condensate) are pipes too and follow every
+rule here. A project with plumbing only exports exactly as it did before
+they existed, byte for byte (SVG, PDF content, DXF, 3D DXF and IFC, checked
+against the previous build on the sample projects).
+
 Which pipes go where:
 
 | Export | Pipes drawn | Hidden pipe layer |
@@ -232,11 +238,14 @@ empty export.
 ### On the plan sheet
 
 - Colors are the tokens `--pipe-cold` `#2b7bd0`, `--pipe-hot` `#e0563a`,
-  `--pipe-drain` `#9b6a35` and `--pipe-vent` `#3a9a5c`.
+  `--pipe-drain` `#9b6a35` and `--pipe-vent` `#3a9a5c`, and for the service
+  runs `--pipe-storm` `#6f7782`, `--pipe-conduit` `#d49a1a`,
+  `--pipe-refrigerant` `#b0428f` and `--pipe-condensate` `#6c8fb3`.
 - The line weight is the pipe size at the sheet scale, never under 0.35 mm:
   a 100 mm drain is 2 mm wide at 1:50, a 20 mm supply line 0.35 mm at 1:100.
-- Cold and hot water are solid, drainage is dashed, vent is dash-dot. Wider
-  lines get proportionally longer dashes.
+- Cold and hot water and line sets are solid; drainage, storm, conduit and
+  condensate are dashed; vent is dash-dot. Wider lines get proportionally
+  longer dashes.
 - A segment that runs vertically, a riser or a drop, is a white circle in
   the system color at its plan position, always wider than its line.
   Vertical means under 1 mm apart in plan, or at most 50 mm apart and
@@ -247,7 +256,12 @@ empty export.
 - The sheet extent includes the pipes, so a service line to the meter or an
   outlet to the septic tank is not cut off.
 - A legend in the band between the drawing title and the scale bar lists
-  only the systems on the sheet. It never reaches the title block.
+  only the systems on the sheet, plumbing first. It never reaches the title
+  block: with more than four systems it keeps at most four rows per column.
+- Objects follow their own layer on the plan: lighting and electrical
+  objects the `electrical` layer, aircon units the `aircon` layer, the rest
+  `assets`. The plan draws them as outlines; the service sheets draw them as
+  symbols.
 
 ### DXF
 
@@ -260,6 +274,10 @@ One layer per system, with the AutoCAD color index nearest the system color
 | `P-DOMW-HPIP` | hot water | 20 | `CONTINUOUS` |
 | `P-SANR-PIPE` | drainage | 33 | `GUHIT_DASHED` |
 | `P-SANR-VENT` | vent | 103 | `GUHIT_DASHDOT` |
+| `P-STRM-PIPE` | storm drainage | 8 | `GUHIT_DASHED` |
+| `E-POWR-COND` | conduit | 40 | `GUHIT_DASHED` |
+| `M-REFR-PIPE` | refrigerant line set | 210 | `CONTINUOUS` |
+| `M-COND-PIPE` | condensate | 151 | `GUHIT_DASHED` |
 
 - The file defines the two linetypes itself, sized to plot at 1:N (the
   export scale, else the project scale): `GUHIT_DASHED` is a 2.2 mm dash and
@@ -285,13 +303,197 @@ One layer per system, with the AutoCAD color index nearest the system color
   has none. Description: "Segment 2 of 4". The GlobalId comes from the pipe
   id and the segment index, so it survives edits and re-exports.
 - One `IfcDistributionSystem` per system present, `.DOMESTICCOLDWATER.`,
-  `.DOMESTICHOTWATER.`, `.DRAINAGE.` or `.VENT.`, holding its segments
-  through `IfcRelAssignsToGroup` and serving the building through
-  `IfcRelServicesBuildings`.
-- Material by `IfcRelAssociatesMaterial`: `PPR`, `uPVC`, `GI`, `PE` or
-  `Copper`.
+  `.DOMESTICHOTWATER.`, `.DRAINAGE.`, `.VENT.`, `.STORMWATER.` (storm),
+  `.ELECTRICAL.` (conduit), `.REFRIGERATION.` (line sets) or `.DRAINAGE.`
+  (condensate, a system of its own named "Condensate drain"), holding its
+  segments through `IfcRelAssignsToGroup` and serving the building through
+  `IfcRelServicesBuildings`. Each system's description says the sizes are as
+  drawn and not a design of its trade.
+- Conduit is `IfcCableCarrierSegment` (`.CONDUITSEGMENT.`) instead of a pipe
+  segment, with the same swept body, and `Guhit_Pset_Conduit` (system,
+  material, nominal diameter, run id, segment count).
+- Material by `IfcRelAssociatesMaterial`: `PPR`, `uPVC`, `GI`, `PE`,
+  `Copper`, `PVC`, `EMT`, `IMC` or `Flexible`.
 - Properties: `Pset_PipeSegmentTypeCommon.NominalDiameter`, and
   `Guhit_Pset_Pipe` with the system, material, pipe id and segment count.
 - Not written: elbows and tees as `IfcPipeFitting` (segments meet at their
   end points, so a bend shows a small notch on its outside in a viewer),
   sleeves, and colors (the exporter styles no element).
+
+## Service sheets
+
+`PlanExportOptions::sheet` picks the sheet (docs/CONTRACT.md, "Sheets").
+Every sheet is a coordination draft for the licensed professional of its
+trade. Counts come from the model, sizes are as drawn, rating columns and
+the signing professional's fields stay blank, and no sheet claims approval
+or compliance.
+
+| Sheet | Draws | Panel |
+|---|---|---|
+| `plan` | the architectural plan, unchanged; pipes per `show_pipes` | pipe legend in the band |
+| `lighting` | light fixtures, switches, dashed links from each switch to its lights | legend, counts per room, notes, PEE block |
+| `power` | outlets, special purpose outlets, panelboard, smoke detectors, doorbell button and chime, conduit | legend, counts per room, schedule of loads, notes, PEE block |
+| `plumbing` | cold and hot water, drainage, vent, storm; sanitary fixtures and water utilities in ink with names | legend, fixture table per level, notes, Master Plumber block |
+| `plumbing_isometric` | water and sanitary isometric diagrams, whole building | legend box, notes, Master Plumber block |
+| `aircon` | indoor, outdoor and window units, line sets, condensate, core holes | legend, units per room, notes, PME block |
+
+### Layout
+
+- Each sheet keeps the plan sheet's border, band (drawing title, scale bar,
+  north arrow) and title block. The drawing title names the level and the
+  trade, for example "GROUND FLOOR LIGHTING LAYOUT".
+- The scale logic is the plan's: the largest common scale at which the
+  drawing, symbols and labels included, fits; a forced scale is used as
+  given.
+- The panel stands in columns on the right of a landscape sheet, or in two
+  or three columns along the bottom of a portrait one. When it does not fit
+  it is set in smaller type, down to 70 percent, before a landscape sheet
+  gives it a second column. Tables that still do not fit end in "+ N more".
+- The architecture is drawn light and thin: grey outlines, pale wall fill,
+  no furniture labels. Plants, vehicles and site utilities stay off the
+  lighting, power and aircon sheets. Room names move off the symbols.
+- The signing block (Professional Electrical Engineer, Master Plumber or
+  Professional Mechanical Engineer) has NAME, PRC NO. and SIGNATURE AND SEAL
+  cells, all blank.
+
+### Symbols
+
+The contract table (docs/CONTRACT.md, "Devices, fixtures and links") drawn
+as the 2D editor draws it (`deviceSymbol` in `src/editor2d/symbols.ts`,
+same proportions). D is 3 mm on paper (300 mm at 1:100, 150 mm at 1:50) at
+every scale; a symbol never grows with its object, except the ones drawn as
+their own rectangle (tube light, panelboard, aircon units). Wall objects
+have their back (+y) on the wall face; "room side" below means away from
+the wall. Text stays upright whatever the wall.
+
+Text is the one deliberate difference from the editor, whose 0.24 D tags
+would print at 0.72 mm: tags and unit labels are 0.4 D (1.2 mm), unit labels
+capped like the editor's (0.55 d for "ACU", 0.5 d for "CU", 0.45 of the
+short side for "AC"); the switch letter is 0.5 D (1.5 mm); "SD" is 0.34 D
+inside its circle and "CH" 0.26 D inside its square. Tags sit 0.07 D past
+the symbol's room-side edge and the switch label 0.08 D off the wall face,
+as in the editor, but measured from the outside of the 0.2 mm pen, which on
+paper would otherwise take a third of the gap.
+
+| Symbol | Geometry |
+|---|---|
+| ceiling, pendant light | circle of radius 0.5 D with an X of its diagonals; pendant adds "P" at (0.58 D, -0.44 D) |
+| downlight | circle of radius 0.3 D, filled dot of radius 0.07 D |
+| tube light | its own rectangle with a line along its long axis |
+| wall, outdoor light | half disc of radius 0.5 D, flat side on the wall face, bulging into the room, and a radius at right angles to the wall; outdoor adds "WP" under it |
+| floor, table lamp | circle of radius 0.3 D with an X, fine pen |
+| duplex, counter outlet | circle of radius r = 0.25 D touching the wall face, two lines parallel to the wall 0.3 r either side of its center, 2.72 r long |
+| outdoor outlet | the duplex outlet and "WP" under it |
+| special purpose, aircon outlet | the duplex outlet with its room-side half filled, "SPO" or "ACO" under it |
+| switch | one label: bold "S" ("S3" when it shares a light with another switch) over a dot per gang, dots of radius 0.12 and pitch 0.42 of the letter height |
+| panelboard | its own rectangle, the triangle (-w/2, -d/2), (w/2, -d/2), (w/2, d/2) filled, "PB" under it |
+| smoke detector | circle of radius 0.3 D, "SD" inside |
+| doorbell button | circle of radius 0.15 D touching the wall face, dot of radius 0.05 D, "PB" under it |
+| doorbell chime | square of 0.5 D with its back on the wall face, "CH" inside |
+| split indoor unit | its rectangle, an open arrow 0.6 D long from its front into the room (head 0.12 D by 0.16 D), "ACU" inside |
+| outdoor unit | its rectangle, a fan circle of radius min(0.42 d, 0.26 w) at (-0.16 w, 0), "CU" at (0.3 w, 0) |
+| window unit | its rectangle across the wall, "AC" inside against its room-side edge, 0.04 D in: the wall covers its middle |
+| link | dashed arc from the switch label to each light it controls, as the editor draws it: both ends cut back along the straight line (to the radius the editor keeps clear at the light, clear of the whole label at the switch), then bowing 0.18 of what is left to the left of the switch-to-light direction, or to the right when the switch's other lights lie on the left. Flips made on screen are not saved, so the sheet shows the editor's default side |
+| core hole | circle 0.7 D with a slash, "CH 65" or "CH 90" beside it (90 for gas lines from 16 mm); a leader when the label has to move away |
+
+### Counts
+
+- The legend lists the symbols drawn on the sheet's level, each with its
+  number, and the runs with their length on the level.
+- Counts per room (lighting outlets and switches; receptacles, SPOs,
+  panelboards, detectors, bells and push buttons; aircon units) and the
+  plumbing fixture table (per level, all levels) come from
+  `Derived::schedule`. When the derived data carries no schedule, the sheet
+  counts with the contract rule itself, placing each object in the room
+  that holds its center, or the room in front of it for an object set into
+  a wall.
+- The schedule of loads has one row per circuit tag over all levels, loads
+  only (lights, outlets, special purpose outlets, detectors, bells), with
+  RATING (VA), WIRE and BREAKER (AT) columns left blank and a line saying
+  the PEE fills them in. Objects without a tag are listed under "-".
+- The fixture table lists what the schedule counts in its plumbing group:
+  sanitary objects, and the kitchen sink and washing machine, which have
+  water and a drain. The sheet's own count follows the same rule.
+
+### Plumbing isometric
+
+- Plan x runs at 30 degrees, plan y at 150 degrees, height straight up;
+  every level at its world height, so risers through floors read as one
+  stack. `level_id` does not apply: the diagrams show the whole building.
+- Lengths along the three axes keep a common scale, picked like the plan's
+  to fit both diagrams, side by side or stacked, whichever draws larger. The
+  sheet still says "NOT TO SCALE" (band, both diagrams, "NTS" in the title
+  block), the PH custom for these diagrams. The returned scale is the one
+  the diagrams use along their axes. The north arrow points along plan
+  north as the diagram shows it.
+- Water and drainage are solid, vent dashed; drains carry flow arrows.
+- Every run is labelled with its size and material ("20 PPR"). A free run
+  end within 150 mm of a fixture's footprint carries the fixture tag (WC,
+  LAV, SH, BT, FD, WH, KS, WSH, WM, WT, ST, numbered when there are
+  several). Vertical segments from 500 mm carry a riser tag: CWR, HWR, SS
+  (soil stack, 100 mm and up), WS (waste stack) or VS, numbered per kind.
+- Where two runs cross in the view without meeting, the one further back
+  is broken for 1.1 mm each side of the crossing. Runs that meet (a tee) are
+  not broken.
+- Labels go to the first spot clear of lines, arrows and other labels, next
+  to their run or further out with a thin leader. On crowded diagrams a
+  label may still cross a line; labels never overlap each other in the
+  tested projects on any paper size.
+- Storm drainage has no isometric here.
+
+### Review page
+
+`review_page` adds pages to a PDF (SVG and DXF ignore it) titled "Design
+review (suggestions)": open items grouped by level, errors first, then the
+items set aside with their notes, then set-aside findings the checks no
+longer produce. Same paper and title block as the sheet; a long list
+continues on more pages. The page says the items are suggestions and
+approve or certify nothing.
+
+### DXF of a sheet
+
+- The architecture on its usual `A-` layers in grey (ACI 8), the sheet's
+  runs on their system layers, and nothing of the other trades. The
+  isometric DXF has no architecture layers.
+- Every device is an `INSERT` of a block on `E-LITE-FIXT` (light fixtures),
+  `E-POWR-DEVC` (switches, outlets, panelboard, detectors, bells) or
+  `M-HVAC-EQPM` (aircon units). The block holds the symbol exactly as the
+  sheet draws it, labels included, around the object's position. Blocks are
+  named after the catalog key, with the rotation when it is not 0
+  (`OUTLET-DUPLEX_R90`), and shared by every object with the same symbol.
+- Each insert carries four invisible attributes: `TYPE` (the inspection
+  form row, for example `CONVENIENCE RECEPTACLE`, or the catalog name for a
+  plug-in lamp), `TAG` (the circuit tag), `HEIGHT` (the height of the
+  object's center above its floor, mm) and `ROOM` (the room it stands in,
+  empty outside).
+- Switch links are `ARC`s on `E-LITE-CIRC`, dashed by the layer's
+  `GUHIT_DASHED` linetype. Core holes are a circle, a slash and a text on
+  the run's layer.
+- The isometric DXF is the diagrams in diagram millimeters (the water
+  diagram at the origin, the sanitary diagram 40 mm of paper to its right)
+  on the run layers, with labels, tags, leaders and titles on `P-ANNO-TEXT`
+  and flow arrows as `SOLID`s on `P-ANNO-SYMB`.
+- Checked with ezdxf: audit without errors or fixes, attributes read back.
+
+### IFC4 devices
+
+| Object | Entity | Predefined type |
+|---|---|---|
+| outlets, special purpose outlets (named after the object) | `IfcOutlet` | `POWEROUTLET` |
+| switches | `IfcSwitchingDevice` | `TOGGLESWITCH` |
+| doorbell button | `IfcSwitchingDevice` | `MOMENTARYSWITCH` |
+| light fixtures and plug-in lamps | `IfcLightFixture` | `POINTSOURCE` |
+| panelboard | `IfcElectricDistributionBoard` | `DISTRIBUTIONBOARD` |
+| smoke detector | `IfcSensor` | `SMOKESENSOR` |
+| doorbell chime | `IfcAlarm` | `BELL` |
+| split indoor and outdoor units | `IfcUnitaryEquipment` | `SPLITSYSTEM` |
+| window unit | `IfcUnitaryEquipment` | `AIRCONDITIONINGUNIT` |
+
+- The body is a box of the object's size at its height, like furniture,
+  contained in the storey of its level. `Tag` is the catalog key.
+- `Guhit_Pset_Device`: catalog key, device (the inspection form row),
+  mounting height (center, mm), circuit tag when set, and lumens and kelvin
+  for fixtures.
+- Devices belong to no distribution system: Guhit models no circuits.
+- Checked with ifcopenshell: no schema issues with express rules on, a
+  shape for every product, containment and system membership as above.

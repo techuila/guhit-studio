@@ -624,7 +624,7 @@ textarea.input {
   grid-template-rows: 1fr;
 }
 
-.sectionReveal > * {
+.sectionClip {
   min-height: 0;
   overflow: hidden;
 }

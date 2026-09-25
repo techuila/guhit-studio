@@ -66,6 +66,29 @@ const PATHS = {
   /** A box with its hidden edges dashed: the shell drawn see-through. */
   xray: "M10 2.8l6.5 3.6v7.2L10 17.2l-6.5-3.6V6.4zM3.5 6.4L10 10l6.5-3.6M10 10v7.2M10 7.4V5.6M7.6 11.3l-1.6.9M12.4 11.3l1.6.9",
   takeoff: "M5 3.5h10v13H5zM7.5 7h5M7.5 10h5M7.5 13h2.5",
+  /** Two chain links: a switch linked to its lights. */
+  link: "M8.2 11.8l3.6-3.6M9.4 6.9l1.3-1.3a3 3 0 0 1 4.2 4.2l-1.3 1.3M10.6 13.1l-1.3 1.3a3 3 0 0 1-4.2-4.2l1.3-1.3",
+  sun: "M10 13.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM10 2.5v1.8M10 15.7v1.8M2.5 10h1.8M15.7 10h1.8M4.7 4.7l1.3 1.3M14 14l1.3 1.3M15.3 4.7L14 6M6 14l-1.3 1.3",
+  moon: "M15.8 12.3A6.6 6.6 0 0 1 7.7 4.2a6.6 6.6 0 1 0 8.1 8.1z",
+  /** The day's arc over the horizon with the sun on it. */
+  sunPath: "M2.5 16h15M4.5 16a5.5 5.5 0 0 1 11 0M13.9 9.4a1.6 1.6 0 1 0-.01 0z",
+  /** A lens aperture: the Render button. */
+  render: "M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM10 3l2.4 5.2M17 10l-5.7.5M13.5 16.1l-3.3-4.7M6.5 16.1l2.4-5.2M3 10l5.7-.5M6.5 3.9l3.3 4.7",
+  /** Crosshair: refine the resting view. */
+  refine: "M10 3v2.2M10 14.8V17M3 10h2.2M14.8 10H17M10 13.3a3.3 3.3 0 1 0 0-6.6 3.3 3.3 0 0 0 0 6.6z",
+  clock: "M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM10 6.2V10l2.8 1.8",
+  bulb: "M7.8 14.2h4.4M8.3 16.7h3.4M10 3a4.8 4.8 0 0 0-2.9 8.6c.6.5.9 1.1.9 1.9v.7h4v-.7c0-.8.3-1.4.9-1.9A4.8 4.8 0 0 0 10 3z",
+  plug: "M7.2 3v4M12.8 3v4M5 7h10v2.8a5 5 0 0 1-10 0zM10 14.8v2.7",
+  /** A split aircon indoor unit blowing air down. */
+  aircon: "M2.5 4.5h15v6h-15zM5 8h10M6.5 13.5c0 1.2-1 1.6-1 2.8M10 13.5c0 1.2-1 1.6-1 2.8M13.5 13.5c0 1.2-1 1.6-1 2.8",
+  /** A table: schedules. */
+  schedule: "M3 4h14v12H3zM3 8h14M3 12h14M8 4v12",
+  /** A map pin: the site. */
+  pin: "M10 17.5s5-4.6 5-8.7a5 5 0 0 0-10 0c0 4.1 5 8.7 5 8.7zM10 10.6a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z",
+  /** A box with a lid: set aside. */
+  aside: "M3 4.5h14v3H3zM4.5 7.5v8h11v-8M8 10.5h4",
+  reopen: "M7 4.5L3.5 8 7 11.5M3.5 8h8.2a4.3 4.3 0 0 1 0 8.6H9",
+  resolved: "M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM6.8 10.2l2.2 2.2 4.2-4.6",
 } as const;
 
 export type IconName = keyof typeof PATHS;

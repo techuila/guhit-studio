@@ -84,9 +84,24 @@ pub struct ToolDef {
 
 /// Editing tools whose arguments and translation come from the copilot.
 /// Order is the order a client sees them in `tools/list`.
-pub const EDIT_TOOLS: [&str; 15] = copilot::EDIT_TOOLS;
+pub const EDIT_TOOLS: [&str; 17] = copilot::EDIT_TOOLS;
 
 const MM: &str = "All lengths in the arguments and the result are MILLIMETERS.";
+
+/// `export_plan` sheet names, as `SheetKind` spells them.
+const SHEETS: [&str; 6] = ["plan", "lighting", "power", "plumbing", "plumbing_isometric", "aircon"];
+
+fn sheet_kind(name: &str) -> Option<SheetKind> {
+    Some(match name {
+        "plan" => SheetKind::Plan,
+        "lighting" => SheetKind::Lighting,
+        "power" => SheetKind::Power,
+        "plumbing" => SheetKind::Plumbing,
+        "plumbing_isometric" => SheetKind::PlumbingIsometric,
+        "aircon" => SheetKind::Aircon,
+        _ => return None,
+    })
+}
 
 fn obj(properties: Value, required: &[&str]) -> Value {
     json!({
@@ -120,12 +135,13 @@ fn reused_descriptions() -> BTreeMap<&'static str, String> {
         ("describe_elements", d("Full stored data of specific elements by id, plus derived geometry such as wall length and wall joins. Call this before editing an element whose current dimensions or position you need.")),
         ("list_elements", d("Every element of one kind in the open project, with ids. Use it to find the walls, doors, windows, assets or pipes the user is talking about. Pipe points are x, y in plan and z above the level floor.")),
         ("find_rooms_without_exterior_window", d("Rooms with no window on a wall that faces the outside. Call this when the user asks about natural light, ventilation or dark rooms.")),
-        ("list_review_items", d("Current design review items for the open project: narrow doors, rooms without windows, unclosed walls, pipes through columns or door openings, crossing pipes, flat drains and pipe penetrations. These are suggestions to check, never code compliance or permit findings. Pipe items carry a location_mm. Call this after a run of edits and tell the user what it says.")),
-        ("get_pipe_takeoff", d("Pipe quantities of the open project from the engine: centerline length in metres per system, material and size, elbow, tee and sleeve counts, and every slab, wall and roof penetration with its position. Call this for any question about pipe lengths, fittings or sleeves instead of adding them up yourself. Guhit counts pipes; it never sizes them, and plumbing design is for a registered Master Plumber.")),
+        ("list_review_items", d("Current design review items for the open project: narrow doors, rooms without windows, unclosed walls, pipes through columns or door openings, crossing runs, flat drains and condensate, penetrations and aircon core holes, lights without a switch, switches behind doors, aircon units without an outlet, line sets past the unit's limits and unit clearances. Each item has a status: open, or ignored with the designer's note (see set_review_mark); `resolved` lists set-aside findings that no longer appear. These are suggestions to check, never code compliance or permit findings. Items that point at one place carry a location_mm. Call this after a run of edits and tell the user what it says.")),
+        ("get_pipe_takeoff", d("Run quantities of the open project from the engine, for every system: cold and hot water, drainage, vent, storm drains, electrical conduit, aircon line sets and condensate. Centerline length in metres per system, material and size, elbow, tee and sleeve counts, and every slab, wall and roof penetration with its position; an aircon run through a wall has its core hole size. Conduit needs no sleeves. Call this for any question about run lengths, fittings or sleeves instead of adding them up yourself. Guhit counts runs; it never sizes them: plumbing is for a registered Master Plumber, electrical for a Professional Electrical Engineer, aircon for a Professional Mechanical Engineer.")),
+        ("get_schedule", d("Device and fixture counts of the open project from the engine, per level and room: lights, outlets, switches, the panelboard, detectors, aircon units, sanitary and utility fixtures. Each row has the catalog name and the row of the PH electrical inspection form it counts under; each level has totals by group and by form row. Call this for any question about how many lights, outlets, switches or fixtures there are instead of counting yourself. Circuits, loads and ratings are for the Professional Electrical Engineer.")),
         // edit
-        ("add_wall", d("Add one straight wall between two points and commit it as one undo step. Omit thickness_mm to use the project default of 150 mm CHB.")),
-        ("add_wall_chain", d("Add connected walls running through a list of points, as one undo step. closed joins the last point back to the first. Omit thickness_mm to use the project default of 150 mm.")),
-        ("add_rect_room", d("Add a rectangular room: four walls plus a named room, as one undo step. origin is the SOUTH-WEST corner, width_mm runs east and depth_mm runs north, both measured on wall CENTERLINES. With the default 150 mm walls a 4000 x 3000 room has a net floor of 3850 x 2850. To share a wall with a room you already drew, put this origin exactly on that room's centerline.")),
+        ("add_wall", d("Add one straight wall between two points and commit it as one undo step. Omit thickness_mm to use the project default of 150 mm CHB. level (a level id or name) puts it on another level than the first.")),
+        ("add_wall_chain", d("Add connected walls running through a list of points, as one undo step. closed joins the last point back to the first. Omit thickness_mm to use the project default of 150 mm. level (a level id or name) puts them on another level than the first.")),
+        ("add_rect_room", d("Add a rectangular room: four walls plus a named room, as one undo step. origin is the SOUTH-WEST corner, width_mm runs east and depth_mm runs north, both measured on wall CENTERLINES. With the default 150 mm walls a 4000 x 3000 room has a net floor of 3850 x 2850. To share a wall with a room you already drew, put this origin exactly on that room's centerline. level (a level id or name) puts it on another level than the first, for example the \"Second Floor\" add_level made.")),
         ("add_door", d("Add a door on an existing wall, as one undo step. Get wall_id from list_rooms or list_elements. Defaults are 900 wide by 2100 high. A door between two rooms goes on the wall they share.")),
         ("add_window", d("Add a window on an existing wall, as one undo step. Get wall_id from list_rooms or list_elements. Defaults are 1200 wide by 1200 high with a 900 sill. Windows belong on exterior walls.")),
         ("resize_room", d("Move the wall or walls on one side of a room outward by delta_mm, as one undo step. A negative delta_mm moves them inward. Connected walls stretch to stay joined. Use this for \"make the bedroom 300 wider to the east\".")),
@@ -137,7 +153,9 @@ fn reused_descriptions() -> BTreeMap<&'static str, String> {
         ("delete_elements", d("Delete elements, as one undo step. Deleting a wall also deletes the doors and windows hosted on it.")),
         ("set_material", d("Assign a material to elements, as one undo step. Walls, columns and openings take a surface material, rooms take a floor material. The material ids are in the resource guhit://docs/ph-defaults.")),
         ("set_roof", d("Change the roof of the open project, as one undo step. Give only the values that change. The Philippine default is a gable roof at 25 degrees with a 600 mm overhang in long-span pre-painted metal.")),
-        ("add_asset", d("Place one furniture or fixture item from the built-in library, as one undo step. position is the CENTER of its footprint and the item's local +y is its back (bed head, sofa back, water closet tank).")),
+        ("add_asset", d("Place one item from the built-in library, as one undo step: furniture, fixtures, lights, outlets, switches, a panelboard, detectors or aircon units. position is the CENTER of its footprint and the item's local +y is its back (bed head, sofa back, water closet tank). Wall items (outlets, switches, wall lights, panelboards, split aircon indoor units) snap to the nearest wall face within 1000 mm of position, back to the wall; give a point just inside the room near that wall. Ceiling items hang from the ceiling. level (a level id or name) puts it on another level than the first. Linking a switch to its lights is done in the app with the link tool (L).")),
+        ("add_level", d("Add a level (storey), as one undo step. By default it is named \"Level N\", its floor sits on top of the highest level (that level's elevation plus its floor-to-floor height) and it is 3000 mm floor to floor. Names are 1 to 60 characters, heights 2000 to 10000 mm, and no two levels share a floor elevation. The result lists the new level under levels_added. Draw on it by passing its name or id as level to add_wall, add_wall_chain, add_rect_room or add_asset, in the same batch or later.")),
+        ("delete_level", d("Delete a level and everything on it, as one undo step: its walls with their doors and windows, rooms, columns, stairs, objects, notes, dimensions and pipes. Links from other objects to deleted ones are removed. The last level cannot be deleted. level is the level's id or name. Only do this when the user names the level to delete.")),
     ]
     .into_iter()
     .collect()
@@ -179,7 +197,7 @@ pub fn definitions() -> Vec<ToolDef> {
     });
     out.push(ToolDef {
         name: "create_project",
-        description: format!("Create a project and open it. template \"blank\" starts with nothing drawn, which is what you want before drawing a house. template \"sample-bungalow\" starts from a small two-room house. template \"plumbing-demo\" starts from a bungalow with a T&B, columns and cold water, hot water, drainage and vent pipes, with pipe review items to look at. {MM}"),
+        description: format!("Create a project and open it. template \"blank\" starts with nothing drawn, which is what you want before drawing a house. template \"sample-bungalow\" starts from a small two-room house. template \"plumbing-demo\" starts from the bungalow with services: a T&B, columns, water, drainage and vent pipes, storm downspouts, lights, switches, outlets, a panelboard, a smoke detector and a split aircon with its line set and condensate drain, with review items to look at. {MM}"),
         schema: obj(
             json!({
                 "name": {"type": "string", "description": "Project name shown in the hub."},
@@ -197,7 +215,7 @@ pub fn definitions() -> Vec<ToolDef> {
     });
 
     // ----------------------------------------------------------------- read
-    for name in ["get_project_summary", "list_rooms", "list_elements", "describe_elements", "find_rooms_without_exterior_window", "list_review_items", "get_pipe_takeoff"] {
+    for name in ["get_project_summary", "list_rooms", "list_elements", "describe_elements", "find_rooms_without_exterior_window", "list_review_items", "get_pipe_takeoff", "get_schedule"] {
         reuse(name, true, &mut out);
     }
     out.push(ToolDef {
@@ -218,6 +236,21 @@ pub fn definitions() -> Vec<ToolDef> {
         reuse(name, false, &mut out);
     }
     out.push(ToolDef {
+        name: "set_review_mark",
+        description: format!("Set a review item aside with a note, or reopen it, as one undo step. The target is one finding (issue_id from list_review_items), a whole check (code, for example light_no_switch), or a check on one element (code plus element_id). A set-aside item stays in list_review_items with status \"ignored\" and the note; it is never approved, and a set-aside finding that stops appearing is listed as resolved. Only set an item aside when the user asks and gives the reason. {MM}"),
+        schema: obj(
+            json!({
+                "action": {"type": "string", "enum": ["set_aside", "reopen"]},
+                "issue_id": {"type": "string", "description": "One finding, by its id from list_review_items."},
+                "code": {"type": "string", "description": "A whole check, by its code. With element_id, that check on one element."},
+                "element_id": {"type": "string", "description": "With code: only the findings of that check that involve this element."},
+                "note": {"type": "string", "description": "Why the item is set aside, in the user's words. Needed for set_aside."},
+            }),
+            &["action"],
+        ),
+        read_only: false,
+    });
+    out.push(ToolDef {
         name: "undo",
         description: format!("Undo the last change to the open project, whoever made it: this server, the desktop window or the in-app copilot. One call reverts one step. {MM}"),
         schema: obj(json!({}), &[]),
@@ -237,7 +270,7 @@ pub fn definitions() -> Vec<ToolDef> {
     });
     out.push(ToolDef {
         name: "export_plan",
-        description: format!("Draw the open project to a file in the app's exports folder and return the absolute path. format \"pdf\" and \"svg\" are sheets with a title block; \"dxf\" is CAD geometry. The sheet scale is picked to fit the paper unless you give scale_denominator. {MM}"),
+        description: format!("Draw the open project to a file in the app's exports folder and return the absolute path. format \"pdf\" and \"svg\" are sheets with a title block; \"dxf\" is CAD geometry. sheet picks the drawing: the architectural plan (the default), a lighting, power, plumbing or aircon layout, or the plumbing isometric diagrams; the signing engineer's fields stay blank. review_page adds a page of review items and their notes to a PDF. The sheet scale is picked to fit the paper unless you give scale_denominator. {MM}"),
         schema: obj(
             json!({
                 "format": {"type": "string", "enum": ["pdf", "svg", "dxf"]},
@@ -249,6 +282,8 @@ pub fn definitions() -> Vec<ToolDef> {
                 "show_assets": {"type": "boolean", "description": "Defaults to true."},
                 "title_block": {"type": "boolean", "description": "Defaults to true."},
                 "show_pipes": {"type": "boolean", "description": "Draw pipes on visible pipe layers, with a legend. Defaults to true."},
+                "sheet": {"type": "string", "enum": SHEETS, "description": "Which drawing. Defaults to \"plan\". The service sheets draw their devices and runs with a legend and counts; \"power\" adds a schedule of loads with blank ratings for the Professional Electrical Engineer."},
+                "review_page": {"type": "boolean", "description": "Add a page listing the review items, open and set aside, with their notes. PDF only. Defaults to false."},
             }),
             &["format"],
         ),
@@ -402,6 +437,8 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
             edit(app, &label, &parsed).await
         }
 
+        "set_review_mark" => set_review_mark(app, &args).await,
+
         // --------------------------------------------------- history, files
         "undo" => {
             let state: Value = app.handle("doc_undo", json!({})).await?;
@@ -445,6 +482,22 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
                     )))
                 }
             };
+            let sheet = match opt_str(&args, "sheet")?.as_deref() {
+                None => SheetKind::Plan,
+                Some(name) => sheet_kind(name).ok_or_else(|| {
+                    ToolFail(format!(
+                        "invalid arguments: unknown sheet `{name}`. Use {}",
+                        SHEETS.join(", ")
+                    ))
+                })?,
+            };
+            let review_page = opt_bool(&args, "review_page")?.unwrap_or(false);
+            if review_page && format != "pdf" {
+                return Err(ToolFail(
+                    "invalid arguments: review_page adds a page to a PDF. Use format \"pdf\", or leave review_page out"
+                        .into(),
+                ));
+            }
             let scale_denominator = match args.get("scale_denominator") {
                 None | Some(Value::Null) => None,
                 Some(v) => Some(v.as_u64().filter(|n| *n > 0 && *n <= u32::MAX as u64).ok_or_else(|| {
@@ -461,6 +514,8 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
                 show_assets: opt_bool(&args, "show_assets")?.unwrap_or(true),
                 title_block: opt_bool(&args, "title_block")?.unwrap_or(true),
                 show_pipes: opt_bool(&args, "show_pipes")?.unwrap_or(true),
+                sheet,
+                review_page,
             };
             ok(app
                 .handle(
@@ -472,6 +527,82 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
 
         other => Err(ToolFail(format!("unknown tool `{other}`"))),
     }
+}
+
+/// `set_review_mark`: one `Command::SetReviewMark`, committed as one undo
+/// step like every edit here. The engine checks the target.
+async fn set_review_mark(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+    let action = req_str(args, "action")?;
+    let issue_id = opt_str(args, "issue_id")?.filter(|s| !s.trim().is_empty());
+    let code = opt_str(args, "code")?.filter(|s| !s.trim().is_empty());
+    let element_id = opt_str(args, "element_id")?.filter(|s| !s.trim().is_empty());
+    let note = opt_str(args, "note")?.map(|n| n.trim().to_string());
+    let target = match (issue_id, code, element_id) {
+        (Some(id), None, None) => ReviewTarget::Issue { id },
+        (None, Some(code), None) => ReviewTarget::Check { code },
+        (None, Some(code), Some(element_id)) => ReviewTarget::Element { code, element_id },
+        (Some(_), _, _) => {
+            return Err(ToolFail(
+                "invalid arguments: give either issue_id, or code with an optional element_id, not both".into(),
+            ))
+        }
+        (None, None, _) => {
+            return Err(ToolFail(
+                "invalid arguments: say what to set aside: issue_id, or code with an optional element_id".into(),
+            ))
+        }
+    };
+    let note = match action.as_str() {
+        "set_aside" => match note {
+            Some(n) if !n.is_empty() => Some(n),
+            _ => {
+                return Err(ToolFail(
+                    "invalid arguments: set_aside needs a note saying why, in the user's words".into(),
+                ))
+            }
+        },
+        "reopen" => None,
+        other => {
+            return Err(ToolFail(format!(
+                "invalid arguments: unknown action `{other}`. Use set_aside or reopen"
+            )))
+        }
+    };
+    let label = match note {
+        Some(_) => "MCP: set a review item aside",
+        None => "MCP: reopen a review item",
+    };
+    let command = Command::Batch {
+        label: label.to_string(),
+        commands: vec![Command::SetReviewMark {
+            target: target.clone(),
+            note,
+        }],
+    };
+    let result = app.commit(command, Origin::Ai).await?;
+    let matches = |i: &Issue| match &target {
+        ReviewTarget::Issue { id } => i.id == id.trim(),
+        ReviewTarget::Check { code } => i.code == code.trim(),
+        ReviewTarget::Element { code, element_id } => {
+            i.code == code.trim() && i.element_ids.iter().any(|e| e == element_id.trim())
+        }
+    };
+    let items: Vec<Value> = result
+        .state
+        .derived
+        .issues
+        .iter()
+        .filter(|i| matches(i))
+        .map(|i| json!({"id": i.id, "code": i.code, "status": i.status, "note": i.note, "message": i.message}))
+        .collect();
+    ok(json!({
+        "ok": true,
+        "revision": result.state.revision,
+        "undo_label": result.state.undo_label,
+        "items": items,
+        "resolved": result.state.derived.review_resolved,
+        "note": "Set aside is not approval. The item stays listed with its note.",
+    }))
 }
 
 /// Compact answer after opening or creating a project. The full state is
@@ -543,13 +674,19 @@ async fn edit(app: &AppService, label: &str, steps: &[(String, Value)]) -> Resul
                 })?;
             let diff = copilot::step_diff(&view, &preview.state.project);
             if steps.len() > 1 {
-                per_step.push(json!({
+                let mut one = json!({
                     "step": i + 1,
                     "tool": name,
                     "created": diff["added"],
                     "changed": diff["modified"],
                     "deleted": diff["removed"],
-                }));
+                });
+                for key in ["levels_added", "levels_removed"] {
+                    if let Some(v) = diff.get(key) {
+                        one[key] = v.clone();
+                    }
+                }
+                per_step.push(one);
             }
             staged = Some(preview.state.project);
         }
@@ -578,7 +715,8 @@ fn step_fail(f: ToolFail, index: usize, tool: &str, total: usize) -> ToolFail {
     }
 }
 
-/// New elements go on the first level. A bungalow has exactly one.
+/// New elements go on the first level unless a call names another with
+/// `level`. A bungalow has exactly one.
 fn first_level(project: &Project) -> Result<Id, IpcError> {
     project
         .levels
@@ -591,7 +729,7 @@ fn first_level(project: &Project) -> Result<Id, IpcError> {
 /// readable labels of everything created, so the next call can refer to them.
 fn edit_result(before: &Project, result: &ApplyResult) -> Value {
     let step = copilot::step_diff(before, &result.state.project);
-    json!({
+    let mut out = json!({
         "ok": true,
         "revision": result.state.revision,
         "summary": result.diff.summary,
@@ -600,7 +738,13 @@ fn edit_result(before: &Project, result: &ApplyResult) -> Value {
         "changed": step["modified"],
         "deleted": step["removed"],
         "totals": result.state.derived.totals,
-    })
+    });
+    for key in ["levels_added", "levels_removed"] {
+        if let Some(v) = step.get(key) {
+            out[key] = v.clone();
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -633,15 +777,16 @@ mod tests {
         for expected in [
             "list_projects", "open_project", "create_project", "close_project",
             "get_project_summary", "list_rooms", "list_elements", "describe_elements",
-            "find_rooms_without_exterior_window", "list_review_items", "get_pipe_takeoff", "get_plan_image", "list_renders",
+            "find_rooms_without_exterior_window", "list_review_items", "get_pipe_takeoff", "get_schedule",
+            "get_plan_image", "list_renders",
             "add_wall", "add_wall_chain", "add_rect_room", "add_door", "add_window", "resize_room",
             "set_wall_length", "move_elements", "rename_room", "set_room_usage", "set_opening_size",
-            "delete_elements", "set_material", "set_roof", "add_asset",
-            "undo", "redo", "save_version", "export_plan", "batch",
+            "delete_elements", "set_material", "set_roof", "add_asset", "add_level", "delete_level",
+            "set_review_mark", "undo", "redo", "save_version", "export_plan", "batch",
         ] {
             assert!(names.contains(&expected), "tool `{expected}` is missing");
         }
-        assert_eq!(names.len(), 33, "the tool list changed: update docs/MCP.md");
+        assert_eq!(names.len(), 37, "the tool list changed: update docs/MCP.md");
     }
 
     #[test]
@@ -673,10 +818,28 @@ mod tests {
                     | "find_rooms_without_exterior_window"
                     | "list_review_items"
                     | "get_pipe_takeoff"
+                    | "get_schedule"
                     | "get_plan_image"
                     | "list_renders"
             );
             assert_eq!(d.read_only, expected, "readOnlyHint is wrong for {}", d.name);
         }
+    }
+}
+
+#[cfg(test)]
+mod sheet_tests {
+    use super::*;
+
+    #[test]
+    fn every_sheet_name_is_a_sheet_kind_spelled_the_same_way() {
+        for name in SHEETS {
+            let kind = sheet_kind(name).unwrap_or_else(|| panic!("`{name}` is not a sheet"));
+            assert_eq!(serde_json::to_value(kind).unwrap(), json!(name));
+        }
+        assert_eq!(sheet_kind("elevation"), None);
+        let export = definitions().into_iter().find(|d| d.name == "export_plan").unwrap();
+        assert_eq!(export.schema["properties"]["sheet"]["enum"], json!(SHEETS));
+        assert_eq!(export.schema["properties"]["review_page"]["type"], "boolean");
     }
 }

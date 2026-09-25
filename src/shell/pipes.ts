@@ -5,19 +5,25 @@
 //
 // Guhit coordinates pipes. It never sizes them: the size menus are the usual
 // nominal sizes to draw with, not a recommendation.
-import type { Issue, Pipe, PipeMaterial, PipeNetwork, PipeSystem, PipeTakeoffRow, Vec3 } from "../contract/bindings";
+import type { Issue, LayerKey, Pipe, PipeMaterial, PipeNetwork, PipeSystem, PipeTakeoffRow, Vec3 } from "../contract/bindings";
 import {
   PIPE_COLOR_VAR,
   PIPE_DEFAULTS,
+  PIPE_GROUP,
+  PIPE_LAYER,
   PIPE_MATERIAL_LABEL,
   PIPE_SIZES,
   PIPE_SYSTEM_LABEL,
   PIPE_SYSTEM_ORDER,
+  SERVICE_LAYER_ORDER,
   drainMinSlopePct,
   isPipeLayer,
+  isServiceLayer,
+  pipeFalls,
+  type ServiceGroup,
 } from "../contract/pipes";
 
-export { PIPE_MATERIAL_LABEL, PIPE_SIZES, PIPE_SYSTEM_LABEL, drainMinSlopePct, isPipeLayer };
+export { PIPE_MATERIAL_LABEL, PIPE_SIZES, PIPE_SYSTEM_LABEL, SERVICE_LAYER_ORDER, drainMinSlopePct, isPipeLayer, isServiceLayer, pipeFalls };
 export type { SizeGroup } from "../contract/pipes";
 
 export interface PipeSystemDef {
@@ -36,6 +42,50 @@ export const PIPE_SYSTEMS: PipeSystemDef[] = PIPE_SYSTEM_ORDER.map((value) => ({
   label: PIPE_SYSTEM_LABEL[value],
   color: PIPE_COLOR[value],
 }));
+
+export interface ServiceTrade {
+  group: ServiceGroup;
+  label: string;
+  /** Who sizes and signs these runs, as the flyout and notes say it. */
+  pro: string;
+  systems: PipeSystemDef[];
+}
+
+/** The runs grouped by trade, for the services flyout and the notes. */
+export const SERVICE_TRADES: ServiceTrade[] = (
+  [
+    ["plumbing", "Plumbing", "a registered Master Plumber"],
+    ["electrical", "Electrical", "the Professional Electrical Engineer"],
+    ["aircon", "Aircon", "the Professional Mechanical Engineer"],
+  ] as Array<[ServiceGroup, string, string]>
+).map(([group, label, pro]) => ({ group, label, pro, systems: PIPE_SYSTEMS.filter((sys) => PIPE_GROUP[sys.value] === group) }));
+
+export function tradeOf(system: PipeSystem): ServiceTrade {
+  return SERVICE_TRADES.find((t) => t.group === PIPE_GROUP[system]) ?? SERVICE_TRADES[0];
+}
+
+/** What to call one run: "Cold water pipe", "Conduit", "Refrigerant line set". */
+export function runLabel(system: PipeSystem): string {
+  return PIPE_GROUP[system] === "plumbing" ? `${PIPE_SYSTEM_LABEL[system]} pipe` : PIPE_SYSTEM_LABEL[system];
+}
+
+/** Layer swatches: each plumbing layer in its system's color, electrical in the conduit's, aircon in the line set's. */
+export const SERVICE_LAYER_COLOR: Partial<Record<LayerKey, string>> = {
+  cold_water: PIPE_COLOR.cold_water,
+  hot_water: PIPE_COLOR.hot_water,
+  drainage: PIPE_COLOR.drainage,
+  vent: PIPE_COLOR.vent,
+  storm: PIPE_COLOR.storm,
+  electrical: PIPE_COLOR.conduit,
+  aircon: PIPE_COLOR.refrigerant,
+};
+
+/** Length in meters of the runs on each service layer, from the take-off rows. */
+export function lengthByLayer(rows: PipeTakeoffRow[]): Partial<Record<LayerKey, number>> {
+  const out: Partial<Record<LayerKey, number>> = {};
+  for (const r of rows) out[PIPE_LAYER[r.system]] = (out[PIPE_LAYER[r.system]] ?? 0) + r.length_m;
+  return out;
+}
 
 export interface PipeDefaults {
   material: PipeMaterial;
@@ -60,8 +110,9 @@ export function sizeLabel(material: PipeMaterial, diameterMm: number): string {
   return `${sizeShort(material, diameterMm)} mm`;
 }
 
+/** "20", "12.7", "9.52": line set sizes are 3/8, 1/2 and 5/8 inch in mm. */
 export function formatDiameter(diameterMm: number): string {
-  return String(Math.round(diameterMm * 10) / 10);
+  return String(Math.round(diameterMm * 100) / 100);
 }
 
 export function materialsFor(system: PipeSystem): PipeMaterial[] {
@@ -212,7 +263,7 @@ export interface SegmentFall {
   low: boolean;
 }
 
-/** Fall of each segment of a run, in the flow direction (first point to last). */
+/** Fall of each segment of a run, in the flow direction (first point to last). Drainage, storm and condensate fall. */
 export function segmentFalls(pipe: Pipe): SegmentFall[] {
   const min = drainMinSlopePct(pipe.diameter_mm);
   const out: SegmentFall[] = [];
@@ -233,7 +284,19 @@ export function segmentFalls(pipe: Pipe): SegmentFall[] {
 // ---------------------------------------------------------------- review
 
 /** Review codes the pipe checks produce (docs/CONTRACT.md, "Pipes"). */
-export const PIPE_ISSUE_CODES = new Set(["pipe_through_column", "pipe_across_opening", "pipes_cross", "drain_slope_low", "pipe_penetrations"]);
+export const PIPE_ISSUE_CODES = new Set([
+  "pipe_through_column",
+  "pipe_across_opening",
+  "pipes_cross",
+  "drain_slope_low",
+  "pipe_penetrations",
+  "condensate_slope_low",
+  "condensate_open_end",
+  "lineset_long",
+  "lineset_rise",
+  "lineset_short",
+  "lineset_extra",
+]);
 
 /** The one pipe item that is a summary, shown as a note. */
 export const PENETRATION_SUMMARY = "pipe_penetrations";
@@ -261,8 +324,24 @@ export function orderIssues(issues: Issue[]): { items: Issue[]; notes: Issue[] }
 
 // ---------------------------------------------------------------- take-off
 
-/** Shown under the take-off and written into the CSV. */
+/** Shown under a plumbing take-off and written into the CSV. */
 export const TAKEOFF_NOTE = "Centerline lengths from the model. Sizing is for a registered Master Plumber.";
+
+function listWords(words: string[]): string {
+  return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
+/** The take-off note naming who sizes the runs it lists: the Master Plumber, the PEE, the PME. */
+export function takeoffNote(rows: PipeTakeoffRow[]): string {
+  const trades = SERVICE_TRADES.filter((t) => rows.some((r) => PIPE_GROUP[r.system] === t.group));
+  if (trades.length === 0 || (trades.length === 1 && trades[0].group === "plumbing")) return TAKEOFF_NOTE;
+  return `Centerline lengths from the model. Sizing is for ${listWords(trades.map((t) => t.pro))}.`;
+}
+
+/** "Plumbing" while every run is plumbing, else "Services". */
+export function takeoffTitle(rows: PipeTakeoffRow[]): string {
+  return rows.every((r) => PIPE_GROUP[r.system] === "plumbing") ? "Plumbing" : "Services";
+}
 
 export const EMPTY_NETWORK: PipeNetwork = {
   fittings: [],
@@ -276,7 +355,7 @@ export const EMPTY_NETWORK: PipeNetwork = {
 
 /** Length in meters per system, from the take-off rows. */
 export function lengthBySystem(rows: PipeTakeoffRow[]): Record<PipeSystem, number> {
-  const out: Record<PipeSystem, number> = { cold_water: 0, hot_water: 0, drainage: 0, vent: 0 };
+  const out = Object.fromEntries(PIPE_SYSTEM_ORDER.map((s) => [s, 0])) as Record<PipeSystem, number>;
   for (const r of rows) out[r.system] += r.length_m;
   return out;
 }
@@ -306,12 +385,12 @@ export function takeoffCsv(net: PipeNetwork): string {
   for (const r of net.takeoff) {
     lines.push(csvRow([PIPE_SYSTEM_LABEL[r.system], PIPE_MATERIAL_LABEL[r.material], formatDiameter(r.diameter_mm), r.length_m.toFixed(3), r.run_count]));
   }
-  lines.push(csvRow(["All pipe", "", "", net.total_length_m.toFixed(3), runCount(net.takeoff)]));
+  lines.push(csvRow([takeoffTitle(net.takeoff) === "Plumbing" ? "All pipe" : "All runs", "", "", net.total_length_m.toFixed(3), runCount(net.takeoff)]));
   lines.push("");
   lines.push(csvRow(["Elbows", net.elbow_count]));
   lines.push(csvRow(["Tees", net.tee_count]));
   lines.push(csvRow(["Sleeves or flashings", net.sleeve_count]));
   lines.push("");
-  lines.push(csvRow([TAKEOFF_NOTE]));
+  lines.push(csvRow([takeoffNote(net.takeoff)]));
   return `${lines.join("\r\n")}\r\n`;
 }

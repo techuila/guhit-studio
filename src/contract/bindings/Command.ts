@@ -7,6 +7,7 @@ import type { OpeningStyle } from "./OpeningStyle";
 import type { OpeningType } from "./OpeningType";
 import type { Point } from "./Point";
 import type { ProjectSettings } from "./ProjectSettings";
+import type { ReviewTarget } from "./ReviewTarget";
 import type { Roof } from "./Roof";
 import type { Side } from "./Side";
 import type { WallAnchor } from "./WallAnchor";
@@ -15,4 +16,4 @@ export type Command = { "type": "add_wall", start: Point, end: Point, thickness_
 /**
  * None means false. See `Opening::flip_side` for the convention.
  */
-flip_side: boolean | null, flip_hinge: boolean | null, } | { "type": "resize_room", room_id: string, side: Side, delta_mm: number, } | { "type": "add_element", element: Element, } | { "type": "update_element", element: Element, } | { "type": "delete_elements", ids: Array<string>, } | { "type": "move_elements", ids: Array<string>, delta: Point, stretch_connected: boolean, } | { "type": "rotate_elements", ids: Array<string>, pivot: Point, angle_deg: number, } | { "type": "duplicate_elements", ids: Array<string>, delta: Point, } | { "type": "set_material", ids: Array<string>, material_id: string, } | { "type": "upsert_material", material: Material, } | { "type": "set_roof", roof: Roof, } | { "type": "set_project_settings", settings: ProjectSettings, } | { "type": "update_level", level: Level, } | { "type": "set_layer", layer: Layer, } | { "type": "batch", label: string, commands: Array<Command>, };
+flip_side: boolean | null, flip_hinge: boolean | null, } | { "type": "resize_room", room_id: string, side: Side, delta_mm: number, } | { "type": "add_element", element: Element, } | { "type": "update_element", element: Element, } | { "type": "delete_elements", ids: Array<string>, } | { "type": "move_elements", ids: Array<string>, delta: Point, stretch_connected: boolean, } | { "type": "rotate_elements", ids: Array<string>, pivot: Point, angle_deg: number, } | { "type": "duplicate_elements", ids: Array<string>, delta: Point, } | { "type": "set_material", ids: Array<string>, material_id: string, } | { "type": "upsert_material", material: Material, } | { "type": "set_roof", roof: Roof, } | { "type": "set_project_settings", settings: ProjectSettings, } | { "type": "update_level", level: Level, } | { "type": "add_level", name: string | null, elevation_mm: number | null, height_mm: number | null, } | { "type": "delete_level", level_id: string, } | { "type": "set_layer", layer: Layer, } | { "type": "set_review_mark", target: ReviewTarget, note: string | null, } | { "type": "batch", label: string, commands: Array<Command>, };

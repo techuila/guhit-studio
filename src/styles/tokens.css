@@ -46,6 +46,10 @@
   --pipe-hot: #e0563a;
   --pipe-drain: #9b6a35;
   --pipe-vent: #3a9a5c;
+  --pipe-storm: #6f7782;
+  --pipe-conduit: #d49a1a;
+  --pipe-refrigerant: #b0428f;
+  --pipe-condensate: #6c8fb3;
 
   /* type */
   --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;

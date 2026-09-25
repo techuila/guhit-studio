@@ -145,10 +145,10 @@ export function firstExteriorDoor(doc: DocState, levelId: string): { id: string;
 
 /**
  * Where `walk_to` stands: about 1.5 m from the finding, on a room side, clear
- * of blockers, with a clear line to it when there is one, facing it. The
- * finding is plan x, y and z above the level floor.
+ * of blockers, with a clear line to it when there is one, facing it from eye
+ * height. The finding is plan x, y and z above the level floor.
  */
-export function walkToPose(doc: DocState, levelId: string, world: CollisionWorld, location: Vec3, r = WALKER_RADIUS_MM): WalkPose {
+export function walkToPose(doc: DocState, levelId: string, world: CollisionWorld, location: Vec3, r = WALKER_RADIUS_MM, eyeMm = EYE_HEIGHT_MM): WalkPose {
   const rooms = roomsOn(doc, levelId);
   const target = { x: location.x, y: location.y };
   const targetRoom = roomAt(rooms, target);
@@ -178,16 +178,16 @@ export function walkToPose(doc: DocState, levelId: string, world: CollisionWorld
     if (!best || score > best.score) best = { p, score };
   }
   const stand = best?.p ?? target;
-  return facing(stand, location);
+  return facing(stand, location, eyeMm);
 }
 
 /** A pose at `stand` looking at `location` (z above the floor) from eye height. */
-export function facing(stand: Pt, location: Vec3): WalkPose {
+export function facing(stand: Pt, location: Vec3, eyeMm = EYE_HEIGHT_MM): WalkPose {
   const dx = location.x - stand.x;
   const dy = location.y - stand.y;
   const flat = Math.hypot(dx, dy);
   const yaw = flat > 1 ? Math.atan2(dy, dx) : 0;
-  const pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, Math.atan2(location.z - EYE_HEIGHT_MM, Math.max(flat, 1))));
+  const pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, Math.atan2(location.z - eyeMm, Math.max(flat, 1))));
   return { x: stand.x, y: stand.y, yaw, pitch };
 }
 

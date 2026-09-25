@@ -62,6 +62,7 @@ pub fn default_settings() -> ProjectSettings {
         client_name: String::new(),
         location: String::new(),
         designer: String::new(),
+        site: None,
     }
 }
 
@@ -81,6 +82,9 @@ pub fn default_layers() -> Vec<Layer> {
         HotWater,
         Drainage,
         Vent,
+        Storm,
+        Electrical,
+        Aircon,
     ]
     .into_iter()
     .map(|key| Layer {
@@ -100,6 +104,22 @@ pub fn pipe_defaults(system: PipeSystem) -> (PipeMaterial, f64, f64) {
         PipeSystem::HotWater => (PipeMaterial::Ppr, 20.0, 300.0),
         PipeSystem::Drainage => (PipeMaterial::Upvc, 50.0, -300.0),
         PipeSystem::Vent => (PipeMaterial::Upvc, 50.0, 300.0),
+        PipeSystem::Storm => (PipeMaterial::Upvc, 100.0, -300.0),
+        // Conduit usually runs above the ceiling and drops in the wall.
+        PipeSystem::Conduit => (PipeMaterial::Pvc, 20.0, 2800.0),
+        // A line set leaves the indoor unit near its top.
+        PipeSystem::Refrigerant => (PipeMaterial::Copper, 9.52, 2400.0),
+        PipeSystem::Condensate => (PipeMaterial::Pvc, 20.0, 2300.0),
+    }
+}
+
+/// Manila, the default site when a project has none.
+pub fn default_site() -> Site {
+    Site {
+        city: "manila".into(),
+        latitude_deg: 14.5995,
+        longitude_deg: 120.9842,
+        utc_offset_min: 480,
     }
 }
 
@@ -124,6 +144,8 @@ pub fn default_roof() -> Roof {
     }
 }
 
+// One positional row per material keeps the preset table readable.
+#[allow(clippy::too_many_arguments)]
 fn mat(
     id: &str,
     name: &str,
@@ -190,13 +212,54 @@ fn item(
         depth_mm: d,
         height_mm: h,
         elevation_mm: elevation,
+        mount: Mount::Floor,
+        device: None,
+        light: None,
+        aircon: None,
     }
+}
+
+fn mounted(mut it: CatalogItem, mount: Mount, device: Option<DeviceKind>) -> CatalogItem {
+    it.mount = mount;
+    it.device = device;
+    it
+}
+
+/// A fixture that gives light: lumens and color temperature, on by default.
+fn lit(mut it: CatalogItem, lumens: f64, kelvin: f64) -> CatalogItem {
+    it.light = Some(AssetLight { lumens, kelvin, on: true });
+    it
+}
+
+#[allow(clippy::too_many_arguments)]
+fn aircon(
+    mut it: CatalogItem,
+    role: AirconRole,
+    hp: f64,
+    liquid_mm: f64,
+    gas_mm: f64,
+    max_line_m: f64,
+    max_rise_m: f64,
+) -> CatalogItem {
+    it.aircon = Some(AirconSpec {
+        role,
+        hp,
+        liquid_mm,
+        gas_mm,
+        min_line_m: if role == AirconRole::Window { 0.0 } else { 3.0 },
+        max_line_m,
+        max_rise_m,
+        included_line_m: if role == AirconRole::Window { 0.0 } else { 3.0 },
+    });
+    it
 }
 
 /// Starter object library. The frontend draws a 2D symbol and a simple 3D
 /// form per `key`, and falls back to a labelled box for unknown keys.
 pub fn asset_catalog() -> Vec<CatalogItem> {
     use AssetCategory as A;
+    use DeviceKind as D;
+    use Mount as M;
     vec![
         item("bed-single", "Single bed", A::Furniture, 920.0, 1900.0, 500.0, 0.0),
         item("bed-double", "Double bed", A::Furniture, 1370.0, 1900.0, 500.0, 0.0),
@@ -222,6 +285,45 @@ pub fn asset_catalog() -> Vec<CatalogItem> {
         item("plant-pot", "Potted plant", A::Plant, 500.0, 500.0, 1200.0, 0.0),
         item("tree", "Tree", A::Plant, 3000.0, 3000.0, 5000.0, 0.0),
         item("car-sedan", "Car, sedan", A::Vehicle, 1800.0, 4500.0, 1450.0, 0.0),
+        // Plumbing and utility fixtures.
+        item("floor-drain", "Floor drain", A::Sanitary, 150.0, 150.0, 20.0, 0.0),
+        mounted(item("water-heater", "Water heater, instant", A::Sanitary, 250.0, 100.0, 400.0, 1500.0), M::Wall, None),
+        item("water-meter", "Water meter", A::Utility, 250.0, 150.0, 150.0, 0.0),
+        item("water-tank", "Water tank, 1000 L", A::Utility, 1000.0, 1000.0, 1300.0, 0.0),
+        item("septic-tank", "Septic tank, two chambers", A::Utility, 1800.0, 1200.0, 1500.0, -1650.0),
+        item("lpg-cylinder", "LPG cylinder, 11 kg", A::Utility, 300.0, 300.0, 600.0, 0.0),
+        mounted(item("electric-meter", "Electric meter", A::Utility, 200.0, 150.0, 300.0, 1500.0), M::Wall, None),
+        // Light fixtures: 900 lm is a 9 W LED bulb sold in PH stores.
+        lit(mounted(item("light-ceiling", "Ceiling light", A::Lighting, 300.0, 300.0, 60.0, 2940.0), M::Ceiling, Some(D::LightingOutlet)), 900.0, 3000.0),
+        lit(mounted(item("light-downlight", "Downlight", A::Lighting, 150.0, 150.0, 80.0, 2920.0), M::Ceiling, Some(D::LightingOutlet)), 700.0, 3000.0),
+        lit(mounted(item("light-tube", "Tube light, LED T8", A::Lighting, 1200.0, 100.0, 60.0, 2940.0), M::Ceiling, Some(D::LightingOutlet)), 1800.0, 6500.0),
+        lit(mounted(item("light-pendant", "Pendant light", A::Lighting, 350.0, 350.0, 400.0, 2000.0), M::Ceiling, Some(D::LightingOutlet)), 900.0, 2700.0),
+        lit(mounted(item("light-wall", "Wall light", A::Lighting, 200.0, 120.0, 250.0, 1900.0), M::Wall, Some(D::LightingOutlet)), 600.0, 3000.0),
+        lit(mounted(item("light-outdoor", "Outdoor wall light", A::Lighting, 150.0, 150.0, 250.0, 2100.0), M::Wall, Some(D::LightingOutlet)), 700.0, 3000.0),
+        lit(item("light-floor-lamp", "Floor lamp", A::Lighting, 400.0, 400.0, 1600.0, 0.0), 800.0, 2700.0),
+        lit(item("light-table-lamp", "Table lamp", A::Lighting, 300.0, 300.0, 500.0, 750.0), 400.0, 2700.0),
+        // Electrical devices. Switches at 1200 mm to center, 200 mm from the
+        // latch side of the door (BP 344 IRR, 2024). Outlets at 300 mm.
+        mounted(item("outlet-duplex", "Convenience outlet, duplex", A::Electrical, 70.0, 40.0, 115.0, 243.0), M::Wall, Some(D::ConvenienceReceptacle)),
+        mounted(item("outlet-counter", "Counter outlet", A::Electrical, 70.0, 40.0, 115.0, 1043.0), M::Wall, Some(D::ConvenienceReceptacle)),
+        mounted(item("outlet-outdoor", "Outdoor outlet, weatherproof", A::Electrical, 90.0, 60.0, 130.0, 235.0), M::Wall, Some(D::ConvenienceReceptacle)),
+        mounted(item("outlet-spo", "Special purpose outlet", A::Electrical, 70.0, 40.0, 115.0, 243.0), M::Wall, Some(D::SpecialPurposeOutlet)),
+        mounted(item("outlet-aircon", "Aircon outlet", A::Electrical, 70.0, 40.0, 115.0, 1943.0), M::Wall, Some(D::SpecialPurposeOutlet)),
+        mounted(item("switch-1", "Switch, one gang", A::Electrical, 70.0, 40.0, 115.0, 1143.0), M::Wall, Some(D::Switch)),
+        mounted(item("switch-2", "Switch, two gang", A::Electrical, 70.0, 40.0, 115.0, 1143.0), M::Wall, Some(D::Switch)),
+        mounted(item("switch-3", "Switch, three gang", A::Electrical, 70.0, 40.0, 115.0, 1143.0), M::Wall, Some(D::Switch)),
+        mounted(item("panelboard", "Panelboard", A::Electrical, 350.0, 100.0, 450.0, 1500.0), M::Wall, Some(D::Panelboard)),
+        mounted(item("smoke-detector", "Smoke detector", A::Electrical, 120.0, 120.0, 50.0, 2950.0), M::Ceiling, Some(D::SmokeDetector)),
+        mounted(item("doorbell-button", "Doorbell push button", A::Electrical, 50.0, 30.0, 80.0, 1260.0), M::Wall, Some(D::PushButton)),
+        mounted(item("doorbell-chime", "Doorbell chime", A::Electrical, 120.0, 50.0, 120.0, 1940.0), M::Wall, Some(D::Buzzer)),
+        // Aircon, split type and window type. Sizes and limits from the
+        // Koppel, Carrier and Daikin PH manuals (research, 2026-09-23).
+        aircon(mounted(item("aircon-indoor-1hp", "Split aircon indoor unit, 1.0 to 1.5 HP", A::Aircon, 800.0, 230.0, 295.0, 2300.0), M::Wall, Some(D::AirconIndoor)), AirconRole::Indoor, 1.5, 6.35, 9.52, 25.0, 10.0),
+        aircon(mounted(item("aircon-indoor-2hp", "Split aircon indoor unit, 2.0 HP", A::Aircon, 965.0, 240.0, 320.0, 2300.0), M::Wall, Some(D::AirconIndoor)), AirconRole::Indoor, 2.0, 6.35, 12.7, 30.0, 20.0),
+        aircon(mounted(item("aircon-indoor-3hp", "Split aircon indoor unit, 2.5 to 3.0 HP", A::Aircon, 1140.0, 275.0, 370.0, 2300.0), M::Wall, Some(D::AirconIndoor)), AirconRole::Indoor, 3.0, 6.35, 12.7, 30.0, 20.0),
+        aircon(mounted(item("aircon-outdoor-1hp", "Aircon outdoor unit, 1.0 to 1.5 HP", A::Aircon, 770.0, 305.0, 555.0, 0.0), M::Floor, Some(D::AirconOutdoor)), AirconRole::Outdoor, 1.5, 6.35, 9.52, 25.0, 10.0),
+        aircon(mounted(item("aircon-outdoor-3hp", "Aircon outdoor unit, 2.0 to 3.0 HP", A::Aircon, 890.0, 342.0, 673.0, 0.0), M::Floor, Some(D::AirconOutdoor)), AirconRole::Outdoor, 3.0, 6.35, 12.7, 30.0, 20.0),
+        aircon(mounted(item("aircon-window", "Window aircon, 0.75 to 1.5 HP", A::Aircon, 471.0, 482.0, 345.0, 1200.0), M::Opening, Some(D::AirconWindow)), AirconRole::Window, 1.0, 0.0, 0.0, 0.0, 0.0),
     ]
 }
 
@@ -292,5 +394,6 @@ pub fn new_project(name: &str) -> Project {
         materials: default_materials(),
         elements: vec![],
         roof: default_roof(),
+        review: vec![],
     }
 }

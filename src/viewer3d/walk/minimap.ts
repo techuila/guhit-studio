@@ -1,6 +1,8 @@
 // Minimap for walk and fly: the walker's level in plan, north up. Walls with
-// their door gaps, windows, columns, rooms, pipes in their system colors, and
-// the walker as a dot with a view cone.
+// their door gaps, windows, columns, rooms, stairs (arrow up the flight on the
+// level it starts from, down on the level at its top), pipes in their system
+// colors, and the walker as a dot with a view cone. Clicking it glides the
+// walker there (`toPlan` turns the click into a plan point).
 //
 // The plan does not change while the walker moves, so it is drawn once into
 // an offscreen layer and only blitted afterwards: a moving frame costs one
@@ -18,12 +20,22 @@ export interface MinimapPipe {
   diameterMm: number;
 }
 
+export interface MinimapStair {
+  outline: Pt[];
+  treads: [Pt, Pt][];
+  /** Foot to head, along the middle of the flight. */
+  arrow: [Pt, Pt];
+  /** True on the level the flight starts from: the arrow points up it. */
+  up: boolean;
+}
+
 export interface MinimapScene {
   /** Bumped whenever anything below changes. */
   version: number;
   world: CollisionWorld;
   rooms: Pt[][];
   pipes: MinimapPipe[];
+  stairs?: MinimapStair[];
 }
 
 export interface MinimapWalker {
@@ -31,6 +43,8 @@ export interface MinimapWalker {
   y: number;
   /** Plan heading of the view, radians counter-clockwise from east. */
   yaw: number;
+  /** Where a glide is taking the walker, drawn as a ring. */
+  target?: Pt | null;
 }
 
 interface Frame {
@@ -88,6 +102,17 @@ export class Minimap {
     return [f.ox + (p.x - f.minX) * f.scale, f.h - (f.oy + (p.y - f.minY) * f.scale)];
   }
 
+  /** The plan point under a client (page) point on the minimap, or null before the first draw. */
+  toPlan(clientX: number, clientY: number): Pt | null {
+    const f = this.frame;
+    const rect = this.canvas.getBoundingClientRect();
+    if (!f || !(rect.width > 0) || !(f.scale > 0)) return null;
+    const k = this.canvas.width / rect.width;
+    const cx = (clientX - rect.left) * k;
+    const cy = (clientY - rect.top) * k;
+    return { x: f.minX + (cx - f.ox) / f.scale, y: f.minY + (f.h - cy - f.oy) / f.scale };
+  }
+
   private drawPlan(scene: MinimapScene, cw: number, ch: number, dpr: number): void {
     const layer = (this.layer ??= document.createElement("canvas"));
     layer.width = cw;
@@ -103,7 +128,7 @@ export class Minimap {
     // Framed on the building, not the site: a service line from the street or
     // a septic tank outlet would otherwise shrink the house to a stamp. What
     // runs past the frame is clipped at its edge.
-    let pts: Pt[] = [...scene.world.wallPieces.flat(), ...scene.rooms.flat()];
+    let pts: Pt[] = [...scene.world.wallPieces.flat(), ...scene.rooms.flat(), ...(scene.stairs ?? []).flatMap((st) => st.outline)];
     for (const c of scene.world.colliders) if (c.source === "column") pts.push({ x: c.minX, y: c.minY }, { x: c.maxX, y: c.maxY });
     if (pts.length === 0) pts = scene.pipes.flatMap((p) => p.points);
     let minX = Infinity;
@@ -172,6 +197,42 @@ export class Minimap {
     }
     ctx.globalAlpha = 1;
 
+    // Stairs: the flight with its treads and an arrow up it (down on the level at its top).
+    const line = (a: Pt, b: Pt) => {
+      const [ax, ay] = this.toCanvas(a);
+      const [bx, by] = this.toCanvas(b);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+    };
+    for (const st of scene.stairs ?? []) {
+      ctx.strokeStyle = ink3;
+      ctx.lineWidth = 1 * dpr;
+      poly(st.outline);
+      ctx.stroke();
+      ctx.globalAlpha = 0.55;
+      for (const [a, b] of st.treads) line(a, b);
+      ctx.globalAlpha = 1;
+      const [from, to] = st.up ? st.arrow : [st.arrow[1], st.arrow[0]];
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 1.3 * dpr;
+      line(from, to);
+      const [fx, fy] = this.toCanvas(from);
+      const [tx, ty] = this.toCanvas(to);
+      const len = Math.hypot(tx - fx, ty - fy);
+      if (len > 1) {
+        const ux = (tx - fx) / len;
+        const uy = (ty - fy) / len;
+        const head = Math.min(5 * dpr, len * 0.4);
+        ctx.beginPath();
+        ctx.moveTo(tx - ux * head - uy * head * 0.6, ty - uy * head + ux * head * 0.6);
+        ctx.lineTo(tx, ty);
+        ctx.lineTo(tx - ux * head + uy * head * 0.6, ty - uy * head - ux * head * 0.6);
+        ctx.stroke();
+      }
+    }
+
     const span = (s: WallSpan, color: string, width: number) => {
       const [ax, ay] = this.toCanvas(s.a);
       const [bx, by] = this.toCanvas(s.b);
@@ -206,6 +267,16 @@ export class Minimap {
   }
 
   private drawWalker(ctx: CanvasRenderingContext2D, w: MinimapWalker, dpr: number): void {
+    if (w.target) {
+      const [gx, gy] = this.toCanvas(w.target);
+      ctx.save();
+      ctx.strokeStyle = this.accent;
+      ctx.lineWidth = 1.6 * dpr;
+      ctx.beginPath();
+      ctx.arc(gx, gy, 5 * dpr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     // Outside the frame the dot waits at its edge, still pointing the right way.
     const edge = 6 * dpr;
     const [rx, ry] = this.toCanvas(w);

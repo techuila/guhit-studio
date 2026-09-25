@@ -164,6 +164,9 @@ pub struct PlanOptions {
     pub show_assets: bool,
     /// False for DXF: text like "m2" must stay plain ASCII.
     pub unicode: bool,
+    /// Leave out objects that a service sheet draws as symbols (lights,
+    /// switches, outlets, aircon units). The plan draws them as outlines.
+    pub skip_devices: bool,
 }
 
 /// The level to export: the requested one, or the first level.
@@ -297,13 +300,19 @@ pub fn build_items(
         })
         .collect();
 
-    // Assets first so walls and symbols draw over them.
-    if opts.show_assets && on(LayerKey::Assets) {
+    // Assets first so walls and symbols draw over them. Each object follows
+    // its own layer: lighting and electrical objects are on `electrical`,
+    // aircon units on `aircon`, the rest on `assets`.
+    if opts.show_assets {
         for e in &project.elements {
             if let Element::Asset(a) = e {
-                if a.level_id == level.id {
-                    asset_items(a, n, &label_boxes, &mut out);
+                if a.level_id != level.id || !on(crate::services::asset_layer(a)) {
+                    continue;
                 }
+                if opts.skip_devices && crate::services::symbol_of(a).is_some() {
+                    continue;
+                }
+                asset_items(a, n, &label_boxes, &mut out);
             }
         }
     }
@@ -798,7 +807,7 @@ fn stair_items(s: &guhit_model::Stair, n: f64, out: &mut Vec<Item>) {
 
 // --------------------------------------------------------------------- assets
 
-fn asset_items(a: &guhit_model::Asset, n: f64, avoid: &[Bounds], out: &mut Vec<Item>) {
+pub(crate) fn asset_items(a: &guhit_model::Asset, n: f64, avoid: &[Bounds], out: &mut Vec<Item>) {
     let c = V::from(a.position);
     let (w, d) = (a.width_mm.abs(), a.depth_mm.abs());
     if w < 1.0 || d < 1.0 {

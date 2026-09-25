@@ -101,7 +101,7 @@ mod tests {
         assert_eq!((t.as_str(), s), ("Short", 3.0));
         let (t, s) = fit("A fairly long project name", 3.0, 1.5, 30.0, false);
         assert_eq!(t, "A fairly long project name");
-        assert!(s < 3.0 && s >= 1.5);
+        assert!((1.5..3.0).contains(&s));
         let (t, s) = fit("A fairly long project name that goes on", 3.0, 2.5, 20.0, false);
         assert!(t.ends_with("..."));
         assert_eq!(s, 2.5);

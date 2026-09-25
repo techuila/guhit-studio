@@ -4,20 +4,35 @@
 // every builder falls back instead of throwing.
 
 import * as THREE from "three";
-import type { DocState, Footprint, LayerKey, Level, Opening, Project, Stair, Wall } from "../../contract/bindings";
+import type { Asset, AssetCategory, DocState, Footprint, LayerKey, Level, Opening, Project, Stair, Wall } from "../../contract/bindings";
 import { planRotationToWorld, planToWorld, type Pt } from "../geom/coords";
 import { EMPTY_BOUNDS, type ModelBounds } from "../geom/cameraMath";
 import { MeshData, pushPrism } from "../geom/meshData";
-import { boundsOf, clipHalfPlane, ensureCCW, offsetPolygon, orientedRect, pointInPolygon } from "../geom/polygon";
+import { boundsOf, clipHalfPlane, ensureCCW, offsetPolygon, orientedRect, pointInPolygon, signedArea } from "../geom/polygon";
 import { buildRoofInfill, buildRoofMesh, type RoofInput } from "../geom/roofMesh";
 import { buildWallMesh } from "../geom/wallMesh";
-import { buildAssetForm } from "./assets";
+import { buildAssetForm, lampAnchor, type LampInfo } from "./assets";
 import { modelPack } from "./pack";
 import type { BuildCache } from "./buildCache";
 import { Kit, tagElement } from "./kit";
 import type { MaterialLibrary } from "./materials";
 import { buildOpening } from "./openings";
 import { buildPipeGhost, buildPipes, PipeScene } from "./pipes";
+import { defaultAnchor, fixtureSize, lampOptics, type LampSpec, type RoomSpec } from "../light/fixtures";
+import { stairOutline, stairsOf } from "../walk/stairs";
+import { ceilingHeightMm } from "../../editor2d/mount";
+import { DECK_MM, DECK_TOPPING_MM, deckPieces } from "./roofDeck";
+
+/**
+ * The layer a placed object is on, by category: lighting and electrical
+ * objects share `electrical`, aircon units `aircon`, the rest `assets`. The
+ * same rule as `assetLayer` in src/editor2d/model.ts (docs/CONTRACT.md).
+ */
+export function assetLayerKey(category: AssetCategory): LayerKey {
+  if (category === "lighting" || category === "electrical") return "electrical";
+  if (category === "aircon") return "aircon";
+  return "assets";
+}
 
 /** Depth of the plinth: the ground sits this far below the lowest floor. */
 export const PLINTH_MM = 150;
@@ -88,6 +103,10 @@ export interface BuiltScene {
   byElement: Map<string, THREE.Mesh[]>;
   /** Pipe runs: one solo per pipe (picking, highlights, fades) and one merged batch per system (drawing). */
   pipes: PipeScene;
+  /** Lit fixtures (`Asset::light`) on shown levels and visible layers, for the light rig. */
+  lamps: LampSpec[];
+  /** Rooms on shown levels: the light rig adds their bounce light and, without a fixture, a ghost light. View only. */
+  lightRooms: RoomSpec[];
 }
 
 class BoundsAcc {
@@ -231,6 +250,16 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
 
   // ----------------------------------------------------------------- floors
   lib.category = "floor";
+  // Stairwells: every flight's rectangle is cut out of the slab and the room
+  // floors of the level at its top, so the flight is open above and a walk
+  // up it never passes through the floor (walk/stairs.ts finds the flights).
+  const wells = new Map<string, Pt[][]>();
+  for (const flight of stairsOf(doc)) {
+    if (!flight.topLevelId) continue;
+    const list = wells.get(flight.topLevelId) ?? [];
+    list.push(stairOutline(flight).outline);
+    wells.set(flight.topLevelId, list);
+  }
   for (const level of sortedLevels) {
     if (!levelShown(level)) continue;
     // A slab per detached building on this level.
@@ -240,10 +269,12 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       // Slightly inside the outer wall faces, so the slab edge never fights
       // with the wall surfaces that run down to the ground.
       const inner = offsetPolygon(fp, -8);
-      pushPrism(md, inner.length >= 3 ? inner : fp, {
-        bottom: () => level.elevation_mm - depth,
-        top: () => level.elevation_mm,
-      });
+      for (const piece of subtractWells(inner.length >= 3 ? inner : fp, wells.get(level.id))) {
+        pushPrism(md, piece, {
+          bottom: () => level.elevation_mm - depth,
+          top: () => level.elevation_mm,
+        });
+      }
       root.add(kit.mesh(kit.fromMeshData(md), lib.get("mat-floor-concrete", undefined, false)));
       acc.add(fp, level.elevation_mm - depth, level.elevation_mm);
     }
@@ -255,11 +286,14 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
     const poly = ensureCCW(roomGeo.get(e.id)?.polygon ?? []);
     if (!level || !levelShown(level) || poly.length < 3) continue;
     const md = new MeshData();
-    pushPrism(md, poly, {
-      bottom: () => level.elevation_mm,
-      top: () => level.elevation_mm + FLOOR_FINISH_MM,
-      skipBottom: true,
-    });
+    for (const piece of subtractWells(poly, wells.get(level.id))) {
+      pushPrism(md, piece, {
+        bottom: () => level.elevation_mm,
+        top: () => level.elevation_mm + FLOOR_FINISH_MM,
+        skipBottom: true,
+      });
+    }
+    if (md.triangleCount === 0) continue;
     const mesh = kit.mesh(kit.fromMeshData(md), lib.get(e.floor_material_id, "mat-tile-ceramic"));
     mesh.castShadow = false;
     mesh.userData.soft = true;
@@ -270,6 +304,21 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
     root.add(mesh);
     acc.add(poly, level.elevation_mm, level.elevation_mm + FLOOR_FINISH_MM);
   }
+
+  // Rooms per level, for fixtures (which room a lamp lights) and ghost lights.
+  const roomsByLevel = new Map<string, { id: string; polygon: Pt[]; label: Pt; areaM2: number }[]>();
+  for (const e of project.elements) {
+    if (e.kind !== "room") continue;
+    const geo = roomGeo.get(e.id);
+    if (!geo || geo.polygon.length < 3) continue;
+    const level = levels.get(e.level_id) ?? lowest;
+    if (!level) continue;
+    const list = roomsByLevel.get(level.id) ?? [];
+    list.push({ id: e.id, polygon: geo.polygon, label: geo.label_point, areaM2: Math.abs(geo.area_mm2) / 1e6 });
+    roomsByLevel.set(level.id, list);
+  }
+  const roomAt = (levelId: string, p: Pt): string | null =>
+    roomsByLevel.get(levelId)?.find((r) => pointInPolygon(p, r.polygon))?.id ?? null;
 
   // ---------------------------------------------------------------- columns
   lib.category = "column";
@@ -315,10 +364,13 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
 
   // ----------------------------------------------------------------- assets
   lib.category = "asset";
-  if (visible("assets")) {
-    const assetsLocked = locked("assets");
+  const lamps: LampSpec[] = [];
+  {
     for (const e of project.elements) {
       if (e.kind !== "asset") continue;
+      const assetLayer = assetLayerKey(e.category);
+      if (!visible(assetLayer)) continue;
+      const assetsLocked = locked(assetLayer);
       const level = levels.get(e.level_id) ?? lowest;
       if (!level || !levelShown(level)) continue;
       // Outdoor items on the lowest level stand on the ground, not on the plinth height.
@@ -338,12 +390,17 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       // An asset's form depends on nothing but these values, so an unchanged
       // one is handed straight back by the cache: a wall edit in a scene with
       // three hundred assets rebuilds one wall, not three hundred chairs.
-      const cacheKey = `${e.id}|${e.catalog_key}|${e.width_mm}|${e.depth_mm}|${e.height_mm}|${e.elevation_mm}|${baseYMm}|${cutY ?? "-"}|${assetsLocked}|${matKey}|${usePack ? "glb" : "proc"}`;
+      // A fixture's diffuser takes its lamp's color (MaterialLibrary.lampGlow).
+      const lightKey = e.light ? `${Math.round(e.light.kelvin)}` : "";
+      // A pendant's cord ends at the ceiling: the level height, or the
+      // underside of the slab above (docs/CONTRACT.md, "Devices, fixtures and links").
+      const ceilingMm = ceilingHeightMm(level, sortedLevels);
+      const cacheKey = `${e.id}|${e.catalog_key}|${e.width_mm}|${e.depth_mm}|${e.height_mm}|${e.elevation_mm}|${baseYMm}|${cutY ?? "-"}|${assetsLocked}|${matKey}|${usePack ? "glb" : "proc"}|${lightKey}|${ceilingMm}`;
       let g = opts.cache?.take(cacheKey) ?? null;
       if (!g) {
         const own = new Kit();
         own.cutY = cutY;
-        g = buildAssetForm(own, lib, e, baseYMm / 1000, usePack);
+        g = buildAssetForm(own, lib, e, baseYMm / 1000, usePack, { ceilingMm });
         own.cutY = null;
         // A pack model arrives with the pack's shared materials: dress it in
         // this library's copies, which the shell modes may fade.
@@ -361,11 +418,31 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       g.position.set(x, y, z);
       g.rotation.y = planRotationToWorld(e.rotation_deg);
       root.add(g);
+      if (e.light) {
+        // A fixture never shades its own lamp: the light sits inside its form.
+        g.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh) o.castShadow = false;
+        });
+        const lamp = addLamp(kit, lib, e, g, level.id, roomAt(level.id, e.position), cutY, assetsLocked, root);
+        if (lamp) lamps.push(lamp);
+      }
       acc.add(
         orientedRect(e.position, e.width_mm, e.depth_mm, e.rotation_deg),
         floorMm,
         floorMm + Math.max(e.elevation_mm, 0) + e.height_mm,
       );
+    }
+  }
+
+  // Rooms get the light their lamps bounce, or a soft ghost light when they
+  // have no fixture (light/lamps.ts).
+  const lightRooms: RoomSpec[] = [];
+  for (const level of sortedLevels) {
+    if (!levelShown(level)) continue;
+    const heightM = ceilingHeightMm(level, sortedLevels) / 1000;
+    for (const r of roomsByLevel.get(level.id) ?? []) {
+      const floor = planToWorld(r.label.x, r.label.y, level.elevation_mm + FLOOR_FINISH_MM);
+      lightRooms.push({ roomId: r.id, levelId: level.id, floor, heightM, areaM2: r.areaM2 });
     }
   }
 
@@ -444,6 +521,20 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       }
     }
   }
+  // Roof decks: the part of a level that the next level up does not cover,
+  // at its ceiling (DECISIONS D26). They hide with the roof.
+  for (let i = 0; i + 1 < sortedLevels.length; i++) {
+    const level = sortedLevels[i];
+    if (!levelShown(level)) continue;
+    const pieces = deckPieces(footprintsOf(level.id), footprintsOf(sortedLevels[i + 1].id));
+    if (pieces.length === 0) continue;
+    const bottom = level.elevation_mm + ceilingHeightMm(level, sortedLevels);
+    const top = bottom + DECK_MM + DECK_TOPPING_MM;
+    const md = new MeshData();
+    for (const piece of pieces) pushPrism(md, piece, { bottom: () => bottom, top: () => top });
+    roofGroup.add(kit.mesh(kit.fromMeshData(md), lib.get("mat-floor-concrete", undefined, false)));
+    if (!opts.cutaway) for (const piece of pieces) acc.add(piece, bottom, top);
+  }
   roofGroup.visible = !opts.cutaway;
   root.add(roofGroup);
 
@@ -477,7 +568,153 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   const bounds = acc.b ?? { ...EMPTY_BOUNDS, minZ: groundMm, maxZ: groundMm + 3000 };
   bounds.minZ = Math.min(bounds.minZ, groundMm);
   const contact = lowest ? boundsOf(footprintsOf(lowest.id).flat()) : null;
-  return { root, roofGroup, bounds, empty, groundY: groundMm / 1000, contact, kit, byElement, pipes };
+  return { root, roofGroup, bounds, empty, groundY: groundMm / 1000, contact, kit, byElement, pipes, lamps, lightRooms };
+}
+
+/**
+ * A plan polygon minus convex holes (stairwells), as pieces to extrude one by
+ * one: for each edge of a hole, the part of what is left outside that edge is
+ * a piece, and the rest carries on to the next edge. What is inside every
+ * edge is the hole, and is dropped. A hole that misses the polygon leaves it
+ * whole.
+ */
+export function subtractWells(poly: Pt[], holes: Pt[][] | undefined): Pt[][] {
+  let pieces = [poly];
+  for (const hole of holes ?? []) {
+    const r = ensureCCW(hole);
+    if (r.length < 3) continue;
+    const next: Pt[][] = [];
+    for (const piece of pieces) {
+      let rest = piece;
+      for (let i = 0; i < r.length && rest.length >= 3; i++) {
+        const a = r[i];
+        const b = r[(i + 1) % r.length];
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        if (len < 1e-6) continue;
+        // Outward normal of a counter-clockwise edge.
+        const nx = (b.y - a.y) / len;
+        const ny = -(b.x - a.x) / len;
+        const c = nx * a.x + ny * a.y;
+        const outside = clipHalfPlane(rest, -nx, -ny, -c);
+        if (outside.length >= 3 && Math.abs(signedArea(outside)) > 1) next.push(outside);
+        rest = clipHalfPlane(rest, nx, ny, c);
+      }
+    }
+    pieces = next;
+  }
+  return pieces;
+}
+
+const tmpLamp = new THREE.Vector3();
+
+/**
+ * The lamp of a lit fixture, for the light rig (light/lamps.ts). The catalog
+ * form says where its light comes from and which way it shines
+ * (`group.userData.lamp`, scene/assets.ts) and draws its glowing parts
+ * (`mesh.userData.lampPart`); light/fixtures.ts picks the kind of light. A
+ * form that has no glowing part (a model the catalog does not know) gets a
+ * small glowing bulb at the anchor, so a lit object still shows its lamp;
+ * above the cutaway height it is left out, the light is not: rooms stay lit
+ * when cut.
+ */
+function addLamp(
+  kit: Kit,
+  lib: MaterialLibrary,
+  e: Asset,
+  form: THREE.Object3D,
+  levelId: string,
+  roomId: string | null,
+  cutY: number | null,
+  locked: boolean,
+  root: THREE.Group,
+): LampSpec | null {
+  const light = e.light;
+  if (!light || !(light.lumens > 0)) return null;
+  const size = fixtureSize(e);
+  const info = form.userData.lamp as LampInfo | undefined;
+  const known = info ?? lampAnchor(e.catalog_key, size.w, size.d, size.h);
+  const anchor: [number, number, number] = known ? [...known.anchor] : defaultAnchor(size.h);
+  const aim = known?.aim ?? null;
+  form.updateMatrix();
+  form.updateMatrixWorld(true);
+  // The glowing parts the form drew, and how much surface they have.
+  let glowAreaM2 = glowArea(form, (mesh) => {
+    const mat = mesh.material as THREE.Material | THREE.Material[];
+    return mesh.userData.lampPart === true || (!Array.isArray(mat) && mat.userData?.lampGlow === e.id);
+  });
+  if (glowAreaM2 === 0) {
+    const bulb = 0.035;
+    const at = tmpLamp.set(...anchor).applyMatrix4(form.matrix);
+    if (cutY === null || at.y < cutY) {
+      const g = new THREE.Group();
+      g.name = "lamp";
+      g.position.copy(form.position);
+      g.rotation.copy(form.rotation);
+      const mesh = kit.ball(g, lib.lampGlow(e.id, light.kelvin), bulb, bulb, bulb, anchor[0], anchor[1], anchor[2]);
+      if (mesh) {
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+        mesh.userData.lampPart = true;
+      }
+      tagElement(g, e.id, locked);
+      root.add(g);
+      glowAreaM2 = 4 * Math.PI * bulb * bulb;
+    }
+  }
+  const optics = lampOptics(e.catalog_key, aim, size, anchor);
+  const pos = tmpLamp.set(...anchor).applyMatrix4(form.matrix);
+  const position: [number, number, number] = [pos.x, pos.y, pos.z];
+  let direction: [number, number, number] | null = null;
+  if (optics.kind === "spot") {
+    const d = new THREE.Vector3(...(aim ?? [0, -1, 0])).normalize().applyQuaternion(form.quaternion);
+    direction = [d.x, d.y, d.z];
+  }
+  return {
+    id: e.id,
+    key: e.catalog_key,
+    kind: optics.kind,
+    position,
+    direction,
+    coneDeg: optics.coneDeg,
+    penumbra: optics.penumbra,
+    radius: optics.radius,
+    lumens: light.lumens,
+    kelvin: light.kelvin,
+    on: light.on,
+    levelId,
+    roomId,
+    glowAreaM2: glowAreaM2 > 0 ? glowAreaM2 : null,
+  };
+}
+
+const triA = new THREE.Vector3();
+const triB = new THREE.Vector3();
+const triC = new THREE.Vector3();
+
+/** Surface area, m2, of the meshes under `root` that `pick` accepts, in `root`'s own frame. */
+export function glowArea(root: THREE.Object3D, pick: (mesh: THREE.Mesh) => boolean): number {
+  const toRoot = root.matrixWorld.clone().invert();
+  const m = new THREE.Matrix4();
+  let area = 0;
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || !pick(mesh)) return;
+    const pos = mesh.geometry.getAttribute("position");
+    if (!pos) return;
+    m.multiplyMatrices(toRoot, mesh.matrixWorld);
+    const index = mesh.geometry.getIndex();
+    const count = index ? index.count : pos.count;
+    for (let i = 0; i + 2 < count; i += 3) {
+      const a = index ? index.getX(i) : i;
+      const b = index ? index.getX(i + 1) : i + 1;
+      const c = index ? index.getX(i + 2) : i + 2;
+      triA.fromBufferAttribute(pos, a).applyMatrix4(m);
+      triB.fromBufferAttribute(pos, b).applyMatrix4(m);
+      triC.fromBufferAttribute(pos, c).applyMatrix4(m);
+      area += triB.sub(triA).cross(triC.sub(triA)).length() / 2;
+    }
+  });
+  return area;
 }
 
 /**
@@ -622,7 +859,7 @@ export function buildGhosts(project: Project, ids: string[], lib: MaterialLibrar
       const level = levels.get(e.level_id) ?? lowest;
       if (!level) continue;
       const floorMm = level.elevation_mm + Math.max(e.elevation_mm, 0);
-      const g = buildAssetForm(kit, lib, e, floorMm / 1000);
+      const g = buildAssetForm(kit, lib, e, floorMm / 1000, false, { ceilingMm: ceilingHeightMm(level, project.levels ?? []) });
       const [x, y, z] = planToWorld(e.position.x, e.position.y, floorMm);
       g.position.set(x, y, z);
       g.rotation.y = planRotationToWorld(e.rotation_deg);

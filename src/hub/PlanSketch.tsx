@@ -56,25 +56,40 @@ export function PlanSketch({ seed, className }: { seed: string; className?: stri
 }
 
 /**
- * The plumbing template's preview: the sample bungalow's sketch (the same
- * drawing as seed "b") with a run in each pipe system color.
+ * The services template's preview: the sample bungalow's sketch (the same
+ * drawing as seed "b") with a plumbing run in each water color, a conduit to
+ * two lights, and an aircon line set, in their service colors.
  */
-export function PlumbingSketch({ className }: { className?: string }) {
+export function ServicesSketch({ className }: { className?: string }) {
   const v = VARIANTS[hash("b") % VARIANTS.length];
   return (
     <svg viewBox="0 0 270 200" className={className} preserveAspectRatio="xMidYMid meet" aria-hidden>
       <defs>
-        <pattern id="g-plumbing" width="10" height="10" patternUnits="userSpaceOnUse">
+        <pattern id="g-services" width="10" height="10" patternUnits="userSpaceOnUse">
           <path d="M10 0H0v10" fill="none" stroke="var(--draw-grid)" strokeWidth="1" />
         </pattern>
       </defs>
-      <rect width="270" height="200" fill="url(#g-plumbing)" />
+      <rect width="270" height="200" fill="url(#g-services)" />
       <PlanLines v={v} />
       <g fill="none" strokeLinecap="round" strokeLinejoin="round">
         <path d="M262 130H206V74H186" stroke="var(--pipe-cold)" strokeWidth="1.7" />
         <path d="M226 130V82H194" stroke="var(--pipe-hot)" strokeWidth="1.7" />
         <path d="M186 62H236V164H262" stroke="var(--pipe-drain)" strokeWidth="2.3" />
         <circle cx="236" cy="62" r="3.4" stroke="var(--pipe-vent)" strokeWidth="1.7" fill="var(--paper)" />
+        {/* conduit from a switch to two ceiling lights */}
+        <path d="M104 104Q86 84 70 66M70 66Q58 90 56 124" stroke="var(--pipe-conduit)" strokeWidth="1.3" strokeDasharray="3 3" />
+        <g stroke="var(--ink-2)" strokeWidth="1.2">
+          <circle cx="70" cy="66" r="6" fill="var(--paper)" />
+          <path d="M65.8 61.8l8.4 8.4M74.2 61.8l-8.4 8.4" />
+          <circle cx="56" cy="124" r="6" fill="var(--paper)" />
+          <path d="M51.8 119.8l8.4 8.4M60.2 119.8l-8.4 8.4" />
+        </g>
+        <text x="100" y="112" fontSize="9" fontFamily="var(--font-ui)" fill="var(--ink-2)" stroke="none">S</text>
+        {/* aircon indoor unit and its line set to the outdoor unit */}
+        <rect x="140" y="34" width="26" height="8" fill="var(--paper)" stroke="var(--pipe-refrigerant)" strokeWidth="1.3" />
+        <path d="M166 38H182V20H206" stroke="var(--pipe-refrigerant)" strokeWidth="1.5" />
+        <rect x="206" y="12" width="20" height="16" fill="var(--paper)" stroke="var(--pipe-refrigerant)" strokeWidth="1.3" />
+        <circle cx="216" cy="20" r="4.5" stroke="var(--pipe-refrigerant)" strokeWidth="1" />
       </g>
     </svg>
   );

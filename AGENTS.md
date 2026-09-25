@@ -34,7 +34,7 @@ Stop:
 | `src/editor2d` | 2D plan canvas and tools | |
 | `src/viewer3d` | Three.js live 3D | |
 | `src/ai` | Copilot dock | |
-| `fixtures/` | Golden sample projects: `sample-bungalow`, `plumbing-demo` (pipes, T&B, fixtures) | Regenerate both: `cargo run -p guhit-core --example gen_fixture` |
+| `fixtures/` | Golden sample projects: `sample-bungalow`, `plumbing-demo` ("Bungalow with services": plumbing, storm, electrical and aircon) | Regenerate both: `cargo run -p guhit-core --example gen_fixture` |
 | `site/` | Website: the public landing page, plain HTML/CSS/JS, no build step, no dependencies | Deployed to GitHub Pages by `.github/workflows/pages.yml` on a push to main that touches `site/**`. Serve locally with `python3 -m http.server 8090 --directory site`. Brand assets come from `assets/brand/`; app screenshots are optimized WebP copies under `site/assets/`. |
 
 ## Standing constraints
@@ -45,7 +45,7 @@ Stop:
 - Geometry is authoritative, AI imagery is derivative. AI output is labelled "AI visualization" and never writes back into the model.
 - Review items are suggestions. Never present anything as permit approval, structural certification or code compliance.
 - Contract files (`crates/guhit-model/**`, `src/contract/ipc.ts`, `src/contract/pipes.ts`, `src/state/store.ts`, `src/state/bus.ts`, `src/styles/tokens.css`, `src/ui/motion.ts`, `docs/CONTRACT.md`, `docs/MOTION.md`) change only deliberately, with bindings regenerated and every consumer updated in the same change.
-- The webview runs under the CSP in `src-tauri/tauri.conf.json` (`csp` for release, `devCsp` for Vite). New external origins, inline scripts or eval are refused by it; extend the policy deliberately instead of loosening it.
+- The webview runs under the CSP in `src-tauri/tauri.conf.json` (`csp` for release, `devCsp` for Vite). New external origins, inline scripts or eval are refused by it; extend the policy deliberately instead of loosening it. It allows `'wasm-unsafe-eval'` (WebAssembly only, for the pack's meshopt decoder) and `connect-src 'self' blob:` (the app's own files and the textures inside GLB models). The browser dev setup has no CSP, so check a build with `node scripts/csp-check.mjs`.
 - Must build and run on macOS and Windows. No platform-specific paths or shell calls in app code.
 
 ## House rules
@@ -54,10 +54,11 @@ Stop:
 - Plain, direct language in code comments, docs and UI copy.
 - Commits: `type(scope): subject`, lowercase, imperative, under 72 chars, no body unless non-obvious, no AI attribution. Commit only when asked.
 - Every interaction has a microanimation. Follow `docs/MOTION.md`: motion tokens only, drags track 1:1, exits animate, `prefers-reduced-motion` respected, no animation library. Helpers: `src/ui/motion.ts`.
-- 3D frame loop invariant: exactly one pending requestAnimationFrame, ever, scheduled only through `ViewerEngine.schedule()`. A second scheduling path once doubled renders per frame and starved input. Shadow maps redraw only on explicit invalidation. Walk and fly step inside that same frame, and only while a key is held or the camera still moves: standing still draws nothing. Measure with `node scripts/perf-3d.mjs` (real GPU, headed Chromium), which also measures walking and the plumbing demo.
+- 3D frame loop invariant: exactly one pending requestAnimationFrame, ever, scheduled only through `ViewerEngine.schedule()`. A second scheduling path once doubled renders per frame and starved input. Shadow maps redraw only on explicit invalidation. Walk and fly step inside that same frame, and only while a key is held or the camera still moves: standing still draws nothing. Refine (the resting view's jittered frames) runs only through `ViewerEngine.schedule()`. The path traced render never calls requestAnimationFrame: it runs in its own offscreen renderer and paces itself on GPU fences, in slices of about 100 ms while nobody uses the app and about 12 ms with an equal rest while someone does (`src/viewer3d/render/pacing.ts`). Dev builds expose render tuning knobs as `globalThis.__guhitRenderDebug` (`render/devProbe.ts`). Measure with `node scripts/perf-3d.mjs` (real GPU, headed Chromium), which also measures walking and the plumbing demo.
 - 3D pipes draw as one merged batch per system. Each pipe also has a solo mesh on a raycast-only layer that answers clicks and takes over while that pipe is hovered, selected, previewed or fading. Batches are never picked or exported; exports use the solos.
 - Pipes are coordination, not design (DECISIONS D19): never add pipe sizing, hydraulics or code-compliance claims.
 - 3D assets: only CC0 files from Poly Haven, Kenney and ambientCG, listed in `assets/ASSETS.md` and `public/assets/pack/manifest.json`. Rebuild with `node scripts/assets-build.mjs`. Nothing from Sketchfab or unlisted sources.
+- Pack models use quantized (16 and 8 bit) vertex attributes. Code that merges or copies raw geometry arrays works on float copies, as `src/viewer3d/render/renderScene.ts` does for the path tracer; otherwise the geometry lands in the wrong place.
 - UI styling uses the CSS variables in `src/styles/tokens.css` and CSS modules. No new styling framework.
 - No new dependency without a reason stated in the change.
 
@@ -68,6 +69,7 @@ cargo test --workspace --exclude guhit-studio   # engine, export, app service
 cargo build -p guhit-studio                     # desktop shell compiles
 pnpm gen:types                                  # after any guhit-model change
 pnpm typecheck && pnpm build                    # frontend
+node scripts/csp-check.mjs                      # the build under the release CSP (needs pnpm bridge)
 ```
 
 Run the full app in a browser (real Rust engine, no desktop shell):
@@ -77,7 +79,7 @@ pnpm bridge        # terminal 1: HTTP bridge on :1430
 pnpm dev           # terminal 2: UI on :1420
 ```
 
-Run the desktop app: `pnpm tauri dev` (dev builds print one `ipc <cmd> -> ok|error` line per call). Build installers: `pnpm tauri build` (macOS: `--bundles app,dmg`, output under `target/release/bundle/`; unsigned until a Developer ID is configured). Unsigned builds get a new ad-hoc identity on every build, so macOS shows a keychain permission prompt the first time each new build reads the stored Claude API key: click Always Allow. A Developer ID signed build has a stable identity and asks once.
+Run the desktop app: `pnpm tauri dev` (dev builds print one `ipc <cmd> -> ok|error` line per call). Build installers: `pnpm tauri build` (macOS: `--bundles app,dmg`, output under `target/release/bundle/`). Local builds are ad-hoc signed; release builds are signed with the Developer ID and notarized when the Apple secrets are set (`docs/RELEASING.md`, "Code signing"). Ad-hoc builds get a new identity on every build, so macOS shows a keychain permission prompt the first time each new build reads the stored Claude API key: click Always Allow. A Developer ID signed build has a stable identity and asks once.
 (macOS builds on macOS, Windows builds on Windows; CI does both). CI runs on macOS and Windows only: the keychain dependency needs extra system packages on Linux.
 
 Cut a release: `node scripts/bump-version.mjs 0.1.1`, commit, then `git tag v0.1.1 && git push origin v0.1.1`. The tag runs `.github/workflows/release.yml`, which publishes signed macOS and Windows bundles plus `latest.json`, and installed copies update themselves from it. Full steps and the required `TAURI_SIGNING_PRIVATE_KEY` secret: `docs/RELEASING.md`.

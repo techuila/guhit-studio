@@ -137,7 +137,14 @@ async fn first_request_has_system_prompt_context_and_strict_tools() {
     assert!(!req.system.contains('\u{2014}') && !req.system.contains('\u{2013}'));
     let user = req.messages.last().unwrap()["content"].as_str().unwrap().to_string();
     assert!(user.contains("<project_context>") && user.ends_with("hello"));
-    assert_eq!(req.tools.len(), 22);
+    assert_eq!(req.tools.len(), 25);
+    // The library listing names what each device key is.
+    let add_asset = req.tools.iter().find(|t| t["name"] == "add_asset").unwrap();
+    let doc = add_asset["description"].as_str().unwrap();
+    assert!(doc.contains("switch-2 (Switch, two gang)"), "{doc}");
+    assert!(doc.contains("outlet-spo (Special purpose outlet)"), "{doc}");
+    assert!(doc.contains("aircon-indoor-1hp"), "{doc}");
+    assert!(!doc.contains('\u{2014}') && !doc.contains('\u{2013}'));
     for tool in &req.tools {
         let name = tool["name"].as_str().unwrap();
         assert_eq!(tool["input_schema"]["additionalProperties"], json!(false), "{name}");
@@ -692,6 +699,8 @@ fn every_edit_tool_translates_to_a_typed_command() {
         ("set_material", json!({"ids": ["w1"], "material_id": "mat-paint-sage"})),
         ("set_roof", json!({"kind": "gable", "pitch_deg": 25})),
         ("add_asset", json!({"catalog_key": "bed-double", "position": p})),
+        ("add_level", json!({"name": "Second Floor"})),
+        ("delete_level", json!({"level": "ground floor"})),
     ];
     assert_eq!(cases.len(), super::tools::EDIT_TOOLS.len());
     for (name, input) in cases {
@@ -744,7 +753,7 @@ async fn pipe_questions_are_answered_from_the_takeoff() {
             ("list_elements", json!({"kind": "pipe"})),
             ("describe_elements", json!({"ids": [HEATER_FEED]})),
         ]),
-        ScriptedClient::text("There are 44.94 m of pipe."),
+        ScriptedClient::text("There are 59.65 m of runs."),
     ]))
     .await;
     let turn = r.chat("How much pipe is in the house, and how many tees?").await.unwrap();
@@ -762,10 +771,10 @@ async fn pipe_questions_are_answered_from_the_takeoff() {
         s.doc.as_ref().unwrap().query(&Query::PipeTakeoff).unwrap()
     };
     assert_eq!(takeoff, expected, "the answer is the engine's own query");
-    assert_eq!(takeoff["total_length_m"], 44.94);
+    assert_eq!(takeoff["total_length_m"], 59.654);
     assert_eq!(takeoff["tee_count"], 9);
     let list: Value = serde_json::from_str(results[1]["content"].as_str().unwrap()).unwrap();
-    assert_eq!(list["count"], 16);
+    assert_eq!(list["count"], 20);
     let described: Value = serde_json::from_str(results[2]["content"].as_str().unwrap()).unwrap();
     assert_eq!(described["elements"][0]["kind"], "pipe");
     assert_eq!(described["elements"][0]["system"], "cold_water");
@@ -811,4 +820,201 @@ async fn staged_edits_move_pipes_and_respect_a_locked_pipe_layer() {
     let applied = r.resolve(&proposal.id, true).await.unwrap().applied.unwrap();
     assert_eq!(applied.state.project.elements, proposal.preview.state.project.elements);
     assert_eq!(applied.state.derived, proposal.preview.state.derived);
+}
+
+// -------------------------------------------------------------------- devices
+
+#[tokio::test]
+async fn device_questions_are_answered_from_the_schedule() {
+    let r = plumbing_rig(ScriptedClient::new(vec![
+        ScriptedClient::tools(&[("get_schedule", json!({})), ("list_review_items", json!({}))]),
+        ScriptedClient::text("There are 5 lighting outlets."),
+    ]))
+    .await;
+    let turn = r.chat("How many lights and switches are there?").await.unwrap();
+    assert!(turn.proposal.is_none());
+    let results = tool_results(&r.model, 1);
+    let schedule: Value = serde_json::from_str(results[0]["content"].as_str().unwrap()).unwrap();
+    let expected = {
+        let s = r.app.session.lock().await;
+        s.doc.as_ref().unwrap().query(&Query::Schedule).unwrap()
+    };
+    assert_eq!(schedule, expected, "the answer is the engine's own query");
+    assert_eq!(schedule["levels"][0]["by_form_row"][0], json!({"form_row": "Lighting outlets", "count": 5}));
+    let review: Value = serde_json::from_str(results[1]["content"].as_str().unwrap()).unwrap();
+    let light = review["items"].as_array().unwrap().iter().find(|i| i["code"] == "light_no_switch").unwrap();
+    assert_eq!(light["status"], "open");
+}
+
+#[tokio::test]
+async fn the_copilot_places_wall_devices_on_the_wall_and_names_them_by_room() {
+    let r = rig(vec![
+        ScriptedClient::tools(&[
+            ("add_rect_room", json!({"origin": {"x": 0, "y": 0}, "width_mm": 4000, "depth_mm": 3000, "name": "Bedroom"})),
+            // Near the south wall: the switch snaps onto its inner face.
+            ("add_asset", json!({"catalog_key": "switch-1", "position": {"x": 2150, "y": 300}, "rotation_deg": 45})),
+            ("add_asset", json!({"catalog_key": "light-ceiling", "position": {"x": 2000, "y": 1500}})),
+        ]),
+        ScriptedClient::text("I staged the room, a switch and a light."),
+    ])
+    .await;
+    let turn = r.chat("Bedroom 4 x 3 m with a switch by the south wall and a ceiling light").await.unwrap();
+    let proposal = turn.proposal.expect("proposal");
+    let results = tool_results(&r.model, 1);
+    let switch: Value = serde_json::from_str(results[1]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(switch["this_step"]["added"][0]["label"], "Switch, one gang in Bedroom");
+    let light: Value = serde_json::from_str(results[2]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(light["this_step"]["added"][0]["label"], "Ceiling light in Bedroom");
+    let objects: Vec<&Asset> = proposal
+        .preview
+        .state
+        .project
+        .elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Asset(a) => Some(a),
+            _ => None,
+        })
+        .collect();
+    let sw = objects.iter().find(|a| a.catalog_key == "switch-1").unwrap();
+    // Back on the inner face at y = 75, turned so its back faces the wall.
+    assert_eq!((sw.position.x, sw.position.y, sw.rotation_deg), (2150.0, 95.0, 180.0));
+    assert_eq!(sw.elevation_mm, 1143.0);
+    let lamp = objects.iter().find(|a| a.catalog_key == "light-ceiling").unwrap();
+    assert_eq!((lamp.elevation_mm, lamp.light.map(|l| l.lumens)), (2940.0, Some(900.0)));
+    // The new light has no switch yet: the preview says so.
+    let codes: Vec<&str> = proposal.preview.state.derived.issues.iter().map(|i| i.code.as_str()).collect();
+    assert!(codes.contains(&"light_no_switch") && codes.contains(&"switch_no_load"), "{codes:?}");
+}
+
+#[test]
+fn wall_items_snap_to_the_nearest_face_and_ceiling_items_follow_the_ceiling() {
+    let mut project = defaults::new_project("t");
+    let level_id = project.levels[0].id.clone();
+    project.levels[0].height_mm = 2700.0;
+    // A 150 mm wall running north along x = 1000.
+    project.elements.push(Element::Wall(Wall {
+        id: "w1".into(),
+        level_id: level_id.clone(),
+        start: Point { x: 1000.0, y: 0.0 },
+        end: Point { x: 1000.0, y: 4000.0 },
+        thickness_mm: 150.0,
+        height_mm: None,
+        material_id: None,
+    }));
+    let place = |key: &str, x: f64, y: f64| match super::tools::to_command(
+        &project,
+        "add_asset",
+        &json!({"catalog_key": key, "position": {"x": x, "y": y}}),
+        &level_id,
+    )
+    .unwrap()
+    {
+        Command::AddElement { element: Element::Asset(a) } => a,
+        other => panic!("{other:?}"),
+    };
+    // East of the wall: back to the west, on the face at x = 1075.
+    let east = place("outlet-duplex", 1400.0, 2000.0);
+    assert_eq!((east.position.x, east.position.y, east.rotation_deg), (1095.0, 2000.0, 90.0));
+    // West of the wall: back to the east, on the face at x = 925.
+    let west = place("aircon-indoor-1hp", 700.0, 1000.0);
+    assert_eq!((west.position.x, west.position.y, west.rotation_deg), (810.0, 1000.0, 270.0));
+    // Too far from any wall: placed as given.
+    let far = place("switch-1", 3000.0, 2000.0);
+    assert_eq!((far.position.x, far.rotation_deg), (3000.0, 0.0));
+    // Past the wall's end it does not snap either.
+    let past = place("switch-1", 1100.0, 4500.0);
+    assert_eq!((past.position.x, past.position.y), (1100.0, 4500.0));
+    // Ceiling items sit flush under a 2700 mm ceiling, the pendant keeps its
+    // catalog underside, floor items stay.
+    assert_eq!(place("light-ceiling", 2000.0, 2000.0).elevation_mm, 2640.0);
+    assert_eq!(place("light-pendant", 2000.0, 2000.0).elevation_mm, 2000.0);
+    assert_eq!(place("bed-double", 2000.0, 2000.0).elevation_mm, 0.0);
+}
+
+#[test]
+fn ceiling_items_stay_under_the_slab_of_the_level_above() {
+    let mut project = defaults::new_project("t");
+    let ground = project.levels[0].id.clone();
+    project.levels.push(Level { id: "l2".into(), name: "Second Floor".into(), elevation_mm: 3000.0, height_mm: 2800.0 });
+    let place = |project: &Project, key: &str, level: &str| match super::tools::to_command(
+        project,
+        "add_asset",
+        &json!({"catalog_key": key, "position": {"x": 2000, "y": 2000}}),
+        &level.to_string(),
+    )
+    .unwrap()
+    {
+        Command::AddElement { element: Element::Asset(a) } => a.elevation_mm,
+        other => panic!("{other:?}"),
+    };
+    // The second floor's 200 mm slab puts the ground floor ceiling at 2800.
+    assert_eq!(super::tools::ceiling_height_mm(&project, &ground), 2800.0);
+    assert_eq!(place(&project, "light-ceiling", &ground), 2740.0);
+    assert_eq!(place(&project, "light-pendant", &ground), 2000.0);
+    // The top level keeps its own height.
+    assert_eq!(super::tools::ceiling_height_mm(&project, "l2"), 2800.0);
+    assert_eq!(place(&project, "light-ceiling", "l2"), 2740.0);
+    // A level drawn 200 mm higher leaves room for its slab: no change.
+    project.levels[1].elevation_mm = 3200.0;
+    assert_eq!(super::tools::ceiling_height_mm(&project, &ground), 3000.0);
+    assert_eq!(place(&project, "light-ceiling", &ground), 2940.0);
+}
+
+// --------------------------------------------------------------------- levels
+
+#[tokio::test]
+async fn a_second_storey_is_staged_and_drawn_on_in_one_turn() {
+    let r = rig(vec![
+        ScriptedClient::tools(&[
+            ("add_level", json!({"name": " Second Floor "})),
+            ("add_rect_room", json!({"origin": {"x": 0, "y": 0}, "width_mm": 4000, "depth_mm": 3000, "name": "Upper bedroom", "level": "second floor"})),
+            ("add_asset", json!({"catalog_key": "light-ceiling", "position": {"x": 2000, "y": 1500}, "level": "Second Floor"})),
+            ("add_wall", json!({"start": {"x": 0, "y": 5000}, "end": {"x": 3000, "y": 5000}, "level": "Attic"})),
+        ]),
+        ScriptedClient::text("I staged a second floor with a bedroom."),
+    ])
+    .await;
+    let before = r.project().await;
+    let turn = r.chat("Add a second floor with a 4 x 3 m bedroom").await.unwrap();
+    let proposal = turn.proposal.expect("proposal");
+    let results = tool_results(&r.model, 1);
+    let level: Value = serde_json::from_str(results[0]["content"].as_str().unwrap()).unwrap();
+    let added = &level["this_step"]["levels_added"][0];
+    assert_eq!(added["name"], "Second Floor");
+    assert_eq!(added["elevation_mm"], 3000.0);
+    let upper = added["id"].as_str().unwrap().to_string();
+    // The unknown level is refused and not staged.
+    assert_eq!(results[3]["is_error"], json!(true));
+    let refused = results[3]["content"].as_str().unwrap();
+    assert!(refused.contains("no level is called `Attic`") && refused.contains("Second Floor"), "{refused}");
+
+    let staged = &proposal.preview.state.project;
+    assert_eq!(staged.levels.len(), 2);
+    let on_upper = staged
+        .elements
+        .iter()
+        .filter(|e| serde_json::to_value(e).unwrap()["level_id"] == json!(upper))
+        .count();
+    // Four walls, the room and the light.
+    assert_eq!(on_upper, 6);
+    assert_eq!(r.project().await, before, "nothing is applied before Apply");
+    let applied = r.resolve(&proposal.id, true).await.unwrap().applied.unwrap();
+    assert_eq!(applied.state.project.levels, staged.levels, "the level id is the previewed one");
+    assert_eq!(applied.state.undo_label.as_deref(), proposal.preview.state.undo_label.as_deref());
+}
+
+#[test]
+fn delete_level_names_a_level() {
+    let mut project = defaults::new_project("t");
+    let ground = project.levels[0].id.clone();
+    project.levels.push(Level { id: "l2".into(), name: "Second Floor".into(), elevation_mm: 3000.0, height_mm: 3000.0 });
+    let delete = |level: &str| super::tools::to_command(&project, "delete_level", &json!({"level": level}), &ground);
+    assert_eq!(delete("SECOND FLOOR").unwrap(), Command::DeleteLevel { level_id: "l2".into() });
+    assert_eq!(delete("l2").unwrap(), Command::DeleteLevel { level_id: "l2".into() });
+    assert!(delete("Roof").unwrap_err().0.contains("no level is called `Roof`"));
+    assert!(delete("  ").unwrap_err().0.contains("level is empty"));
+    let add = super::tools::to_command(&project, "add_level", &json!({"height_mm": 2800}), &ground).unwrap();
+    assert_eq!(add, Command::AddLevel { name: None, elevation_mm: None, height_mm: Some(2800.0) });
+    assert!(super::tools::to_command(&project, "add_level", &json!({"height_mm": -1}), &ground).is_err());
 }

@@ -12,7 +12,7 @@ import { BrandMark, Icon } from "../ui/icons";
 import type { PresenceStage } from "../ui/motion";
 import { Presence, useLastTruthy } from "../ui/motionDom";
 import { formatArea, relativeTime } from "../ui/units";
-import { BlankSketch, BrandDrawing, PlanSketch, PlumbingSketch } from "./PlanSketch";
+import { BlankSketch, BrandDrawing, PlanSketch, ServicesSketch } from "./PlanSketch";
 import s from "./ProjectHub.module.css";
 
 type Template = "blank" | "sample-bungalow" | "plumbing-demo";
@@ -20,12 +20,18 @@ type Template = "blank" | "sample-bungalow" | "plumbing-demo";
 const TEMPLATES: Array<{ value: Template; name: string; defaultName: string; hint: string }> = [
   { value: "blank", name: "Blank", defaultName: "Untitled house", hint: "An empty sheet at 1:100. Draw your own walls." },
   { value: "sample-bungalow", name: "Sample bungalow", defaultName: "Sample bungalow", hint: "A small furnished house with a gable roof, to explore and edit." },
-  { value: "plumbing-demo", name: "Bungalow with plumbing", defaultName: "Bungalow with plumbing", hint: "The sample bungalow with water, drainage and vent pipes laid out." },
+  // Template id stays "plumbing-demo"; it now carries every service.
+  {
+    value: "plumbing-demo",
+    name: "Bungalow with services",
+    defaultName: "Bungalow with services",
+    hint: "The sample bungalow with plumbing, lights and switches, outlets and aircon laid out.",
+  },
 ];
 
 function TemplateArt({ template }: { template: Template }) {
   if (template === "blank") return <BlankSketch />;
-  if (template === "plumbing-demo") return <PlumbingSketch />;
+  if (template === "plumbing-demo") return <ServicesSketch />;
   return <PlanSketch seed="b" />;
 }
 
@@ -171,7 +177,7 @@ export function ProjectHub() {
                 </Button>
                 <Button onClick={() => setCreating("sample-bungalow")}>Start from the sample bungalow</Button>
                 <Button icon="pipe" onClick={() => setCreating("plumbing-demo")}>
-                  Bungalow with plumbing
+                  Bungalow with services
                 </Button>
               </div>
             </div>

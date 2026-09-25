@@ -2,6 +2,7 @@
 // element shapes and key points. Pure, tested in model.test.ts.
 
 import type {
+  AssetCategory,
   DocState,
   Element,
   LayerKey,
@@ -11,6 +12,8 @@ import type {
   Wall,
   WallGeometry,
 } from "../contract/bindings";
+import { PIPE_LAYER } from "../contract/pipes";
+import { assetSymbolOutline, symbolSizeMm } from "./symbols";
 import type { P, Rect } from "./geom";
 import {
   add,
@@ -31,6 +34,17 @@ import {
 export type WallEl = Extract<Element, { kind: "wall" }>;
 export type OpeningEl = Extract<Element, { kind: "opening" }>;
 
+/**
+ * The layer of a placed object, by category: lighting and electrical objects
+ * share the `electrical` layer, aircon units the `aircon` layer, everything
+ * else is on `assets` (docs/CONTRACT.md, "Pipes", layers).
+ */
+export function assetLayer(category: AssetCategory): LayerKey {
+  if (category === "lighting" || category === "electrical") return "electrical";
+  if (category === "aircon") return "aircon";
+  return "assets";
+}
+
 export function layerOf(el: Element): LayerKey {
   switch (el.kind) {
     case "wall":
@@ -44,7 +58,7 @@ export function layerOf(el: Element): LayerKey {
     case "stair":
       return "stairs";
     case "asset":
-      return "assets";
+      return assetLayer(el.category);
     case "annotation":
       return "annotations";
     case "dimension":
@@ -58,8 +72,7 @@ export function layerOf(el: Element): LayerKey {
     case "reference_model":
       return "underlays";
     case "pipe":
-      // Pipe layers are named after their system.
-      return el.system;
+      return PIPE_LAYER[el.system];
   }
 }
 
@@ -262,7 +275,11 @@ export function elementShape(el: Element, index: DocIndex, opt: ShapeOptions): S
     case "stair":
       return { points: stairOutline(el.origin, el.rotation_deg, el.width_mm, el.run_mm), closed: true };
     case "asset":
-      return { points: orientedRect(el.position, el.width_mm, el.depth_mm, el.rotation_deg), closed: true };
+      // Devices pick by their symbol, which is larger than a 70 mm outlet.
+      return {
+        points: assetSymbolOutline(el, { symbolMm: symbolMmOf(index) }) ?? orientedRect(el.position, el.width_mm, el.depth_mm, el.rotation_deg),
+        closed: true,
+      };
     case "annotation":
       return { points: annotationBox(el.position, el.text, el.size_mm, el.rotation_deg), closed: true };
     case "dimension": {
@@ -294,6 +311,11 @@ export function elementShape(el: Element, index: DocIndex, opt: ShapeOptions): S
     case "pipe":
       return { points: el.points.map((v) => ({ x: v.x, y: v.y })), closed: false };
   }
+}
+
+/** D, the device symbol size in model mm, at the project's plan scale (300 at 1:100). */
+export function symbolMmOf(index: Pick<DocIndex, "doc">): number {
+  return symbolSizeMm(index.doc.project.settings.scale_denominator);
 }
 
 /** Two line label: name plus area. */

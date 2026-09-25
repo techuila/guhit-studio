@@ -254,13 +254,66 @@ impl<'a> Ctx<'a> {
                             _ => None,
                         })
                     });
-                json!({
+                let item = defaults::asset_catalog()
+                    .into_iter()
+                    .find(|c| c.key == a.catalog_key);
+                let named = |id: &Id| {
+                    self.project.elements.iter().find_map(|e| match e {
+                        Element::Asset(o) if &o.id == id => Some(json!({ "id": o.id, "name": o.name })),
+                        _ => None,
+                    })
+                };
+                let linked_by: Vec<Value> = self
+                    .project
+                    .elements
+                    .iter()
+                    .filter_map(|e| match e {
+                        Element::Asset(o) if o.links.contains(&a.id) => {
+                            Some(json!({ "id": o.id, "name": o.name }))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                let mut v = json!({
                     "id": a.id, "kind": "object", "name": a.name, "catalog_key": a.catalog_key,
                     "category": enum_str(&a.category), "level": self.level_name(&a.level_id),
+                    "layer": enum_str(&crate::validate::asset_layer(a.category)),
                     "position": point(a.position), "rotation_deg": r2(a.rotation_deg),
                     "width_mm": mm(a.width_mm), "depth_mm": mm(a.depth_mm), "height_mm": mm(a.height_mm),
+                    "elevation_mm": mm(a.elevation_mm),
                     "in_room": room,
-                })
+                });
+                if let Some(item) = &item {
+                    v["mount"] = enum_str(&item.mount);
+                    if let Some(d) = item.device {
+                        v["device"] = enum_str(&d);
+                    }
+                    if let Some(spec) = &item.aircon {
+                        v["aircon"] = json!({
+                            "role": enum_str(&spec.role),
+                            "hp": spec.hp,
+                            "liquid_line_mm": spec.liquid_mm,
+                            "gas_line_mm": spec.gas_mm,
+                            "min_line_m": spec.min_line_m,
+                            "max_line_m": spec.max_line_m,
+                            "max_height_difference_m": spec.max_rise_m,
+                            "included_line_m": spec.included_line_m,
+                        });
+                    }
+                }
+                if let Some(l) = a.light {
+                    v["light"] = json!({ "lumens": r2(l.lumens), "kelvin": r2(l.kelvin), "on": l.on });
+                }
+                if !a.links.is_empty() {
+                    v["links"] = json!(a.links.iter().filter_map(named).collect::<Vec<_>>());
+                }
+                if !linked_by.is_empty() {
+                    v["linked_by"] = json!(linked_by);
+                }
+                if !a.circuit.is_empty() {
+                    v["circuit"] = json!(a.circuit);
+                }
+                v
             }
             Element::Annotation(a) => json!({
                 "id": a.id, "kind": "note", "level": self.level_name(&a.level_id),
@@ -313,6 +366,122 @@ impl<'a> Ctx<'a> {
             }
         }
     }
+}
+
+/// The row of the PH electrical inspection form a device counts under, or
+/// None for devices the form does not count (aircon units).
+fn form_row(key: &str, device: Option<DeviceKind>) -> Option<&'static str> {
+    Some(match device? {
+        DeviceKind::LightingOutlet => "Lighting outlets",
+        DeviceKind::ConvenienceReceptacle => "Convenience receptacles",
+        DeviceKind::SpecialPurposeOutlet if key == "outlet-aircon" => "Special purpose outlets, aircon",
+        DeviceKind::SpecialPurposeOutlet => "Special purpose outlets",
+        DeviceKind::Switch => "Toggle switches",
+        DeviceKind::Panelboard => "Panelboards",
+        DeviceKind::SmokeDetector => "Fire alarm detectors",
+        DeviceKind::Buzzer => "Bell buzzers",
+        DeviceKind::PushButton => "Push buttons",
+        DeviceKind::AirconIndoor | DeviceKind::AirconOutdoor | DeviceKind::AirconWindow => return None,
+    })
+}
+
+/// `Query::Schedule`: `Derived::schedule` with labels (level, room, catalog
+/// name, PH form row) and totals per level by group and by form row.
+fn schedule_json(ctx: &Ctx, derived: &Derived) -> Value {
+    let catalog = defaults::asset_catalog();
+    let item_name = |key: &str| {
+        catalog
+            .iter()
+            .find(|c| c.key == key)
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| key.to_string())
+    };
+    let room_name = |id: &Option<Id>| match id {
+        Some(id) => ctx
+            .project
+            .elements
+            .iter()
+            .find_map(|e| match e {
+                Element::Room(r) if &r.id == id => Some(r.name.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "Unknown room".to_string()),
+        None => "Outside".to_string(),
+    };
+    let rows: Vec<Value> = derived
+        .schedule
+        .iter()
+        .map(|r| {
+            json!({
+                "level_id": r.level_id,
+                "level": ctx.level_name(&r.level_id),
+                "room_id": r.room_id,
+                "room": room_name(&r.room_id),
+                "group": enum_str(&r.group),
+                "catalog_key": r.catalog_key,
+                "item": item_name(&r.catalog_key),
+                "device": r.device.map(|d| enum_str(&d)),
+                "form_row": form_row(&r.catalog_key, r.device),
+                "count": r.count,
+            })
+        })
+        .collect();
+    // Levels in schedule order, which is project order.
+    let mut level_ids: Vec<&Id> = vec![];
+    for r in &derived.schedule {
+        if !level_ids.contains(&&r.level_id) {
+            level_ids.push(&r.level_id);
+        }
+    }
+    let levels: Vec<Value> = level_ids
+        .iter()
+        .map(|level_id| {
+            let on_level: Vec<&ScheduleRow> = derived
+                .schedule
+                .iter()
+                .filter(|r| &&r.level_id == level_id)
+                .collect();
+            let mut by_group: BTreeMap<ScheduleGroup, u32> = BTreeMap::new();
+            let mut by_row: Vec<(&'static str, u32)> = vec![];
+            for r in &on_level {
+                *by_group.entry(r.group).or_default() += r.count;
+                if let Some(label) = form_row(&r.catalog_key, r.device) {
+                    match by_row.iter_mut().find(|(l, _)| *l == label) {
+                        Some(slot) => slot.1 += r.count,
+                        None => by_row.push((label, r.count)),
+                    }
+                }
+            }
+            by_row.sort_by_key(|(label, _)| {
+                [
+                    "Lighting outlets",
+                    "Convenience receptacles",
+                    "Special purpose outlets, aircon",
+                    "Special purpose outlets",
+                    "Toggle switches",
+                    "Panelboards",
+                    "Fire alarm detectors",
+                    "Bell buzzers",
+                    "Push buttons",
+                ]
+                .iter()
+                .position(|l| l == label)
+                .unwrap_or(usize::MAX)
+            });
+            json!({
+                "level_id": level_id,
+                "level": ctx.level_name(level_id),
+                "total": on_level.iter().map(|r| r.count).sum::<u32>(),
+                "by_group": by_group.iter().map(|(g, n)| json!({ "group": enum_str(g), "count": n })).collect::<Vec<_>>(),
+                "by_form_row": by_row.iter().map(|(label, n)| json!({ "form_row": label, "count": n })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    json!({
+        "rows": rows,
+        "levels": levels,
+        "note": "Counts of the objects in the model, per level and room, in the rows of the PH electrical inspection form where they have one. Circuits, loads and ratings are for the Professional Electrical Engineer, aircon sizing for the Professional Mechanical Engineer.",
+    })
 }
 
 pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
@@ -387,6 +556,7 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
                 "roof": { "kind": enum_str(&project.roof.kind), "pitch_deg": r2(project.roof.pitch_deg), "overhang_mm": mm(project.roof.overhang_mm) },
                 "default_wall_thickness_mm": mm(project.settings.default_wall_thickness_mm),
                 "review_item_count": derived.issues.len(),
+                "open_review_item_count": derived.issues.iter().filter(|i| i.status == IssueStatus::Open).count(),
             })
         }
         Query::RoomList => {
@@ -462,6 +632,8 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
                         "code": i.code,
                         "message": i.message,
                         "element_ids": i.element_ids,
+                        "status": enum_str(&i.status),
+                        "note": i.note,
                     });
                     if let Some(l) = i.location {
                         // Plan x and y, z above the floor of the first element's level.
@@ -470,14 +642,33 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
                     item
                 })
                 .collect();
+            let ignored = derived
+                .issues
+                .iter()
+                .filter(|i| i.status == IssueStatus::Ignored)
+                .count();
             json!({
                 "count": list.len(),
-                "note": "These are design suggestions, not code compliance or permit checks.",
+                "open_count": list.len() - ignored,
+                "ignored_count": ignored,
+                "note": "These are design suggestions, not code compliance or permit checks. An ignored item was set aside by the designer, with a note; it is never an approval.",
                 "items": list,
+                // Set-aside findings the checks no longer produce.
+                "resolved": derived.review_resolved.iter().map(|m| json!({
+                    "target": m.target,
+                    "note": m.note,
+                })).collect::<Vec<_>>(),
             })
         }
+        Query::Schedule => schedule_json(&ctx, &derived),
         Query::PipeTakeoff => {
             let pipes = &derived.pipes;
+            let pipe_of = |id: &str| {
+                project.elements.iter().find_map(|e| match e {
+                    Element::Pipe(p) if p.id == id => Some(p),
+                    _ => None,
+                })
+            };
             json!({
                 "rows": pipes.takeoff.iter().map(|r| json!({
                     "system": enum_str(&r.system),
@@ -490,13 +681,20 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
                 "elbow_count": pipes.elbow_count,
                 "tee_count": pipes.tee_count,
                 "sleeve_count": pipes.sleeve_count,
-                "penetrations": pipes.penetrations.iter().map(|p| json!({
-                    "kind": enum_str(&p.kind),
-                    "pipe_id": p.pipe_id,
-                    "host_id": p.host_id,
-                    "position_mm": { "x": mm(p.position.x), "y": mm(p.position.y), "z": mm(p.position.z) },
-                })).collect::<Vec<_>>(),
-                "note": "Centerline lengths from the model, rounded to the millimeter. Pipe heights are above the level floor. Guhit does not size pipes; plumbing design and sizing are for a registered Master Plumber.",
+                "penetrations": pipes.penetrations.iter().map(|p| {
+                    let mut v = json!({
+                        "kind": enum_str(&p.kind),
+                        "pipe_id": p.pipe_id,
+                        "host_id": p.host_id,
+                        "position_mm": { "x": mm(p.position.x), "y": mm(p.position.y), "z": mm(p.position.z) },
+                    });
+                    // An aircon run through a wall goes through a core hole.
+                    if let Some(hole) = pipe_of(&p.pipe_id).and_then(|pipe| crate::pipes::penetration_core_hole(pipe, p)) {
+                        v["core_hole_mm"] = json!(hole);
+                    }
+                    v
+                }).collect::<Vec<_>>(),
+                "note": "Centerline lengths from the model, rounded to the millimeter, for every system: plumbing, storm drains, conduit, aircon line sets and condensate. Heights are above the level floor. Conduit needs no sleeves. Guhit counts runs and never sizes them: plumbing is for a registered Master Plumber, electrical for a Professional Electrical Engineer, aircon for a Professional Mechanical Engineer.",
             })
         }
     })

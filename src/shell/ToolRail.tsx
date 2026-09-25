@@ -5,7 +5,9 @@ import { cx } from "../ui/controls";
 import { Icon } from "../ui/icons";
 import { Presence, useSlidingIndicator } from "../ui/motionDom";
 import { formatLength } from "../ui/units";
+import type { DisplayUnit } from "../contract/bindings";
 import { DOOR_STYLES, TOOLS, WINDOW_STYLES, activateTool, type ToolDef } from "./actions";
+import { DEVICE_LABEL, hpLabel, mountRef, mountingHeight } from "./devices";
 import { PipeOptions } from "./PipeOptions";
 import { useShell } from "./shellStore";
 import s from "./chrome.module.css";
@@ -17,7 +19,29 @@ const CATEGORY_LABEL: Record<AssetCategory, string> = {
   appliance: "Appliances",
   plant: "Plants",
   vehicle: "Vehicles",
+  lighting: "Lighting",
+  electrical: "Electrical",
+  aircon: "Aircon",
+  utility: "Utility",
 };
+
+/** Library order: rooms first, then the services, then the site. */
+const CATEGORY_ORDER: AssetCategory[] = ["furniture", "sanitary", "kitchen", "appliance", "lighting", "electrical", "aircon", "utility", "plant", "vehicle"];
+
+/** Words a search matches besides the name: the category, the device row, the key ("spo", "hp"). */
+function searchText(item: CatalogItem): string {
+  const device = item.device ? DEVICE_LABEL[item.device].join(" ") : "";
+  const extra = item.light ? "light lamp fixture lumens" : item.aircon ? `aircon air conditioner ac split ${item.aircon.role} ${item.aircon.hp} hp` : "";
+  return `${item.name} ${item.category} ${CATEGORY_LABEL[item.category] ?? ""} ${device} ${item.key.replace(/-/g, " ")} ${extra}`.toLowerCase();
+}
+
+/** The short reading beside an item: lumens for a light, HP for aircon, the height for a wall box, else its size. */
+function itemMeta(item: CatalogItem, unit: DisplayUnit): string {
+  if (item.light) return `${Math.round(item.light.lumens)} lm`;
+  if (item.aircon) return hpLabel(item.aircon.hp);
+  if (item.device && mountRef(item) === "center") return `at ${formatLength(mountingHeight(item, "center"), unit)}`;
+  return `${Math.round(item.width_mm)} x ${Math.round(item.depth_mm)}`;
+}
 
 /** Common Philippine wall builds. null keeps the project default. */
 const WALL_PRESETS: Array<{ mm: number | null; label: string; hint: string }> = [
@@ -58,11 +82,13 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
   }, []);
 
   const groups = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const items = q ? catalog.filter((c) => `${c.name} ${c.category}`.toLowerCase().includes(q)) : catalog;
+    // Every word must match, in any order: "outlet spo", "1.5 hp split".
+    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const items = words.length > 0 ? catalog.filter((c) => words.every((w) => searchText(c).includes(w))) : catalog;
     const map = new Map<AssetCategory, CatalogItem[]>();
     for (const item of items) map.set(item.category, [...(map.get(item.category) ?? []), item]);
-    return [...map.entries()];
+    const rank = (c: AssetCategory) => (CATEGORY_ORDER.indexOf(c) + CATEGORY_ORDER.length + 1) % (CATEGORY_ORDER.length + 1);
+    return [...map.entries()].sort(([a], [b]) => rank(a) - rank(b));
   }, [catalog, query]);
 
   const unit = settings?.display_unit ?? "mm";
@@ -130,7 +156,7 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
               autoFocus
               type="text"
               value={query}
-              placeholder="Find an object"
+              placeholder="Find an object, a light, an outlet"
               aria-label="Find an object"
               spellCheck={false}
               onChange={(e) => setQuery(e.target.value)}
@@ -164,9 +190,7 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
                       }}
                     >
                       <span>{item.name}</span>
-                      <small>
-                        {Math.round(item.width_mm)} x {Math.round(item.depth_mm)}
-                      </small>
+                      <small>{itemMeta(item, unit)}</small>
                     </button>
                   ))}
                 </div>

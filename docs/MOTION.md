@@ -53,7 +53,11 @@ Every interaction in Guhit Studio has a microanimation (DECISIONS D11). This fil
 | 3D view | walk and fly | entering and leaving blends the camera (`--dur-scene`); movement tracks the keys 1:1 with a short velocity ease; the minimap, crosshair and key hint fade in (`--dur-base`), the hint fades back after a few seconds |
 | 3D view | solid, X-ray, hidden | each part of the building fades to its own opacity (`--dur-panel`), pipes stay solid, the shadow fades with the shell |
 | 3D view | pipe layer on or off | the runs of that system fade out or in like any model change |
+| 3D view | walking | glides (minimap click, double-click) ease over `--dur-scene`; door leaves swing or slide open and closed over `--dur-scene`; the walk settings popover opens like a flyout; the speed readout and the level label fade in and out; the minimap click leaves a ring that expands and fades; touch arrows press like buttons |
 | 2D canvas | pipe tool | a placed point rings once, a finished run settles, point handles grow on hover and settle on drop, a refused drop eases back |
+| 2D canvas | links | link arcs draw in along their curve and fade out (`--dur-base`); flipping a bow sweeps it to the other side; the flip handle grows on hover |
+| 2D canvas | placement refused | the reason bumps once beside the cursor (under 100 ms, `--ease-spring`) |
+| 2D canvas | fall and height tags | tags fade in and out as the layout drops or restores them |
 | View mode | 2D / Split / 3D | panes resize with `--dur-panel`, the entering pane fades in |
 | Copilot | messages, busy, proposal | messages rise and fade in, a three-dot busy indicator, the proposal card expands in, Apply morphs into a check mark, the canvas ghost breathes (opacity 0.55 to 0.85, 1.6 s) |
 | Visuals | capture | a quick white flash over the 3D view (120 ms), the new card grows into the gallery |

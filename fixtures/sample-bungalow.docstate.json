@@ -1,6 +1,6 @@
 {
   "project": {
-    "schema_version": 2,
+    "schema_version": 3,
     "id": "00000000-0000-4000-8000-000000000001",
     "name": "Sample Bungalow",
     "created_at": "2026-09-22T00:00:00Z",
@@ -14,7 +14,8 @@
       "grid_mm": 100.0,
       "client_name": "Sample Client",
       "location": "Quezon City",
-      "designer": ""
+      "designer": "",
+      "site": null
     },
     "levels": [
       {
@@ -87,6 +88,21 @@
       },
       {
         "key": "vent",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "storm",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "electrical",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "aircon",
         "visible": true,
         "locked": false
       }
@@ -483,7 +499,10 @@
         "width_mm": 1370.0,
         "depth_mm": 1900.0,
         "height_mm": 500.0,
-        "elevation_mm": 0.0
+        "elevation_mm": 0.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
       },
       {
         "kind": "dimension",
@@ -515,7 +534,8 @@
           "y": 3000.0,
           "z": 1200.0
         },
-        "fov_deg": 50.0
+        "fov_deg": 50.0,
+        "light": null
       }
     ],
     "roof": {
@@ -525,7 +545,8 @@
       "thickness_mm": 150.0,
       "ridge_axis": "x",
       "material_id": "mat-roof-longspan"
-    }
+    },
+    "review": []
   },
   "derived": {
     "walls": [
@@ -820,7 +841,9 @@
       "elbow_count": 0,
       "tee_count": 0,
       "sleeve_count": 0
-    }
+    },
+    "schedule": [],
+    "review_resolved": []
   },
   "revision": 0,
   "can_undo": false,

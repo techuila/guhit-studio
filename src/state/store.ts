@@ -36,7 +36,10 @@ export type Tool =
   | "dimension"
   | "text"
   | "camera"
-  | "pipe";
+  | "pipe"
+  /** Link a switch (or an aircon outlet) to what it controls: click the
+   * device, then its loads. Writes `Asset::links`. */
+  | "link";
 
 export interface ToolOptions {
   wallThicknessMm: number | null;

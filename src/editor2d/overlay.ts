@@ -1,18 +1,25 @@
-// Tool overlays: ghosts, grips, snap glyphs, guides, marquee and readouts.
-// Drawn after the model, in CSS pixel space.
+// Tool overlays: ghosts, grips, snap glyphs, guides, marquee, readouts,
+// device links and the fall and height tags of service runs. Drawn after the
+// model, in CSS pixel space.
 
 import type { Element, Vec3, Wall } from "../contract/bindings";
+import { pipeFalls } from "../contract/pipes";
 import { useApp } from "../state/store";
-import { K, type PlanController } from "./controller";
+import type { DrawnLink, PlacementGhost, TagDraw } from "./controller";
+import { HANDLE_PX, K, type PlanController } from "./controller";
 import { sameGrip, stretchedWalls, translateElement, walledJointMove } from "./edit";
 import type { P } from "./geom";
-import { add, dist, lerp, mul, sub, unit } from "./geom";
-import type { PipeEl, PipeShape } from "./pipe";
-import { drainFallPct, formatHeight, formatPct, isRiser, pipeNodes, pipePlan, pipeWidthPx, planDist, planOf, segmentFallPct } from "./pipe";
+import { add, dist, dot, left, lerp, mul, sub, unit } from "./geom";
+import { arcPoint, controls, linkArc, linkKey } from "./links";
+import type { LatchGuide } from "./mount";
+import type { PipeShape } from "./pipe";
+import { drainFallPct, formatHeight, formatPct, isRiser, pipeBandHalfPx, pipeNodes, pipePlan, planDist, planOf, segmentFallPct } from "./pipe";
 import type { ElementStyle, RenderContext } from "./render";
-import { drawCamera, drawDimension, drawElement, drawOpening, drawPipe, drawWalls, pipeColor } from "./render";
+import { dimensionTextBox, drawCamera, drawDimension, drawElement, drawOpening, drawPipe, drawWalls, pipeColor, roomLabelTextBox } from "./render";
 import type { SnapResult, SnapType } from "./snap";
 import { polar } from "./snap";
+import type { Box, TagCandidate } from "./tags";
+import { TAG_PRIORITY, layoutTags, pointSpots, segmentSpots } from "./tags";
 import { formatAngle, formatArea, formatLength } from "./typed";
 import { toScreen } from "./view";
 
@@ -33,12 +40,24 @@ const SNAP_LABEL: Record<SnapType, string> = {
   fixture: "Fixture",
 };
 
-function pill(rc: RenderContext, at: P, text: string, opts: { bg?: string; fg?: string; align?: "left" | "center"; scale?: number } = {}): void {
+const PILL_H = 18;
+const TAG_H = 15;
+
+function pillWidth(rc: RenderContext, text: string): number {
   const { ctx, palette } = rc;
   ctx.save();
   ctx.font = `11px ${palette.fontMono}`;
   const w = ctx.measureText(text).width + 12;
-  const h = 18;
+  ctx.restore();
+  return w;
+}
+
+function pill(rc: RenderContext, at: P, text: string, opts: { bg?: string; fg?: string; align?: "left" | "center"; scale?: number; alpha?: number } = {}): void {
+  const { ctx, palette } = rc;
+  ctx.save();
+  ctx.font = `11px ${palette.fontMono}`;
+  const w = ctx.measureText(text).width + 12;
+  const h = PILL_H;
   let x = opts.align === "center" ? at.x - w / 2 : at.x;
   let y = at.y - h / 2;
   x = Math.max(4, Math.min(rc.width - w - 4, x));
@@ -49,12 +68,13 @@ function pill(rc: RenderContext, at: P, text: string, opts: { bg?: string; fg?: 
     ctx.scale(opts.scale, opts.scale);
     ctx.translate(-x, -(y + h / 2));
   }
+  const a = opts.alpha ?? 1;
   ctx.fillStyle = opts.bg ?? palette.ink;
-  ctx.globalAlpha = 0.92;
+  ctx.globalAlpha = 0.92 * a;
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, 4);
   ctx.fill();
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = a;
   ctx.fillStyle = opts.fg ?? "#ffffff";
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
@@ -68,19 +88,34 @@ interface PillPart {
   scale?: number;
 }
 
+/** Where a row of pills lands, kept inside the canvas. */
+function pillRowBox(rc: RenderContext, at: P, parts: readonly PillPart[]): Box {
+  const total = parts.reduce((sum, p) => sum + pillWidth(rc, p.text), 0) + 4 * Math.max(0, parts.length - 1);
+  const x = Math.max(4, Math.min(rc.width - total - 4, at.x));
+  const y = Math.max(4, Math.min(rc.height - PILL_H - 4, at.y - PILL_H / 2));
+  return { x, y, w: total, h: PILL_H };
+}
+
 /** Pills side by side, kept inside the canvas as one row. */
-function pillRow(rc: RenderContext, at: P, parts: readonly PillPart[]): void {
+function pillRow(rc: RenderContext, at: P, parts: readonly PillPart[], alpha = 1): void {
+  let x = pillRowBox(rc, at, parts).x;
+  for (const p of parts) {
+    pill(rc, { x, y: at.y }, p.text, { bg: p.bg, scale: p.scale, alpha });
+    x += pillWidth(rc, p.text) + 4;
+  }
+}
+
+/** Where the snap label sits, next to the snapped point. */
+function snapLabelBox(rc: RenderContext, r: SnapResult): Box | null {
+  const label = r.label ?? SNAP_LABEL[r.type];
+  if (!label) return null;
   const { ctx, palette } = rc;
   ctx.save();
-  ctx.font = `11px ${palette.fontMono}`;
-  const widths = parts.map((p) => ctx.measureText(p.text).width + 12);
+  ctx.font = `10px ${palette.fontUi}`;
+  const tw = ctx.measureText(label).width;
   ctx.restore();
-  const total = widths.reduce((a, b) => a + b, 0) + 4 * Math.max(0, parts.length - 1);
-  let x = Math.max(4, Math.min(rc.width - total - 4, at.x));
-  parts.forEach((p, i) => {
-    pill(rc, { x, y: at.y }, p.text, { bg: p.bg, scale: p.scale });
-    x += widths[i] + 4;
-  });
+  const s = toScreen(rc.view, r.point);
+  return { x: s.x + 10, y: s.y - 20, w: tw + 4, h: 14 };
 }
 
 /**
@@ -228,10 +263,19 @@ function noIndexWalls(rc: RenderContext, walls: Wall[], style: ElementStyle): vo
   drawWalls(bare, walls, () => style);
 }
 
-/** A temporary dimension along a-b, offset to the given side in pixels. */
-function tempDimension(rc: RenderContext, a: P, b: P, offsetPx: number): void {
+/**
+ * What the overlay drew this frame that tags must keep clear of: the text of
+ * the temporary dimensions, cursor readouts and snap labels. Reset per frame.
+ */
+let frameObstacles: Box[] = [];
+
+/** A temporary dimension along a-b, offset to the given side in pixels. Its text is an obstacle for tags. */
+function tempDimension(rc: RenderContext, a: P, b: P, offsetPx: number, style: ElementStyle = { color: rc.palette.selection }): void {
   if (dist(a, b) < 1) return;
-  drawDimension(rc, { a, b, offset_mm: offsetPx / rc.view.scale, text_override: null }, { color: rc.palette.selection });
+  const d = { a, b, offset_mm: offsetPx / rc.view.scale, text_override: null };
+  drawDimension(rc, d, style);
+  const box = dimensionTextBox(rc, d);
+  if (box) frameObstacles.push(box);
 }
 
 function drawGrips(rc: RenderContext, c: PlanController, op: PlanController["op"]): void {
@@ -311,9 +355,393 @@ function drawGrips(rc: RenderContext, c: PlanController, op: PlanController["op"
   ctx.restore();
 }
 
+// ---------------------------------------------------------------- device links
+
+/**
+ * A link: a dashed curve from the device to its load with a dot at each end.
+ * `upto` below 1 draws only the first part, so a new link draws itself in.
+ */
+function drawLinkArc(rc: RenderContext, from: P, to: P, bow: number, o: { color: string; alpha: number; width: number; upto?: number }): void {
+  if (o.alpha <= 0.002) return;
+  const { ctx, view } = rc;
+  const arc = linkArc(from, to, bow);
+  const a = toScreen(view, from);
+  const cp = toScreen(view, arc.control);
+  const b = toScreen(view, to);
+  const upto = Math.max(0, Math.min(1, o.upto ?? 1));
+  ctx.save();
+  ctx.globalAlpha = o.alpha;
+  ctx.strokeStyle = o.color;
+  ctx.fillStyle = o.color;
+  ctx.lineWidth = o.width;
+  ctx.lineCap = "round";
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  if (upto >= 0.999) ctx.quadraticCurveTo(cp.x, cp.y, b.x, b.y);
+  else {
+    const n = 24;
+    for (let i = 1; i <= n; i++) {
+      const p = arcPoint(a, cp, b, (i / n) * upto);
+      ctx.lineTo(p.x, p.y);
+    }
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.arc(a.x, a.y, 2.4, 0, Math.PI * 2);
+  ctx.fill();
+  if (upto >= 0.999) {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** The small round handle in the middle of a link: click it to flip the bow. */
+function drawBowHandle(rc: RenderContext, at: P, hover: number, color: string, alpha: number): void {
+  const { ctx, palette, view } = rc;
+  const s = toScreen(view, at);
+  const r = HANDLE_PX * (1 + 0.35 * hover);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = palette.surface;
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // Two small chevrons across the curve: it can go either way.
+  ctx.beginPath();
+  ctx.moveTo(s.x - r * 0.45, s.y - r * 0.15);
+  ctx.lineTo(s.x, s.y - r * 0.55);
+  ctx.lineTo(s.x + r * 0.45, s.y - r * 0.15);
+  ctx.moveTo(s.x - r * 0.45, s.y + r * 0.15);
+  ctx.lineTo(s.x, s.y + r * 0.55);
+  ctx.lineTo(s.x + r * 0.45, s.y + r * 0.15);
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * The links of the selected device (or of the one the link tool picked), a
+ * faint overview of every other link while the link tool is on, links that
+ * a change removed fading out, and in the link tool, the link a click would
+ * add (a preview) or remove (drawn in the danger color).
+ */
+function drawLinks(rc: RenderContext, c: PlanController): void {
+  const { palette } = rc;
+  const s = useApp.getState();
+  const list = c.linkDrawList();
+  const preview = s.preview;
+  const tinted = preview ? new Set([...preview.diff.added, ...preview.diff.modified]) : null;
+  const linkTool = s.tool === "link";
+  const source = c.linkSource();
+  const { all } = c.devices();
+  // The link a click on the hovered device would toggle.
+  let pending: { key: string; adding: boolean; from: P; to: P; bow: number } | null = null;
+  if (linkTool && source && s.hoverId && s.hoverId !== source && !c.hoverHandle) {
+    const a = all.get(source);
+    const b = all.get(s.hoverId);
+    if (a && b) {
+      const pair = controls(a.role, b.role) ? { c: a, l: b } : controls(b.role, a.role) ? { c: b, l: a } : null;
+      if (pair) {
+        const key = linkKey(pair.c.el.id, pair.l.el.id);
+        const drawn = list.find((l) => l.key === key);
+        const ends = drawn ?? c.linkEnds(pair.c.el, pair.l.el);
+        if (ends) pending = { key, adding: !pair.c.el.links.includes(pair.l.el.id), from: ends.from, to: ends.to, bow: c.linkBow(pair.c.el.id, pair.l.el.id, ends.from, ends.to) };
+      }
+    }
+  }
+  const focus = new Set(linkTool ? (source ? [source] : []) : s.selection);
+  for (const f of c.fadingLinks) {
+    if (!linkTool && !focus.has(f.controllerId) && !focus.has(f.loadId)) continue;
+    const v = c.anim.value(`${K.linkGone}${f.key}`, 0);
+    drawLinkArc(rc, f.from, f.to, f.bow, { color: palette.selection, alpha: v, width: 1.6 });
+  }
+  const strongOf = (l: DrawnLink): string => (tinted?.has(l.controllerId) ? palette.preview : palette.selection);
+  for (const l of list) {
+    if (l.strong) continue;
+    drawLinkArc(rc, l.from, l.to, l.bow, { color: palette.ink3, alpha: 0.45, width: 1.1, upto: c.anim.value(`${K.linkGrow}${l.key}`, 1) });
+  }
+  for (const l of list) {
+    if (!l.strong) continue;
+    const removing = pending && !pending.adding && pending.key === l.key;
+    drawLinkArc(rc, l.from, l.to, l.bow, { color: removing ? palette.danger : strongOf(l), alpha: 1, width: 1.6, upto: c.anim.value(`${K.linkGrow}${l.key}`, 1) });
+  }
+  if (pending?.adding) drawLinkArc(rc, pending.from, pending.to, pending.bow, { color: palette.selection, alpha: 0.5, width: 1.4 });
+  for (const l of list) {
+    if (!l.handle) continue;
+    drawBowHandle(rc, l.handle, c.anim.value(`${K.bowHover}${l.key}`, 0), strongOf(l), 1);
+  }
+}
+
+/** Pills for the link tool: what a click on the hovered device does, or why it cannot. */
+function linkPills(rc: RenderContext, c: PlanController): PillPart[] {
+  const { palette } = rc;
+  const s = useApp.getState();
+  if (s.tool !== "link" && !c.hoverHandle) return [];
+  if (c.hoverHandle) return [{ text: "Flip the curve" }];
+  const parts: PillPart[] = [];
+  if (c.linkNotice) parts.push({ text: c.linkNotice, bg: palette.danger, scale: 1 + 0.12 * c.anim.value(K.placeRefused, 0) });
+  const source = c.linkSource();
+  const hover = s.hoverId;
+  if (!hover) return parts;
+  const { all } = c.devices();
+  const h = all.get(hover);
+  if (!h) return parts;
+  if (!source) {
+    parts.push({ text: "Pick" });
+    return parts;
+  }
+  if (hover === source) {
+    parts.push({ text: "Done" });
+    return parts;
+  }
+  const a = all.get(source);
+  if (!a) return parts;
+  const pair = controls(a.role, h.role) ? { ctl: a.el, load: h.el.id } : controls(h.role, a.role) ? { ctl: h.el, load: a.el.id } : null;
+  if (!pair) parts.push({ text: "Pick" });
+  else if (pair.ctl.links.includes(pair.load)) parts.push({ text: "Unlink", bg: palette.danger });
+  else parts.push({ text: "Link", bg: palette.selection });
+  return parts;
+}
+
+// ---------------------------------------------------------------- mounted objects
+
+/**
+ * The latch-side switch guide: ticks at the latch jamb and at the switch
+ * point on the wall face, and the 200 mm between them. Strong once the
+ * switch snapped to it, faint while it is only offered.
+ */
+function drawLatchGuide(rc: RenderContext, g: LatchGuide & { snapped: boolean }, alpha: number): void {
+  const { ctx, palette, view } = rc;
+  const color = g.snapped ? palette.selection : palette.ink3;
+  const a = alpha * (g.snapped ? 1 : 0.7);
+  if (a <= 0.002) return;
+  const tick = (p: P, len: number): void => {
+    const s0 = toScreen(view, p);
+    const s1 = toScreen(view, add(p, mul(g.out, len / view.scale)));
+    ctx.beginPath();
+    ctx.moveTo(s0.x, s0.y);
+    ctx.lineTo(s1.x, s1.y);
+    ctx.stroke();
+  };
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  tick(g.jamb, 12);
+  ctx.setLineDash([3, 3]);
+  tick(g.point, 18);
+  ctx.restore();
+  if (!g.snapped) {
+    // The target, a dashed ring where the switch center would go.
+    const p = toScreen(view, add(g.point, mul(g.out, 6 / view.scale)));
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = color;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  const side = dot(left(g.away), g.out) >= 0 ? 1 : -1;
+  tempDimension(rc, g.jamb, g.point, side * 22, { color, alpha: a });
+}
+
+/** Ghost of the asset tool: the object, the face or window it mounts on, the switch guide. */
+function drawPlacementGhost(rc: RenderContext, c: PlanController, pg: PlacementGhost, pa: number): void {
+  const { ctx, palette, view } = rc;
+  const m = pg.mount;
+  const invalid = !!m && !m.valid;
+  drawElement(rc, pg.element as Element, { color: invalid ? palette.danger : palette.selection, alpha: 0.85 * pa });
+  const live = !!c.placementGhost;
+  const face = m?.face ?? pg.faceSnap?.face ?? null;
+  if (face && live) {
+    const a = toScreen(view, face.a);
+    const b = toScreen(view, face.b);
+    ctx.save();
+    ctx.strokeStyle = palette.selection;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.7 * pa;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+  if (m?.window && live) {
+    const a = toScreen(view, m.window.a);
+    const b = toScreen(view, m.window.b);
+    ctx.save();
+    ctx.strokeStyle = invalid ? palette.danger : palette.selection;
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.globalAlpha = 0.35 * pa;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+  if (m?.guide && live) drawLatchGuide(rc, m.guide, pa);
+}
+
+/** The mounting height, and why a click would place nothing, next to the cursor. */
+function placementPills(rc: RenderContext, c: PlanController, pg: PlacementGhost): PillPart[] {
+  const m = pg.mount;
+  if (!m || !c.placementGhost) return [];
+  const parts: PillPart[] = [];
+  if (m.heightLabel) parts.push({ text: m.heightLabel });
+  if (!m.valid && m.reason) parts.push({ text: m.reason, bg: rc.palette.danger, scale: 1 + 0.12 * c.anim.value(K.placeRefused, 0) });
+  return parts;
+}
+
+// ---------------------------------------------------------------- fall and height tags
+
+interface TagSpec {
+  cand: TagCandidate;
+  text: string;
+  color: string;
+  filled: boolean;
+  alpha: number;
+}
+
+function tagWidth(rc: RenderContext, text: string): number {
+  rc.ctx.save();
+  rc.ctx.font = `10px ${rc.palette.fontMono}`;
+  const w = rc.ctx.measureText(text).width + 8;
+  rc.ctx.restore();
+  return w;
+}
+
+/**
+ * Height tags of a run's nodes above the floor of its level, as the inspector
+ * gives them: "+300", or "+300 to +1200" at a riser in run order.
+ */
+function heightTags(rc: RenderContext, pipe: Pick<PipeShape, "system" | "points">, idPrefix: string, alpha: number, onlyRisers = false): TagSpec[] {
+  const color = pipeColor(rc.palette, pipe.system);
+  const nodes = pipeNodes(pipe.points);
+  const out: TagSpec[] = [];
+  nodes.forEach((n, i) => {
+    const riser = isRiser(n);
+    if (onlyRisers && !riser) return;
+    const text = riser ? `${formatHeight(n.zIn, rc.unit)} to ${formatHeight(n.zOut, rc.unit)}` : formatHeight(n.zIn, rc.unit);
+    const q = toScreen(rc.view, n.point);
+    const w = tagWidth(rc, text);
+    const priority = riser ? TAG_PRIORITY.riser : i === 0 || i === nodes.length - 1 ? TAG_PRIORITY.endHeight : TAG_PRIORITY.height;
+    out.push({ cand: { id: `${idPrefix}:h:${n.index}`, priority, w, h: TAG_H, spots: pointSpots(q.x, q.y, w, TAG_H) }, text, color, filled: false, alpha });
+  });
+  return out;
+}
+
+/**
+ * The fall of each horizontal segment of a run that falls (drainage, storm,
+ * condensate), as a percent of its plan length. Below the default fall it
+ * turns to the warning color, flat or uphill to the danger color.
+ * Suggestions only: the review tab has the same checks.
+ */
+function fallTags(rc: RenderContext, pipe: Pick<PipeShape, "system" | "diameter_mm" | "points">, idPrefix: string, alpha: number): TagSpec[] {
+  if (!pipeFalls(pipe.system)) return [];
+  const { palette, view } = rc;
+  const minPct = drainFallPct(pipe.diameter_mm);
+  const out: TagSpec[] = [];
+  const points: readonly Vec3[] = pipe.points;
+  for (let i = 0; i + 1 < points.length; i++) {
+    const pct = segmentFallPct(points[i], points[i + 1]);
+    if (pct === null) continue;
+    const sa = toScreen(view, points[i]);
+    const sb = toScreen(view, points[i + 1]);
+    if (Math.hypot(sb.x - sa.x, sb.y - sa.y) < 48) continue;
+    const ok = pct >= minPct - 0.01;
+    // A fall under the default rounds down, so a 1.95% warning never reads "2%".
+    const shown = ok ? pct : Math.max(0.1, Math.floor(pct * 10) / 10);
+    const text = pct <= 0.005 ? (pct < -0.005 ? `rises ${formatPct(pct)}` : "flat") : `${formatPct(shown)} fall`;
+    const color = ok ? pipeColor(palette, pipe.system) : pct > 0.005 ? palette.warn : palette.danger;
+    const w = tagWidth(rc, text);
+    out.push({
+      cand: { id: `${idPrefix}:f:${i}`, priority: ok ? TAG_PRIORITY.fall : TAG_PRIORITY.fallProblem, w, h: TAG_H, spots: segmentSpots(sa, sb, w, TAG_H) },
+      text,
+      color,
+      filled: true,
+      alpha,
+    });
+  }
+  return out;
+}
+
+/** A small label box. */
+function tag(rc: RenderContext, x: number, y: number, text: string, color: string, alpha: number, filled: boolean): void {
+  const { ctx, palette } = rc;
+  ctx.save();
+  ctx.font = `10px ${palette.fontMono}`;
+  const w = ctx.measureText(text).width + 8;
+  const h = TAG_H;
+  ctx.globalAlpha = alpha * (filled ? 0.92 : 0.9);
+  ctx.fillStyle = filled ? color : palette.paper;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 3);
+  ctx.fill();
+  if (!filled) {
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = filled ? "#ffffff" : palette.ink;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  ctx.fillText(text, x + 4, y + h / 2 + 0.5);
+  ctx.restore();
+}
+
+/**
+ * Lays the tags out clear of each other, of every dimension text and room
+ * label on the plan, and of what the overlay drew this frame, dropping the
+ * least important when crowded. Placed tags fade in, dropped ones fade out.
+ */
+function drawTags(rc: RenderContext, c: PlanController, specs: readonly TagSpec[]): void {
+  let draws: TagDraw[] = [];
+  if (specs.length > 0) {
+    const obstacles: Box[] = [...frameObstacles];
+    for (const el of rc.index.visible) {
+      const box = el.kind === "dimension" ? dimensionTextBox(rc, el) : el.kind === "room" ? roomLabelTextBox(rc, el) : null;
+      if (box) obstacles.push(box);
+    }
+    const byId = new Map(specs.map((t) => [t.cand.id, t] as const));
+    const placed = layoutTags(
+      specs.map((t) => t.cand),
+      obstacles,
+      { w: rc.width, h: rc.height },
+    );
+    c.tagLayout = { asked: specs.length, placed, obstacles };
+    draws = placed.map((p) => {
+      const t = byId.get(p.id) as TagSpec;
+      return { id: p.id, box: p.box, text: t.text, color: t.color, filled: t.filled, alpha: t.alpha };
+    });
+  } else c.tagLayout = null;
+  for (const t of c.syncTags(draws)) {
+    const v = c.anim.value(`${K.tagOut}${t.id}`, 0);
+    if (v > 0.002) tag(rc, t.box.x, t.box.y, t.text, t.color, t.alpha * v, t.filled);
+  }
+  for (const t of draws) {
+    const a = t.alpha * c.anim.value(`${K.tagIn}${t.id}`, 1);
+    if (a > 0.002) tag(rc, t.box.x, t.box.y, t.text, t.color, a, t.filled);
+  }
+}
+
+// ---------------------------------------------------------------- the overlay
+
 export function drawOverlay(rc: RenderContext, c: PlanController): void {
   const { ctx, palette, view, index } = rc;
   const s = useApp.getState();
+  frameObstacles = [];
   // A rejected drag keeps drawing its ghost while it eases back to the origin.
   const returning = c.returningOp();
   const op = returning ?? c.op;
@@ -327,7 +755,10 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
   const cursorScreen = c.cursorScreen;
   // The pipe run as drawn so far and the segment the next click adds.
   const pipeDraft = op.kind === "pipe" ? c.pipePreview(op) : null;
+  const tags: TagSpec[] = [];
 
+  // Links under the grips and ghosts: they belong to the selection.
+  drawLinks(rc, c);
   drawGrips(rc, c, op);
 
   if (lift > 0.002) {
@@ -392,7 +823,7 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
             if (i > 0) tempDimension(rc, nodes[i - 1].point, nodes[i].point, 26);
             if (i + 1 < nodes.length) tempDimension(rc, nodes[i].point, nodes[i + 1].point, 26);
           }
-          drawPipeHeights(rc, next, fade);
+          tags.push(...heightTags(rc, next, el.id, fade), ...fallTags(rc, next, el.id, fade));
         }
       } else {
         const next = c.gripResult(op);
@@ -460,7 +891,7 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
           ctx.save();
           ctx.globalAlpha = 0.16;
           ctx.strokeStyle = color;
-          ctx.lineWidth = pipeWidthPx(spec.diameterMm, view.scale) + 8;
+          ctx.lineWidth = pipeBandHalfPx({ system: spec.system, diameter_mm: spec.diameterMm }, view.scale) * 2 + 8;
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
           ctx.beginPath();
@@ -492,9 +923,8 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
       ctx.restore();
       const run = [...placed, ...band.slice(1)];
       drawPipe(rc, shape(run), { alpha: 0.95 }, "risers");
-      if (spec.system === "drainage") drawFallLabels(rc, run, drainFallPct(spec.diameterMm), 1);
-      // Heights where the run climbs or drops.
-      drawPipeHeights(rc, shape(run), 1, true);
+      // Falls of the runs that fall, and heights where the run climbs or drops.
+      tags.push(...fallTags(rc, shape(run), "draft", 1), ...heightTags(rc, shape(run), "draft", 1, true));
       const start = band[0];
       const end = band[band.length - 1];
       // Length on the left of the direction of travel, like the wall tool; fall tags go on the right.
@@ -552,13 +982,12 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
 
   if (lift > 0.002) ctx.restore();
 
-  // Point heights of the one selected pipe (a node being dragged shows them on its ghost).
+  // Point heights and falls of the one selected run (a node being dragged shows them on its ghost).
   if (s.selection.length === 1 && !(op.kind === "grip" && op.element.id === s.selection[0]) && op.kind !== "move") {
     const el = index.byId.get(s.selection[0]);
     if (el && el.kind === "pipe" && index.visibleIds.has(el.id)) {
       const a = c.anim.value(`${K.sel}${el.id}`, 1);
-      drawPipeHeights(rc, el, a);
-      if (el.system === "drainage") drawFallLabels(rc, el.points, drainFallPct(el.diameter_mm), a);
+      tags.push(...heightTags(rc, el, el.id, a), ...fallTags(rc, el, el.id, a));
     }
   }
 
@@ -578,18 +1007,20 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
 
   // Next to the cursor: the length and angle of the segment being drawn, then
   // the height of the next point in the system color. Hidden while a value is typed.
+  const cursorAt = cursorScreen ? { x: cursorScreen.x + 18, y: cursorScreen.y + 24 } : null;
+  const cursorParts: PillPart[] = [];
   const typedOpen = !!c.heightEntry || (op.kind === "pipe" && !!op.typed);
   if (s.tool === "pipe" && cursorScreen && c.pointerInside && !typedOpen && !("committing" in op && op.committing) && !c.pipeLayer().locked) {
-    const parts: PillPart[] = [];
     const band = pipeDraft?.band ?? [];
     if (band.length > 1 && planDist(band[0], band[band.length - 1]) > 1) {
       const pr = polar(planOf(band[0]), planOf(band[band.length - 1]));
-      parts.push({ text: `${formatLength(pr.length, unitName, true)}  ${formatAngle(pr.angle)}` });
+      cursorParts.push({ text: `${formatLength(pr.length, unitName, true)}  ${formatAngle(pr.angle)}` });
     }
     const bump = 1 + 0.12 * c.anim.value(K.pipeHeight, 0);
-    parts.push({ text: `h ${formatHeight(c.pipeNextZ(), unitName, true)}`, bg: pipeColor(palette, c.pipeSpec().system), scale: bump });
-    pillRow(rc, { x: cursorScreen.x + 18, y: cursorScreen.y + 24 }, parts);
+    cursorParts.push({ text: `h ${formatHeight(c.pipeNextZ(), unitName, true)}`, bg: pipeColor(palette, c.pipeSpec().system), scale: bump });
   }
+  // The link tool, or a flip handle under the pointer.
+  if (cursorScreen && c.pointerInside) cursorParts.push(...linkPills(rc, c));
 
   // Hover ghosts of the placement tools. They keep their last geometry while
   // they fade out, so losing a target is not a pop.
@@ -613,21 +1044,10 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
   }
   const pg = c.placementGhost ?? c.lastPlacementGhost;
   const pa = c.anim.value(K.ghostPlace, 0);
+  let placeParts: PillPart[] = [];
   if (pg && pa > 0.002 && !c.placing) {
-    drawElement(rc, pg.element as Element, { color: palette.selection, alpha: 0.85 * pa });
-    if (pg.faceSnap && c.placementGhost) {
-      const a = toScreen(view, pg.faceSnap.face.a);
-      const b = toScreen(view, pg.faceSnap.face.b);
-      ctx.save();
-      ctx.strokeStyle = palette.selection;
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.7 * pa;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-      ctx.restore();
-    }
+    drawPlacementGhost(rc, c, pg, pa);
+    if (cursorScreen && c.pointerInside) placeParts = placementPills(rc, c, pg);
   }
 
   // The marquee keeps its last rectangle while it fades out after the release.
@@ -637,11 +1057,22 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
     if (mf && ma > 0.002) drawMarquee(rc, mf.start, mf.current, ma);
   }
 
+  // Tags last among the drawings, clear of the readouts drawn on top of them.
   const snapped = c.snapResult ?? c.lastSnap;
   const sa = c.anim.value(K.snapAlpha, 0);
-  if (snapped && snapped.type !== "none" && sa > 0.002 && !("committing" in op && op.committing)) {
-    drawSnap(rc, snapped, sa, c.anim.value(K.snapPop, 1));
+  const showSnap = !!snapped && snapped.type !== "none" && sa > 0.002 && !("committing" in op && op.committing);
+  if (showSnap && snapped) {
+    const box = snapLabelBox(rc, snapped);
+    if (box) frameObstacles.push(box);
   }
+  const placeAt = cursorScreen ? { x: cursorScreen.x + 16, y: cursorScreen.y + 22 } : null;
+  if (cursorAt && cursorParts.length > 0) frameObstacles.push(pillRowBox(rc, cursorAt, cursorParts));
+  if (placeAt && placeParts.length > 0) frameObstacles.push(pillRowBox(rc, placeAt, placeParts));
+  drawTags(rc, c, tags);
+
+  if (cursorAt && cursorParts.length > 0) pillRow(rc, cursorAt, cursorParts);
+  if (placeAt && placeParts.length > 0) pillRow(rc, placeAt, placeParts, pa);
+  if (showSnap && snapped) drawSnap(rc, snapped, sa, c.anim.value(K.snapPop, 1));
 }
 
 function drawMarquee(rc: RenderContext, start: P, current: P, alpha: number): void {
@@ -674,91 +1105,4 @@ function drawClearDims(rc: RenderContext, host: Wall, width: number, offset: num
   if (clearStart > 1) tempDimension(rc, cornerA, jambA, off);
   tempDimension(rc, jambA, jambB, off);
   if (clearEnd > 1) tempDimension(rc, jambB, cornerB, off);
-}
-
-/** A small label box. Returns its rectangle so callers can keep labels apart. */
-function tag(rc: RenderContext, x: number, y: number, text: string, color: string, alpha: number, filled: boolean): { x: number; y: number; w: number; h: number } {
-  const { ctx, palette } = rc;
-  ctx.save();
-  ctx.font = `10px ${palette.fontMono}`;
-  const w = ctx.measureText(text).width + 8;
-  const h = 15;
-  ctx.globalAlpha = alpha * (filled ? 0.92 : 0.9);
-  ctx.fillStyle = filled ? color : palette.paper;
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, h, 3);
-  ctx.fill();
-  if (!filled) {
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  }
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = filled ? "#ffffff" : palette.ink;
-  ctx.textBaseline = "middle";
-  ctx.textAlign = "left";
-  ctx.fillText(text, x + 4, y + h / 2 + 0.5);
-  ctx.restore();
-  return { x, y, w, h };
-}
-
-type Box = { x: number; y: number; w: number; h: number };
-const overlaps = (a: Box, b: Box): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-
-/**
- * The height of every node of a pipe, above the floor of its level, as the
- * inspector would give it: "+300", or "+300 to +1200" for a riser in run
- * order. Labels that would overlap an earlier one are left out.
- */
-function drawPipeHeights(rc: RenderContext, pipe: Pick<PipeEl, "system" | "points">, alpha: number, onlyRisers = false): void {
-  if (alpha <= 0.002) return;
-  const color = pipeColor(rc.palette, pipe.system);
-  const placed: Box[] = [];
-  for (const n of pipeNodes(pipe.points)) {
-    if (onlyRisers && !isRiser(n)) continue;
-    const text = isRiser(n) ? `${formatHeight(n.zIn, rc.unit)} to ${formatHeight(n.zOut, rc.unit)}` : formatHeight(n.zIn, rc.unit);
-    const q = toScreen(rc.view, n.point);
-    rc.ctx.save();
-    rc.ctx.font = `10px ${rc.palette.fontMono}`;
-    const w = rc.ctx.measureText(text).width + 8;
-    rc.ctx.restore();
-    // Up and to the left of the node: snap labels take the right, cursor pills the lower right.
-    const box: Box = { x: q.x - 9 - w, y: q.y - 22, w, h: 15 };
-    if (placed.some((b) => overlaps(b, box))) continue;
-    placed.push(tag(rc, box.x, box.y, text, color, alpha, false));
-  }
-}
-
-/**
- * The fall of each horizontal segment of a drainage run, as a percent of its
- * plan length, at the segment middle. Below the default fall it turns to the
- * warning color, flat or uphill to the danger color. Suggestions only, the
- * review tab has the same check (drain_slope_low).
- */
-function drawFallLabels(rc: RenderContext, points: readonly Vec3[], minPct: number, alpha: number): void {
-  if (alpha <= 0.002) return;
-  const { palette, view } = rc;
-  for (let i = 0; i + 1 < points.length; i++) {
-    const a = points[i];
-    const b = points[i + 1];
-    const pct = segmentFallPct(a, b);
-    if (pct === null) continue;
-    const sa = toScreen(view, a);
-    const sb = toScreen(view, b);
-    const L = Math.hypot(sb.x - sa.x, sb.y - sa.y);
-    if (L < 48) continue;
-    const text = pct <= 0.005 ? (pct < -0.005 ? `rises ${formatPct(pct)}` : "flat") : `${formatPct(pct)} fall`;
-    const color = pct >= minPct - 0.01 ? palette.pipeDrain : pct > 0.005 ? palette.warn : palette.danger;
-    // Beside the middle of the segment, on the right of the direction of flow.
-    const nx = -(sb.y - sa.y) / L;
-    const ny = (sb.x - sa.x) / L;
-    rc.ctx.save();
-    rc.ctx.font = `10px ${palette.fontMono}`;
-    const w = rc.ctx.measureText(text).width + 8;
-    rc.ctx.restore();
-    const mx = (sa.x + sb.x) / 2 + nx * 14;
-    const my = (sa.y + sb.y) / 2 + ny * 14;
-    tag(rc, mx - w / 2, my - 7.5, text, color, alpha, true);
-  }
 }

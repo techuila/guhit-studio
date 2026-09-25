@@ -5,8 +5,8 @@
 // Guhit coordinates pipes. Nothing here sizes a pipe or checks a code: the
 // fall is the review default the engine also uses (drain_min_slope_pct).
 
-import type { Asset, DisplayUnit, Element, PipeMaterial, PipeSystem, Vec3 } from "../contract/bindings";
-import { PIPE_DEFAULTS, PIPE_SYSTEM_LABEL, drainMinSlopePct } from "../contract/pipes";
+import type { Asset, DeviceKind, DisplayUnit, Element, PipeMaterial, PipeSystem, Vec3 } from "../contract/bindings";
+import { PIPE_DEFAULTS, PIPE_GROUP, PIPE_SYSTEM_LABEL, drainMinSlopePct, pipeFalls } from "../contract/pipes";
 import type { P } from "./geom";
 import { add, closestOnSegment, cross, dirDeg, dist, distToSegment, dot, lineLineIntersection, mul, projectParam, sub } from "./geom";
 import { backDir } from "./model";
@@ -58,9 +58,54 @@ export function pipeSpec(o: {
   };
 }
 
-/** Fall the tool gives new horizontal segments: the drainage default, none for the other systems. */
+/**
+ * Fall the tool gives new horizontal segments: the drain default for the
+ * systems that fall (drainage, storm, condensate), none for the others. No
+ * aircon manual gives a condensate number, so it uses the drain default too.
+ */
 export function toolFallPct(spec: Pick<PipeSpec, "system" | "diameterMm">): number | null {
-  return spec.system === "drainage" ? drainFallPct(spec.diameterMm) : null;
+  return pipeFalls(spec.system) ? drainFallPct(spec.diameterMm) : null;
+}
+
+// ---------------------------------------------------------------- line sets
+
+/** The liquid line of every PH split unit line set, mm (docs/CONTRACT.md). */
+export const LIQUID_LINE_MM = 6.35;
+/** Foam insulation on each line of a line set, mm. Only sets the drawn spacing. */
+export const LINESET_INSULATION_MM = 10;
+
+/** Center spacing of the gas and liquid lines of a line set, taped side by side. */
+export function lineSetSpacingMm(gasMm: number): number {
+  return (gasMm + LIQUID_LINE_MM) / 2 + 2 * LINESET_INSULATION_MM;
+}
+
+export interface LineSetPx {
+  /** Center spacing of the two lines, CSS pixels. */
+  sep: number;
+  gasW: number;
+  liquidW: number;
+}
+
+/**
+ * A refrigerant line set drawn at plan scale: the gas line on the left of
+ * the run direction, the liquid line on the right, each at its size and
+ * spacing at this zoom, never so thin or close that they merge.
+ */
+export function lineSetPx(gasMm: number, scale: number, uiScale = 1): LineSetPx {
+  return {
+    sep: Math.max(lineSetSpacingMm(gasMm) * scale, 4.5 * uiScale),
+    gasW: Math.max(1.8 * uiScale, gasMm * scale),
+    liquidW: Math.max(1.3 * uiScale, LIQUID_LINE_MM * scale),
+  };
+}
+
+/** Half the drawn band of a run, CSS pixels: its width, or both lines of a line set. */
+export function pipeBandHalfPx(pipe: Pick<PipeEl, "system" | "diameter_mm">, scale: number, uiScale = 1): number {
+  if (pipe.system === "refrigerant") {
+    const l = lineSetPx(pipe.diameter_mm, scale, uiScale);
+    return l.sep / 2 + Math.max(l.gasW, l.liquidW) / 2;
+  }
+  return pipeWidthPx(pipe.diameter_mm, scale, uiScale) / 2;
 }
 
 export const planOf = (v: Vec3 | P): P => ({ x: v.x, y: v.y });
@@ -278,6 +323,38 @@ export function canJoin(a: PipeSystem, b: PipeSystem): boolean {
 /** Objects that take water or drain: the sanitary ones and the kitchen sink. */
 export function isPlumbingFixture(a: Pick<Asset, "category" | "catalog_key">): boolean {
   return a.category === "sanitary" || a.catalog_key === "kitchen-sink";
+}
+
+const WIRED: ReadonlySet<DeviceKind> = new Set<DeviceKind>([
+  "lighting_outlet",
+  "convenience_receptacle",
+  "special_purpose_outlet",
+  "switch",
+  "panelboard",
+  "smoke_detector",
+  "buzzer",
+  "push_button",
+]);
+
+/**
+ * True when a run of `system` starts or ends at this object: plumbing
+ * fixtures for water, drain and vent; electrical devices and lights for
+ * conduit; split units for a line set; indoor and window units and floor
+ * drains for condensate. Storm drains have no catalog object to start at.
+ */
+export function isServiceFixture(a: Pick<Asset, "category" | "catalog_key">, system: PipeSystem, device: DeviceKind | null): boolean {
+  switch (system) {
+    case "storm":
+      return false;
+    case "conduit":
+      return a.category === "lighting" || (device !== null && WIRED.has(device));
+    case "refrigerant":
+      return device === "aircon_indoor" || device === "aircon_outdoor";
+    case "condensate":
+      return device === "aircon_indoor" || device === "aircon_window" || a.catalog_key === "floor-drain";
+    default:
+      return PIPE_GROUP[system] === "plumbing" && isPlumbingFixture(a);
+  }
 }
 
 export interface FixturePoint {
@@ -502,6 +579,11 @@ export function riserRadiusPx(widthPx: number, uiScale = 1): number {
   return Math.max(6 * uiScale, widthPx / 2 + 2.5 * uiScale);
 }
 
+/** Riser circle radius of a run in CSS pixels: around its whole band (both lines of a line set). */
+export function pipeRiserRadiusPx(pipe: Pick<PipeEl, "system" | "diameter_mm">, scale: number, uiScale = 1): number {
+  return riserRadiusPx(pipeBandHalfPx(pipe, scale, uiScale) * 2, uiScale);
+}
+
 /** Plan distance from `p` to the run. A riser counts as its plan point. */
 export function distToPipe(p: P, points: readonly Vec3[]): number {
   if (points.length === 1) return planDist(p, points[0]);
@@ -512,13 +594,14 @@ export function distToPipe(p: P, points: readonly Vec3[]): number {
 
 /**
  * True when `p` picks the pipe: near its centerline by half its drawn width
- * plus half the pick tolerance, or inside a riser circle. `pxMm` is the size
- * of one screen pixel in mm, `tol` the pick radius in mm.
+ * (both lines of a line set) plus half the pick tolerance, or inside a riser
+ * circle. `pxMm` is the size of one screen pixel in mm, `tol` the pick radius in mm.
  */
-export function hitsPipe(p: P, pipe: Pick<PipeEl, "diameter_mm" | "points">, pxMm: number, tol: number): boolean {
-  const half = Math.max(pipe.diameter_mm / 2, (PIPE_MIN_PX / 2) * pxMm);
+export function hitsPipe(p: P, pipe: Pick<PipeEl, "diameter_mm" | "points"> & { system?: PipeSystem }, pxMm: number, tol: number): boolean {
+  const band = pipe.system ? pipeBandHalfPx({ system: pipe.system, diameter_mm: pipe.diameter_mm }, 1 / pxMm) * pxMm : 0;
+  const half = Math.max(pipe.diameter_mm / 2, (PIPE_MIN_PX / 2) * pxMm, band);
   if (distToPipe(p, pipe.points) <= half + tol * 0.5) return true;
-  const r = riserRadiusPx(pipeWidthPx(pipe.diameter_mm, 1 / pxMm)) * pxMm;
+  const r = (pipe.system ? pipeRiserRadiusPx({ system: pipe.system, diameter_mm: pipe.diameter_mm }, 1 / pxMm) : riserRadiusPx(pipeWidthPx(pipe.diameter_mm, 1 / pxMm))) * pxMm;
   return pipePlan(pipe.points).risers.some((q) => planDist(p, q.point) <= r + tol * 0.25);
 }
 

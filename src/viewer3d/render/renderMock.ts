@@ -110,6 +110,7 @@ export function installRenderMock(): boolean {
           image_path: `/mock/renders/${id}.png`,
           source_render_id: source.id,
           provider: "gemini/gemini-3.1-flash-image",
+          info: null,
         };
         extraRecords.unshift(record);
         return json(200, { record, seconds: delay / 1000 });

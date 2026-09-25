@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import "../../styles/tokens.css";
 import type { CatalogItem, DocState, PipeSystem } from "../../contract/bindings";
 import { ipc } from "../../contract/ipc";
+import { PIPE_SYSTEM_ORDER } from "../../contract/pipes";
 import { bus } from "../../state/bus";
 import { useApp, type Tool } from "../../state/store";
 import { PlanCanvas } from "../PlanCanvas";
@@ -14,13 +15,13 @@ import fixture from "../../../fixtures/sample-bungalow.docstate.json";
 
 const BTN = { border: "1px solid var(--chrome-2)", borderRadius: 4, padding: "3px 8px", background: "var(--chrome-2)", color: "#fff", cursor: "pointer" } as const;
 
-const TOOLS: Tool[] = ["select", "pan", "wall", "rect_room", "door", "window", "column", "stair", "asset", "dimension", "text", "camera", "pipe"];
-const PIPE_SYSTEMS: PipeSystem[] = ["cold_water", "hot_water", "drainage", "vent"];
+const TOOLS: Tool[] = ["select", "pan", "wall", "rect_room", "door", "window", "column", "stair", "asset", "dimension", "text", "camera", "pipe", "link"];
+const PIPE_SYSTEMS: PipeSystem[] = PIPE_SYSTEM_ORDER;
 
 const FALLBACK_CATALOG: CatalogItem[] = [
-  { key: "bed-double", name: "Double bed", category: "furniture", width_mm: 1370, depth_mm: 1900, height_mm: 500, elevation_mm: 0 },
-  { key: "sofa-3", name: "Sofa, 3 seater", category: "furniture", width_mm: 2100, depth_mm: 900, height_mm: 800, elevation_mm: 0 },
-  { key: "wc", name: "Water closet", category: "sanitary", width_mm: 400, depth_mm: 700, height_mm: 780, elevation_mm: 0 },
+  { key: "bed-double", name: "Double bed", category: "furniture", width_mm: 1370, depth_mm: 1900, height_mm: 500, elevation_mm: 0, mount: "floor", device: null, light: null, aircon: null },
+  { key: "sofa-3", name: "Sofa, 3 seater", category: "furniture", width_mm: 2100, depth_mm: 900, height_mm: 800, elevation_mm: 0, mount: "floor", device: null, light: null, aircon: null },
+  { key: "wc", name: "Water closet", category: "sanitary", width_mm: 400, depth_mm: 700, height_mm: 780, elevation_mm: 0, mount: "floor", device: null, light: null, aircon: null },
 ];
 
 function Harness() {
@@ -63,6 +64,8 @@ function Harness() {
   useEffect(() => {
     (window as unknown as Record<string, unknown>).__app = useApp;
     (window as unknown as Record<string, unknown>).__bus = bus;
+    // The IPC client on whatever bridge VITE_BRIDGE_URL names, so checks never hardcode a port.
+    (window as unknown as Record<string, unknown>).__ipc = ipc;
   }, []);
 
   return (

@@ -139,11 +139,16 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
         PipeSystem::HotWater,
         PipeSystem::Drainage,
         PipeSystem::Vent,
+        PipeSystem::Storm,
+        PipeSystem::Conduit,
+        PipeSystem::Refrigerant,
+        PipeSystem::Condensate,
     ];
+    let asset_ids = ids_of(project, ElementKind::Asset);
 
-    match rng.below(31) {
+    match rng.below(37) {
         25 | 26 => {
-            let system = systems[rng.below(4)];
+            let system = systems[rng.below(systems.len())];
             let (material, size, _) = defaults::pipe_defaults(system);
             let n = 2 + rng.below(4);
             let mut points: Vec<Vec3> = vec![pipe_point(rng)];
@@ -191,7 +196,10 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
                     LayerKey::HotWater,
                     LayerKey::Drainage,
                     LayerKey::Vent,
-                ][rng.below(4)],
+                    LayerKey::Storm,
+                    LayerKey::Electrical,
+                    LayerKey::Aircon,
+                ][rng.below(7)],
                 visible: rng.chance(80),
                 locked: rng.chance(25),
             },
@@ -206,7 +214,7 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
                 Some(Element::Pipe(p)) => {
                     let mut p = p.clone();
                     if rng.chance(50) {
-                        p.system = systems[rng.below(4)];
+                        p.system = systems[rng.below(systems.len())];
                     } else {
                         let i = rng.below(p.points.len());
                         p.points[i] = pipe_point(rng);
@@ -306,6 +314,9 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
                 depth_mm: 1900.0,
                 height_mm: 500.0,
                 elevation_mm: 0.0,
+                light: None,
+                links: vec![],
+                circuit: String::new(),
             }),
         },
         14 => {
@@ -391,6 +402,141 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
                 locked: rng.chance(25),
             },
         },
+        29 | 30 => {
+            // A device, often linked to another object, now and then to
+            // something that is not one, or twice to the same one.
+            let keys = [
+                "light-ceiling",
+                "light-pendant",
+                "switch-1",
+                "switch-2",
+                "outlet-duplex",
+                "outlet-aircon",
+                "outlet-spo",
+                "smoke-detector",
+                "aircon-indoor-1hp",
+                "aircon-outdoor-1hp",
+                "tv-console",
+            ];
+            let key = keys[rng.below(keys.len())];
+            let item = defaults::asset_catalog()
+                .into_iter()
+                .find(|c| c.key == key)
+                .unwrap();
+            let mut links: Vec<Id> = vec![];
+            if rng.chance(60) {
+                if let Some(t) = rng.pick(&asset_ids) {
+                    links.push(t.clone());
+                }
+            }
+            if rng.chance(8) {
+                links.push(some_any.clone());
+            }
+            if rng.chance(8) {
+                if let Some(t) = links.first().cloned() {
+                    links.push(t);
+                }
+            }
+            Command::AddElement {
+                element: Element::Asset(Asset {
+                    id: String::new(),
+                    level_id: level,
+                    catalog_key: item.key,
+                    name: item.name,
+                    category: item.category,
+                    position: rng.point(),
+                    rotation_deg: [0.0, 90.0, 180.0, 270.0][rng.below(4)],
+                    width_mm: item.width_mm,
+                    depth_mm: item.depth_mm,
+                    height_mm: item.height_mm,
+                    elevation_mm: if rng.chance(15) { 1200.0 } else { item.elevation_mm },
+                    light: item.light,
+                    links,
+                    circuit: if rng.chance(30) {
+                        format!(" L{} ", rng.below(9))
+                    } else if rng.chance(5) {
+                        "a circuit tag far too long".into()
+                    } else {
+                        String::new()
+                    },
+                }),
+            }
+        }
+        31 => {
+            // Link or unlink an object; now and then to itself or a wall.
+            match rng
+                .pick(&asset_ids)
+                .and_then(|id| project.elements.iter().find(|e| e.id() == id))
+            {
+                Some(Element::Asset(a)) => {
+                    let mut a = a.clone();
+                    if rng.chance(40) && !a.links.is_empty() {
+                        a.links.pop();
+                    } else if rng.chance(10) {
+                        a.links.push(a.id.clone());
+                    } else if let Some(t) = rng.pick(&all_ids) {
+                        a.links.push(t.clone());
+                    }
+                    Command::UpdateElement {
+                        element: Element::Asset(a),
+                    }
+                }
+                _ => Command::DeleteElements {
+                    ids: vec!["missing".into()],
+                },
+            }
+        }
+        32 => {
+            // Set a finding, a check or a check on one element aside, or
+            // reopen it. Some targets name no check at all.
+            let current = guhit_core::compute_derived(project).issues;
+            let codes = guhit_core::REVIEW_CODES;
+            let code = codes[rng.below(codes.len())].to_string();
+            let target = match rng.below(5) {
+                0 | 1 => match rng.pick(&current) {
+                    Some(i) => ReviewTarget::Issue { id: i.id.clone() },
+                    None => ReviewTarget::Check { code },
+                },
+                2 => ReviewTarget::Check { code },
+                3 => ReviewTarget::Element {
+                    code,
+                    element_id: some_any.clone(),
+                },
+                _ => ReviewTarget::Check {
+                    code: "no_such_check".into(),
+                },
+            };
+            Command::SetReviewMark {
+                target,
+                note: if rng.chance(70) {
+                    Some(format!(" note {} ", rng.below(5)))
+                } else {
+                    None
+                },
+            }
+        }
+        33 => Command::AddLevel {
+            name: if rng.chance(50) {
+                Some(format!(" Floor {} ", rng.below(4)))
+            } else {
+                None
+            },
+            // Sometimes on an existing floor, or too low to be a storey.
+            elevation_mm: if rng.chance(30) {
+                Some(rng.below(4) as f64 * 3000.0)
+            } else {
+                None
+            },
+            height_mm: if rng.chance(20) {
+                Some([1500.0, 2400.0, 3000.0, 12_000.0][rng.below(4)])
+            } else {
+                None
+            },
+        },
+        34 => {
+            let level = project.levels[rng.below(project.levels.len())].id.clone();
+            Command::DeleteLevel { level_id: level }
+        }
         _ => {
             let n = 1 + rng.below(3);
             Command::Batch {
@@ -431,7 +577,7 @@ fn run(seed: u64, steps: usize, start: Project) -> (usize, usize, usize) {
     let (mut ok, mut rejected, mut dragged) = (0, 0, 0);
     for step in 0..steps {
         // Keep the plan small enough to stay fast, and start over now and then.
-        if doc.project().elements.len() > 70 {
+        if doc.project().elements.len() > start.elements.len() + 40 {
             doc = Document::new(start.clone());
         }
         let cmd = random_command(&mut rng, doc.project());
@@ -460,6 +606,8 @@ fn run(seed: u64, steps: usize, start: Project) -> (usize, usize, usize) {
                     "{ctx}"
                 );
                 assert_eq!(pv.state.project.layers, ap.state.project.layers, "{ctx}");
+                assert_eq!(pv.state.project.review, ap.state.project.review, "{ctx}");
+                assert_eq!(pv.state.project.levels, ap.state.project.levels, "{ctx}");
                 assert_eq!(pv.state.derived, ap.state.derived, "{ctx}");
                 assert_eq!(pv.diff, ap.diff, "{ctx}");
                 assert_eq!(ap.state.revision, before_revision + 1, "{ctx}");

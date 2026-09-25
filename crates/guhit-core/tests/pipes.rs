@@ -957,15 +957,33 @@ fn takeoff_groups_by_system_material_and_size_and_rounds_to_the_millimeter() {
 fn the_pipe_takeoff_query_answers_from_derived_data() {
     let doc = Document::new(templates::plumbing_demo());
     let v = doc.query(&Query::PipeTakeoff).unwrap();
-    assert_eq!(v["total_length_m"], 44.94);
-    assert_eq!(v["elbow_count"], 23);
+    assert_eq!(v["total_length_m"], 59.654);
+    assert_eq!(v["elbow_count"], 29);
     assert_eq!(v["tee_count"], 9);
-    assert_eq!(v["sleeve_count"], 7);
-    assert_eq!(v["rows"].as_array().unwrap().len(), 6);
+    assert_eq!(v["sleeve_count"], 9);
+    assert_eq!(v["rows"].as_array().unwrap().len(), 9);
     assert_eq!(v["rows"][0]["system"], "cold_water");
     assert_eq!(v["rows"][0]["material"], "ppr");
-    assert_eq!(v["penetrations"].as_array().unwrap().len(), 7);
+    // Every system is in the take-off, in system order.
+    let systems: Vec<&str> = v["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["system"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        systems,
+        vec!["cold_water", "cold_water", "hot_water", "drainage", "drainage", "vent", "storm", "refrigerant", "condensate"]
+    );
+    assert_eq!(v["penetrations"].as_array().unwrap().len(), 9);
     assert_eq!(v["penetrations"][6]["kind"], "roof");
+    assert!(v["penetrations"][6].get("core_hole_mm").is_none());
+    // The line set and its condensate drain go through the east wall.
+    for k in [7, 8] {
+        assert_eq!(v["penetrations"][k]["kind"], "wall");
+        assert_eq!(v["penetrations"][k]["host_id"], "00000000-0000-4000-8000-000000011002");
+        assert_eq!(v["penetrations"][k]["core_hole_mm"], 65.0);
+    }
     assert!(v["note"].as_str().unwrap().contains("Master Plumber"));
     // Pipes are listed and described like any element.
     let list = doc
@@ -973,9 +991,11 @@ fn the_pipe_takeoff_query_answers_from_derived_data() {
             kind: ElementKind::Pipe,
         })
         .unwrap();
-    assert_eq!(list["count"], 16);
+    assert_eq!(list["count"], 20);
     assert_eq!(list["elements"][0]["label"], "Service line");
     assert_eq!(list["elements"][0]["length_mm"], 10100.0);
+    assert_eq!(list["elements"][18]["label"], "Bedroom line set");
+    assert_eq!(list["elements"][18]["system"], "refrigerant");
     // Review items carry their location.
     let items = doc.query(&Query::Issues).unwrap();
     let across = items["items"]
@@ -986,8 +1006,10 @@ fn the_pipe_takeoff_query_answers_from_derived_data() {
         .unwrap();
     assert_eq!(across["location_mm"]["x"], 6500.0);
     assert_eq!(across["location_mm"]["z"], 1500.0);
+    assert_eq!(across["status"], "open");
+    assert_eq!(across["note"], "");
     let summary = doc.query(&Query::ProjectSummary).unwrap();
-    assert_eq!(summary["element_counts"]["pipe"], 16);
+    assert_eq!(summary["element_counts"]["pipe"], 20);
 }
 
 // -------------------------------------------------------------- validation
@@ -1350,7 +1372,7 @@ fn a_hidden_pipe_layer_does_not_block_edits() {
 // --------------------------------------------------------------- migration
 
 #[test]
-fn a_version_1_project_opens_with_all_layers_and_schema_2() {
+fn a_version_1_project_opens_with_all_layers_and_the_current_schema() {
     let mut v1 = serde_json::to_value(templates::sample_bungalow()).unwrap();
     v1["schema_version"] = serde_json::json!(1);
     let layers = v1["layers"].as_array_mut().unwrap();
@@ -1362,11 +1384,11 @@ fn a_version_1_project_opens_with_all_layers_and_schema_2() {
     let doc = Document::new(old.clone());
     let project = doc.project();
     assert_eq!(project.schema_version, SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 2);
+    assert_eq!(SCHEMA_VERSION, 3);
     let keys: Vec<LayerKey> = project.layers.iter().map(|l| l.key).collect();
     let expected: Vec<LayerKey> = defaults::default_layers().iter().map(|l| l.key).collect();
     assert_eq!(keys, expected);
-    assert_eq!(keys.len(), 13);
+    assert_eq!(keys.len(), 16);
     assert!(project.layers[2].locked, "existing layers keep their state");
     for l in &project.layers[9..] {
         assert!(l.visible && !l.locked);
@@ -1375,7 +1397,7 @@ fn a_version_1_project_opens_with_all_layers_and_schema_2() {
 
     // Also on a restore, and running it again changes nothing.
     let restored = Document::with_revision(old.clone(), 7);
-    assert_eq!(restored.project().layers.len(), 13);
+    assert_eq!(restored.project().layers.len(), 16);
     let mut twice = old;
     migrate(&mut twice);
     let once = twice.clone();
@@ -1392,14 +1414,17 @@ fn the_plumbing_demo_known_answers() {
     let d = &state.derived;
     let project = &state.project;
 
-    assert_eq!(project.name, "Bungalow with plumbing");
+    assert_eq!(project.name, "Bungalow with services");
     let count = |kind: ElementKind| project.elements.iter().filter(|e| e.kind() == kind).count();
     assert_eq!(count(ElementKind::Wall), 7);
     assert_eq!(count(ElementKind::Opening), 8);
     assert_eq!(count(ElementKind::Room), 3);
     assert_eq!(count(ElementKind::Column), 6);
-    assert_eq!(count(ElementKind::Asset), 7);
-    assert_eq!(count(ElementKind::Pipe), 16);
+    // 10 fixtures and furniture, 22 lights, switches, outlets and aircon.
+    assert_eq!(count(ElementKind::Asset), 32);
+    // The concept's 16 plumbing runs, two downspouts, a line set and its
+    // condensate drain.
+    assert_eq!(count(ElementKind::Pipe), 20);
     assert_eq!(d.rooms.len(), 3, "every room has its face");
     assert_eq!(
         (
@@ -1426,15 +1451,23 @@ fn the_plumbing_demo_known_answers() {
             (PipeSystem::Drainage, 50.0, 7.312, 3),
             (PipeSystem::Drainage, 100.0, 3.951, 3),
             (PipeSystem::Vent, 50.0, 4.257, 1),
+            // Two downspouts: 3.20 m down plus 1.20 m falling 18 mm, each.
+            (PipeSystem::Storm, 100.0, 8.8, 2),
+            // 0.37 m through the wall, 2.043 m down, 0.80 and 0.20 m across.
+            (PipeSystem::Refrigerant, 9.52, 3.413, 1),
+            // 0.371 m through the wall falling 30 mm, 2.13 m down.
+            (PipeSystem::Condensate, 20.0, 2.501, 1),
         ]
     );
-    assert_eq!(d.pipes.total_length_m, 44.94);
+    assert_eq!(d.pipes.total_length_m, 59.654);
 
-    // Fittings. 22 turns inside runs, plus the chase end meeting the shower
-    // riser at 90 degrees. 7 ends on another run's body, plus two points
-    // where three run ends meet (service line, chase and sink supply; the
-    // building drain start with the lavatory and sink wastes).
-    assert_eq!(d.pipes.elbow_count, 23);
+    // Fittings. 22 turns inside plumbing runs, plus the chase end meeting the
+    // shower riser at 90 degrees; one at the foot of each downspout, three on
+    // the line set, one on the condensate drain. 7 ends on another run's body,
+    // plus two points where three run ends meet (service line, chase and
+    // sink supply; the building drain start with the lavatory and sink
+    // wastes). Service runs never join plumbing.
+    assert_eq!(d.pipes.elbow_count, 29);
     assert_eq!(d.pipes.tee_count, 9);
     let end_elbow = d
         .pipes
@@ -1451,9 +1484,16 @@ fn the_plumbing_demo_known_answers() {
         .expect("a tee where three cold water runs meet");
     assert_eq!(three_way.diameter_mm, 25.0);
 
-    // Penetrations: 6 through the slab, 1 through the roof, none through walls.
+    // Penetrations: 6 through the slab and 1 through the roof for plumbing,
+    // the line set and the condensate drain through the east wall. The
+    // downspouts stay outside the footprint and under the eaves.
     assert_eq!(pens(d, PenetrationKind::Slab).len(), 6);
-    assert_eq!(pens(d, PenetrationKind::Wall).len(), 0);
+    let wall = pens(d, PenetrationKind::Wall);
+    assert_eq!(wall.len(), 2);
+    assert_eq!(
+        wall.iter().map(|p| p.pipe_id.as_str()).collect::<Vec<_>>(),
+        vec!["00000000-0000-4000-8000-000000019003", "00000000-0000-4000-8000-000000019004"]
+    );
     let roof = pens(d, PenetrationKind::Roof);
     assert_eq!(roof.len(), 1);
     let vent = project.elements.iter().find_map(|e| match e {
@@ -1461,10 +1501,11 @@ fn the_plumbing_demo_known_answers() {
         _ => None,
     });
     assert_eq!(Some(roof[0].pipe_id.clone()), vent);
-    assert_eq!(d.pipes.sleeve_count, 7);
+    assert_eq!(d.pipes.sleeve_count, 9);
 
-    // Review items: exactly the concept's four, and nothing from rooms or
-    // openings.
+    // Review items: the concept's four plumbing items, the T&B light with no
+    // switch and the extra line set, and nothing from rooms, openings or
+    // the other devices.
     let codes: Vec<&str> = d.issues.iter().map(|i| i.code.as_str()).collect();
     assert_eq!(
         codes,
@@ -1472,7 +1513,9 @@ fn the_plumbing_demo_known_answers() {
             "pipe_across_opening",
             "pipe_through_column",
             "drain_slope_low",
-            "pipe_penetrations"
+            "pipe_penetrations",
+            "light_no_switch",
+            "lineset_extra",
         ]
     );
     let messages: Vec<&str> = d.issues.iter().map(|i| i.message.as_str()).collect();
@@ -1482,23 +1525,25 @@ fn the_plumbing_demo_known_answers() {
             "Heater feed crosses the T&B door. The 20 mm cold water line runs 1.50 m above the floor through the 700 mm opening. Route it above the door head at 2.10 m or under the slab.",
             "Cold water chase runs through a column. The 20 mm cold water line passes through the 200 x 200 mm column 0.30 m above the floor. Keep pipes out of columns: route it around the column or under the slab, or ask the structural engineer first.",
             "Kitchen sink waste falls 0.8 percent. The 4.30 m run drops 34 mm, under the 2 percent default for 50 mm drainage. Give it more fall: start it higher or connect it lower.",
-            "7 pipe penetrations need sleeves or flashing: 6 through the floor slab, 1 through the roof. Set the sleeves before the pour or the blockwork, and detail the flashing before the roofing.",
+            "7 pipe penetrations need sleeves or flashing: 6 through the floor slab, 1 through the roof. Set the sleeves before the pour or the blockwork, and detail the flashing before the roofing. 1 aircon core hole goes through a wall: 65 mm, sloped 5 to 7 mm down to the outside. Drill it before the wall is finished.",
+            "T&B ceiling light has no switch. Link a switch with the link tool (L).",
+            "Bedroom line set is 3.41 m long, 0.41 m more than the 3 m a standard installation includes. Installers usually charge for each extra meter.",
         ]
     );
-    // Every item but the summary is located; none reads like an approval.
+    // Every item but the two summaries is located; none reads like an
+    // approval; all are open.
     for i in &d.issues {
-        assert_eq!(
-            i.location.is_some(),
-            i.code != "pipe_penetrations",
-            "{}",
-            i.code
-        );
+        assert_eq!(i.location.is_some(), is_located(&i.code), "{}", i.code);
         let lower = i.message.to_lowercase();
-        for word in ["violat", "non-compliant", "approved", "complies"] {
+        for word in ["violat", "non-compliant", "approved", "complies", "code", "must", "required"] {
             assert!(!lower.contains(word), "{}", i.message);
         }
         assert!(!i.message.contains('\u{2014}') && !i.message.contains('\u{2013}'));
+        assert_eq!(i.status, IssueStatus::Open);
     }
+    let light = d.issues.iter().find(|i| i.code == "light_no_switch").unwrap();
+    assert_eq!(light.element_ids, vec!["00000000-0000-4000-8000-000000018004".to_string()]);
+    assert!(near(light.location.unwrap(), v(6800.0, 4700.0, 2970.0)));
     let column = d
         .issues
         .iter()

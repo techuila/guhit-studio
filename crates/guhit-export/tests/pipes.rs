@@ -32,6 +32,7 @@ fn style(system: PipeSystem) -> (&'static str, &'static str, &'static str) {
         PipeSystem::HotWater => ("#e0563a", "pipes-hot-water", "P-DOMW-HPIP"),
         PipeSystem::Drainage => ("#9b6a35", "pipes-drainage", "P-SANR-PIPE"),
         PipeSystem::Vent => ("#3a9a5c", "pipes-vent", "P-SANR-VENT"),
+        other => panic!("the plumbing fixture has no {other:?} runs"),
     }
 }
 
@@ -105,6 +106,7 @@ fn sheet_draws_every_system_in_its_color_and_style() {
             PipeSystem::ColdWater | PipeSystem::HotWater => 0, // solid
             PipeSystem::Drainage => 2,                         // dashed
             PipeSystem::Vent => 4,                             // dash-dot
+            other => panic!("the plumbing fixture has no {other:?} runs"),
         };
         assert!(dashes.iter().all(|n| *n == want), "{id}: {dashes:?}");
     }
@@ -619,6 +621,7 @@ fn ifc_writes_pipe_segments_in_systems_with_materials() {
             PipeSystem::HotWater => "Hot water",
             PipeSystem::Drainage => "Drainage",
             PipeSystem::Vent => "Vent",
+            other => panic!("the plumbing fixture has no {other:?} runs"),
         };
         assert_eq!(per_system[label], segs, "{label}");
     }

@@ -1,0 +1,355 @@
+/* Sun and light: the toolbar button and its popover (light/SunControl.tsx). */
+
+.anchor {
+  position: relative;
+  display: flex;
+}
+
+.sunIcon {
+  color: var(--warn);
+  transition: transform var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+
+.sunIcon[data-night="true"] {
+  color: var(--blueprint);
+}
+
+.time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The popover grows from its button and leaves faster than it came. */
+.popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: -4px;
+  z-index: 6;
+  width: 324px;
+  max-width: calc(100cqw - 24px);
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  pointer-events: auto;
+  transform-origin: 28px -8px;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.popover[data-stage="enter"] {
+  opacity: 0;
+  transform: scale(0.96) translateY(-2px);
+}
+
+.popover[data-stage="exit"] {
+  opacity: 0;
+  transform: scale(0.97);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.clock {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  transition: color var(--dur-hover) var(--ease-out);
+}
+
+.where {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  text-align: right;
+  line-height: 1.4;
+}
+
+.sunLine {
+  margin-top: -8px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.section {
+  display: grid;
+  gap: 6px;
+}
+
+/* Presets: one pill slides to the preset the time sits on. */
+.presets {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+}
+
+.presetPill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  pointer-events: none;
+  transition:
+    transform var(--dur-base) var(--ease-in-out),
+    width var(--dur-base) var(--ease-in-out),
+    height var(--dur-base) var(--ease-in-out),
+    opacity var(--dur-hover) var(--ease-out);
+}
+
+.presetPill[data-instant="true"] {
+  transition-duration: 0.01ms;
+}
+
+.presetPill[data-hidden="true"] {
+  opacity: 0;
+}
+
+.preset {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 5px 2px;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    color var(--dur-hover) var(--ease-out),
+    background var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.preset small {
+  color: var(--ink-3);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.preset:hover {
+  color: var(--ink);
+}
+
+.preset:active {
+  transform: scale(var(--press-scale));
+}
+
+.preset[data-active="true"] {
+  color: var(--accent-strong);
+}
+
+.preset:focus-visible,
+.chip:focus-visible,
+.footBtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Time slider, 5:00 to 20:00, with sunrise and sunset marked under it. */
+.slider {
+  position: relative;
+  padding-bottom: 12px;
+}
+
+.range {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.tick {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  color: var(--ink-3);
+  font-size: 10px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: left var(--dur-base) var(--ease-in-out);
+}
+
+.tick::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -5px;
+  width: 1px;
+  height: 4px;
+  background: var(--line-strong);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.chip:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.chip:active {
+  transform: scale(var(--press-scale));
+}
+
+.chip[data-active="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 26px;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.ev {
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--dur-base) var(--ease-out),
+    opacity var(--dur-base) var(--ease-out);
+}
+
+.ev[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.evInner {
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.evValue {
+  min-width: 52px;
+  text-align: right;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.toggles {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.footBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.footBtn:hover {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+
+.footBtn:active {
+  transform: scale(var(--press-scale));
+}
+
+.hint {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.hint kbd {
+  display: inline-block;
+  min-width: 15px;
+  padding: 0 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font: 600 10px/14px var(--font-mono);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover,
+  .presetPill,
+  .tick,
+  .ev {
+    transition: none;
+  }
+}

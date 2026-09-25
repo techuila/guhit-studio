@@ -584,3 +584,537 @@
   opacity: 1;
   transform: none;
 }
+
+/* ------------------------------------------------------------ devices */
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.groupHead svg {
+  color: var(--ink-3);
+}
+
+.groupHead > span:nth-child(2) {
+  flex: 1;
+}
+
+.groupCount {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 17px;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+/* a short word after a field's control: "to center" */
+.fieldAfter {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+/* a line that sits under a field's control, not under its label */
+.indented {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: -2px 0 2px 100px;
+}
+
+.fieldHint {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  min-width: 38px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.chip:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.chip:active {
+  transform: scale(var(--press-scale));
+}
+
+.chipOn,
+.chipOn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.labelRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.mono {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.deviceNote {
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* links: rows grow in and collapse out (MOTION.md rule 6) */
+.linkList {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -6px;
+  padding: 0;
+  list-style: none;
+}
+
+.linkRow {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows calc(var(--dur-base) * 0.7) var(--ease-in),
+    opacity calc(var(--dur-base) * 0.7) var(--ease-in);
+}
+
+.linkRowInner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.linkRowInner:hover {
+  background: var(--surface-2);
+}
+
+.linkRowIn {
+  animation: link-row-in var(--dur-base) var(--ease-out);
+}
+
+.linkRowOut {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes link-row-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+.linkName {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: default;
+  transition: color var(--dur-hover) var(--ease-out);
+}
+
+.linkName svg {
+  color: var(--ink-3);
+  transition: color var(--dur-hover) var(--ease-out);
+}
+
+.linkName:hover,
+.linkName:hover svg {
+  color: var(--accent-strong);
+}
+
+.linkName span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linkTag {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.linkRemove {
+  flex: none;
+  width: 24px;
+  height: 24px;
+}
+
+/* ------------------------------------------------------------ schedules */
+.schedTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.schedTable th {
+  padding: 0 0 4px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  text-align: left;
+}
+
+.schedTable td {
+  padding: 4px 0;
+  color: var(--ink);
+  vertical-align: top;
+}
+
+.schedTable td + td,
+.schedTable th + th {
+  padding-left: 8px;
+}
+
+.schedTable .num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.schedTable th.num {
+  font-family: var(--font-ui);
+}
+
+.schedTable tfoot td {
+  border-top: 1px solid var(--line-strong);
+  font-weight: 600;
+}
+
+.schedSub {
+  display: block;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.schedHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.schedHead:first-child {
+  margin-top: 0;
+}
+
+.schedHead svg {
+  color: var(--ink-3);
+}
+
+.roomLines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.roomLines li {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.roomLines strong {
+  font-weight: 500;
+}
+
+.roomLines span {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+
+.swatchK {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(20, 40, 63, 0.2);
+  vertical-align: 0;
+}
+
+/* ------------------------------------------------------------ site */
+.siteReadout {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.headButton {
+  flex: none;
+  margin-right: 6px;
+}
+
+/* ------------------------------------------------------------ levels */
+.levelList {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 0 -6px;
+  padding: 0;
+  list-style: none;
+}
+
+/* One highlight that slides to the level being worked on. */
+.levelPill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+  pointer-events: none;
+  transition:
+    transform var(--dur-base) var(--ease-in-out),
+    width var(--dur-base) var(--ease-in-out),
+    height var(--dur-base) var(--ease-in-out);
+}
+
+.instant {
+  transition-duration: 0.01ms;
+}
+
+.levelRow {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows calc(var(--dur-base) * 0.7) var(--ease-in),
+    opacity calc(var(--dur-base) * 0.7) var(--ease-in);
+}
+
+.levelRowInner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.levelRowIn {
+  animation: level-row-in var(--dur-panel) var(--ease-out);
+}
+
+.levelRowOut {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes level-row-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+.levelLine {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  padding-right: 2px;
+}
+
+.levelPick {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 32px;
+  text-align: left;
+  cursor: default;
+  transition:
+    color var(--dur-hover) var(--ease-out),
+    background var(--dur-hover) var(--ease-out);
+}
+
+.levelPick:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.levelPickOn,
+.levelPickOn:hover {
+  background: transparent;
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.levelName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.levelElev {
+  flex: none;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+.levelButton {
+  flex: none;
+  width: 24px;
+  height: 24px;
+}
+
+.levelRename {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  margin: 0 2px 0 4px;
+  padding: 0 7px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: text;
+  animation: ui-rise-in var(--dur-press) var(--ease-out);
+}
+
+.levelRename:focus,
+.levelRename:focus-visible {
+  outline: none;
+}
+
+.levelReveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--dur-base) var(--ease-in-out),
+    opacity var(--dur-hover) var(--ease-out);
+}
+
+.levelRevealOpen {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.levelRevealInner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.levelConfirm {
+  margin: 2px 6px 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface));
+  font-size: var(--text-sm);
+}
+
+.levelConfirm p {
+  margin: 0 0 2px;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.levelFields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}

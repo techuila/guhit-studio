@@ -19,21 +19,25 @@ import { Button, Field, NumberField, ReadOnly, Section, Segmented, Select, Switc
 import { Icon, type IconName } from "../ui/icons";
 import { formatAreaMm2, formatLength } from "../ui/units";
 import { DOOR_STYLES, WINDOW_STYLES, walkTo } from "./actions";
+import { DeviceBasics, DeviceSections, deviceIcon } from "./DeviceFields";
+import { DEVICE_LABEL, catalogItem, isDevice } from "./devices";
 import {
   PIPE_COLOR,
   PIPE_MATERIAL_LABEL,
   PIPE_SYSTEMS,
-  PIPE_SYSTEM_LABEL,
   drainMinSlopePct,
   formatDiameter,
   inMenu,
   materialsFor,
   midPoint,
+  pipeFalls,
   pipeLength,
   reversed,
+  runLabel,
   segmentFalls,
   sizeLabel,
   sizesFor,
+  tradeOf,
   withMaterial,
   withSystem,
   type SegmentFall,
@@ -96,8 +100,12 @@ export function elementTitle(el: Element, doc: DocState): { title: string; subti
       return { title: "Column", subtitle: el.shape === "round" ? "Round" : "Rectangular", icon: "column" };
     case "stair":
       return { title: "Stair", subtitle: `${el.riser_count} risers`, icon: "stair" };
-    case "asset":
-      return { title: "Object", subtitle: el.name, icon: "asset" };
+    case "asset": {
+      // Devices say what they are: "Switch", "Lighting outlet", "Aircon indoor unit".
+      const item = catalogItem(useApp.getState().catalog, el.catalog_key);
+      const title = item?.device ? DEVICE_LABEL[item.device][0] : el.light ? "Light" : "Object";
+      return { title, subtitle: el.name, icon: item?.device || el.light ? deviceIcon(item, el) : "asset" };
+    }
     case "annotation":
       return { title: "Text", subtitle: el.text.split("\n")[0] ?? "", icon: "text" };
     case "dimension":
@@ -112,7 +120,7 @@ export function elementTitle(el: Element, doc: DocState): { title: string; subti
       return { title: "Reference model", subtitle: el.name, icon: "model" };
     case "pipe":
       return {
-        title: `${PIPE_SYSTEM_LABEL[el.system]} pipe`,
+        title: runLabel(el.system),
         subtitle: el.name || `${sizeLabel(el.material, el.diameter_mm)}, ${formatLength(pipeLength(el.points), unit)}`,
         icon: "pipe",
         tint: PIPE_COLOR[el.system],
@@ -397,8 +405,48 @@ function StairFields({ el, doc }: { el: Of<"stair">; doc: DocState }) {
   );
 }
 
+/** Width, depth and height: rarely changed for a device, so tucked away there. */
+function AssetSize({ children }: { children: React.ReactNode }) {
+  const [open, toggle] = useSection("device-size", false);
+  return (
+    <Section title="Size and rotation" open={open} onToggle={toggle}>
+      {children}
+    </Section>
+  );
+}
+
 function AssetFields({ el, doc }: { el: Of<"asset">; doc: DocState }) {
   const unit = doc.project.settings.display_unit;
+  const catalog = useApp((st) => st.catalog);
+  const item = catalogItem(catalog, el.catalog_key);
+  if (isDevice(el, item)) {
+    return (
+      <>
+        <div className={s.group}>
+          <Field label="Name">
+            <TextField label="Object name" value={el.name} required onCommit={(name) => update({ ...el, name })} />
+          </Field>
+          <DeviceBasics el={el} item={item} doc={doc} />
+        </div>
+        <DeviceSections el={el} item={item} doc={doc} />
+        <AssetSize>
+          <Field label="Width">
+            <NumberField label="Width" kind="length" unit={unit} min={10} max={20000} value={el.width_mm} onCommit={(width_mm) => update({ ...el, width_mm })} />
+          </Field>
+          <Field label="Depth">
+            <NumberField label="Depth" kind="length" unit={unit} min={10} max={20000} value={el.depth_mm} onCommit={(depth_mm) => update({ ...el, depth_mm })} />
+          </Field>
+          <Field label="Height">
+            <NumberField label="Height" kind="length" unit={unit} min={10} max={20000} value={el.height_mm} onCommit={(height_mm) => update({ ...el, height_mm })} />
+          </Field>
+          <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update({ ...el, rotation_deg })} />
+        </AssetSize>
+        <Position>
+          <PointFields label="Center" point={el.position} unit={unit} onCommit={(position) => update({ ...el, position })} />
+        </Position>
+      </>
+    );
+  }
   return (
     <>
       <div className={s.group}>
@@ -600,7 +648,8 @@ function fallText(f: SegmentFall, min: number, unit: "mm" | "m"): string {
 
 function PipeFields({ el, doc }: { el: Of<"pipe">; doc: DocState }) {
   const unit = doc.project.settings.display_unit;
-  const drainage = el.system === "drainage";
+  // Drainage, storm and condensate flow from the first point to the last, and fall.
+  const drainage = pipeFalls(el.system);
   const falls = drainage ? segmentFalls(el) : [];
   const min = drainMinSlopePct(el.diameter_mm);
   const lowCount = falls.filter((f) => f.low).length;
@@ -618,7 +667,7 @@ function PipeFields({ el, doc }: { el: Of<"pipe">; doc: DocState }) {
     <>
       <div className={s.group}>
         <Field label="Name">
-          <TextField label="Pipe name" value={el.name} placeholder="For example, sink waste" onCommit={(name) => update({ ...el, name })} />
+          <TextField label="Run name" value={el.name} placeholder={tradeOf(el.system).group === "plumbing" ? "For example, sink waste" : tradeOf(el.system).group === "electrical" ? "For example, kitchen outlets" : "For example, bedroom line set"} onCommit={(name) => update({ ...el, name })} />
         </Field>
         <Field label="System" hint="Each system has its own layer">
           <span className={s.pipeSwatch} style={{ background: PIPE_COLOR[el.system] }} aria-hidden />
@@ -627,7 +676,7 @@ function PipeFields({ el, doc }: { el: Of<"pipe">; doc: DocState }) {
         <Field label="Material">
           <Select label="Pipe material" value={el.material} options={materialOptions} onChange={(material) => update(withMaterial(el, material))} />
         </Field>
-        <Field label="Size" hint="Nominal size. Sizing is for a registered Master Plumber.">
+        <Field label={el.system === "refrigerant" ? "Gas line" : "Size"} hint={`Nominal size${el.system === "refrigerant" ? " of the gas line; the liquid line is 6.35 mm" : ""}. Sizing is for ${tradeOf(el.system).pro}.`}>
           <Select label="Pipe size" value={String(el.diameter_mm)} options={sizeOptions} onChange={(v) => update({ ...el, diameter_mm: Number(v) })} />
         </Field>
         <Field label="Length" hint="Centerline, along every segment">

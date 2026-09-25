@@ -777,3 +777,70 @@
   opacity: 0;
   pointer-events: none;
 }
+
+/* The sun readout after U, I, a preset or Shift+N: grows in from the right
+   of its group, stays a moment, collapses. Keyboard-driven, so it enters at
+   press speed (DECISIONS D11). */
+.sunStatus {
+  max-width: 240px;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+  transition:
+    max-width var(--dur-press) var(--ease-out),
+    opacity var(--dur-press) var(--ease-out),
+    margin var(--dur-press) var(--ease-out),
+    padding var(--dur-press) var(--ease-out);
+}
+
+.sunStatusOff {
+  max-width: 0;
+  margin-right: -14px;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition-duration: var(--dur-base);
+  transition-timing-function: var(--ease-in);
+}
+
+/* the services flyout: one block per trade */
+.tradeGroup + .tradeGroup {
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
+
+/* The active level in the status bar: opens the Levels section. A new level
+   name fades in (the button is keyed by level). */
+.levelStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  cursor: default;
+  animation: ui-fade-in var(--dur-base) var(--ease-out);
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.levelStatus svg {
+  color: var(--ink-3);
+}
+
+.levelStatus:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.levelStatus:active {
+  transform: scale(var(--press-scale));
+}

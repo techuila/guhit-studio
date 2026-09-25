@@ -126,7 +126,22 @@ pub enum Command {
     SetProjectSettings { settings: ProjectSettings },
     /// Replace the level that has the same id.
     UpdateLevel { level: Level },
+    /// Add a level. None fields: name "Level N", elevation on top of the
+    /// highest level (its elevation plus its height), height the default.
+    /// The new id is deterministic, so preview equals apply.
+    AddLevel {
+        name: Option<String>,
+        elevation_mm: Option<f64>,
+        height_mm: Option<f64>,
+    },
+    /// Delete a level and every element on it, as one undo step. The last
+    /// level cannot be deleted.
+    DeleteLevel { level_id: Id },
     SetLayer { layer: Layer },
+    /// Set a review item, a whole check, or a check on one element aside with
+    /// a note (`Some`), or reopen it (`None`). Replaces an existing mark with
+    /// the same target.
+    SetReviewMark { target: ReviewTarget, note: Option<String> },
 
     /// Apply all or nothing, as one undo step.
     Batch { label: String, commands: Vec<Command> },
@@ -161,4 +176,7 @@ pub enum Query {
     /// Pipe quantities by system, material and size, fitting and sleeve
     /// counts, and every penetration. From `Derived::pipes`.
     PipeTakeoff,
+    /// Device and fixture counts per level and room, grouped, with labels.
+    /// From `Derived::schedule`.
+    Schedule,
 }

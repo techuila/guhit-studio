@@ -327,11 +327,15 @@ impl AppService {
                 let mut project = match template.as_deref().unwrap_or("blank") {
                     "blank" => defaults::new_project(""),
                     "sample-bungalow" => guhit_core::templates::sample_bungalow(),
+                    // "Bungalow with services": plumbing, storm, lighting,
+                    // power and a split aircon. The id stays for old callers.
                     "plumbing-demo" => guhit_core::templates::plumbing_demo(),
                     other => {
                         return Err(IpcError::new(
                             "invalid",
-                            format!("unknown template `{other}`. Use `blank`, `sample-bungalow` or `plumbing-demo`"),
+                            format!(
+                                "unknown template `{other}`. Use `blank`, `sample-bungalow` or `plumbing-demo` (the bungalow with services)"
+                            ),
                         ))
                     }
                 };
@@ -629,9 +633,23 @@ impl AppService {
             "render_capture" => {
                 let camera: Camera = arg(&args, "camera")?;
                 let png: String = arg(&args, "png")?;
+                // A long render sends the revision it started from: the image
+                // shows that model, not one edited while it ran.
+                let started: Option<u32> = arg(&args, "revision")?;
+                let info: Option<RenderInfo> = arg(&args, "info")?;
                 let s = self.session.lock().await;
-                let revision = s.open_doc()?.revision();
-                to_value(&renders::capture(&s.open_project_dir()?, revision, camera, &png)?)
+                let current = s.open_doc()?.revision();
+                let revision = match started {
+                    Some(r) if r > current => {
+                        return Err(IpcError::new(
+                            "bad_args",
+                            format!("argument `revision`: {r} is newer than the document, which is at {current}"),
+                        ))
+                    }
+                    Some(r) => r,
+                    None => current,
+                };
+                to_value(&renders::capture(&s.open_project_dir()?, revision, camera, &png, info)?)
             }
             "render_data" => {
                 let id: String = arg(&args, "id")?;

@@ -107,3 +107,49 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - Method: study how existing apps do each feature and what users ask for (Reddit and forums), copy what works and improve it. Research notes live in the orchestrator's working notes; choices that change the product are recorded here as they are made.
 - The D19 boundary holds for every new service: Guhit coordinates, licensed professionals design and sign.
 
+### D21. Electrical and aircon ride on the existing models
+- Chosen by: Claude, under D20, from the MEP research (Chief Architect, Revit, Cedreo, PH practice).
+- Runs: storm drainage, electrical conduit, aircon refrigerant line sets and condensate are new `PipeSystem`s with their own layers (`storm`, `electrical`, `aircon`), reusing risers, fittings, penetrations, checks and take-off.
+- Devices: outlets, switches, fixtures, panelboards, detectors and aircon units are `Asset`s with new categories. The catalog says how each mounts, which PH inspection-form row it counts under, the light it gives and the aircon limits. Switches link to their lights (`Asset::links`); two switches on one light make a 3-way.
+- Checks and counts are suggestions: missing switches, switches behind doors, aircon without an outlet, line sets outside the manual's limits, condensate fall, unit clearances. Schedules count devices per room in the rows of the PH electrical inspection form.
+- Deleting an object removes it from every `links` list in the same step, even when the linking object is on a locked layer (the same idea as D12: links follow what they point at).
+- Rejected: a separate device element (it would duplicate every asset path); circuits, loads, breaker and wire sizing (the PEE's work under RA 7920); aircon sizing (the PME's); gas runs for now (most PH homes use a cylinder and hose; the LPG cylinder is a catalog object).
+- The rail's Pipe tool is now Services (key P stays): one flyout grouped by trade, with the professional who sizes each (Master Plumber, PEE, PME).
+
+### D22. Sun and light
+- Chosen by: Claude, under D20, from the render UX research.
+- The project gets a site (PH city presets, latitude, longitude, UTC+8), Manila by default. The live view has a Sun control with presets, U and I to scrub, a physical sky, auto exposure and a sun path overlay. A saved view keeps its time, sky, exposure and lamps, which SketchUp and Enscape users have asked for.
+- Fixtures give light when placed (900 lm default, a 9 W LED bulb). Rooms with no fixture get a view-only ghost light at night so interiors are never pitch black, the top complaint in Enscape and Twinmotion forums.
+- The live view refines when the camera rests (jittered frames, soft sun shadows) inside the one-rAF loop.
+
+### D23. The Render button uses a WebGL 2 path tracer now
+- Chosen by: Claude, under D20.
+- Rendering uses three-gpu-pathtracer 0.0.24 (MIT, with three-mesh-bvh, MIT), lazy loaded, in an offscreen renderer: HD, QHD, 4K or square, quick or final, denoised, saved to Visuals with its camera and light, and offered to AI visualization (D17). It runs on every Mac and PC the app supports; Twinmotion and D5 path tracers skip the Mac.
+- Rejected for now: the WebGPU path tracer with OIDN (unreleased; WebGPU needs macOS 26), Blender as an external renderer (needs a 350 MB install and a GPL script; later), baked bounce light and a WebGPU live view (later, after a benchmark).
+- Known risk: the WebGL tracer's maintainer plans to replace it with the WebGPU one. The render module keeps the tracer behind one interface so it can be swapped.
+
+### D24. Review items can be set aside, never approved
+- Chosen by: Claude, under D20, from the coordination research (Navisworks, BIMcollab, Solibri).
+- A finding, a whole check, or a check on one element can be set aside with a note (stored in the project, one undo step). Resolved is derived when the check stops finding it. The list groups by level and room. No status reads "approved" or anything like it (AGENTS.md: review items are suggestions).
+
+### D25. Deferred after the D20 research
+- Chosen by: Claude. Recorded so they are not lost: recorded walk tours and video export, a one-file offline walkthrough for clients (needs Axl's decision, D1 and D16), VR, automatic outlet placement, copilot routing of runs, facade sun hours, a perspective placed on the permit sheet, Blender rendering, baked bounce light.
+
+### D26. Levels and ceilings
+- Chosen by: Claude, under D20.
+- A level is added above the top one (its elevation is the top level's elevation plus its height), renamed in place, and deleted with an inline confirmation that counts the elements that go with it. One undo step brings it back. The last level cannot be deleted.
+- Ceiling fixtures hang from the level height, or from the underside of the next level's 200 mm slab when that is lower, so they never sit inside the floor above.
+- The part of a level that the next level up does not cover gets a flat 200 mm concrete roof deck at its ceiling in the 3D view (it hides with the roof), the common PH roof deck. The top level keeps the project roof. Rejected for now: pitched lower roofs, which need their own roof settings.
+
+### D27. The webview CSP allows WebAssembly and the app's own fetches
+- Chosen by: Claude, under D20, after a check of the build under the release CSP.
+- Found: the shipped policy refused three things the browser dev setup never showed. WebAssembly (the meshopt decoder of the asset pack), `fetch` of the app's own files (the pack manifest, the sky HDRI) and `blob:` fetches (textures inside GLB models). So installed copies drew procedural stand-ins and no photo sky.
+- Chosen: `script-src` adds `'wasm-unsafe-eval'` (WebAssembly only, JavaScript eval stays refused) and `connect-src` adds `'self' blob:`. No new external origin.
+- `scripts/csp-check.mjs` serves a build under the release policy and fails on any refusal; it is part of Verify.
+
+### D28. Mac releases are signed with the Developer ID and notarized
+- Chosen by: Axl (has the Apple Developer Program), after the first tester download was refused by Gatekeeper on 2026-09-25.
+- The release workflow signs both Mac builds with the Developer ID Application certificate and notarizes them when the Apple secrets are set. Without them it falls back to ad-hoc signing and warns. Local builds stay ad-hoc (`signingIdentity` "-").
+- The certificate's owner name and team stay out of the repo: the workflow passes `APPLE_SIGNING_IDENTITY=Developer ID Application`, which Tauri matches against the imported certificate.
+- One certificate for every Aliteo Mac app, chosen by Axl on 2026-09-25: Guhit reuses TopNotch's Developer ID Application certificate, and the secrets have TopNotch's names (`MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`). Rejected: a certificate per project (nothing gained, more renewals). That certificate comes from the Previous Sub-CA and stops signing on 2027-02-01; the replacement should be made with the G2 Sub-CA and updated in every repo's two certificate secrets.
+- Windows code signing stays open (no certificate yet).

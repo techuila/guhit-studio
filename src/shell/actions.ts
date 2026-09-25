@@ -9,7 +9,10 @@ import { useApp, type Tool } from "../state/store";
 import { openRenderCompare, openRenderStudio } from "../viewer3d/render/renderStore";
 import { useViewer, type NavMode, type ShellMode } from "../viewer3d/viewerStore";
 import type { IconName } from "../ui/icons";
+import { ADD_LEVEL_ABOVE, addedLevel, deleteLevelCommand } from "./levels";
+import { siteOf } from "./site";
 import { useShell, type FlyoutKind } from "./shellStore";
+import { formatClock, stepMinutes, stepPreset, sunPresets, toggleLamps, type SunPreset, type SunPresetId } from "./sun";
 import { checkForUpdates } from "./UpdateNotice";
 
 // ---------------------------------------------------------------- tools
@@ -36,7 +39,17 @@ export const TOOLS: ToolDef[] = [
   { tool: "column", label: "Column", phrase: "Place a column", icon: "column", key: "C", group: "place", keywords: "post pillar structure" },
   { tool: "stair", label: "Stair", phrase: "Add a stair", icon: "stair", key: "S", group: "place", keywords: "steps flight" },
   { tool: "asset", label: "Objects", phrase: "Place furniture and fixtures", icon: "asset", key: "O", group: "place", keywords: "library furniture sofa bed toilet sink kitchen car plant", flyout: "asset" },
-  { tool: "pipe", label: "Pipe", phrase: "Draw pipes", icon: "pipe", key: "P", group: "services", keywords: "plumbing water supply cold hot drain drainage waste sewer vent ppr upvc gi pe copper", flyout: "pipe" },
+  {
+    tool: "pipe",
+    label: "Services",
+    phrase: "Draw pipes, conduit and aircon lines",
+    icon: "pipe",
+    key: "P",
+    group: "services",
+    keywords: "pipe plumbing water supply cold hot drain drainage waste sewer vent storm electrical conduit emt imc aircon refrigerant line set condensate ppr upvc gi pe copper pvc",
+    flyout: "pipe",
+  },
+  { tool: "link", label: "Link", phrase: "Link a switch to its lights", icon: "link", key: "L", group: "services", keywords: "connect switch light lights outlet spo aircon unit 3-way three way controls feeds" },
   { tool: "dimension", label: "Dimension", phrase: "Add a dimension", icon: "dimension", key: "M", group: "annotate", keywords: "measure length distance" },
   { tool: "text", label: "Text", phrase: "Add a text note", icon: "text", key: "T", group: "annotate", keywords: "label annotation note" },
   { tool: "camera", label: "Camera", phrase: "Place a camera", icon: "camera", key: "K", group: "annotate", keywords: "view perspective render shot" },
@@ -124,6 +137,13 @@ export async function enterNav(nav: Exclude<NavMode, "orbit">) {
   if (await ensure3dView()) useViewer.getState().setNav(nav);
 }
 
+/** Opens the walk settings (eye height and speed), walking first if needed. */
+export async function openWalkSettings() {
+  if (useViewer.getState().nav === "orbit") await enterNav("walk");
+  const viewer = useViewer.getState();
+  if (viewer.nav !== "orbit") viewer.setWalkSettingsOpen(true);
+}
+
 export function setShellMode(shell: ShellMode) {
   useViewer.getState().setShell(shell);
 }
@@ -140,6 +160,92 @@ export async function walkTo(ids: string[], location: Vec3 | null) {
 export function showPipeTakeoff() {
   useApp.getState().select([]);
   useShell.getState().revealSection("plumbing");
+}
+
+/** The project inspector with one of its sections open and scrolled into view. */
+export function showProjectSection(key: "schedules" | "site" | "review" | "level") {
+  useApp.getState().select([]);
+  useShell.getState().revealSection(key);
+}
+
+/**
+ * The link tool, starting from this device: it stays selected, so the tool
+ * links what is clicked next to it (docs/CONTRACT.md, "Devices, fixtures and links").
+ */
+export function linkFrom(deviceId: string | null) {
+  const app = useApp.getState();
+  if (deviceId) app.select([deviceId]);
+  activateTool("link");
+}
+
+// ---------------------------------------------------------------- levels
+
+/** Stacks a new level on the highest one (AddLevel with nulls) and works on it. */
+export async function addLevelAbove() {
+  const app = useApp.getState();
+  const before = app.doc?.project.levels ?? [];
+  const result = await app.dispatch(ADD_LEVEL_ABOVE);
+  if (!result) return;
+  const added = addedLevel(before, result.state.project.levels);
+  if (added) useApp.getState().setActiveLevel(added.id);
+}
+
+/** Deletes a level with everything on it, one undo step. The inspector confirms first. */
+export async function deleteLevel(levelId: string) {
+  await useApp.getState().dispatch(deleteLevelCommand(levelId));
+}
+
+/** The palette's "Delete this level": the Levels section asks, inline. */
+export function confirmDeleteActiveLevel() {
+  const { doc, activeLevelId } = useApp.getState();
+  const id = activeLevelId ?? doc?.project.levels[0]?.id;
+  if (!id) return;
+  showProjectSection("level");
+  useShell.getState().requestLevelDelete(id);
+}
+
+// ---------------------------------------------------------------- sun, light and render
+
+/** The five sun presets for the project's site on the live light's date. */
+export function currentSunPresets(): SunPreset[] {
+  const site = siteOf(useApp.getState().doc?.project.settings);
+  const { month, day } = useViewer.getState().light;
+  return sunPresets(site, new Date().getFullYear(), month, day);
+}
+
+/** A preset sets the time and the lamps. The date stays. */
+export function applySunPreset(id: SunPresetId) {
+  const preset = currentSunPresets().find((p) => p.id === id);
+  if (preset) useViewer.getState().setLight({ minutes: preset.minutes, lamps: preset.lamps });
+}
+
+/** Shift+I and Shift+U: the next or previous preset, wrapping around the day. */
+export function stepSunPreset(dir: 1 | -1) {
+  const preset = stepPreset(currentSunPresets(), useViewer.getState().light.minutes, dir);
+  useViewer.getState().setLight({ minutes: preset.minutes, lamps: preset.lamps });
+}
+
+/** I and U: the sun 15 minutes later or earlier. A held key repeats, so it scrubs. */
+export function stepSunTime(dir: 1 | -1) {
+  const viewer = useViewer.getState();
+  const minutes = stepMinutes(viewer.light.minutes, dir);
+  if (minutes !== viewer.light.minutes) viewer.setLight({ minutes });
+}
+
+/** Shift+N: lamps on, or back to auto (on after sunset). */
+export function toggleLampsNow() {
+  const viewer = useViewer.getState();
+  viewer.setLight({ lamps: toggleLamps(viewer.light.lamps) });
+}
+
+/** Renders with the path tracer once the 3D view is up; the results land in Visuals. */
+export async function renderViews(views: "current" | "all") {
+  if (await ensure3dView()) bus.emit("render", { views });
+}
+
+/** The shadow study takes its frames from the live 3D view. */
+export async function openShadowStudy() {
+  if (await ensure3dView()) bus.emit("shadow_study");
 }
 
 // ---------------------------------------------------------------- document actions
@@ -281,7 +387,7 @@ export async function leaveEditor() {
 export interface PaletteAction {
   id: string;
   title: string;
-  group: "Draw" | "View" | "Edit" | "Project" | "Roof" | "Panels";
+  group: "Draw" | "View" | "Sun and render" | "Edit" | "Project" | "Roof" | "Panels";
   icon: IconName;
   keywords?: string;
   shortcut?: string;
@@ -291,6 +397,7 @@ export interface PaletteAction {
 
 export const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 export const SHIFT = MOD === "⌘" ? "⇧" : "Shift+";
+export const ALT = MOD === "⌘" ? "⌥" : "Alt+";
 
 /** The step `useViewer.cycleShell` (the X key) takes from each shell mode. */
 const SHELL_NEXT: Record<ShellMode, ShellMode> = { solid: "xray", xray: "hidden", hidden: "solid" };
@@ -334,12 +441,71 @@ export function paletteActions(): PaletteAction[] {
       ? { id: "nav-walk", title: "Walk through the building", group: "View", icon: "walk", keywords: "walk mode first person eye level inside tour walkthrough 3d", shortcut: `${SHIFT}W`, run: () => void enterNav("walk") }
       : { id: "nav-orbit", title: "Stop walking and orbit again", group: "View", icon: "view3d", keywords: "orbit walk fly exit leave stop 3d", shortcut: "Esc", run: () => viewer.setNav("orbit") },
     { id: "nav-fly", title: "Fly through the building", group: "View", icon: "fly", keywords: "fly mode free camera tour 3d", disabled: viewer.nav === "fly", run: () => void enterNav("fly") },
+    { id: "walk-settings", title: "Walk settings: eye height and speed", group: "View", icon: "walk", keywords: "walk settings eye height speed slow fast person child wheelchair 3d", run: () => void openWalkSettings() },
     { id: "shell-xray", title: "X-ray the building", group: "View", icon: "xray", keywords: "xray see through transparent ghost walls pipes plumbing 3d", shortcut: nextShell === "xray" ? "X" : undefined, disabled: viewer.shell === "xray", run: () => setShellMode("xray") },
     { id: "shell-hidden", title: "Hide the building", group: "View", icon: "eyeOff", keywords: "hide shell walls roof pipes only plumbing 3d", shortcut: nextShell === "hidden" ? "X" : undefined, disabled: viewer.shell === "hidden", run: () => setShellMode("hidden") },
   );
   if (viewer.shell !== "solid") {
     out.push({ id: "shell-solid", title: "Show the building solid", group: "View", icon: "view3d", keywords: "solid shell walls normal xray 3d", shortcut: nextShell === "solid" ? "X" : undefined, run: () => setShellMode("solid") });
   }
+
+  // Sun, lamps and the render. Presets follow the site and the live date.
+  const hasViews = doc?.project.elements.some((e) => e.kind === "camera") ?? false;
+  out.push(
+    { id: "render-current", title: "Render this view", group: "Sun and render", icon: "render", keywords: "render path tracer photo realistic image picture quick final hd 4k", shortcut: `${MOD}${ALT}R`, run: () => void renderViews("current") },
+    {
+      id: "render-all",
+      title: "Render all saved views",
+      group: "Sun and render",
+      icon: "render",
+      keywords: "render batch every saved view camera cameras all",
+      disabled: !hasViews,
+      run: () => void renderViews("all"),
+    },
+    { id: "shadow-study", title: "Shadow study", group: "Sun and render", icon: "clock", keywords: "sun shadow study frames hours dates contact sheet solar", run: () => void openShadowStudy() },
+  );
+  const light = viewer.light;
+  for (const p of currentSunPresets()) {
+    out.push({
+      id: `sun-${p.id}`,
+      title: `Sun: ${p.label}, ${formatClock(p.minutes)}${p.lamps === "on" ? ", lamps on" : ""}`,
+      group: "Sun and render",
+      icon: p.id === "dusk" || p.id === "night" ? "moon" : "sun",
+      keywords: `sun time of day preset light ${p.id} ${p.id === "dusk" ? "sunset evening" : ""}`,
+      disabled: Math.abs(light.minutes - p.minutes) < 0.5 && light.lamps === p.lamps,
+      run: () => applySunPreset(p.id),
+    });
+  }
+  out.push(
+    { id: "sun-later", title: "Move the sun 15 minutes later", group: "Sun and render", icon: "sun", keywords: "sun time later forward scrub", shortcut: "I", disabled: light.minutes >= 1439, run: () => stepSunTime(1) },
+    { id: "sun-earlier", title: "Move the sun 15 minutes earlier", group: "Sun and render", icon: "sun", keywords: "sun time earlier back scrub", shortcut: "U", disabled: light.minutes <= 0, run: () => stepSunTime(-1) },
+    {
+      id: "lamps",
+      title: light.lamps === "on" ? "Lamps back to auto, on after sunset" : "Turn the lamps on",
+      group: "Sun and render",
+      icon: "bulb",
+      keywords: "lamps lights fixtures night on auto",
+      shortcut: `${SHIFT}N`,
+      run: toggleLampsNow,
+    },
+    {
+      id: "sun-path",
+      title: viewer.sunPath ? "Hide the sun path" : "Show the sun path",
+      group: "Sun and render",
+      icon: "sunPath",
+      keywords: "sun path arc solstice june december compass overlay",
+      run: () => useViewer.getState().toggleSunPath(),
+    },
+    {
+      id: "refine",
+      title: viewer.refine ? "Stop refining the 3D view when it rests" : "Refine the 3D view when it rests",
+      group: "Sun and render",
+      icon: "refine",
+      keywords: "refine quality soft shadows clean edges anti alias still",
+      run: () => useViewer.getState().setRefine(!useViewer.getState().refine),
+    },
+    { id: "site", title: "Set the site for the sun", group: "Sun and render", icon: "pin", keywords: "site city location latitude longitude manila cebu davao baguio north utc", run: () => showProjectSection("site") },
+  );
 
   if (doc) {
     const unit = doc.project.settings.display_unit;
@@ -383,6 +549,26 @@ export function paletteActions(): PaletteAction[] {
     { id: "import-bundle", title: "Open .guhit bundle", group: "Project", icon: "import", keywords: "guhit project open file", run: () => shell.requestImport("bundle") },
     { id: "version-new", title: "Save a new version", group: "Project", icon: "versions", keywords: "snapshot checkpoint history quick", shortcut: `${MOD}S`, run: () => void quickSaveVersion() },
     { id: "versions", title: "Browse and restore versions", group: "Project", icon: "versions", keywords: "snapshot history restore", run: () => shell.open("versions") },
+    {
+      id: "schedules",
+      title: "Show the device schedules",
+      group: "Project",
+      icon: "schedule",
+      keywords: "schedule schedules count outlets receptacles switches lights fixtures lumens aircon hp csv inspection form electrical",
+      disabled: !doc?.project.elements.some((e) => e.kind === "asset" && (e.light !== null || e.links.length > 0 || e.category === "electrical" || e.category === "aircon")),
+      run: () => showProjectSection("schedules"),
+    },
+    { id: "review", title: "Show the review list", group: "Project", icon: "check", keywords: "review items checks suggestions set aside resolved triage", run: () => showProjectSection("review") },
+    { id: "level-add", title: "Add level above", group: "Project", icon: "level", keywords: "level storey floor second upper add new stack", run: () => void addLevelAbove() },
+    {
+      id: "level-delete",
+      title: "Delete this level",
+      group: "Project",
+      icon: "trash",
+      keywords: "level storey floor remove delete",
+      disabled: (doc?.project.levels.length ?? 0) <= 1,
+      run: confirmDeleteActiveLevel,
+    },
     {
       id: "pipe-takeoff",
       title: "Show the pipe take-off",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DocState } from "../contract/bindings";
+import type { DocState, Element } from "../contract/bindings";
 import fixture from "../../fixtures/sample-bungalow.docstate.json";
 import { gripsFor, hitGrip, jointInset, normalDelta, rotationFromGrip, stretchedWalls, translateElement, walledJointMove } from "./edit";
 import { pt, rectFromPoints } from "./geom";
@@ -157,5 +157,63 @@ describe("editing helpers", () => {
     const door = index.byId.get("00000000-0000-4000-8000-000000000201");
     if (!door) throw new Error("no door");
     expect(translateElement(door, pt(10, 20))).toBe(door);
+  });
+});
+
+describe("devices on the plan", () => {
+  const LEVEL = doc.project.levels[0].id;
+  const device = (id: string, key: string, category: "electrical" | "lighting" | "aircon" | "utility", x: number, y: number, rot: number, w: number, d: number): Element => ({
+    kind: "asset",
+    id,
+    level_id: LEVEL,
+    catalog_key: key,
+    name: key,
+    category,
+    position: pt(x, y),
+    rotation_deg: rot,
+    width_mm: w,
+    depth_mm: d,
+    height_mm: 115,
+    elevation_mm: 1143,
+    light: null,
+    links: [],
+    circuit: "",
+  });
+  // A switch on the inside face of the south wall, a ceiling light, a split unit and a water meter.
+  const els = [
+    device("sw", "switch-1", "electrical", 2150, 95, 180, 70, 40),
+    device("li", "light-ceiling", "lighting", 2500, 3000, 0, 300, 300),
+    device("ac", "aircon-indoor-1hp", "aircon", 6500, 5810, 0, 800, 230),
+    device("wm", "water-meter", "utility", 1000, 5000, 0, 250, 150),
+  ];
+  function docWith(patch: (key: string) => { visible?: boolean; locked?: boolean } = () => ({})): DocState {
+    const d = withLayers(patch);
+    d.project.elements = [...d.project.elements, ...els];
+    return d;
+  }
+
+  it("puts lights and electrical devices on the electrical layer, aircon units on the aircon layer", () => {
+    const index = buildIndex(docWith(), null);
+    expect(layerOf(index.byId.get("sw")!)).toBe("electrical");
+    expect(layerOf(index.byId.get("li")!)).toBe("electrical");
+    expect(layerOf(index.byId.get("ac")!)).toBe("aircon");
+    expect(layerOf(index.byId.get("wm")!)).toBe("assets");
+  });
+
+  it("hides them with their layer and keeps locked ones from being picked", () => {
+    const hidden = buildIndex(docWith((k) => (k === "electrical" ? { visible: false } : {})), null);
+    expect(hidden.visibleIds.has("sw")).toBe(false);
+    expect(hidden.visibleIds.has("li")).toBe(false);
+    expect(hidden.visibleIds.has("ac")).toBe(true);
+    const locked = buildIndex(docWith((k) => (k === "aircon" ? { locked: true } : {})), null);
+    expect(isLocked(locked.byId.get("ac")!, locked)).toBe(true);
+    expect(hitTest(pt(6500, 5810), locked, opt)).not.toBe("ac");
+    expect(isLocked(locked.byId.get("sw")!, locked)).toBe(false);
+  });
+
+  it("picks a small device by its symbol, not its 70 mm footprint", () => {
+    const index = buildIndex(docWith(), null);
+    // 120 mm into the room from the switch: outside its footprint, on its "S".
+    expect(hitTest(pt(2150, 215), index, { ...opt, tol: 10 })).toBe("sw");
   });
 });
