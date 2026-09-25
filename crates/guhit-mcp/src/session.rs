@@ -104,7 +104,7 @@ async fn get_session(app: &AppService) -> Result<Output, ToolFail> {
     if status.mode == LiveMode::Off {
         return Ok(Output::Json(json!({
             "mode": "off",
-            "note": "No live session. The user starts one with Share in the app, and others on the same network or VPN join with the invite it shows.",
+            "note": "No live session. The user starts one with Share in the app, and others join with the invite it shows: from the same network or VPN, or over the internet when a relay is set up.",
         })));
     }
     let presences: Vec<PresenceEntry> = serde_json::from_value(app.handle("presence_list", json!({})).await?)

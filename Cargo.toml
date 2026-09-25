@@ -8,6 +8,7 @@ members = [
   "crates/guhit-app",
   "crates/guhit-mcp",
   "crates/guhit-devbridge",
+  "crates/guhit-relay",
   "src-tauri",
 ]
 

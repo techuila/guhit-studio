@@ -2,12 +2,17 @@
 //! copy of the host's project, every edit sent to the host, presence and chat
 //! both ways, and reconnecting when the connection drops.
 //!
+//! A guest tries every way in at once (`race`): each address in the invite,
+//! and the relay a moment later (DECISIONS D32). The first connection that
+//! completes the pinned TLS handshake wins; only it says hello.
+//!
 //! One task per join (`run`) owns the connection: it reads what the host
 //! sends, and when the connection drops it retries after 1, 2, 4 and 8 s,
 //! asking for the same participant id and color back. A connection's writer
 //! (`wire::write_loop`) and its presence sender live as long as it does.
 
 use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -20,9 +25,11 @@ use guhit_model::*;
 use serde_json::Value;
 use tokio::io::{AsyncWriteExt, ReadHalf};
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::task::JoinSet;
 
 use super::host::file_limit;
-use super::invite::Invite;
+use super::invite::{Invite, InviteRelay};
+use super::relay::{self, JoinError};
 use super::tls::{self, ConnectError, GuestTls};
 use super::wire::{self, *};
 use super::{bad_args, host_only, live_lost, lock, not_live, CopyMeta, Role, CHAT_HISTORY};
@@ -41,6 +48,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const COPY_WAIT: Duration = Duration::from_secs(5);
 /// A leaving guest's bye has this long to go out.
 const BYE_WAIT: Duration = Duration::from_secs(2);
+/// The direct addresses get this long before the relay joins the race, so a
+/// guest on the host's network or VPN connects straight to it.
+const RELAY_HEAD_START: Duration = Duration::from_millis(600);
+/// The TLS handshake through the relay crosses it twice, so it gets longer
+/// than a direct one.
+const RELAY_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(crate) struct Guest {
     /// The join this is. The open document is this guest's copy while
@@ -298,40 +311,161 @@ impl Guest {
     }
 }
 
-/// Connect to the first address that answers with the pinned certificate
-/// and say hello.
+/// Connect to the host the quickest way that works (`race`) and say hello.
 async fn connect(
     invite: &Invite,
     name: &str,
     rejoin: Option<Rejoin>,
 ) -> Result<(GuestTls, Welcome), IpcError> {
-    let mut wrong_host = None;
-    for addr in invite.socket_addrs() {
-        match tls::connect(addr, &invite.pin).await {
-            Ok(mut stream) => match greet(&mut stream, invite, name, rejoin.clone()).await {
-                Ok(welcome) => return Ok((stream, welcome)),
-                Err(Greeting::Refused(message)) => return Err(IpcError::new("live_refused", message)),
-                Err(Greeting::Failed) => {}
-            },
-            Err(ConnectError::WrongHost) => {
-                wrong_host.get_or_insert(addr);
-            }
-            Err(ConnectError::Unreachable) => {}
+    let mut stream = race(invite).await.map_err(|misses| misses.error(invite))?;
+    match greet(&mut stream, invite, name, rejoin).await {
+        Ok(welcome) => Ok((stream, welcome)),
+        Err(Greeting::Refused(message)) => Err(IpcError::new("live_refused", message)),
+        Err(Greeting::Failed) => {
+            Err(IpcError::new("live_unreachable", "The connection to the host dropped while joining. Try again."))
         }
     }
-    if let Some(addr) = wrong_host {
-        return Err(IpcError::new(
-            "live_pin",
-            format!("The computer at {addr} is not the host this invite is for. Ask for a new invite."),
-        ));
+}
+
+/// One way to the host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Route {
+    Direct(SocketAddr),
+    Relay,
+}
+
+/// Why one way in did not work.
+enum Miss {
+    /// Something answered with another certificate than the pinned one.
+    WrongHost,
+    /// Nothing answered at a direct address, or it broke off.
+    Unreachable,
+    /// Why the relay did not pair this guest with the host.
+    Relay(JoinError),
+}
+
+impl From<ConnectError> for Miss {
+    fn from(e: ConnectError) -> Self {
+        match e {
+            ConnectError::WrongHost => Miss::WrongHost,
+            ConnectError::Unreachable => Miss::Unreachable,
+        }
     }
-    Err(IpcError::new(
-        "live_unreachable",
-        format!(
-            "Could not reach the host at {}. Check that you are on the same network or VPN as the host, and that the host's firewall lets Guhit Studio accept connections.",
-            invite.addrs.join(" or ")
-        ),
-    ))
+}
+
+/// Why no way in worked.
+#[derive(Default)]
+struct Misses {
+    /// The ways where another computer answered.
+    wrong_host: Vec<Route>,
+    /// Why the relay did not work, when it was tried.
+    relay: Option<JoinError>,
+}
+
+impl Misses {
+    fn add(&mut self, route: Route, miss: Miss) {
+        match miss {
+            Miss::WrongHost => self.wrong_host.push(route),
+            Miss::Relay(why) => self.relay = Some(why),
+            Miss::Unreachable => {}
+        }
+    }
+
+    /// `live_pin` when another computer answered anywhere: that is the
+    /// likelier mistake. Otherwise `live_unreachable`, with what was tried
+    /// and what the relay said.
+    fn error(&self, invite: &Invite) -> IpcError {
+        // The first wrong host in the invite's order, the relay last.
+        let direct = invite.socket_addrs().into_iter().find(|a| self.wrong_host.contains(&Route::Direct(*a)));
+        if let Some(addr) = direct {
+            return IpcError::new(
+                "live_pin",
+                format!("The computer at {addr} is not the host this invite is for. Ask for a new invite."),
+            );
+        }
+        if self.wrong_host.contains(&Route::Relay) {
+            return IpcError::new(
+                "live_pin",
+                "The computer that answered through the relay is not the host this invite is for. Ask for a new invite.",
+            );
+        }
+        let addrs = invite.addrs.join(" or ");
+        if invite.relay.is_none() {
+            return IpcError::new(
+                "live_unreachable",
+                format!(
+                    "Could not reach the host at {addrs}. Check that you are on the same network or VPN as the host, and that the host's firewall lets Guhit Studio accept connections."
+                ),
+            );
+        }
+        let tried = if addrs.is_empty() {
+            "Could not reach the host through the relay.".to_string()
+        } else {
+            format!("Could not reach the host at {addrs}, or through the relay.")
+        };
+        let why = match self.relay.unwrap_or(JoinError::Unreachable) {
+            JoinError::NotOnline => "The host is not online, so the session may have ended.",
+            JoinError::NoAnswer => "The host did not answer in time.",
+            JoinError::Busy => "The relay is busy. Try again in a minute.",
+            JoinError::Unreachable => "The relay could not be reached.",
+            JoinError::Unexpected => "The relay closed the connection unexpectedly.",
+        };
+        IpcError::new("live_unreachable", format!("{tried} {why}"))
+    }
+}
+
+/// Every way in at once: each direct address from the start, the relay after
+/// `RELAY_HEAD_START`, or as soon as every direct attempt has failed or when
+/// there are none. The first pinned TLS handshake wins. The others are
+/// dropped with the `JoinSet`, so only one connection says hello.
+async fn race(invite: &Invite) -> Result<GuestTls, Misses> {
+    let mut attempts: JoinSet<(Route, Result<GuestTls, Miss>)> = JoinSet::new();
+    for addr in invite.socket_addrs() {
+        let pin = invite.pin.clone();
+        attempts.spawn(async move { (Route::Direct(addr), tls::connect(addr, &pin).await.map_err(Miss::from)) });
+    }
+    let start_relay = |attempts: &mut JoinSet<_>, relay: InviteRelay| {
+        let pin = invite.pin.clone();
+        attempts.spawn(async move { (Route::Relay, through_relay(&relay, &pin).await) });
+    };
+    let mut relay = invite.relay.clone();
+    let head_start = tokio::time::sleep(RELAY_HEAD_START);
+    tokio::pin!(head_start);
+    let mut misses = Misses::default();
+    loop {
+        if attempts.is_empty() {
+            match relay.take() {
+                Some(relay) => start_relay(&mut attempts, relay),
+                None => return Err(misses),
+            }
+        }
+        tokio::select! {
+            _ = &mut head_start, if relay.is_some() => {
+                if let Some(relay) = relay.take() {
+                    start_relay(&mut attempts, relay);
+                }
+            }
+            Some(done) = attempts.join_next() => match done {
+                Ok((_, Ok(stream))) => return Ok(stream),
+                Ok((route, Err(miss))) => misses.add(route, miss),
+                // An attempt that panicked is a way that did not work.
+                Err(_) => {}
+            },
+            else => {}
+        }
+    }
+}
+
+/// The way through the relay: join the session's room, then the pinned
+/// handshake with the host over it.
+async fn through_relay(relay: &InviteRelay, pin: &str) -> Result<GuestTls, Miss> {
+    // `Invite::decode` checked the address.
+    let url = relay::check_url(&relay.url).map_err(|_| Miss::Relay(JoinError::Unreachable))?;
+    let io = relay::join(&url, &relay.room).await.map_err(Miss::Relay)?;
+    tls::handshake(io, pin, RELAY_HANDSHAKE_TIMEOUT).await.map_err(|e| match e {
+        ConnectError::WrongHost => Miss::WrongHost,
+        ConnectError::Unreachable => Miss::Relay(JoinError::Unexpected),
+    })
 }
 
 async fn greet(
@@ -368,6 +502,7 @@ fn status_of(guest: &Guest, welcome: &Welcome) -> LiveStatus {
         participants: welcome.participants.clone(),
         invite: None,
         addresses: vec![],
+        relay: LiveRelay::Off,
         project_id: Some(guest.project_id.clone()),
         project_name: Some(welcome.doc.project.name.clone()),
         notice: None,
@@ -498,7 +633,12 @@ async fn reconnect(guest: &Guest) -> Result<(GuestTls, Welcome), Option<String>>
             _ = tokio::time::sleep(delay) => {}
         }
         let rejoin = lock(&guest.me).clone();
-        match connect(&guest.invite, &guest.name, Some(rejoin)).await {
+        // A try through the relay can take a while; leaving cuts it short.
+        let attempt = tokio::select! {
+            _ = leaving.wait_for(|l| *l) => return Err(None),
+            attempt = connect(&guest.invite, &guest.name, Some(rejoin)) => attempt,
+        };
+        match attempt {
             Ok(back) => return Ok(back),
             // A host that answers and turns this guest away will not change
             // its mind.

@@ -1,6 +1,10 @@
 //! Live sessions end to end (docs/CONTRACT.md, "Live sessions"): a host and
 //! its guests in one process, each an `AppService` with its own data dir,
 //! talking TLS over loopback. Sandboxed services listen on 127.0.0.1 only.
+//! Every computer here has the relay switched off (`live_relay: ""`), so a
+//! build made with `GUHIT_RELAY_URL` does not reach out to it. The tests at
+//! the end run the real relay (`guhit-relay`) in process and point hosts at
+//! it.
 
 use std::future::Future;
 use std::net::SocketAddr;
@@ -10,7 +14,8 @@ use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::{STANDARD as B64, URL_SAFE_NO_PAD};
 use base64::Engine;
-use guhit_app::live::invite::Invite;
+use futures_util::{SinkExt, StreamExt};
+use guhit_app::live::invite::{Invite, InviteRelay};
 use guhit_app::live::{tls, wire};
 use guhit_app::AppService;
 use guhit_model::*;
@@ -20,6 +25,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
+use tokio_tungstenite::tungstenite::Message;
 
 const PNG_1X1: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 /// Longest a test waits for something that should happen at once.
@@ -55,7 +61,13 @@ impl Peer {
 }
 
 async fn peer(name: &str) -> Peer {
+    peer_with(name, json!({ "live_relay": "" })).await
+}
+
+/// A computer with `settings` in its settings.json.
+async fn peer_with(name: &str, settings: Value) -> Peer {
     let dir = TempDir::new(name);
+    std::fs::write(dir.0.join("settings.json"), settings.to_string()).unwrap();
     let app = AppService::new_sandboxed(dir.0.clone());
     let events = app.events();
     let _: Profile = call(&app, "profile_set", json!({ "name": name })).await;
@@ -111,12 +123,21 @@ fn walls(state: &DocState) -> usize {
 }
 
 /// Poll until `check` holds.
-async fn until<F, Fut>(what: &str, mut check: F)
+async fn until<F, Fut>(what: &str, check: F)
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = bool>,
 {
-    let deadline = Instant::now() + WAIT;
+    until_within(WAIT, what, check).await
+}
+
+/// Poll until `check` holds, for at most `wait`.
+async fn until_within<F, Fut>(wait: Duration, what: &str, mut check: F)
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = bool>,
+{
+    let deadline = Instant::now() + wait;
     while !check().await {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -179,6 +200,7 @@ async fn a_guest_edits_through_the_host_and_sees_every_change() {
     assert!(invite.starts_with("guhit-live:"));
     assert_eq!(started.addresses.len(), 1, "the dev bridge listens on loopback only");
     assert!(started.addresses[0].starts_with("127.0.0.1:"));
+    assert_eq!(started.relay, LiveRelay::Off, "no relay in these tests");
     let ana = me(&started);
     assert_eq!((ana.color, ana.role, ana.name.as_str()), (0, ParticipantRole::Host, "Ana"));
     // Hosting again returns the running session.
@@ -690,6 +712,83 @@ async fn a_wrong_secret_a_wrong_certificate_and_no_host_are_told_apart() {
     assert_eq!(status(&ben.app).await.notice, None, "a new session clears the notice");
 }
 
+#[tokio::test]
+async fn a_guest_tries_every_address_at_once() {
+    let (_host, started) = hosting("Ana").await;
+    let invite = Invite::decode(started.invite.as_deref().unwrap()).unwrap();
+    assert_eq!((invite.v, invite.relay.as_ref()), (2, None));
+    // An address that never answers (TEST-NET-1, not routed anywhere) comes
+    // first. Tried one after the other, it would hold the join up for 4 s.
+    let mut slow = invite.clone();
+    slow.addrs.insert(0, "192.0.2.1:1460".to_string());
+    let ben = peer("Ben").await;
+    let asked = Instant::now();
+    let copy = join(&ben, &slow.encode()).await;
+    assert_eq!(Some(copy.project.id), started.project_id);
+    assert!(asked.elapsed() < Duration::from_secs(3), "joined after {:?}", asked.elapsed());
+}
+
+#[tokio::test]
+async fn a_relay_that_cannot_be_reached_is_named_in_the_reason() {
+    let (_host, started) = hosting("Ana").await;
+    let invite = Invite::decode(started.invite.as_deref().unwrap()).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let closed = listener.local_addr().unwrap();
+    drop(listener);
+    let ben = peer("Ben").await;
+
+    // Through the relay only.
+    let mut relayed = invite.clone();
+    relayed.addrs.clear();
+    relayed.relay = Some(InviteRelay { url: format!("ws://{closed}"), room: URL_SAFE_NO_PAD.encode([3u8; 16]) });
+    let err = fail(&ben.app, "live_join", json!({ "invite": relayed.encode() })).await;
+    assert_eq!(
+        (err.code.as_str(), err.message.as_str()),
+        ("live_unreachable", "Could not reach the host through the relay. The relay could not be reached.")
+    );
+
+    // Neither way works: what was tried, and no advice about networks, since
+    // the relay is the way in from anywhere.
+    let mut both = relayed.clone();
+    both.addrs = vec![closed.to_string()];
+    let err = fail(&ben.app, "live_join", json!({ "invite": both.encode() })).await;
+    assert_eq!(err.code, "live_unreachable");
+    assert_eq!(err.message, format!("Could not reach the host at {closed}, or through the relay. The relay could not be reached."));
+    assert_eq!(status(&ben.app).await.notice.as_deref(), Some(err.message.as_str()));
+}
+
+#[tokio::test]
+async fn hosting_needs_a_way_in_and_a_relay_address_that_works() {
+    // Direct connections off and no relay: no one could join.
+    let host = peer_with("Ana", json!({ "live_relay": "", "live_direct": false })).await;
+    let _: DocState = call(&host.app, "hub_create", json!({ "name": "Bahay" })).await;
+    let err = fail(&host.app, "live_host", json!({})).await;
+    assert_eq!(err.code, "invalid");
+    assert_eq!(
+        err.message,
+        "Direct connections are off (\"live_direct\": false in settings.json) and there is no relay, so no one could join. Set \"live_direct\" to true, or set \"live_relay\" to a relay's address."
+    );
+    assert_eq!(status(&host.app).await.mode, LiveMode::Off);
+
+    // A relay address that cannot be used names the setting and the fix.
+    let unusable = [
+        ("http://relay.example.com", "it must start with wss://"),
+        ("ws://relay.example.com", "ws:// works only for a relay on this computer"),
+        ("wss://relay.example.com/?room=1", "it cannot have a query (?) or a fragment (#)"),
+    ];
+    for (relay, why) in unusable {
+        let host = peer_with("Ana", json!({ "live_relay": relay })).await;
+        let _: DocState = call(&host.app, "hub_create", json!({ "name": "Bahay" })).await;
+        let err = fail(&host.app, "live_host", json!({})).await;
+        assert_eq!(err.code, "invalid", "{relay}");
+        assert_eq!(
+            err.message,
+            format!("\"live_relay\" in settings.json is not a relay address Guhit Studio can use: {why}. Set it to the relay's wss:// address, or to \"\" to switch the relay off.")
+        );
+        assert_eq!(status(&host.app).await.mode, LiveMode::Off);
+    }
+}
+
 /// Wait for the other side to close. A TLS alert may come first.
 async fn closed<R: tokio::io::AsyncRead + Unpin>(stream: &mut R, what: &str) {
     let ends = async {
@@ -761,15 +860,15 @@ async fn a_bad_hello_does_not_take_the_host_down() {
     assert_eq!(status(&host.app).await.mode, LiveMode::Hosting);
 }
 
-/// A TCP relay between a guest and the host whose connections the test can
+/// A TCP proxy between a guest and the host whose connections the test can
 /// cut, as a network drop would.
-struct Relay {
+struct Proxy {
     addr: SocketAddr,
     pipes: Arc<Mutex<Vec<JoinHandle<()>>>>,
     accept: JoinHandle<()>,
 }
 
-impl Relay {
+impl Proxy {
     async fn start(target: SocketAddr) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -785,10 +884,10 @@ impl Relay {
                 kept.lock().unwrap().push(pipe);
             }
         });
-        Relay { addr, pipes, accept }
+        Proxy { addr, pipes, accept }
     }
 
-    /// Drop every connection through the relay. New ones still go through.
+    /// Drop every connection through the proxy. New ones still go through.
     fn cut(&self) {
         for pipe in self.pipes.lock().unwrap().drain(..) {
             pipe.abort();
@@ -796,7 +895,7 @@ impl Relay {
     }
 }
 
-impl Drop for Relay {
+impl Drop for Proxy {
     fn drop(&mut self) {
         self.cut();
         self.accept.abort();
@@ -807,9 +906,9 @@ impl Drop for Relay {
 async fn a_dropped_connection_comes_back_with_the_same_participant() {
     let (mut host, started) = hosting("Ana").await;
     let invite = Invite::decode(started.invite.as_deref().unwrap()).unwrap();
-    let relay = Relay::start(invite.addrs[0].parse().unwrap()).await;
+    let proxy = Proxy::start(invite.addrs[0].parse().unwrap()).await;
     let mut through = invite.clone();
-    through.addrs = vec![relay.addr.to_string()];
+    through.addrs = vec![proxy.addr.to_string()];
     let mut ben = peer("Ben").await;
     join(&ben, &through.encode()).await;
     let bens = me(&status(&ben.app).await);
@@ -817,7 +916,7 @@ async fn a_dropped_connection_comes_back_with_the_same_participant() {
     let _: ApplyResult = call(&ben.app, "doc_apply", apply(wall(0.0, 0.0, 1000.0, 0.0))).await;
 
     drain(&mut host.events);
-    relay.cut();
+    proxy.cut();
     live_event(&mut ben.events, LiveMode::Reconnecting).await;
     // The plan stays on screen; edits wait for the host.
     assert_eq!(walls(&doc(&ben.app).await.unwrap()), 1);
@@ -953,4 +1052,287 @@ async fn only_the_rejoin_token_gives_a_participant_back() {
     let newer = wire::ToHost::Hello { v: 999, secret: invite.secret.clone(), name: "Cy".into(), rejoin: None };
     let (_, answer) = raw_hello(&invite, &newer).await;
     assert!(answer.unwrap_err().contains("different version"));
+}
+
+// ---------------------------------------------------------------------------
+// Through the relay (DECISIONS D32, docs/RELAY.md): the real relay, in
+// process on 127.0.0.1.
+
+/// The real relay, on a runtime of its own as if in its own process. Stopping
+/// it ends every connection it has at once, as a crash or a restart would.
+struct RelayServer {
+    runtime: Option<tokio::runtime::Runtime>,
+    /// The listening socket, kept open while the relay is stopped. A restart
+    /// serves on it again instead of binding the port anew, which Windows can
+    /// refuse for minutes after the old connections close. Connections that
+    /// arrive meanwhile wait in its queue.
+    listener: std::net::TcpListener,
+    addr: SocketAddr,
+}
+
+impl RelayServer {
+    async fn start(config: guhit_relay::Config) -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port for the relay");
+        listener.set_nonblocking(true).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut relay = RelayServer { runtime: None, listener, addr };
+        relay.restart(config);
+        relay
+    }
+
+    /// Serve on the same socket again, on a runtime of its own.
+    fn restart(&mut self, config: guhit_relay::Config) {
+        self.stop();
+        let listener = self.listener.try_clone().expect("a second handle to the relay's socket");
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+        runtime.spawn(async move {
+            let listener = TcpListener::from_std(listener).expect("the relay's listener");
+            let _ = guhit_relay::serve(listener, config).await;
+        });
+        self.runtime = Some(runtime);
+    }
+
+    /// The address a host's `live_relay` setting names.
+    fn url(&self) -> String {
+        format!("ws://{}", self.addr)
+    }
+
+    /// Stop at once: every connection through the relay ends.
+    fn stop(&mut self) {
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_background();
+        }
+    }
+}
+
+impl Drop for RelayServer {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Longest a test waits for a host or guest to recover after the relay
+/// restarts. Both retry after 1, 2, 4 and 8 s (the host goes on after that,
+/// the guest gives up), so this leaves room for a slow machine.
+const RESTART_WAIT: Duration = Duration::from_secs(30);
+
+/// A computer sharing a new project through `relay` only: direct connections
+/// off. Its status once the relay has registered the session.
+async fn hosting_through(relay: &RelayServer, name: &str) -> (Peer, LiveStatus) {
+    let host = peer_with(name, json!({ "live_relay": relay.url(), "live_direct": false })).await;
+    let _: DocState = call(&host.app, "hub_create", json!({ "name": "Bahay" })).await;
+    let started: LiveStatus = call(&host.app, "live_host", json!({})).await;
+    assert!(started.addresses.is_empty(), "direct connections are off: {:?}", started.addresses);
+    until("the relay to register the session", || async { status(&host.app).await.relay == LiveRelay::Ready }).await;
+    (host, started)
+}
+
+/// The JSON inside an invite.
+fn invite_json(invite: &str) -> Value {
+    let body = invite.strip_prefix("guhit-live:").expect("an invite");
+    serde_json::from_slice(&URL_SAFE_NO_PAD.decode(body).unwrap()).unwrap()
+}
+
+/// An invite to `room` on `relay` alone, for a session the test sets up (or
+/// does not) itself.
+fn relay_invite(relay: &RelayServer, room: &str) -> String {
+    Invite {
+        v: guhit_app::live::invite::INVITE_VERSION,
+        secret: URL_SAFE_NO_PAD.encode([1u8; 16]),
+        pin: URL_SAFE_NO_PAD.encode([2u8; 32]),
+        addrs: vec![],
+        project: "Bahay".into(),
+        relay: Some(InviteRelay { url: relay.url(), room: room.to_string() }),
+    }
+    .encode()
+}
+
+/// Picks the chat message `id` out of the events.
+fn chat_message(id: &str) -> impl FnMut(AppEvent) -> Option<ChatMessage> {
+    let id = id.to_string();
+    move |e| match e {
+        AppEvent::Chat { message } if message.id == id => Some(message),
+        _ => None,
+    }
+}
+
+#[tokio::test]
+async fn a_session_runs_through_the_relay_with_direct_connections_off() {
+    let relay = RelayServer::start(guhit_relay::Config::default()).await;
+    let (mut host, started) = hosting_through(&relay, "Ana").await;
+    let invite = started.invite.clone().unwrap();
+
+    // The invite: no addresses, the relay and the session's room, and not
+    // the key that proves the room is the host's.
+    let json = invite_json(&invite);
+    assert_eq!(json["v"], 2);
+    assert_eq!(json["addrs"], json!([]));
+    assert_eq!(json["relay"]["url"], relay.url());
+    let room = json["relay"]["room"].as_str().unwrap();
+    assert_eq!(URL_SAFE_NO_PAD.decode(room).unwrap().len(), 16);
+    let mut keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["addrs", "pin", "project", "relay", "secret", "v"]);
+    assert_eq!(json["relay"].as_object().unwrap().len(), 2, "{json}");
+
+    // A guest gets in through the relay, the only way there is.
+    let mut ben = peer("Ben").await;
+    let copy = join(&ben, &invite).await;
+    assert_eq!(Some(copy.project.id.clone()), started.project_id);
+    let joined = status(&ben.app).await;
+    assert_eq!((joined.mode, joined.relay), (LiveMode::Joined, LiveRelay::Off));
+    let bens = me(&joined);
+    until("the host to see the guest", || async { status(&host.app).await.participants.len() == 2 }).await;
+
+    // Edits cross both ways.
+    let applied: ApplyResult = call(&ben.app, "doc_apply", apply(wall(0.0, 0.0, 4000.0, 0.0))).await;
+    assert_eq!(applied.state.undo_by.as_deref(), Some(bens.id.as_str()));
+    assert_eq!(walls(&doc(&host.app).await.unwrap()), 1);
+    let _: ApplyResult = call(&host.app, "doc_apply", apply(wall(4000.0, 0.0, 4000.0, 3000.0))).await;
+    until("the host's edit on the copy", || async { walls(&doc(&ben.app).await.unwrap()) == 2 }).await;
+    assert_eq!(doc(&ben.app).await.unwrap().revision, doc(&host.app).await.unwrap().revision);
+
+    // So does chat.
+    let sent: ChatMessage = call(&ben.app, "chat_send", json!({ "text": "Hello through the relay" })).await;
+    event(&mut host.events, "the guest's chat on the host", chat_message(&sent.id)).await;
+    let answer = host.app.chat_send("Got it", None, None, false).await.unwrap();
+    event(&mut ben.events, "the host's chat on the guest", chat_message(&answer.id)).await;
+
+    // The host ending the session reaches the guest.
+    let _: LiveStatus = call(&host.app, "live_leave", json!({})).await;
+    let off = live_event(&mut ben.events, LiveMode::Off).await;
+    assert_eq!(off.notice.as_deref(), Some("Ana ended the live session."));
+    until("the guest's copy to close", || async { doc(&ben.app).await.is_none() }).await;
+    assert_eq!(status(&host.app).await.relay, LiveRelay::Off);
+}
+
+#[tokio::test]
+async fn a_relay_restart_is_ridden_out() {
+    let mut relay = RelayServer::start(guhit_relay::Config::default()).await;
+    let (host, started) = hosting_through(&relay, "Ana").await;
+    let invite = started.invite.clone().unwrap();
+    let ben = peer("Ben").await;
+    join(&ben, &invite).await;
+    let bens = me(&status(&ben.app).await);
+    until("the host to see the guest", || async { status(&host.app).await.participants.len() == 2 }).await;
+    let _: ApplyResult = call(&ben.app, "doc_apply", apply(wall(0.0, 0.0, 1000.0, 0.0))).await;
+
+    // Every connection through the relay ends at once.
+    relay.stop();
+    until("the host to lose the relay", || async { status(&host.app).await.relay == LiveRelay::Unavailable }).await;
+    until("the guest to reconnect", || async { status(&ben.app).await.mode == LiveMode::Reconnecting }).await;
+    until("the host to see the guest go", || async { status(&host.app).await.participants.len() == 1 }).await;
+    // Meanwhile the host keeps working.
+    let _: ApplyResult = call(&host.app, "doc_apply", apply(wall(0.0, 1000.0, 1000.0, 1000.0))).await;
+
+    // The relay comes back on the same port, and so do both sides, with the
+    // same invite.
+    relay.restart(guhit_relay::Config::default());
+    until_within(RESTART_WAIT, "the host to register again", || async {
+        status(&host.app).await.relay == LiveRelay::Ready
+    })
+    .await;
+    until_within(RESTART_WAIT, "the guest to be back or give up", || async {
+        status(&ben.app).await.mode != LiveMode::Reconnecting
+    })
+    .await;
+    let back = status(&ben.app).await;
+    assert_eq!(back.mode, LiveMode::Joined, "the guest gave up: {:?}", back.notice);
+    let bens_again = me(&back);
+    assert_eq!((bens_again.id.as_str(), bens_again.color), (bens.id.as_str(), bens.color));
+    assert_eq!(walls(&doc(&ben.app).await.unwrap()), 2, "back in with the host's current plan");
+    let applied: ApplyResult = call(&ben.app, "doc_apply", apply(wall(1000.0, 0.0, 2000.0, 0.0))).await;
+    assert_eq!(walls(&applied.state), 3);
+    assert_eq!(applied.state.undo_by.as_deref(), Some(bens.id.as_str()));
+
+    // Someone new gets in too.
+    let cy = peer("Cy").await;
+    let copy = join(&cy, &invite).await;
+    assert_eq!(walls(&copy), 3);
+    until("the host to see everyone", || async { status(&host.app).await.participants.len() == 3 }).await;
+}
+
+#[tokio::test]
+async fn a_wrong_certificate_through_the_relay_is_told_apart() {
+    let relay = RelayServer::start(guhit_relay::Config::default()).await;
+    let (_host, started) = hosting_through(&relay, "Ana").await;
+    let mut pinned = Invite::decode(started.invite.as_deref().unwrap()).unwrap();
+    pinned.pin = URL_SAFE_NO_PAD.encode([7u8; 32]);
+    let ben = peer("Ben").await;
+    let err = fail(&ben.app, "live_join", json!({ "invite": pinned.encode() })).await;
+    assert_eq!(
+        (err.code.as_str(), err.message.as_str()),
+        (
+            "live_pin",
+            "The computer that answered through the relay is not the host this invite is for. Ask for a new invite."
+        )
+    );
+    // The host is unharmed: the real invite works.
+    let copy = join(&ben, started.invite.as_deref().unwrap()).await;
+    assert_eq!(Some(copy.project.id), started.project_id);
+}
+
+#[tokio::test]
+async fn a_room_no_host_holds_means_the_session_may_have_ended() {
+    let relay = RelayServer::start(guhit_relay::Config::default()).await;
+    let ben = peer("Ben").await;
+    let invite = relay_invite(&relay, &URL_SAFE_NO_PAD.encode([9u8; 16]));
+    let err = fail(&ben.app, "live_join", json!({ "invite": invite })).await;
+    assert_eq!(
+        (err.code.as_str(), err.message.as_str()),
+        (
+            "live_unreachable",
+            "Could not reach the host through the relay. The host is not online, so the session may have ended."
+        )
+    );
+    assert_eq!(status(&ben.app).await.notice.as_deref(), Some(err.message.as_str()));
+}
+
+#[tokio::test]
+async fn a_host_that_never_accepts_did_not_answer() {
+    let config = guhit_relay::Config { accept_timeout: Duration::from_millis(300), ..Default::default() };
+    let relay = RelayServer::start(config).await;
+    // A host that registers its room and then never accepts anyone.
+    let room = URL_SAFE_NO_PAD.encode([4u8; 16]);
+    let tcp = TcpStream::connect(relay.addr).await.unwrap();
+    let (mut control, _) = tokio_tungstenite::client_async(format!("{}/v1/host", relay.url()), tcp).await.unwrap();
+    let hello = json!({ "v": 1, "room": room, "key": URL_SAFE_NO_PAD.encode([5u8; 32]) });
+    control.send(Message::text(hello.to_string())).await.unwrap();
+    assert_eq!(relay_says(&mut control).await["type"], "ready");
+
+    let ben = peer("Ben").await;
+    let err = fail(&ben.app, "live_join", json!({ "invite": relay_invite(&relay, &room) })).await;
+    assert_eq!(
+        (err.code.as_str(), err.message.as_str()),
+        ("live_unreachable", "Could not reach the host through the relay. The host did not answer in time.")
+    );
+    // The relay did tell the host.
+    assert_eq!(relay_says(&mut control).await["type"], "guest");
+}
+
+#[tokio::test]
+async fn a_full_relay_is_busy() {
+    let config = guhit_relay::Config { max_waiting_per_room: 0, ..Default::default() };
+    let relay = RelayServer::start(config).await;
+    let (_host, started) = hosting_through(&relay, "Ana").await;
+    let ben = peer("Ben").await;
+    let err = fail(&ben.app, "live_join", json!({ "invite": started.invite })).await;
+    assert_eq!(
+        (err.code.as_str(), err.message.as_str()),
+        ("live_unreachable", "Could not reach the host through the relay. The relay is busy. Try again in a minute.")
+    );
+}
+
+/// The next text message from the relay on a raw WebSocket, as JSON.
+async fn relay_says(socket: &mut tokio_tungstenite::WebSocketStream<TcpStream>) -> Value {
+    let next = async {
+        loop {
+            match socket.next().await {
+                Some(Ok(Message::Text(text))) => return serde_json::from_str(text.as_str()).unwrap(),
+                Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                other => panic!("expected a message from the relay, got {other:?}"),
+            }
+        }
+    };
+    tokio::time::timeout(WAIT, next).await.expect("nothing from the relay in time")
 }

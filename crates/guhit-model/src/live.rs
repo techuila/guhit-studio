@@ -112,6 +112,25 @@ pub enum LiveMode {
     Reconnecting,
 }
 
+/// A host's registration with the relay (DECISIONS D32, docs/RELAY.md), the
+/// way guests outside its network or VPN reach it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum LiveRelay {
+    /// No relay: not hosting, switched off in settings (`live_relay` empty),
+    /// or none in this build.
+    #[default]
+    Off,
+    /// Registering the session with the relay, the first time.
+    Connecting,
+    /// Registered: anyone with the invite can join over the internet.
+    Ready,
+    /// The relay cannot be reached or dropped the session. Guhit Studio keeps
+    /// trying with the same invite; meanwhile only direct connections work.
+    Unavailable,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct LiveStatus {
@@ -121,11 +140,16 @@ pub struct LiveStatus {
     /// Everyone in the session, this computer included, host first.
     pub participants: Vec<Participant>,
     /// Host only: the invite to send to the people who should join. It holds
-    /// the host's addresses, a one-session secret and the pin of the host's
-    /// certificate. Anyone who has it can join while the session runs.
+    /// the host's addresses, the relay and the session's room on it, a
+    /// one-session secret and the pin of the host's certificate. Anyone who
+    /// has it can join while the session runs.
     pub invite: Option<String>,
-    /// Host only: where guests reach this computer, "192.168.1.20:1460".
+    /// Host only: where guests reach this computer directly,
+    /// "192.168.1.20:1460". Empty when direct connections are off
+    /// (`live_direct: false` in settings).
     pub addresses: Vec<String>,
+    /// Host only: the session's registration with the relay. Off on a guest.
+    pub relay: LiveRelay,
     /// The shared project.
     pub project_id: Option<Id>,
     pub project_name: Option<String>,
@@ -142,6 +166,7 @@ impl LiveStatus {
             participants: vec![],
             invite: None,
             addresses: vec![],
+            relay: LiveRelay::Off,
             project_id: None,
             project_name: None,
             notice: None,

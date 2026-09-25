@@ -381,9 +381,12 @@ async fn session_tools_without_a_session() {
     assert_eq!(undone["what"], "undone");
 }
 
-/// A computer with its profile name set, as hosting and joining need.
+/// A computer with its profile name set, as hosting and joining need. The
+/// relay is off (`live_relay: ""`), so a build made with `GUHIT_RELAY_URL`
+/// does not reach out to it.
 async fn named(name: &str) -> (AppService, tempfile::TempDir) {
     let (app, dir) = app();
+    std::fs::write(dir.path().join("settings.json"), json!({ "live_relay": "" }).to_string()).unwrap();
     app.handle("profile_set", json!({ "name": name })).await.unwrap();
     (app, dir)
 }

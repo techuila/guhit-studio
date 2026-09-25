@@ -227,6 +227,28 @@ first-install problem too. When a certificate exists, the bundle config gains a
 Neither platform's warning is faked or worked around anywhere in the build. The
 updater key is unrelated to code signing and does not change.
 
+## The relay for live sessions
+
+Live sessions reach guests outside the host's network or VPN through the relay
+(DECISIONS D32, `docs/RELAY.md`). A build learns the relay's address at compile
+time from the `GUHIT_RELAY_URL` environment variable. Until a relay is
+deployed it stays unset, and installed copies join on the same network or VPN
+only.
+
+Once a relay runs (`docs/RELAY.md`, "Running a relay"):
+
+1. Add a repository variable `GUHIT_RELAY_URL` (Settings > Secrets and
+   variables > Actions > Variables) with its address, for example
+   `wss://guhit-relay.fly.dev`. It is not a secret: every invite carries it.
+2. Pass it to the build in `.github/workflows/release.yml`, in the `env` of
+   the "Build and publish" step:
+   `GUHIT_RELAY_URL: ${{ vars.GUHIT_RELAY_URL }}`.
+3. Cut a release. Copies that update to it use the relay.
+
+An empty value means no relay. On any computer, `live_relay` in the data
+folder's `settings.json` overrides the built-in address, and an empty string
+switches the relay off.
+
 ## Rotating the updater key
 
 Only if the private key leaks or is lost.

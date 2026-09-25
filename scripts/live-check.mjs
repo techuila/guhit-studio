@@ -1,9 +1,12 @@
-// Live session check on one computer (DECISIONS D29, D30, D31).
+// Live session check on one computer (DECISIONS D29, D30, D31, D32).
 //
 // Two dev bridges stand in for two computers, each with its own data folder;
 // one Vite dev server serves the UI, and two browser tabs point at the two
-// bridges with `?bridge=`. Ana hosts the services demo from the Share dialog,
-// Ben joins from the hub with the invite. Then it checks, both ways: the
+// bridges with `?bridge=`. A local relay (crates/guhit-relay) stands in for
+// the deployed one: Ana's settings switch direct connections off and point at
+// it, so Ben's connection crosses the relay as it would over the internet.
+// Ana hosts the services demo from the Share dialog, Ben joins from the hub
+// with the invite. Then it checks, both ways: the
 // other's pointer on the plan, cursor chat, the Chat panel, an edit crossing
 // over, undo of someone else's step asking first, opening a bundle asking
 // first, and the end of the session. It also drives the MCP endpoint of
@@ -11,7 +14,7 @@
 // send_chat_message, a plan picture drawn by Ana's tab, and close_project
 // refusing while she hosts.
 //
-//   cargo build -p guhit-devbridge
+//   cargo build -p guhit-devbridge -p guhit-relay
 //   node scripts/live-check.mjs            # screenshots go to ./live-check/
 //
 // Environment: CHROMIUM_PATH (a Chromium or headless shell), OUT (screenshot
@@ -19,13 +22,16 @@
 
 import { chromium } from "playwright-core";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const OUT = resolve(process.env.OUT ?? join(ROOT, "live-check"));
-const BRIDGE_BIN = join(ROOT, "target", "debug", process.platform === "win32" ? "guhit-devbridge.exe" : "guhit-devbridge");
+const exe = (name) => join(ROOT, "target", "debug", process.platform === "win32" ? `${name}.exe` : name);
+const BRIDGE_BIN = exe("guhit-devbridge");
+const RELAY_BIN = exe("guhit-relay");
 const A = { name: "Ana", port: 1440 };
 const B = { name: "Ben", port: 1441 };
 const UI_PORT = 1427;
@@ -71,6 +77,23 @@ async function until(what, fn, ms = 20000) {
     if (Date.now() - startAt > ms) throw new Error(`timed out waiting for ${what}`);
     await new Promise((r) => setTimeout(r, 250));
   }
+}
+
+/** A port nothing listens on right now, from the system. */
+function freePort() {
+  return new Promise((res, rej) => {
+    const srv = createServer();
+    srv.once("error", rej);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => res(port));
+    });
+  });
+}
+
+/** The JSON inside an invite. */
+function inviteBody(invite) {
+  return JSON.parse(Buffer.from(invite.slice("guhit-live:".length), "base64url").toString("utf8"));
 }
 
 function bridgeUrl(who) {
@@ -153,18 +176,28 @@ async function planPoint(page, x, y) {
 
 // -------------------------------------------------------------------- run
 
-if (!existsSync(BRIDGE_BIN)) {
-  console.error(`No dev bridge at ${BRIDGE_BIN}. Build it first: cargo build -p guhit-devbridge`);
-  process.exit(2);
+for (const bin of [BRIDGE_BIN, RELAY_BIN]) {
+  if (!existsSync(bin)) {
+    console.error(`No ${bin}. Build it first: cargo build -p guhit-devbridge -p guhit-relay`);
+    process.exit(2);
+  }
 }
 mkdirSync(OUT, { recursive: true });
 const data = mkdtempSync(join(tmpdir(), "guhit-live-check-"));
+// Ana reaches guests only through the relay: no listener, no addresses.
+const relayPort = await freePort();
+const relayUrl = `ws://127.0.0.1:${relayPort}`;
+// On loopback only, like the bridges: nothing outside this computer reaches it.
+start(RELAY_BIN, [], { PORT: String(relayPort), RELAY_BIND: "127.0.0.1" });
+mkdirSync(join(data, "ana"), { recursive: true });
+writeFileSync(join(data, "ana", "settings.json"), JSON.stringify({ live_relay: relayUrl, live_direct: false }));
 start(BRIDGE_BIN, ["--port", String(A.port), "--data", join(data, "ana")]);
 start(BRIDGE_BIN, ["--port", String(B.port), "--data", join(data, "ben")]);
 start(process.execPath, [join(ROOT, "node_modules", "vite", "bin", "vite.js"), "--port", String(UI_PORT), "--strictPort"]);
 
 let browser;
 try {
+  await until("the relay", async () => (await fetch(`http://127.0.0.1:${relayPort}/health`)).ok);
   await until("the bridges", async () => (await fetch(`${bridgeUrl(A)}/health`)).ok && (await fetch(`${bridgeUrl(B)}/health`)).ok);
   await until("the UI", async () => (await fetch(`http://localhost:${UI_PORT}/`)).ok, 60000);
 
@@ -187,6 +220,16 @@ try {
   await ana.getByRole("button", { name: "Start live session" }).click();
   const invite = await until("the invite", async () => ana.locator('[aria-label="Invite"]').inputValue(), 15000);
   check("Ana hosts and gets an invite", invite.startsWith("guhit-live:"), `${invite.length} characters`);
+  const body = inviteBody(invite);
+  check("the invite names the relay and no addresses", body.v === 2 && body.addrs.length === 0 && body.relay?.url === relayUrl && !("key" in body.relay), JSON.stringify({ addrs: body.addrs, relay: body.relay }));
+  const onRelay = await until("the relay to take the session", async () => ((await ipc(A, "live_status")).relay === "ready" ? true : null), 15000).catch(() => false);
+  check("Ana's session is registered with the relay", onRelay);
+  // Settled on it: an answer older than the relay's news must not bring back
+  // the spinner.
+  const reachLines = () => ana.evaluate(() => [...document.querySelectorAll("[data-reach]")].map((e) => e.dataset.reach).join(","));
+  const reach = await until("the Share dialog to say anyone can join", async () => (await reachLines()) === "internet", 5000).catch(() => false);
+  await ana.waitForTimeout(1000);
+  check("the Share dialog says anyone with the invite can join", reach && (await reachLines()) === "internet", await reachLines());
   await shot(ana, "01-ana-share-hosting");
   await ana.keyboard.press("Escape");
 
@@ -310,6 +353,7 @@ try {
   await ben.waitForTimeout(600);
   await shot(ben, "09-ben-session-ended");
 
+  check("the relay is still up", (await fetch(`http://127.0.0.1:${relayPort}/health`)).ok);
   check("no console errors in Ana's tab", ana.errors === 0, String(ana.errors));
   check("no console errors in Ben's tab", ben.errors === 0, String(ben.errors));
 } catch (e) {

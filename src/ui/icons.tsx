@@ -95,6 +95,8 @@ const PATHS = {
   chat: "M2.5 3.5h10v7H6.5l-3 2.5v-2.5h-1zM12.5 7h5v7h-1v2.5l-3-2.5H8.5v-3.5",
   /** An arrow going in: join a live session. */
   join: "M11.5 3.5h4v13h-4M3 10h9M9 6.8l3.2 3.2L9 13.2",
+  /** A globe: a live session anyone can join over the internet. */
+  globe: "M10 17.5a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15zM2.5 10h15M10 2.5c-2 2.1-3 4.6-3 7.5s1 5.4 3 7.5M10 2.5c2 2.1 3 4.6 3 7.5s-1 5.4-3 7.5",
   /** An arrow up: send. */
   send: "M10 16V4.5M5.5 9L10 4.5 14.5 9",
   /** The plan pointer: show on the plan. */

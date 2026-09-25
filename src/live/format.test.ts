@@ -14,6 +14,7 @@ import {
   peerSelections,
   peerVar,
   possessive,
+  reachOf,
   sameSelections,
   stepAuthor,
   timeLabel,
@@ -25,7 +26,7 @@ const ben: Participant = { id: "b", name: "Ben", color: 1, role: "guest" };
 const cy: Participant = { id: "c", name: "Cy Tan", color: 2, role: "guest" };
 
 function status(over: Partial<LiveStatus> = {}): LiveStatus {
-  return { mode: "hosting", self_id: "a", participants: [ana, ben, cy], invite: null, addresses: [], project_id: "p", project_name: "Bungalow", notice: null, ...over };
+  return { mode: "hosting", self_id: "a", participants: [ana, ben, cy], invite: null, addresses: [], relay: "off", project_id: "p", project_name: "Bungalow", notice: null, ...over };
 }
 
 function presence(over: Partial<Presence> = {}): Presence {
@@ -216,7 +217,14 @@ describe("parseInvite", () => {
 
   it("reads the project and the host's addresses", () => {
     const invite = encode({ v: 1, secret: "s", pin: "p", addrs: ["192.168.1.20:1460", "127.0.0.1:1460"], project: "Bahay ni Lola ñ" });
-    expect(parseInvite(`  ${invite}\n`)).toEqual({ project: "Bahay ni Lola ñ", addrs: ["192.168.1.20:1460", "127.0.0.1:1460"] });
+    expect(parseInvite(`  ${invite}\n`)).toEqual({ project: "Bahay ni Lola ñ", addrs: ["192.168.1.20:1460", "127.0.0.1:1460"], relay: false });
+  });
+
+  it("sees a relay, with or without addresses", () => {
+    const relay = { url: "wss://relay.example.com", room: "AAAAAAAAAAAAAAAAAAAAAA" };
+    expect(parseInvite(encode({ v: 2, secret: "s", pin: "p", addrs: ["10.0.0.4:1460"], project: "Bahay", relay }))).toEqual({ project: "Bahay", addrs: ["10.0.0.4:1460"], relay: true });
+    expect(parseInvite(encode({ v: 2, secret: "s", pin: "p", addrs: [], project: "Bahay", relay }))).toEqual({ project: "Bahay", addrs: [], relay: true });
+    expect(parseInvite(encode({ v: 2, secret: "s", pin: "p", addrs: [], relay: { url: 7 } }))?.relay).toBe(false);
   });
 
   it("refuses anything else", () => {
@@ -228,6 +236,18 @@ describe("parseInvite", () => {
   });
 
   it("allows an invite without a project name", () => {
-    expect(parseInvite(encode({ v: 1, secret: "s", pin: "p", addrs: [] }))).toEqual({ project: null, addrs: [] });
+    expect(parseInvite(encode({ v: 1, secret: "s", pin: "p", addrs: [] }))).toEqual({ project: null, addrs: [], relay: false });
+  });
+});
+
+describe("reachOf", () => {
+  it("follows the relay, then the direct addresses", () => {
+    expect(reachOf("ready", true)).toBe("internet");
+    expect(reachOf("ready", false)).toBe("internet");
+    expect(reachOf("connecting", true)).toBe("connecting");
+    expect(reachOf("off", true)).toBe("network");
+    expect(reachOf("unavailable", true)).toBe("network");
+    expect(reachOf("unavailable", false)).toBe("nowhere");
+    expect(reachOf("off", false)).toBe("nowhere");
   });
 });

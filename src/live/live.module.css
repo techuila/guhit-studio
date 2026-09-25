@@ -415,6 +415,53 @@
   user-select: text;
 }
 
+/* Who can join with the invite. When it changes, the old line fades out and
+   then the new one rises in, in the same grid cell, so the dialog does not
+   jump and the two texts never overlap. */
+.reach {
+  display: grid;
+  margin: 0;
+}
+
+.reachLine {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.reachLine > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.reachLine[data-reach="internet"] > svg {
+  color: var(--accent);
+}
+
+.reachLine[data-reach="nowhere"] > svg {
+  color: var(--warn);
+}
+
+.reachEnter {
+  animation: rise-in var(--dur-base) var(--ease-out) calc(var(--dur-base) * 0.7) backwards;
+}
+
+.reachLeave {
+  pointer-events: none;
+  animation: sink-out calc(var(--dur-base) * 0.7) var(--ease-in) forwards;
+}
+
+@keyframes sink-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
 .people {
   display: flex;
   flex-direction: column;
@@ -578,6 +625,8 @@
   .unreadCount,
   .stateBody,
   .hint,
+  .reachEnter,
+  .reachLeave,
   .error,
   .drawnCheck,
   .personEnter,
@@ -587,5 +636,9 @@
 
   .drawnCheck {
     stroke-dashoffset: 0;
+  }
+
+  .reachLeave {
+    opacity: 0;
   }
 }

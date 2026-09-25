@@ -1,14 +1,25 @@
 //! Live session frames (docs/CONTRACT.md, "Live sessions"): a 4-byte
-//! big-endian length, then that many bytes of UTF-8 JSON. At most 64 KiB
-//! before the guest is authenticated, 48 MiB after.
+//! big-endian length, then that many bytes of UTF-8 JSON. At most 64 KiB of
+//! JSON before the guest is authenticated, 48 MiB after.
+//!
+//! JSON over 16 KiB is deflated when that makes it smaller, since the whole
+//! plan goes to every guest on each change (DECISIONS D32). The high bit of
+//! the length marks a deflated body, so lengths have 31 bits. The limits
+//! apply to the JSON, deflated or not: a small body that inflates past the
+//! limit is refused like a large one.
 //!
 //! Host and guest are the same code, so the messages below are internal to
 //! `guhit-app` and change together with it. `PROTOCOL_VERSION` in the hello
-//! keeps two different builds from talking past each other.
+//! keeps two different builds from talking past each other. Hellos and
+//! refusals are far under 16 KiB, so they always go plain and an older build
+//! still reads why it was turned away.
 
+use std::io::{Read, Write};
 use std::sync::Arc;
 use std::time::Duration;
 
+use flate2::write::DeflateEncoder;
+use flate2::Compression;
 use guhit_model::*;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -17,11 +28,19 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
 
 /// Version of the messages below. A hello with another version is refused.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// 2: frames may be deflated.
+pub const PROTOCOL_VERSION: u32 = 2;
 /// Largest frame before the guest is authenticated: its hello.
 pub const MAX_HELLO_BYTES: usize = 64 * 1024;
 /// Largest frame after that.
 pub const MAX_FRAME_BYTES: usize = 48 * 1024 * 1024;
+/// JSON longer than this is deflated when that makes it smaller. Shorter
+/// frames (presence, pings, replies) are not worth the work.
+pub const DEFLATE_OVER: usize = 16 * 1024;
+/// The high bit of a frame's length: the body is deflated JSON.
+const DEFLATED: u32 = 1 << 31;
+/// Inflating reads this much at a time.
+const INFLATE_CHUNK: usize = 64 * 1024;
 /// A side with nothing to send sends a ping this often, so the other side
 /// can tell a quiet connection from a dead one.
 pub const PING_EVERY: Duration = Duration::from_secs(5);
@@ -253,9 +272,11 @@ pub struct FileChunk {
 
 #[derive(Debug)]
 pub enum FrameError {
-    /// The frame is longer than the limit. Nothing past its length was read.
+    /// The frame is longer than the limit. Nothing past its length was read,
+    /// or, for a deflated frame, nothing past the limit was inflated.
     TooBig(usize),
-    /// The bytes are not the JSON message expected.
+    /// The bytes are not the JSON message expected, or a deflated body does
+    /// not inflate.
     NotJson(String),
     /// Nothing arrived in time.
     Timeout,
@@ -274,18 +295,68 @@ impl std::fmt::Display for FrameError {
     }
 }
 
-/// One frame: the length, then the JSON. Fails when it would be longer than
-/// `max`.
+/// One frame: the length, then the JSON, deflated when it is over
+/// `DEFLATE_OVER` and deflating makes it smaller. Fails when the JSON would be
+/// longer than `max`, whether or not it deflates.
 pub fn encode<T: Serialize>(message: &T, max: usize) -> Result<Vec<u8>, FrameError> {
     let mut out = vec![0u8; 4];
     serde_json::to_writer(&mut out, message).map_err(|e| FrameError::NotJson(e.to_string()))?;
+    finish_frame(out, max)
+}
+
+/// A frame from a body behind 4 bytes left for the length: the length
+/// written, the body deflated when that is worth it.
+fn finish_frame(mut out: Vec<u8>, max: usize) -> Result<Vec<u8>, FrameError> {
     let len = out.len() - 4;
     if len > max {
         return Err(FrameError::TooBig(len));
     }
-    let len = u32::try_from(len).map_err(|_| FrameError::TooBig(len))?;
-    out[..4].copy_from_slice(&len.to_be_bytes());
+    if len > DEFLATE_OVER {
+        if let Some(deflated) = deflate(&out[4..]).filter(|d| d.len() < out.len()) {
+            out = deflated;
+        }
+    }
+    let body = out.len() - 4;
+    let head = u32::try_from(body).ok().filter(|n| n & DEFLATED == 0).ok_or(FrameError::TooBig(body))?;
+    let head = if body < len { head | DEFLATED } else { head };
+    out[..4].copy_from_slice(&head.to_be_bytes());
     Ok(out)
+}
+
+/// `json` deflated, behind 4 bytes left for the length. None if deflating
+/// failed, which writing to memory does not.
+fn deflate(json: &[u8]) -> Option<Vec<u8>> {
+    let mut encoder = DeflateEncoder::new(vec![0u8; 4], Compression::default());
+    encoder.write_all(json).ok()?;
+    encoder.finish().ok()
+}
+
+/// Inflate a deflated frame body, `max` bytes at most. Past that it stops
+/// with `TooBig`, and the buffer never grows past `max`: a small frame that
+/// would inflate to gigabytes costs no more memory than an honest one at the
+/// limit.
+fn inflate(deflated: &[u8], max: usize) -> Result<Vec<u8>, FrameError> {
+    let mut decoder = flate2::bufread::DeflateDecoder::new(deflated);
+    let mut out = Vec::new();
+    let mut chunk = vec![0u8; INFLATE_CHUNK];
+    loop {
+        let n = decoder
+            .read(&mut chunk)
+            .map_err(|e| FrameError::NotJson(format!("a deflated frame does not inflate: {e}")))?;
+        if n == 0 {
+            return Ok(out);
+        }
+        let len = out.len() + n;
+        if len > max {
+            return Err(FrameError::TooBig(len));
+        }
+        if len > out.capacity() {
+            // Double as a Vec would, but never past the limit.
+            let capacity = len.max(out.capacity() * 2).min(max);
+            out.reserve_exact(capacity - out.len());
+        }
+        out.extend_from_slice(&chunk[..n]);
+    }
 }
 
 /// `encode` into a buffer that can be queued for several connections.
@@ -293,9 +364,10 @@ pub fn shared<T: Serialize>(message: &T, max: usize) -> Result<Arc<[u8]>, FrameE
     encode(message, max).map(Arc::from)
 }
 
-/// Read one frame's JSON bytes. `idle` bounds the wait for the frame to
-/// start, `body` the time its bytes may take once it has. A length over
-/// `max` fails before anything is allocated for it.
+/// Read one frame's JSON bytes, inflated when the frame was deflated. `idle`
+/// bounds the wait for the frame to start, `body` the time its bytes may take
+/// once it has. A length over `max` fails before anything is allocated for
+/// it, and so does inflating past `max`.
 pub async fn read_frame<R: AsyncRead + Unpin>(
     r: &mut R,
     max: usize,
@@ -308,7 +380,9 @@ pub async fn read_frame<R: AsyncRead + Unpin>(
         Ok(Err(e)) => return Err(FrameError::Io(e)),
         Ok(Ok(_)) => {}
     }
-    let len = u32::from_be_bytes(head) as usize;
+    let head = u32::from_be_bytes(head);
+    let deflated = head & DEFLATED != 0;
+    let len = (head & !DEFLATED) as usize;
     if len > max {
         return Err(FrameError::TooBig(len));
     }
@@ -316,6 +390,7 @@ pub async fn read_frame<R: AsyncRead + Unpin>(
     match tokio::time::timeout(body, r.read_exact(&mut bytes)).await {
         Err(_) => Err(FrameError::Timeout),
         Ok(Err(e)) => Err(FrameError::Io(e)),
+        Ok(Ok(_)) if deflated => inflate(&bytes, max),
         Ok(Ok(_)) => Ok(bytes),
     }
 }
@@ -400,11 +475,100 @@ mod tests {
         let err = read_frame(&mut r, MAX_HELLO_BYTES, LONG, LONG).await.unwrap_err();
         assert!(matches!(err, FrameError::TooBig(n) if n == 1024 * 1024), "{err}");
 
-        // Just over and just at the limit.
+        // Just over and just at the limit. The limit is on the JSON, so this
+        // one fails although it would deflate to almost nothing.
         let big = "x".repeat(MAX_HELLO_BYTES);
-        assert!(matches!(encode(&big, MAX_HELLO_BYTES), Err(FrameError::TooBig(_))));
+        assert!(matches!(encode(&big, MAX_HELLO_BYTES), Err(FrameError::TooBig(n)) if n == MAX_HELLO_BYTES + 2));
         let fits = "x".repeat(MAX_HELLO_BYTES - 2);
-        assert_eq!(encode(&fits, MAX_HELLO_BYTES).unwrap().len(), MAX_HELLO_BYTES + 4);
+        let frame = encode(&fits, MAX_HELLO_BYTES).unwrap();
+        let mut r = &frame[..];
+        let body = read_frame(&mut r, MAX_HELLO_BYTES, LONG, LONG).await.unwrap();
+        assert_eq!(body.len(), MAX_HELLO_BYTES);
+        assert_eq!(decode::<String>(&body).unwrap(), fits);
+    }
+
+    fn head_of(frame: &[u8]) -> u32 {
+        u32::from_be_bytes(frame[..4].try_into().unwrap())
+    }
+
+    #[tokio::test]
+    async fn large_frames_are_deflated_and_small_ones_are_not() {
+        // Plan-sized and repetitive, as real plans are.
+        let text = "Add wall from 0,0 to 4000,0. ".repeat(4000);
+        let msg = ToGuest::Refused { message: text.clone() };
+        let json = serde_json::to_vec(&msg).unwrap();
+        assert!(json.len() > DEFLATE_OVER);
+        let frame = encode(&msg, MAX_FRAME_BYTES).unwrap();
+        let head = head_of(&frame);
+        assert_ne!(head & DEFLATED, 0, "deflated on the wire");
+        assert_eq!((head & !DEFLATED) as usize, frame.len() - 4);
+        assert!(frame.len() * 10 < json.len(), "{} bytes for {} of JSON", frame.len(), json.len());
+        let mut r = &frame[..];
+        let body = read_frame(&mut r, MAX_FRAME_BYTES, LONG, LONG).await.unwrap();
+        assert_eq!(body, json);
+        assert!(matches!(decode::<ToGuest>(&body).unwrap(), ToGuest::Refused { message } if message == text));
+
+        // Small frames go as they are.
+        let ping = encode(&ToGuest::Ping, MAX_HELLO_BYTES).unwrap();
+        assert_eq!(head_of(&ping) as usize, ping.len() - 4);
+        assert_eq!(&ping[4..], br#"{"type":"ping"}"#);
+        let small = ToGuest::Refused { message: "x".repeat(DEFLATE_OVER - 40) };
+        let frame = encode(&small, MAX_HELLO_BYTES).unwrap();
+        assert_eq!(head_of(&frame) & DEFLATED, 0);
+        assert_eq!(&frame[4..], serde_json::to_vec(&small).unwrap().as_slice());
+    }
+
+    #[tokio::test]
+    async fn a_body_that_does_not_deflate_smaller_goes_as_it_is() {
+        // No JSON is truly incompressible, so random bytes stand in for it.
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut body = vec![0u8; 4];
+        body.extend((0..64 * 1024).map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 24) as u8
+        }));
+        let frame = finish_frame(body.clone(), MAX_FRAME_BYTES).unwrap();
+        assert_eq!(head_of(&frame) as usize, 64 * 1024, "plain, no deflate bit");
+        assert_eq!(&frame[4..], &body[4..]);
+        let mut r = &frame[..];
+        assert_eq!(read_frame(&mut r, MAX_FRAME_BYTES, LONG, LONG).await.unwrap(), &body[4..]);
+    }
+
+    /// A frame of `len` zero bytes, deflated: a few hundred bytes.
+    fn bomb(len: usize) -> Vec<u8> {
+        let mut deflated = deflate(&vec![0u8; len]).unwrap();
+        let body = (deflated.len() - 4) as u32;
+        deflated[..4].copy_from_slice(&(body | DEFLATED).to_be_bytes());
+        deflated
+    }
+
+    #[tokio::test]
+    async fn a_deflate_bomb_stops_at_the_limit() {
+        // 1 MiB of zeros deflates to about 1 KB, far under the hello limit.
+        let frame = bomb(1024 * 1024);
+        assert!(frame.len() < 2048, "{}", frame.len());
+        let mut r = &frame[..];
+        let err = read_frame(&mut r, MAX_HELLO_BYTES, LONG, LONG).await.unwrap_err();
+        // It stopped within one read of the limit, not at 1 MiB.
+        assert!(matches!(err, FrameError::TooBig(n) if n > MAX_HELLO_BYTES && n <= MAX_HELLO_BYTES + INFLATE_CHUNK), "{err}");
+
+        // One byte over the frame limit, and exactly at it.
+        let frame = bomb(MAX_FRAME_BYTES + 1);
+        let mut r = &frame[..];
+        let err = read_frame(&mut r, MAX_FRAME_BYTES, LONG, LONG).await.unwrap_err();
+        assert!(matches!(err, FrameError::TooBig(n) if n == MAX_FRAME_BYTES + 1), "{err}");
+        let frame = bomb(MAX_HELLO_BYTES);
+        let mut r = &frame[..];
+        assert_eq!(read_frame(&mut r, MAX_HELLO_BYTES, LONG, LONG).await.unwrap().len(), MAX_HELLO_BYTES);
+
+        // A deflated body that does not inflate.
+        let mut garbage = (9 | DEFLATED).to_be_bytes().to_vec();
+        garbage.extend_from_slice(b"not json!");
+        let mut r = &garbage[..];
+        let err = read_frame(&mut r, MAX_HELLO_BYTES, LONG, LONG).await.unwrap_err();
+        assert!(matches!(err, FrameError::NotJson(_)), "{err}");
     }
 
     #[tokio::test]
@@ -438,8 +602,8 @@ mod tests {
         assert!(matches!(err, FrameError::Timeout));
     }
 
-    #[test]
-    fn replies_and_documents_keep_their_shape() {
+    #[tokio::test]
+    async fn replies_and_documents_keep_their_shape() {
         let reply = ToGuest::Reply { id: 3, ok: None, error: Some(IpcError::new("stale", "moved on")) };
         let text = serde_json::to_string(&reply).unwrap();
         assert!(text.starts_with(r#"{"type":"reply","id":3"#), "{text}");
@@ -454,7 +618,9 @@ mod tests {
             undo: UndoMeta { can_undo: true, undo_label: Some("Add wall".into()), ..UndoMeta::default() },
             by: Some("p1".into()),
         }));
-        let back: ToGuest = decode(&encode(&doc, MAX_FRAME_BYTES).unwrap()[4..]).unwrap();
+        let frame = encode(&doc, MAX_FRAME_BYTES).unwrap();
+        let mut r = &frame[..];
+        let back: ToGuest = decode(&read_frame(&mut r, MAX_FRAME_BYTES, LONG, LONG).await.unwrap()).unwrap();
         match back {
             ToGuest::Doc(frame) => {
                 assert_eq!(frame.project, project);

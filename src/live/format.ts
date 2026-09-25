@@ -2,7 +2,7 @@
 // and colors, who is where, chat grouping and time labels, invites.
 // No DOM, no store. Tested in format.test.ts.
 
-import type { ChatMessage, LiveMode, LiveStatus, Participant, Presence } from "../contract/bindings";
+import type { ChatMessage, LiveMode, LiveRelay, LiveStatus, Participant, Presence } from "../contract/bindings";
 
 /** Participant colors: `Participant::color` indexes `--peer-0` to `--peer-7`. */
 export const PEER_COLORS = 8;
@@ -271,6 +271,8 @@ export const INVITE_PREFIX = "guhit-live:";
 export interface InviteInfo {
   project: string | null;
   addrs: string[];
+  /** The host also takes guests through a relay (DECISIONS D32): the invite works over the internet. */
+  relay: boolean;
 }
 
 function fromBase64Url(text: string): string | null {
@@ -287,8 +289,9 @@ function fromBase64Url(text: string): string | null {
 
 /**
  * Reads what an invite says about the session, to show before joining:
- * the project name and the host's addresses. Null when the text is not a
- * Guhit invite. The secret and pin are checked by the engine, not here.
+ * the project name, the host's addresses and whether a relay carries it.
+ * Null when the text is not a Guhit invite. The secret, pin and relay are
+ * checked by the engine, not here.
  */
 export function parseInvite(text: string): InviteInfo | null {
   const t = text.trim();
@@ -299,8 +302,26 @@ export function parseInvite(text: string): InviteInfo | null {
     const v = JSON.parse(json) as Record<string, unknown>;
     if (typeof v !== "object" || v === null || typeof v.secret !== "string" || typeof v.pin !== "string") return null;
     const addrs = Array.isArray(v.addrs) ? v.addrs.filter((a): a is string => typeof a === "string") : [];
-    return { project: typeof v.project === "string" && v.project.trim() !== "" ? v.project : null, addrs };
+    const r = v.relay as Record<string, unknown> | null | undefined;
+    const relay = typeof r === "object" && r !== null && typeof r.url === "string" && typeof r.room === "string";
+    return { project: typeof v.project === "string" && v.project.trim() !== "" ? v.project : null, addrs, relay };
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------- reach
+
+/**
+ * Who can use a host's invite right now (DECISIONS D32): anyone over the
+ * internet once the relay has the session, people on the host's network or
+ * VPN when it listens for direct connections, else no one until the relay
+ * is back.
+ */
+export type Reach = "internet" | "connecting" | "network" | "nowhere";
+
+export function reachOf(relay: LiveRelay, direct: boolean): Reach {
+  if (relay === "ready") return "internet";
+  if (relay === "connecting") return "connecting";
+  return direct ? "network" : "nowhere";
 }

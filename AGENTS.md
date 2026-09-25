@@ -27,6 +27,7 @@ Stop:
 | `crates/guhit-app` | App service: project store, session, exports, AI (`src/ai/`), live sessions (`src/live/`), window requests (`src/window.rs`) | No Tauri dependency. Single entry `AppService::handle`. Pushes to the window through `AppService::events()`. |
 | `crates/guhit-mcp` | MCP server over `guhit-app`, for Claude Code and other MCP clients | `docs/MCP.md`. Reuses the copilot's tool translation. |
 | `crates/guhit-devbridge` | Dev-only HTTP transport over `guhit-app` | Port 1430. Also serves `/mcp`. |
+| `crates/guhit-relay` | Relay for live sessions over the internet: pairs a guest with the host and forwards their bytes | DECISIONS D32. Protocol, settings and deploying: `docs/RELAY.md`. No accounts, stores nothing, no app code. |
 | `src-tauri` | Desktop shell | One `ipc` command. No logic. Hosts `/mcp` on 127.0.0.1:1450. |
 | `src/contract` | `ipc.ts` client and generated `bindings/` | Never hand-edit `bindings/`. |
 | `src/state` | Zustand store and event bus | Frontend join point. |
@@ -34,7 +35,7 @@ Stop:
 | `src/editor2d` | 2D plan canvas and tools | |
 | `src/viewer3d` | Three.js live 3D | |
 | `src/ai` | Copilot dock | "Only the selection" limits AI edits (DECISIONS D30). |
-| `src/live` | Live session UI: presence sync, remote cursors, cursor chat, Chat panel, share and join | DECISIONS D29. |
+| `src/live` | Live session UI: presence sync, remote cursors, cursor chat, Chat panel, share and join | DECISIONS D29, D32. |
 | `fixtures/` | Golden sample projects: `sample-bungalow`, `plumbing-demo` ("Bungalow with services": plumbing, storm, electrical and aircon) | Regenerate both: `cargo run -p guhit-core --example gen_fixture` |
 | `site/` | Website: the public landing page, plain HTML/CSS/JS, no build step, no dependencies | Deployed to GitHub Pages by `.github/workflows/pages.yml` on a push to main that touches `site/**`. Serve locally with `python3 -m http.server 8090 --directory site`. Brand assets come from `assets/brand/`; app screenshots are optimized WebP copies under `site/assets/`. |
 
@@ -71,7 +72,7 @@ cargo build -p guhit-studio                     # desktop shell compiles
 pnpm gen:types                                  # after any guhit-model change
 pnpm typecheck && pnpm build                    # frontend
 node scripts/csp-check.mjs                      # the build under the release CSP (needs pnpm bridge)
-node scripts/live-check.mjs                     # two tabs in a live session, plus MCP (needs cargo build -p guhit-devbridge)
+node scripts/live-check.mjs                     # two tabs in a live session through a local relay, plus MCP (needs cargo build -p guhit-devbridge -p guhit-relay)
 ```
 
 Run the full app in a browser (real Rust engine, no desktop shell):

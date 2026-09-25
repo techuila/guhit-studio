@@ -270,8 +270,9 @@ open (the dev bridge with no browser) they answer `no_window`.
 
 ### Live sessions
 
-DECISIONS D29. When the window is in a live session, several people edit the
-same plan from their own computers, and every MCP edit shows up for all of
+DECISIONS D29 and D32. When the window is in a live session, several people
+edit the same plan from their own computers, on the same network or VPN or
+over the internet through the relay, and every MCP edit shows up for all of
 them. An MCP client on a guest's computer works too: its edits go to the host
 like the guest's own.
 

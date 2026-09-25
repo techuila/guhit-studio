@@ -19,6 +19,7 @@ export const LIVE_OFF: LiveStatus = {
   participants: [],
   invite: null,
   addresses: [],
+  relay: "off",
   project_id: null,
   project_name: null,
   notice: null,
