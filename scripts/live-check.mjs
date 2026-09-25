@@ -112,12 +112,23 @@ async function openTab(browser, who) {
   page.errors = 0;
   page.on("console", (m) => {
     if (m.type() !== "error") return;
+    // A failed IPC call is counted below, by its error code.
+    if (m.text().startsWith("Failed to load resource") && m.location().url.includes("/ipc/")) return;
     page.errors++;
     console.log(`[${who.name} console.error] ${m.text()}`);
   });
   page.on("pageerror", (e) => {
     page.errors++;
     console.log(`[${who.name} pageerror] ${e.message}`);
+  });
+  // The dev bridge answers an IPC error with HTTP 400, which the browser
+  // logs. Only the question the undo asks first is expected here.
+  page.on("response", async (r) => {
+    if (r.status() < 400 || !r.url().includes("/ipc/")) return;
+    const body = await r.json().catch(() => ({}));
+    if (body.code === "other_author") return;
+    page.errors++;
+    console.log(`[${who.name} ipc ${r.url().split("/ipc/")[1]} -> ${r.status()}] ${JSON.stringify(body).slice(0, 200)}`);
   });
   await page.goto(`http://localhost:${UI_PORT}/?bridge=${encodeURIComponent(bridgeUrl(who))}`, { waitUntil: "networkidle" });
   return page;
@@ -171,8 +182,7 @@ try {
   await ana.click(`[aria-label="Open ${project}"]`);
   await ana.waitForSelector('nav[aria-label="Drawing tools"]');
   await ana.getByRole("button", { name: "Share" }).click();
-  const anaName = ana.getByPlaceholder("How others see you");
-  if (await anaName.count()) await anaName.fill(A.name);
+  await ana.getByPlaceholder("How others see you").fill(A.name);
   await ana.getByRole("button", { name: "Start live session" }).click();
   const invite = await until("the invite", async () => ana.locator('[aria-label="Invite"]').inputValue(), 15000);
   check("Ana hosts and gets an invite", invite.startsWith("guhit-live:"), `${invite.length} characters`);
@@ -182,8 +192,7 @@ try {
   // ---- Ben joins from the hub.
   await ben.getByRole("button", { name: /Join a live session/ }).first().click();
   await ben.getByPlaceholder("Paste the invite the host sent you").fill(invite);
-  const benName = ben.getByPlaceholder("How others see you");
-  if (await benName.count()) await benName.fill(B.name);
+  await ben.getByPlaceholder("How others see you").fill(B.name);
   await shot(ben, "02-ben-join-dialog");
   await ben.getByRole("button", { name: "Join", exact: true }).click();
   await ben.waitForSelector('nav[aria-label="Drawing tools"]', { timeout: 20000 });
@@ -225,8 +234,8 @@ try {
 
   // ---- Ben answers from the Chat panel.
   await ben.getByRole("tab", { name: /Chat/ }).click();
-  await ben.getByLabel("Chat message").fill("Sige, ililipat ko ang pinto");
-  await ben.getByLabel("Chat message").press("Enter");
+  await ben.getByLabel("Chat message", { exact: true }).fill("Sige, ililipat ko ang pinto");
+  await ben.getByLabel("Chat message", { exact: true }).press("Enter");
   const reply = await until("Ben's reply at Ana", async () => (await ipc(A, "chat_list")).find((m) => m.text.startsWith("Sige")) ?? null, 10000).catch(() => null);
   check("Ben's panel message reaches Ana", !!reply && reply.author_name === B.name);
   await shot(ben, "04-ben-chat-panel");
@@ -250,6 +259,8 @@ try {
   await ana.evaluate(() => window.__app.getState().undo());
   const asked = await until("the question", async () => ana.evaluate(() => window.__app.getState().undoConfirm?.message ?? null), 5000).catch(() => null);
   check("undoing Ben's step asks Ana first", !!asked && asked.includes(B.name), asked);
+  await ana.getByRole("button", { name: "Undo anyway" }).waitFor();
+  await ana.waitForTimeout(500); // the dialog's entrance
   await shot(ana, "05-ana-undo-asks");
   await ana.getByRole("button", { name: "Undo anyway" }).click();
   const undone = await until("the undo at Ben", async () =>
