@@ -11,9 +11,9 @@
 //   ?live=reconnecting  joined, the connection to Ana dropped
 //   ?live=off           no session, the project keeps a past chat (default)
 // `window.__liveDemo` drives it from the console or a ui-check step file:
-// setMode, pause, resume, move, select, type, say, leave.
+// setMode, setRelay, pause, resume, move, select, type, say, leave.
 
-import type { AppEvent, ChatMessage, DocState, IpcError, LiveMode, LiveStatus, Participant, Point, Presence, ProjectMeta } from "../../contract/bindings";
+import type { AppEvent, ChatMessage, DocState, IpcError, LiveMode, LiveRelay, LiveStatus, Participant, Point, Presence, ProjectMeta } from "../../contract/bindings";
 
 export interface LiveMockHost {
   /** The mock's IPC handler table: live handlers are added to it. */
@@ -52,6 +52,8 @@ const BEN = "p-ben";
 export function installLiveMock(host: LiveMockHost, initial: string | null): void {
   let profile = "Mara Santos";
   let mode: LiveMode = "off";
+  /** The hosted session's registration with the relay (DECISIONS D32). */
+  let relay: LiveRelay = "off";
   let participants: Participant[] = [];
   let notice: string | null = null;
   const peers = new Map<string, Presence>();
@@ -60,7 +62,7 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
   const t0 = Date.now();
   const iso = (agoMs: number) => new Date(Date.now() - agoMs).toISOString();
 
-  const invite = `guhit-live:${b64url(JSON.stringify({ v: 1, secret: "q7Zr0cXlUz3k9vJ2m4NwPg", pin: "3uJ0n8x2vVqk1c5Y7mR9sT4wZ6aB0dE2fG4hJ6kL8nP", addrs: ["192.168.1.20:1460", "127.0.0.1:1460"], project: host.projectName }))}`;
+  const invite = `guhit-live:${b64url(JSON.stringify({ v: 2, secret: "q7Zr0cXlUz3k9vJ2m4NwPg", pin: "3uJ0n8x2vVqk1c5Y7mR9sT4wZ6aB0dE2fG4hJ6kL8nP", addrs: ["192.168.1.20:1460", "100.101.7.12:1460", "127.0.0.1:1460"], project: host.projectName, relay: { url: "wss://relay.example.com", room: "Xo3Wm9qTz1Lr8Vb2Nc5Ydg" } }))}`;
 
   const chat: ChatMessage[] = [
     { id: "m-1", author_id: ANA, author_name: "Ana Reyes", color: 1, text: "I moved the bedroom door so the bed fits the long wall.", sent_at: iso(26 * 3600e3), at: null, level_id: null, via_ai: false },
@@ -74,7 +76,8 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
     self_id: mode === "off" ? null : SELF,
     participants: mode === "off" ? [] : participants,
     invite: mode === "hosting" ? invite : null,
-    addresses: mode === "hosting" ? ["192.168.1.20:1460", "127.0.0.1:1460"] : [],
+    addresses: mode === "hosting" ? ["192.168.1.20:1460", "100.101.7.12:1460", "127.0.0.1:1460"] : [],
+    relay: mode === "hosting" ? relay : "off",
     project_id: mode === "off" ? null : host.projectId,
     project_name: mode === "off" ? null : host.projectName,
     notice,
@@ -99,6 +102,7 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
   const enter = (next: DemoMode) => {
     notice = null;
     peers.clear();
+    relay = next === "demo" ? "ready" : "off";
     if (next === "off") {
       mode = "off";
       participants = [];
@@ -143,8 +147,15 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
       await new Promise((r) => setTimeout(r, 450));
       mode = "hosting";
       notice = null;
+      relay = "connecting";
       participants = [{ id: SELF, name: profile, color: 0, role: "host" }];
       emitStatus();
+      // The relay takes the session a moment later.
+      setTimeout(() => {
+        if (mode !== "hosting" || relay !== "connecting") return;
+        relay = "ready";
+        emitStatus();
+      }, 1200);
       // Someone joins a moment later.
       setTimeout(() => {
         if (mode !== "hosting" || participants.some((p) => p.id === ANA)) return;
@@ -167,7 +178,7 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
         fail("live_refused", "That invite is not for a live session.");
       }
       // A project named "... unreachable" tries the failure path.
-      if (/unreachable/i.test(project)) fail("live_unreachable", "No address in the invite answered. Check that you are on the same network or VPN as the host.");
+      if (/unreachable/i.test(project)) fail("live_unreachable", "Could not reach the host at 192.168.1.20:1460, and the relay says the host is not online: the live session may have ended.");
       const doc = host.openShared();
       enter("guest");
       return doc;
@@ -259,6 +270,11 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
 
   (window as unknown as { __liveDemo: unknown }).__liveDemo = {
     setMode: (m: DemoMode) => enter(m),
+    /** The hosted session's relay state, for the Share dialog's reach line. */
+    setRelay: (r: LiveRelay) => {
+      relay = r;
+      emitStatus();
+    },
     pause: () => {
       paused = true;
     },

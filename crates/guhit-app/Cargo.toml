@@ -36,6 +36,27 @@ rcgen = { version = "0.14", default-features = false, features = ["ring"] }
 # certificate pin and the constant-time secret check.
 ring = "0.17"
 
+# --- live session relay deps (DECISIONS D32, docs/RELAY.md) ---
+# flate2: already in the tree through zip. Deflates large live session frames
+# (the whole plan goes to every guest on each change). Pure Rust backend only,
+# so a Windows build needs no C toolchain.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# if-addrs: every network address of the host for the invite, so a guest on a
+# VPN such as Tailscale reaches it without the relay.
+if-addrs = "0.15"
+# url: already in the tree through reqwest. Checks the relay address setting.
+url = "2"
+# tokio-tungstenite: the WebSocket client for the relay. 0.29 is the version
+# axum's `ws` feature uses in guhit-relay, so the tree has one copy. Handshake
+# only: TLS comes from tokio-rustls below, with the ring provider.
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+# futures-util: already in the tree through reqwest and hyper. Splits the
+# relay WebSocket so reading and writing never wait on each other.
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# rustls-platform-verifier: already in the tree through reqwest. Checks the
+# relay's certificate against the operating system's trust store.
+rustls-platform-verifier = "0.7"
+
 # --- ai agent deps below this line ---
 # reqwest: HTTPS client for the Claude Messages API. rustls with the ring
 # provider and the OS trust store, so Windows builds need no OpenSSL or NASM.
@@ -48,3 +69,9 @@ keyring = "4.2"
 [dev-dependencies]
 # tempfile: throwaway data dirs for the AI tests.
 tempfile = "3"
+# guhit-relay: the real relay, run in process by the live session tests
+# (tests/live.rs), so joining through it is tested against the service itself.
+guhit-relay = { path = "../guhit-relay" }
+# tokio: the multi-thread runtime, so a test can run the relay on a runtime of
+# its own and stop it all at once, as a crash or a restart would.
+tokio = { version = "1", features = ["rt-multi-thread"] }

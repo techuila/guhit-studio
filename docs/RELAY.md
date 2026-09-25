@@ -107,7 +107,8 @@ Settings, from environment variables:
 
 | Variable | Default | What |
 |---|---|---|
-| `PORT` | `8080` | Port to listen on, all interfaces, plain HTTP |
+| `PORT` | `8080` | Port to listen on, plain HTTP |
+| `RELAY_BIND` | `0.0.0.0` | Address to listen on. `127.0.0.1` keeps a local relay on this computer |
 | `RELAY_MAX_ROOMS` | `5000` | Rooms at once |
 | `RELAY_MAX_CONNECTIONS` | `20000` | WebSockets at once |
 | `RELAY_MAX_PER_IP` | `64` | WebSockets at once from one client address |
@@ -123,17 +124,22 @@ Settings, from environment variables:
 The relay speaks plain HTTP. TLS comes from whatever is in front of it: the
 hosting platform, or a reverse proxy.
 
-- Local: `PORT=1470 cargo run -p guhit-relay`, then the app setting
-  `"live_relay": "ws://127.0.0.1:1470"`.
+- Local: `RELAY_BIND=127.0.0.1 PORT=1470 cargo run -p guhit-relay`, then the
+  app setting `"live_relay": "ws://127.0.0.1:1470"`. On loopback nothing
+  outside this computer reaches it, and the macOS firewall does not ask.
 - Container: `docker build -f crates/guhit-relay/Dockerfile -t guhit-relay .`
   from the repository root, then `docker run -p 8080:8080 guhit-relay`.
 - Fly.io: `crates/guhit-relay/fly.toml` runs one machine in Singapore
   (`sin`), close to the Philippines. `fly launch --no-deploy --copy-config
-  --config crates/guhit-relay/fly.toml` once, then `fly deploy --config
-  crates/guhit-relay/fly.toml` from the repository root. The URL is
-  `wss://<app>.fly.dev`.
+  --config crates/guhit-relay/fly.toml` once, then `fly deploy --ha=false
+  --config crates/guhit-relay/fly.toml` from the repository root. Without
+  `--ha=false` the first deploy starts two machines, which would split the
+  rooms between them. The URL is `wss://<app>.fly.dev`.
 - Any server: run the container and put a TLS proxy in front, for example
-  Caddy with `relay.example.com { reverse_proxy 127.0.0.1:8080 }`.
+  Caddy with `relay.example.com { reverse_proxy 127.0.0.1:8080 }`. The relay
+  serves its endpoints from `/`, so a proxy that puts it under a path prefix
+  strips the prefix: `example.com { handle_path /guhit/* { reverse_proxy
+  127.0.0.1:8080 } }` for the base URL `wss://example.com/guhit`.
 
 One small machine is enough to start: the relay keeps rooms in memory and
 forwards bytes. The app sends the whole project to every guest on each
@@ -157,12 +163,18 @@ Details of the invite and the app's side: `docs/CONTRACT.md`, "Live sessions".
 For tests, `guhit-relay` is also a library:
 
 ```rust
-pub struct Config { /* every limit and timeout above, public fields */ }
+pub struct Config { /* every setting, limit and timeout above, public fields */ }
 impl Default for Config { /* the defaults above */ }
-impl Config { pub fn from_env() -> Config }
+impl Config {
+    pub fn from_env() -> Config;
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Config, String>;
+}
 pub fn router(config: Config) -> axum::Router;
 pub async fn serve(listener: tokio::net::TcpListener, config: Config) -> std::io::Result<()>;
 ```
 
+`from_env` reads the variables in the table; an empty one counts as unset, and
+one that does not parse ends the process with a message naming it.
+`from_lookup` does the same from any source and returns the message instead.
 `serve` runs until the listener fails. Tests bind `127.0.0.1:0` and pass the
 listener in.

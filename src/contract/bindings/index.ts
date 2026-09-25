@@ -49,6 +49,7 @@ export type { LayerKey } from "./LayerKey";
 export type { Level } from "./Level";
 export type { Linework } from "./Linework";
 export type { LiveMode } from "./LiveMode";
+export type { LiveRelay } from "./LiveRelay";
 export type { LiveStatus } from "./LiveStatus";
 export type { Material } from "./Material";
 export type { MaterialCategory } from "./MaterialCategory";

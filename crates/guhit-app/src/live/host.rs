@@ -1,12 +1,14 @@
-//! Hosting a live session: the listener, each guest's connection, and
-//! sending every change of the host's document, presence and chat to
-//! everyone (docs/CONTRACT.md, "Live sessions").
+//! Hosting a live session: the listener, the relay registration, each
+//! guest's connection, and sending every change of the host's document,
+//! presence and chat to everyone (docs/CONTRACT.md, "Live sessions").
 //!
-//! Tasks of one session: the accept loop, the document broadcaster (woken by
-//! `AppService::watch_changes`, so a change made by the window, the copilot,
-//! an MCP client or a guest goes out the same way), the presence ticker, and
-//! per guest a reader (its requests) and a writer (`wire::write_loop`). All of
-//! them stop when `Host::shutdown` is set.
+//! Tasks of one session: the accept loop (direct connections, unless
+//! `live_direct` is false), the relay's control loop and one task per guest
+//! it announces (`relay::host_loop`, when there is a relay), the document
+//! broadcaster (woken by `AppService::watch_changes`, so a change made by the
+//! window, the copilot, an MCP client or a guest goes out the same way), the
+//! presence ticker, and per guest a reader (its requests) and a writer
+//! (`wire::write_loop`). All of them stop when `Host::shutdown` is set.
 //!
 //! Locks, outermost first: the session, `Host::chat_order`, `Host::inner`,
 //! the live role, the live status. Only the session lock is held across an
@@ -30,7 +32,8 @@ use tokio::io::{AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, watch, OwnedSemaphorePermit, Semaphore};
 
-use super::invite::{Invite, INVITE_VERSION};
+use super::invite::{Invite, InviteRelay, INVITE_VERSION, MAX_ADDRS};
+use super::relay::{self, RelayUrl, Room};
 use super::tls::{BoxIo, HostIdentity, HostTls};
 use super::wire::{self, *};
 use super::{
@@ -45,6 +48,17 @@ pub const DEFAULT_PORT: u16 = 1460;
 /// Ports tried from `live_port` up, before the system picks one.
 const PORT_TRIES: u16 = 10;
 const PORT_KEY: &str = "live_port";
+/// settings.json: the relay's address (docs/RELAY.md). Empty: no relay.
+const RELAY_KEY: &str = "live_relay";
+/// settings.json: false makes a host take guests through the relay only.
+const DIRECT_KEY: &str = "live_direct";
+/// The relay this build was made with, for when settings.json does not name
+/// one: `GUHIT_RELAY_URL` at compile time. Release builds get the deployed
+/// relay this way.
+const BUILT_IN_RELAY: Option<&str> = option_env!("GUHIT_RELAY_URL");
+/// Most network addresses an invite lists, so loopback still fits in the
+/// invite's `MAX_ADDRS`.
+const MAX_NETWORK_ADDRS: usize = MAX_ADDRS - 1;
 /// Connections still in the TLS handshake or before their hello. More are
 /// closed at once.
 const MAX_WAITING: usize = 8;
@@ -167,22 +181,110 @@ fn lan_ipv4() -> Option<Ipv4Addr> {
     }
 }
 
-/// Where guests reach this computer: the LAN address first (when listening
-/// on every interface and there is one), loopback last.
-fn addresses(lan_ip: Option<Ipv4Addr>, port: u16) -> Vec<String> {
-    let mut out = vec![];
-    if let Some(ip) = lan_ip {
-        out.push(format!("{ip}:{port}"));
+/// Every IPv4 address of this computer's network interfaces. Empty when the
+/// system does not say.
+fn interface_ipv4s() -> Vec<Ipv4Addr> {
+    let Ok(interfaces) = if_addrs::get_if_addrs() else {
+        return vec![];
+    };
+    interfaces
+        .iter()
+        .filter_map(|i| match i.ip() {
+            IpAddr::V4(ip) => Some(ip),
+            IpAddr::V6(_) => None,
+        })
+        .collect()
+}
+
+/// 100.64.0.0/10, carrier-grade NAT space: Tailscale and similar VPNs give
+/// their members addresses from it.
+fn is_shared(ip: Ipv4Addr) -> bool {
+    let [a, b, _, _] = ip.octets();
+    a == 100 && (64..128).contains(&b)
+}
+
+/// The addresses guests may reach this computer at, best first: the one the
+/// default route leaves from, then private networks (home and office LANs),
+/// then 100.64.0.0/10 (VPNs such as Tailscale), then any other. Loopback,
+/// link-local, unspecified, broadcast and multicast addresses are left out,
+/// and so are repeats. At most `MAX_NETWORK_ADDRS`.
+fn order_addresses(default_route: Option<Ipv4Addr>, found: &[Ipv4Addr]) -> Vec<Ipv4Addr> {
+    let rank = |ip: &Ipv4Addr| match *ip {
+        ip if Some(ip) == default_route => 0,
+        ip if ip.is_private() => 1,
+        ip if is_shared(ip) => 2,
+        _ => 3,
+    };
+    let mut out: Vec<Ipv4Addr> = vec![];
+    for ip in default_route.into_iter().chain(found.iter().copied()) {
+        let unusable =
+            ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() || ip.is_broadcast() || ip.is_multicast();
+        if !unusable && !out.contains(&ip) {
+            out.push(ip);
+        }
     }
-    out.push(format!("127.0.0.1:{port}"));
+    // Stable: interfaces of the same kind keep the system's order.
+    out.sort_by_key(rank);
+    out.truncate(MAX_NETWORK_ADDRS);
     out
+}
+
+/// Where guests reach this computer directly: `ips` in order, then
+/// loopback, for a guest on the same computer.
+fn addresses(ips: &[Ipv4Addr], port: u16) -> Vec<String> {
+    ips.iter().map(|ip| format!("{ip}:{port}")).chain([format!("127.0.0.1:{port}")]).collect()
+}
+
+/// The relay a session registers with: `live_relay` in settings.json, else
+/// the one this build was made with. Empty text, from either, is no relay.
+fn relay_setting(settings: &serde_json::Map<String, Value>) -> Result<Option<RelayUrl>, IpcError> {
+    let (text, from_settings) = match settings.get(RELAY_KEY) {
+        None | Some(Value::Null) => (BUILT_IN_RELAY.unwrap_or_default(), false),
+        Some(Value::String(text)) => (text.as_str(), true),
+        Some(_) => {
+            return Err(IpcError::new(
+                "invalid",
+                "\"live_relay\" in settings.json must be text: the relay's wss:// address, or \"\" to switch the relay off.",
+            ))
+        }
+    };
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    relay::check_url(text).map(Some).map_err(|why| {
+        let message = if from_settings {
+            format!(
+                "\"live_relay\" in settings.json is not a relay address Guhit Studio can use: {why}. Set it to the relay's wss:// address, or to \"\" to switch the relay off."
+            )
+        } else {
+            format!(
+                "The relay address this build was made with cannot be used: {why}. Set \"live_relay\" in settings.json to the relay's wss:// address, or to \"\" to switch the relay off."
+            )
+        };
+        IpcError::new("invalid", message)
+    })
+}
+
+/// Whether a session takes direct connections: `live_direct` in
+/// settings.json, true unless it is false.
+fn direct_setting(settings: &serde_json::Map<String, Value>) -> Result<bool, IpcError> {
+    match settings.get(DIRECT_KEY) {
+        None | Some(Value::Null) => Ok(true),
+        Some(Value::Bool(direct)) => Ok(*direct),
+        Some(_) => Err(IpcError::new("invalid", "\"live_direct\" in settings.json must be true or false.")),
+    }
 }
 
 /// Listen on every IPv4 interface (the desktop app) or on loopback (the dev
 /// bridge). A port the caller names must be free; otherwise `live_port` from
 /// settings.json (1460 by default) and the nine after it are tried, then one
 /// the system picks.
-async fn bind(lan: bool, port: Option<u16>, data_dir: &Path) -> Result<TcpListener, IpcError> {
+async fn bind(
+    lan: bool,
+    port: Option<u16>,
+    settings: &serde_json::Map<String, Value>,
+) -> Result<TcpListener, IpcError> {
     let ip = if lan { Ipv4Addr::UNSPECIFIED } else { Ipv4Addr::LOCALHOST };
     if let Some(port) = port {
         return TcpListener::bind((ip, port)).await.map_err(|e| {
@@ -196,7 +298,7 @@ async fn bind(lan: bool, port: Option<u16>, data_dir: &Path) -> Result<TcpListen
             }
         });
     }
-    let first = settings_of(data_dir)
+    let first = settings
         .get(PORT_KEY)
         .and_then(Value::as_u64)
         .and_then(|p| u16::try_from(p).ok())
@@ -212,7 +314,9 @@ async fn bind(lan: bool, port: Option<u16>, data_dir: &Path) -> Result<TcpListen
         .map_err(|e| IpcError::new("io", format!("Could not listen for guests: {e}")))
 }
 
-/// `live_host`: share the open project.
+/// `live_host`: share the open project. Guests reach it directly (unless
+/// `live_direct` is false), through the relay when there is one, or both.
+/// The relay registration runs on its own; this does not wait for it.
 pub(crate) async fn start(app: &AppService, port: Option<u16>) -> Result<LiveStatus, IpcError> {
     match app.live.role() {
         Role::Host(_) => return Ok(app.live.status()),
@@ -233,23 +337,45 @@ pub(crate) async fn start(app: &AppService, port: Option<u16>) -> Result<LiveSta
         let doc = s.open_doc()?;
         (doc.project().id.clone(), doc.project().name.clone(), s.data_dir.clone())
     };
-    let listener = bind(app.lan, port, &data_dir).await?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| IpcError::new("io", format!("Could not listen for guests: {e}")))?
-        .port();
-    let addresses = addresses(if app.lan { lan_ipv4() } else { None }, port);
+    let settings = settings_of(&data_dir);
+    let relay_url = relay_setting(&settings)?;
+    let direct = direct_setting(&settings)?;
+    if !direct && relay_url.is_none() {
+        return Err(IpcError::new(
+            "invalid",
+            "Direct connections are off (\"live_direct\": false in settings.json) and there is no relay, so no one could join. Set \"live_direct\" to true, or set \"live_relay\" to a relay's address.",
+        ));
+    }
+    // Direct connections off: nothing listens, so a port does not apply.
+    let listener = if direct { Some(bind(app.lan, port, &settings).await?) } else { None };
+    let addresses = match &listener {
+        Some(listener) => {
+            let port = listener
+                .local_addr()
+                .map_err(|e| IpcError::new("io", format!("Could not listen for guests: {e}")))?
+                .port();
+            let ips = if app.lan { order_addresses(lan_ipv4(), &interface_ipv4s()) } else { vec![] };
+            addresses(&ips, port)
+        }
+        None => vec![],
+    };
     let identity = HostIdentity::new()?;
     let rng = SystemRandom::new();
     let secret = random_text(&rng, 16)?;
     let key = hmac::Key::generate(hmac::HMAC_SHA256, &rng)
         .map_err(|_| IpcError::new("io", "This computer gave no random numbers for the session key."))?;
     let secret_tag = hmac::sign(&key, secret.as_bytes());
+    // The session's room on the relay, and the key that proves it is ours.
+    let room = match relay_url {
+        Some(url) => Some(Room::new(url, random_text(&rng, 16)?, random_text(&rng, 32)?)),
+        None => None,
+    };
     let invite = Invite {
         v: INVITE_VERSION,
         secret,
         pin: identity.pin,
         addrs: addresses.clone(),
+        relay: room.as_ref().map(|r| InviteRelay { url: r.url.as_str().to_string(), room: r.id.clone() }),
         project: project_name.clone(),
     }
     .encode();
@@ -277,6 +403,7 @@ pub(crate) async fn start(app: &AppService, port: Option<u16>) -> Result<LiveSta
         participants: vec![me.clone()],
         invite: Some(invite),
         addresses,
+        relay: if room.is_some() { LiveRelay::Connecting } else { LiveRelay::Off },
         project_id: Some(project_id),
         project_name: Some(project_name),
         notice: None,
@@ -293,11 +420,37 @@ pub(crate) async fn start(app: &AppService, port: Option<u16>) -> Result<LiveSta
         app.live.set_status(status.clone());
     }
     app.live.remember_name(&me.id, &me.name);
-    tokio::spawn(accept_loop(app.clone(), host.clone(), listener));
+    // Out before the relay's first news, which may come at once.
+    app.emit(AppEvent::Live { status });
+    if let Some(listener) = listener {
+        tokio::spawn(accept_loop(app.clone(), host.clone(), listener));
+    }
+    if let Some(room) = room {
+        tokio::spawn(relay::host_loop(app.clone(), host.clone(), room));
+    }
     tokio::spawn(broadcast_loop(app.clone(), host.clone(), changes));
     tokio::spawn(presence_loop(app.clone(), host));
-    app.emit(AppEvent::Live { status: status.clone() });
-    Ok(status)
+    // The status as it is now: the relay may have answered already.
+    Ok(app.live.status())
+}
+
+/// The session's registration with the relay changed. Shown in the status
+/// while `host` is still the session this computer runs.
+pub(crate) fn relay_changed(app: &AppService, host: &Arc<Host>, relay: LiveRelay) {
+    let role = lock(&app.live.role);
+    if !matches!(&*role, Role::Host(h) if Arc::ptr_eq(h, host)) {
+        return;
+    }
+    let mut changed = false;
+    let status = app.live.edit_status(|s| {
+        changed = s.relay != relay;
+        s.relay = relay;
+    });
+    // Sent under the role lock, so it never lands after the event that ends
+    // the session.
+    if changed {
+        app.emit(AppEvent::Live { status });
+    }
 }
 
 /// End the session for everyone: each guest gets `notice`, the listener
@@ -447,6 +600,11 @@ pub(crate) fn chat(
 impl Host {
     fn project_dir(&self) -> Result<PathBuf, IpcError> {
         store::project_dir(&self.data_dir, &self.project_id)
+    }
+
+    /// Becomes true when the session ends, for the tasks that must stop then.
+    pub(crate) fn stopped(&self) -> watch::Receiver<bool> {
+        self.shutdown.subscribe()
     }
 
     fn secret_ok(&self, secret: &str) -> bool {
@@ -1172,9 +1330,89 @@ mod tests {
 
     #[test]
     fn addresses_put_loopback_last() {
-        assert_eq!(addresses(None, 1460), vec!["127.0.0.1:1460".to_string()]);
-        let lan = addresses(Some(Ipv4Addr::new(192, 168, 1, 20)), 1461);
-        assert_eq!(lan, vec!["192.168.1.20:1461".to_string(), "127.0.0.1:1461".to_string()]);
+        assert_eq!(addresses(&[], 1460), vec!["127.0.0.1:1460".to_string()]);
+        let lan = addresses(&[Ipv4Addr::new(192, 168, 1, 20), Ipv4Addr::new(100, 101, 102, 103)], 1461);
+        assert_eq!(lan, vec!["192.168.1.20:1461", "100.101.102.103:1461", "127.0.0.1:1461"]);
+    }
+
+    fn ip(text: &str) -> Ipv4Addr {
+        text.parse().unwrap()
+    }
+
+    fn ips(list: &[&str]) -> Vec<Ipv4Addr> {
+        list.iter().map(|t| ip(t)).collect()
+    }
+
+    #[test]
+    fn addresses_go_default_route_first_then_lans_then_vpns() {
+        let found = ips(&[
+            "127.0.0.1",
+            "203.0.113.7",
+            "100.101.102.103",
+            "169.254.3.4",
+            "10.0.0.5",
+            "192.168.1.20",
+            "172.16.4.1",
+            "0.0.0.0",
+            "255.255.255.255",
+            "224.0.0.251",
+            "10.0.0.5",
+        ]);
+        let ordered = order_addresses(Some(ip("192.168.1.20")), &found);
+        assert_eq!(ordered, ips(&["192.168.1.20", "10.0.0.5", "172.16.4.1", "100.101.102.103", "203.0.113.7"]));
+
+        // Without a default route, private ranges still lead. 100.64.0.0/10
+        // ends at 100.127.255.255.
+        let ordered = order_addresses(None, &ips(&["100.128.0.1", "100.64.0.1", "192.168.0.2"]));
+        assert_eq!(ordered, ips(&["192.168.0.2", "100.64.0.1", "100.128.0.1"]));
+
+        // A default route that is a VPN or public address still comes first,
+        // even when the interface list missed it.
+        let ordered = order_addresses(Some(ip("100.100.1.1")), &ips(&["192.168.0.2"]));
+        assert_eq!(ordered, ips(&["100.100.1.1", "192.168.0.2"]));
+        // One that is unusable is left out.
+        assert!(order_addresses(Some(ip("169.254.1.1")), &[]).is_empty());
+        assert!(order_addresses(None, &ips(&["127.0.0.1"])).is_empty());
+
+        // At most seven, so loopback still fits the invite's eight.
+        let many: Vec<Ipv4Addr> = (1..=12).map(|i| Ipv4Addr::new(10, 0, 0, i)).collect();
+        let ordered = order_addresses(Some(ip("192.168.1.9")), &many);
+        assert_eq!(ordered.len(), MAX_NETWORK_ADDRS);
+        assert_eq!(ordered[0], ip("192.168.1.9"));
+        assert_eq!(ordered[1..], many[..MAX_NETWORK_ADDRS - 1]);
+        assert_eq!(addresses(&ordered, 1460).len(), MAX_ADDRS);
+    }
+
+    fn settings(json: Value) -> serde_json::Map<String, Value> {
+        json.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn the_relay_and_direct_settings_are_checked() {
+        let relay = |json: Value| relay_setting(&settings(json)).map(|url| url.map(|u| u.as_str().to_string()));
+        assert_eq!(relay(json!({ "live_relay": "wss://relay.example.com/" })).unwrap().as_deref(), Some("wss://relay.example.com"));
+        assert_eq!(relay(json!({ "live_relay": "  ws://127.0.0.1:1470 " })).unwrap().as_deref(), Some("ws://127.0.0.1:1470"));
+        // Empty switches it off, whatever the build says.
+        assert_eq!(relay(json!({ "live_relay": " " })).unwrap(), None);
+        // Absent: the build's relay, if it was made with one.
+        let built_in = BUILT_IN_RELAY.map(str::trim).filter(|t| !t.is_empty());
+        assert_eq!(relay(json!({})).ok().flatten().is_some(), built_in.is_some());
+        assert_eq!(relay(json!({ "live_relay": null })).ok().flatten().is_some(), built_in.is_some());
+
+        let err = relay(json!({ "live_relay": "ws://relay.example.com" })).unwrap_err();
+        assert_eq!(err.code, "invalid");
+        assert_eq!(
+            err.message,
+            "\"live_relay\" in settings.json is not a relay address Guhit Studio can use: ws:// works only for a relay on this computer. Set it to the relay's wss:// address, or to \"\" to switch the relay off."
+        );
+        assert_eq!(relay(json!({ "live_relay": 5 })).unwrap_err().code, "invalid");
+
+        let direct = |json: Value| direct_setting(&settings(json));
+        assert!(direct(json!({})).unwrap());
+        assert!(direct(json!({ "live_direct": true })).unwrap());
+        assert!(!direct(json!({ "live_direct": false })).unwrap());
+        let err = direct(json!({ "live_direct": "no" })).unwrap_err();
+        assert_eq!((err.code.as_str(), err.message.as_str()), ("invalid", "\"live_direct\" in settings.json must be true or false."));
     }
 
     #[test]

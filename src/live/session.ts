@@ -28,7 +28,9 @@ export async function ensureName(raw: string): Promise<boolean> {
 export async function startHosting(name: string): Promise<void> {
   if (!(await ensureName(name))) throw { code: "bad_args", message: "Add your name first. Others see it next to your pointer.", element_ids: [] };
   const status = await ipc.liveHost();
-  useLive.getState().setStatus(status);
+  // The session's events can be newer than this answer: a relay nearby
+  // answers before it arrives. So it only stands in for events not here yet.
+  if (useLive.getState().status.mode === "off") useLive.getState().setStatus(status);
 }
 
 /**

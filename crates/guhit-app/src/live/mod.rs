@@ -4,8 +4,10 @@
 //!
 //! - `host`: the listener, each guest's connection, and sending every change
 //!   of the host's document, presence and chat to everyone.
-//! - `guest`: joining, the read-only copy, reconnecting, and sending edits to
-//!   the host.
+//! - `guest`: joining (every way in at once, the first to answer wins), the
+//!   read-only copy, reconnecting, and sending edits to the host.
+//! - `relay`: reaching the host over the internet through the relay
+//!   (DECISIONS D32, docs/RELAY.md), for guests outside its network or VPN.
 //! - `wire`: frames and messages. `invite`: the invite. `tls`: the session
 //!   certificate and the pinned connection.
 //!
@@ -16,6 +18,7 @@
 mod guest;
 mod host;
 pub mod invite;
+pub mod relay;
 pub mod tls;
 pub mod wire;
 

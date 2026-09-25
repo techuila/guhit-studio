@@ -150,8 +150,9 @@ pub async fn tcp(addr: SocketAddr) -> Result<BoxIo, ConnectError> {
 }
 
 /// A guest's TLS handshake over `io`, trusting only the certificate `pin`
-/// (base64url SHA-256) names. Given `CONNECT_TIMEOUT`.
-pub async fn handshake(io: BoxIo, pin: &str) -> Result<GuestTls, ConnectError> {
+/// (base64url SHA-256) names, given `within`: `CONNECT_TIMEOUT` on a direct
+/// connection, longer through the relay, which the handshake crosses twice.
+pub async fn handshake(io: BoxIo, pin: &str, within: Duration) -> Result<GuestTls, ConnectError> {
     let pin = URL_SAFE_NO_PAD.decode(pin.as_bytes()).map_err(|_| ConnectError::WrongHost)?;
     let provider = provider();
     let verifier = Arc::new(Pinned { pin, provider: provider.clone(), mismatch: AtomicBool::new(false) });
@@ -164,7 +165,7 @@ pub async fn handshake(io: BoxIo, pin: &str) -> Result<GuestTls, ConnectError> {
     // There is no host name to send: the certificate is pinned.
     config.enable_sni = false;
     let name = ServerName::try_from(CERT_NAME).map_err(|_| ConnectError::Unreachable)?;
-    match tokio::time::timeout(CONNECT_TIMEOUT, TlsConnector::from(Arc::new(config)).connect(name, io)).await {
+    match tokio::time::timeout(within, TlsConnector::from(Arc::new(config)).connect(name, io)).await {
         Ok(Ok(stream)) => Ok(stream),
         _ if verifier.mismatch.load(Ordering::Relaxed) => Err(ConnectError::WrongHost),
         _ => Err(ConnectError::Unreachable),
@@ -174,7 +175,7 @@ pub async fn handshake(io: BoxIo, pin: &str) -> Result<GuestTls, ConnectError> {
 /// Open a TLS connection to `addr` that trusts only the certificate `pin`
 /// names: `tcp`, then `handshake`.
 pub async fn connect(addr: SocketAddr, pin: &str) -> Result<GuestTls, ConnectError> {
-    handshake(tcp(addr).await?, pin).await
+    handshake(tcp(addr).await?, pin, CONNECT_TIMEOUT).await
 }
 
 #[cfg(test)]

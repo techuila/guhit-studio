@@ -26,7 +26,7 @@
 | **Live 3D** | The same model extruded as you draw: real openings, roof presets (flat, shed, gable), CC0 materials and furniture, HDRI sky, cutaway, camera presets, captures tied to the model revision. |
 | **AI copilot** | Say "palakihin ang bedroom 300 mm sa east" and get a preview of the exact change. Nothing is committed until you approve; one undo reverts it. Answers about areas and counts come from the model, never from guesses. Select part of the plan and switch on **Only the selection**: the engine then refuses any AI change outside it. |
 | **Claude Code, Codex, Cursor** | The app is an MCP server. Drive it from your own AI subscription with `claude mcp add --transport http guhit http://localhost:1450/mcp`: draw plans, save views, capture and path trace renders, make AI visualizations, and change only what you selected in the window. See [docs/MCP.md](docs/MCP.md). |
-| **Live sessions** | Work on one plan together from several computers on the same network or VPN. Everyone's pointer shows in their own color with their name, press **/** to chat right at your pointer, and the Chat panel keeps the history. The project and its undo history stay on the host's computer; the others join with an invite. |
+| **Live sessions** | Work on one plan together from several computers: on the same network or VPN, or over the internet through a small relay that only forwards encrypted bytes. Everyone's pointer shows in their own color with their name, press **/** to chat right at your pointer, and the Chat panel keeps the history. The project and its undo history stay on the host's computer; the others join with an invite. |
 | **AI visualization** | Turn a model capture into a photorealistic image with a style preset, then drag a slider to compare it with the model view. Always labelled, never written back into the model. |
 | **Interoperability** | Export PDF and SVG sheets, DXF 2D and 3D, IFC4, glTF, OBJ, DAE, DWG (through the ODA File Converter) and `.guhit` bundles. Import DXF and DWG as recognized walls or linework, and glTF or OBJ as reference models. See [docs/INTEROP.md](docs/INTEROP.md). |
 | **Local first** | Projects are files on your computer. Versions, autosave, thumbnails. No account. |
@@ -113,6 +113,7 @@ crates/guhit-import    DXF parsing and wall recognition
 crates/guhit-app       application service: projects, versions, exports, imports, copilot, AI renders
 crates/guhit-mcp       the MCP server over the same service
 crates/guhit-devbridge dev-only HTTP transport
+crates/guhit-relay     the relay that carries live sessions over the internet (docs/RELAY.md)
 src-tauri              the desktop shell: one IPC command, the MCP endpoint, auto-update
 src/                   React UI: 2D editor (canvas), 3D viewer (three.js), shell, copilot
 site/                  the landing page, published with GitHub Pages
@@ -152,7 +153,7 @@ The 2D editor and 3D viewer also have scripted browser checks under `src/editor2
 
 ## Security
 
-Keys for the copilot and AI rendering are stored in the app's data folder with user-only permissions and never leave your machine except in requests to the provider you chose. The MCP endpoint and the dev bridge listen on localhost only and refuse other origins. Report a vulnerability privately through GitHub's security advisories on this repository rather than a public issue.
+Keys for the copilot and AI rendering are stored in the app's data folder with user-only permissions and never leave your machine except in requests to the provider you chose. The MCP endpoint and the dev bridge listen on localhost only and refuse other origins. A live session is TLS 1.3 from guest to host, pinned to the certificate named in the invite, so the relay can neither read nor change it; the relay stores nothing and has no accounts. Report a vulnerability privately through GitHub's security advisories on this repository rather than a public issue.
 
 ## License
 

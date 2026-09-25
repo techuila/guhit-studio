@@ -1,8 +1,9 @@
 // The live session dialog behind the Share button (DECISIONS D29).
 //   Off: your name and Start live session, with how it works.
-//   Hosting: the invite with Copy, the addresses, everyone with Remove, End session.
+//   Hosting: the invite with Copy, who can join with it (the relay's state),
+//   the addresses, everyone with Remove, End session.
 //   Joined or reconnecting: everyone, Save a copy, Leave.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Participant } from "../contract/bindings";
 import { ipc } from "../contract/ipc";
 import { useApp } from "../state/store";
@@ -12,7 +13,7 @@ import { Icon } from "../ui/icons";
 import type { PresenceStage } from "../ui/motion";
 import { useListPresence } from "../ui/useListPresence";
 import { Avatar } from "./Avatar";
-import { NAME_MAX, cleanName, host as hostOf, others, possessive } from "./format";
+import { NAME_MAX, cleanName, host as hostOf, others, possessive, reachOf, type Reach } from "./format";
 import { useLive } from "./liveStore";
 import { copyInvite, endSession, errorText, leaveSession, openJoin, saveCopy, startHosting } from "./session";
 import s from "./live.module.css";
@@ -83,7 +84,7 @@ function OffBody({ form }: { form: OffForm }) {
   return (
     <div className={s.stack}>
       <p className={s.lead}>
-        People on the same network or VPN join with an invite you send them. The project and its history stay on this computer.
+        People join with an invite you send them. The project and its history stay on this computer.
       </p>
       <label className={s.label} htmlFor="live-name">
         Your name
@@ -156,7 +157,7 @@ function HostingBody() {
         <input className={cx(s.input, s.invite)} value={invite ?? ""} readOnly aria-label="Invite" onFocus={(e) => e.currentTarget.select()} spellCheck={false} />
         <CopyButton disabled={!invite} />
       </div>
-      <p className={s.hint}>Anyone with the invite can join while the session runs. Send it to people on the same network or VPN.</p>
+      <ReachLine />
       {addresses.length > 0 ? (
         <p className={s.addresses}>
           <span>This computer</span>
@@ -167,6 +168,34 @@ function HostingBody() {
       ) : null}
       <People removable />
     </div>
+  );
+}
+
+const REACH_TEXT: Record<Reach, string> = {
+  internet: "Anyone with the invite can join over the internet.",
+  connecting: "Connecting to the relay, for people outside your network or VPN.",
+  network: "People on your network or VPN can join.",
+  nowhere: "The relay cannot be reached, so no one can join yet. Guhit Studio keeps trying.",
+};
+
+/**
+ * Who can join with the invite, from the relay's state (DECISIONS D32). When
+ * it changes, the old line fades out and the new one rises in at its place.
+ */
+function ReachLine() {
+  const reach = useLive((st) => reachOf(st.status.relay, st.status.addresses.length > 0));
+  // The list must keep its identity between renders, or its rows re-merge on every one.
+  const items = useMemo(() => [reach], [reach]);
+  const rows = useListPresence(items, (r) => r, "base");
+  return (
+    <p className={s.reach} role="status">
+      {rows.map((row) => (
+        <span key={row.key} className={cx(s.reachLine, row.entering && s.reachEnter, row.leaving && s.reachLeave)} data-reach={row.item} aria-hidden={row.leaving || undefined}>
+          {row.item === "connecting" ? <Spinner size={14} /> : <Icon name={row.item === "internet" ? "globe" : row.item === "network" ? "people" : "warning"} size={14} />}
+          <span>{REACH_TEXT[row.item]}</span>
+        </span>
+      ))}
+    </p>
   );
 }
 

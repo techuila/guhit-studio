@@ -1,0 +1,41 @@
+# The live session relay on Fly.io (docs/RELAY.md, "Running a relay").
+# From the repository root, once:
+#   fly launch --no-deploy --copy-config --config crates/guhit-relay/fly.toml
+# then for every deploy:
+#   fly deploy --ha=false --config crates/guhit-relay/fly.toml
+# fly builds with the directory it runs in, the repository root, as the
+# context, and reads the dockerfile path below relative to this file.
+# --ha=false keeps it to one machine: rooms live in that machine's memory,
+# and a second one would split them.
+
+app = "guhit-relay"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # Behind Fly's proxy every socket comes from the proxy. The client's
+  # address, which the relay's per-address limits count, is in this header.
+  RELAY_CLIENT_IP_HEADER = "fly-client-ip"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Always on: a stopped machine would drop every room.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Sessions are long WebSocket connections. No hard limit here: the relay's
+  # own limits answer with close code 4429, which the app understands.
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 10000
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"

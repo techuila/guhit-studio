@@ -399,19 +399,25 @@ with time, date, place and a north arrow on each frame.
 
 ## Live sessions
 
-DECISIONS D29. Types: `crates/guhit-model/src/live.rs`. Code:
-`crates/guhit-app/src/live/`.
+DECISIONS D29 and D32. Types: `crates/guhit-model/src/live.rs`. Code:
+`crates/guhit-app/src/live/`. The relay: `docs/RELAY.md`.
 
 - One computer hosts the open project (`live_host`). Its `Document` is the
   only authority. A guest (`live_join`) keeps a read-only copy: the host's
   project, revision and undo labels, with `Derived` computed locally by the
   same engine. Every change a guest makes is a typed `Command` sent to the
   host, validated and applied there, and the new state goes to everyone.
-- Transport: TCP with TLS 1.3 (rustls, ring). The host makes a self-signed
-  certificate for each session. Frames are a 4-byte big-endian length and a
-  UTF-8 JSON message; at most 64 KiB before the guest is authenticated,
-  48 MiB after. The frame messages are internal to `guhit-app` (host and
-  guest are the same code, `live/wire.rs`): guest to host `hello`,
+- Transport: TLS 1.3 (rustls, ring), over TCP straight to the host or over
+  a WebSocket pair through the relay (`live/relay.rs`, protocol in
+  `docs/RELAY.md`). The TLS runs end to end either way, so the relay only
+  forwards encrypted bytes. The host makes a self-signed certificate for
+  each session. Frames are a 4-byte big-endian length and a UTF-8 JSON
+  message; at most 64 KiB before the guest is authenticated, 48 MiB after.
+  A message over 16 KiB is deflated when that makes it smaller, marked by
+  the high bit of the length; the limits count the JSON, and inflating
+  stops past them. The frame messages are internal to `guhit-app` (host
+  and guest are the same code, `live/wire.rs`, `PROTOCOL_VERSION` 2; a
+  hello with another version is refused): guest to host `hello`,
   `request` (apply, undo, redo, chat, file get, file put; the reply carries
   its id), `presence`, `ping`, `bye`; host to guest `welcome`, `refused`,
   `reply`, `doc`, `presence`, `participants`, `chat`, `ping`, `end`. A
@@ -432,18 +438,42 @@ DECISIONS D29. Types: `crates/guhit-model/src/live.rs`. Code:
   model limit fits under the frame limit. The host stores them with the
   same name, type and size checks as the window's own uploads.
 - Invite: `guhit-live:` then base64url (no padding) of
-  `{"v":1,"secret":...,"pin":...,"addrs":["192.168.1.20:1460",...],"project":"Bungalow"}`.
+  `{"v":2,"secret":...,"pin":...,"addrs":["192.168.1.20:1460",...],"project":"Bungalow","relay":{"url":"wss://relay.example.com","room":...}}`.
   `secret` is 128 random bits. `pin` is the SHA-256 of the certificate
-  (base64url). A guest accepts only the pinned certificate (no CA, no host
-  name check) and tries the addresses in order, 4 s each; the host compares
-  the secret in constant time, answers a wrong secret after a 1 s delay and
-  keeps at most 8 connections waiting to authenticate.
+  (base64url). `relay` is there when the host uses one: its address and the
+  session's room, 128 random bits. The key that proves the room is the
+  host's (256 bits) goes only to the relay, never into the invite. `addrs`
+  may be empty only with a relay. Version 1 invites (no relay) are still
+  read. A guest accepts only the pinned certificate (no CA, no host name
+  check). It tries every address at once, 4 s each, and the relay after
+  600 ms (at once when every address has failed), and keeps the first
+  connection whose TLS handshake passes the pin; the others are dropped.
+  The host compares the secret in constant time, answers a wrong secret
+  after a 1 s delay and keeps at most 8 connections waiting to
+  authenticate, direct and relayed together.
 - Listening: the desktop app on every IPv4 interface, port `live_port` in
   `settings.json` (default 1460, else the next free one of the nine after
   it, else one the system picks), only while a session runs. A `port`
   given to `live_host` must be free (`invalid` otherwise). The dev bridge
-  on 127.0.0.1 only. `LiveStatus::addresses` lists the computer's LAN
-  address first (found without sending anything) and 127.0.0.1 last.
+  on 127.0.0.1 only. `LiveStatus::addresses` lists every IPv4 address of
+  the computer: the one the default route leaves from first (found without
+  sending anything), then private networks, then 100.64.0.0/10 (Tailscale
+  and other VPNs), then the rest, at most 7, and 127.0.0.1 last; loopback
+  and link-local addresses are skipped. `live_direct: false` in
+  `settings.json` switches listening off: no listener and no addresses, so
+  guests come only through the relay.
+- Relay (DECISIONS D32): `live_relay` in `settings.json` is the relay's
+  base URL: `wss://`, or `ws://` for a loopback host; no user info, query
+  or fragment; a path prefix is allowed. Without the key, the build's
+  `GUHIT_RELAY_URL` (compile time) if it was set. An empty string means no
+  relay. `live_host` fails with `invalid` for an address that does not pass,
+  and for `live_direct: false` without a relay (no one could join). A host
+  with a relay registers the session's room there and keeps it registered:
+  when the connection drops it tries again after 1, 2, 4, 8, 16 and then
+  every 30 s, with the same room and key, so the invite keeps working.
+  `LiveStatus::relay` says where that stands: `off` (no relay, or not
+  hosting), `connecting` until the first attempt ends, `ready`, or
+  `unavailable` while it retries. `live_host` does not wait for it.
 - Names: `profile_get`/`profile_set` (`settings.json` key `profile_name`,
   1 to 40 characters, control characters removed). Hosting and joining need
   one (`bad_args` otherwise). Colors: the host is 0, each guest gets the
@@ -451,7 +481,10 @@ DECISIONS D29. Types: `crates/guhit-model/src/live.rs`. Code:
   eight are taken; at most 16 participants (`live_refused` beyond). The
   host's participant id stays the same for every session while the app
   runs, so its steps stay its own.
-- Why a join failed goes into `LiveStatus::notice` too.
+- Why a join failed goes into `LiveStatus::notice` too. `live_unreachable`
+  says why nothing answered: the addresses tried, and through the relay
+  whether the host is not online (the session may have ended), did not
+  answer, the relay is busy, or the relay could not be reached.
 - Ends: the host's `live_leave`, or the host closing or switching the
   project (`hub_close`, `hub_open` of another, `hub_create`, `bundle_open`,
   `hub_delete` of it, from the window or an MCP client) ends the session
@@ -638,7 +671,7 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 
 External changes: after every commit, undo, redo, open, create, close, delete and restore, a rename of the open project, and every document a live session guest receives, `AppService::watch_changes()` fires `{revision, project_id, seq}`. The desktop shell forwards it as the Tauri event `doc_changed {revision}`; the dev bridge serves `/mcp` on its port and the UI polls `doc_revision`. The frontend subscribes with `onDocChanged` (`src/contract/ipc.ts`): `App.tsx` switches hub to editor, `EditorShell` refetches state. Full MCP tool list: `docs/MCP.md`.
 
-Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (no address answered), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request). An AI edit outside its scope has no IPC code of its own: the model reads a tool error that starts with `out_of_scope:`, and a proposal that stops fitting its scope before it is applied is `invalid`.
+Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (neither an address nor the relay reached the host; the message says why), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request). An AI edit outside its scope has no IPC code of its own: the model reads a tool error that starts with `out_of_scope:`, and a proposal that stops fitting its scope before it is applied is `invalid`.
 
 `hub_open` on the project that is already open returns the current state with its undo history intact.
 
@@ -658,7 +691,7 @@ Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`,
   live/<project-id>/      # a guest's folder for a shared project: renders, exports, AI log
   exports/
   trash/
-  settings.json           # also profile_name, live_port
+  settings.json           # also profile_name, live_port, live_relay, live_direct
 ```
 
 `data_dir` is the OS app data dir in the desktop app and `.devdata/` for the bridge.
