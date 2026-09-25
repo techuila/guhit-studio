@@ -585,6 +585,14 @@ export function paletteActions(): PaletteAction[] {
     { id: "dock-copilot", title: "Ask the copilot", group: "Panels", icon: "copilot", keywords: "ai chat assistant settings", shortcut: `${MOD},`, run: () => shell.setDockTab("copilot") },
     { id: "dock-visuals", title: "Open visuals", group: "Panels", icon: "visuals", keywords: "render capture gallery image", run: () => shell.setDockTab("visuals") },
     {
+      id: "ai-scope",
+      title: app.aiScope ? "Let AI change the whole plan" : "Let AI change only the selection",
+      group: "Edit",
+      icon: "copilot",
+      keywords: "ai copilot mcp claude scope limit selection selected only lock",
+      run: () => app.setAiScope(!app.aiScope),
+    },
+    {
       id: "render-ai",
       title: "Render with AI",
       group: "Panels",

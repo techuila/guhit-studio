@@ -145,7 +145,9 @@ function openAppEvents(): () => void {
       stop?.();
     };
   }
-  // Dev bridge: server-sent events. EventSource reconnects by itself.
+  // Dev bridge: server-sent events. EventSource reconnects by itself. Unit
+  // tests run without one: nothing to listen to there.
+  if (typeof EventSource === "undefined") return () => {};
   const source = new EventSource(`${BRIDGE_URL}/events`);
   source.onmessage = (m) => {
     try {

@@ -206,6 +206,14 @@ async function installMock(empty: boolean) {
       return json(400, e);
     }
   };
+  // No bridge, so no event stream: app events (live session, window
+  // requests) never arrive in the mock.
+  class SilentEventSource {
+    onmessage: ((m: MessageEvent) => void) | null = null;
+    onerror: ((e: Event) => void) | null = null;
+    close() {}
+  }
+  (window as unknown as { EventSource: unknown }).EventSource = SilentEventSource;
   console.info("[dev] mock IPC installed");
 }
 

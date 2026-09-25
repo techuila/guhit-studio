@@ -6,6 +6,7 @@ import { useApp } from "./state/store";
 import { BusyOverlay, PanelBoundary, Toasts } from "./ui/feedback";
 import { dur } from "./ui/motion";
 import { ipc, onDocChanged } from "./contract/ipc";
+import { startWindowTasks } from "./shell/windowTasks";
 
 function isTextTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -19,6 +20,9 @@ export default function App() {
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
+
+  // Answers MCP render and capture requests (DECISIONS D31).
+  useEffect(() => startWindowTasks(), []);
 
   // A project opened or created from outside this window (Claude Code through
   // guhit-mcp) must bring the editor up. The editor handles later changes itself.
