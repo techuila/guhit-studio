@@ -45,8 +45,19 @@ import type {
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+/**
+ * Development only: `?bridge=http://localhost:1431` points this browser tab at
+ * another dev bridge, so a live session can be tried with two tabs on one
+ * computer (docs/CONTRACT.md, "Dev bridge"). Loopback addresses only.
+ */
+function devBridgeOverride(): string | null {
+  if (!import.meta.env.DEV || typeof window === "undefined") return null;
+  const asked = new URLSearchParams(window.location.search).get("bridge");
+  return asked && /^http:\/\/(localhost|127\.0\.0\.1):\d{1,5}$/.test(asked) ? asked : null;
+}
+
 const BRIDGE_URL: string =
-  (import.meta.env.VITE_BRIDGE_URL as string | undefined) ?? "http://localhost:1430";
+  devBridgeOverride() ?? (import.meta.env.VITE_BRIDGE_URL as string | undefined) ?? "http://localhost:1430";
 
 export function isIpcError(e: unknown): e is IpcError {
   return typeof e === "object" && e !== null && "code" in e && "message" in e;

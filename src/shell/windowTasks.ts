@@ -151,12 +151,26 @@ async function render(task: Extract<WindowRequest["task"], { type: "render" }>):
   };
 }
 
+/**
+ * The window's copy of the document can trail the engine by a moment: an MCP
+ * client that just saved a view and asks for its render at once. Catch up
+ * first, so the task sees what the client just changed.
+ */
+async function catchUp(): Promise<void> {
+  const fresh = await ipc.docState();
+  const current = useApp.getState().doc;
+  if (fresh && current && fresh.project.id === current.project.id && fresh.revision !== current.revision) {
+    useApp.getState().setDoc(fresh);
+  }
+}
+
 /** Does one request. Throws an IpcError-shaped object when it cannot. */
 export async function runWindowTask(request: WindowRequest): Promise<WindowReply> {
   const app = useApp.getState();
   if (app.screen !== "editor" || !app.doc) {
     fail("no_document", "Guhit Studio shows the project list. Open the project first.");
   }
+  await catchUp();
   const task = request.task;
   switch (task.type) {
     case "capture_plan":
