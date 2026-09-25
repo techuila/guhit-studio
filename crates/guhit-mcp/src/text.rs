@@ -77,6 +77,9 @@ Live sessions:
   all of them as they land.
 - Undo is one shared history. `undo` refuses a step someone else made and names \
   them; pass force only after the user confirms.
+- Opening, creating or closing a project ends a session this computer hosts, for \
+  everyone (closing leaves one it joined). Those tools refuse with `live_session`; \
+  pass force only after the user confirms.
 - `send_chat_message` posts to the session chat as the user, marked as sent by AI, \
   when they ask you to tell the others something.
 

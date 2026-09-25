@@ -23,6 +23,8 @@ use guhit_core::CoreError;
 use guhit_model::*;
 use serde_json::{json, Map, Value};
 
+use crate::session;
+
 /// A tool call that did not work. The message goes back to the model as a
 /// tool error, word for word, so it can correct itself and try again.
 #[derive(Debug)]
@@ -105,6 +107,8 @@ pub struct ToolDef {
 pub const EDIT_TOOLS: [&str; 17] = copilot::EDIT_TOOLS;
 
 pub(crate) const MM: &str = "All lengths in the arguments and the result are MILLIMETERS.";
+/// Hub tools in a live session (DECISIONS D29).
+const LEAVES: &str = "In a live session this ends the session for everyone when this computer hosts it (closing on a computer that joined leaves it), so it refuses with live_session unless force is true; pass force only after the user confirms.";
 
 /// `export_plan` sheet names, as `SheetKind` spells them.
 const SHEETS: [&str; 6] = ["plan", "lighting", "power", "plumbing", "plumbing_isometric", "aircon"];
@@ -215,18 +219,22 @@ pub fn definitions() -> Vec<ToolDef> {
     });
     out.push(ToolDef {
         name: "open_project",
-        description: format!("Open a project by id and make it the document every other tool acts on. The desktop window switches to it. The project that was open is saved first. {MM}"),
-        schema: obj(json!({"id": {"type": "string", "description": "Project id from list_projects."}}), &["id"]),
+        description: format!("Open a project by id and make it the document every other tool acts on. The desktop window switches to it. The project that was open is saved first. {LEAVES} {MM}"),
+        schema: obj(
+            json!({"id": {"type": "string", "description": "Project id from list_projects."}, "force": session::switch_force_schema()}),
+            &["id"],
+        ),
         read_only: false,
         open_world: false,
     });
     out.push(ToolDef {
         name: "create_project",
-        description: format!("Create a project and open it. template \"blank\" starts with nothing drawn, which is what you want before drawing a house. template \"sample-bungalow\" starts from a small two-room house. template \"plumbing-demo\" starts from the bungalow with services: a T&B, columns, water, drainage and vent pipes, storm downspouts, lights, switches, outlets, a panelboard, a smoke detector and a split aircon with its line set and condensate drain, with review items to look at. {MM}"),
+        description: format!("Create a project and open it. template \"blank\" starts with nothing drawn, which is what you want before drawing a house. template \"sample-bungalow\" starts from a small two-room house. template \"plumbing-demo\" starts from the bungalow with services: a T&B, columns, water, drainage and vent pipes, storm downspouts, lights, switches, outlets, a panelboard, a smoke detector and a split aircon with its line set and condensate drain, with review items to look at. {LEAVES} {MM}"),
         schema: obj(
             json!({
                 "name": {"type": "string", "description": "Project name shown in the hub."},
                 "template": {"type": "string", "enum": ["blank", "sample-bungalow", "plumbing-demo"], "description": "Defaults to \"blank\"."},
+                "force": session::switch_force_schema(),
             }),
             &["name"],
         ),
@@ -235,8 +243,8 @@ pub fn definitions() -> Vec<ToolDef> {
     });
     out.push(ToolDef {
         name: "close_project",
-        description: format!("Close the open project and send the desktop window back to the project hub. Saves first. {MM}"),
-        schema: obj(json!({}), &[]),
+        description: format!("Close the open project and send the desktop window back to the project hub. Saves first. {LEAVES} {MM}"),
+        schema: obj(json!({"force": session::switch_force_schema()}), &[]),
         read_only: false,
         open_world: false,
     });
@@ -431,18 +439,21 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
         "list_projects" => ok(app.handle("hub_list", json!({})).await?),
         "open_project" => {
             let id = req_str(&args, "id")?;
+            session::guard_switch(app, &args, session::Switch::Open(&id)).await?;
             let state: Value = app.handle("hub_open", json!({ "id": id })).await?;
             ok(opened(&state))
         }
         "create_project" => {
             let name = req_str(&args, "name")?;
             let template = opt_str(&args, "template")?.unwrap_or_else(|| "blank".into());
+            session::guard_switch(app, &args, session::Switch::Create).await?;
             let state: Value = app
                 .handle("hub_create", json!({ "name": name, "template": template }))
                 .await?;
             ok(opened(&state))
         }
         "close_project" => {
+            session::guard_switch(app, &args, session::Switch::Close).await?;
             app.handle("hub_close", json!({})).await?;
             ok(json!({"ok": true, "open": false, "note": "the desktop window is back on the project hub"}))
         }
