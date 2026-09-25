@@ -165,14 +165,12 @@ fn lan_ipv4() -> Option<Ipv4Addr> {
     }
 }
 
-/// Where guests reach this computer: the LAN address first when listening
-/// on every interface, loopback last.
-fn addresses(lan: bool, port: u16) -> Vec<String> {
+/// Where guests reach this computer: the LAN address first (when listening
+/// on every interface and there is one), loopback last.
+fn addresses(lan_ip: Option<Ipv4Addr>, port: u16) -> Vec<String> {
     let mut out = vec![];
-    if lan {
-        if let Some(ip) = lan_ipv4() {
-            out.push(format!("{ip}:{port}"));
-        }
+    if let Some(ip) = lan_ip {
+        out.push(format!("{ip}:{port}"));
     }
     out.push(format!("127.0.0.1:{port}"));
     out
@@ -238,7 +236,7 @@ pub(crate) async fn start(app: &AppService, port: Option<u16>) -> Result<LiveSta
         .local_addr()
         .map_err(|e| IpcError::new("io", format!("Could not listen for guests: {e}")))?
         .port();
-    let addresses = addresses(app.lan, port);
+    let addresses = addresses(if app.lan { lan_ipv4() } else { None }, port);
     let identity = HostIdentity::new()?;
     let rng = SystemRandom::new();
     let secret = random_text(&rng, 16)?;
@@ -1171,10 +1169,9 @@ mod tests {
 
     #[test]
     fn addresses_put_loopback_last() {
-        assert_eq!(addresses(false, 1460), vec!["127.0.0.1:1460".to_string()]);
-        let lan = addresses(true, 1461);
-        assert_eq!(lan.last().map(String::as_str), Some("127.0.0.1:1461"));
-        assert!(lan.len() <= 2);
+        assert_eq!(addresses(None, 1460), vec!["127.0.0.1:1460".to_string()]);
+        let lan = addresses(Some(Ipv4Addr::new(192, 168, 1, 20)), 1461);
+        assert_eq!(lan, vec!["192.168.1.20:1461".to_string(), "127.0.0.1:1461".to_string()]);
     }
 
     #[test]
