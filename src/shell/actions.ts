@@ -4,6 +4,8 @@ import { ipc } from "../contract/ipc";
 import { getActiveController } from "../editor2d/controller";
 import { rectIsEmpty } from "../editor2d/geom";
 import { boundsOfIds, buildIndex, layerOf, levelOf } from "../editor2d/model";
+import { useLive } from "../live/liveStore";
+import { liveActions } from "../live/session";
 import { bus } from "../state/bus";
 import { useApp, type Tool } from "../state/store";
 import { openRenderCompare, openRenderStudio } from "../viewer3d/render/renderStore";
@@ -376,7 +378,9 @@ export async function saveThumbnail(opts: { minIntervalMs?: number } = {}): Prom
   }
 }
 
-export async function leaveEditor() {
+/** Back to the hub. Hosting a live session asks first: leaving ends it for everyone. */
+export async function leaveEditor(confirmed = false) {
+  if (!confirmed && useLive.getState().status.mode === "hosting") return useLive.getState().setAskLeave(true);
   await saveThumbnail();
   useShell.getState().close();
   await useApp.getState().closeProject();
@@ -617,6 +621,7 @@ export function paletteActions(): PaletteAction[] {
     { id: "dock-toggle", title: shell.dockCollapsed ? "Expand the side dock" : "Collapse the side dock", group: "Panels", icon: "panelRight", keywords: "dock hide show panel", run: () => shell.setDockCollapsed(!shell.dockCollapsed) },
   );
 
+  out.push(...liveActions());
   return out;
 }
 

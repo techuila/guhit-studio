@@ -342,6 +342,14 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
     rows: [["Esc / Enter", "End linking"]],
   },
   {
+    title: "Live session, pointer on the plan",
+    rows: [
+      ["/", "Chat at your pointer"],
+      ["Enter", "Send it"],
+      ["Esc", "Close without sending"],
+    ],
+  },
+  {
     title: "Toggles",
     rows: [
       ["G / F7", "Grid"],

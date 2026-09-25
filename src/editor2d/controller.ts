@@ -72,7 +72,7 @@ import {
   withPendingRiser,
 } from "./pipe";
 import type { ElementStyle, Palette, RenderContext } from "./render";
-import { DEFAULT_PALETTE, drawElement, drawFlash, drawGrid, drawHighlight, drawModel, drawOrigin, labelHeightMm, readPalette } from "./render";
+import { DEFAULT_PALETTE, drawElement, drawFlash, drawGrid, drawHighlight, drawModel, drawOrigin, drawPeerOutline, labelHeightMm, readPalette } from "./render";
 import { decideResize } from "./resizePolicy";
 import type { SnapResult, SnapScene } from "./snap";
 import { computeIntersections, emptyScene, snap } from "./snap";
@@ -169,7 +169,21 @@ export const K = {
   /** `tagi:<id>` a fall or height tag fading in, `tago:<id>` one the layout dropped fading out. */
   tagIn: "tagi:",
   tagOut: "tago:",
+  /** `psel:<n>`: another participant's selection outline fading in or out (live session). */
+  peerSel: "psel:",
+  /** The ring that marks where `focus_point` centered the view. */
+  focusRing: "focus.ring",
 } as const;
+
+/** Another participant's selection as the plan outlines it. `color` is a CSS color. */
+export interface PeerSelectionDraw {
+  id: string;
+  color: string;
+  ids: readonly string[];
+}
+
+/** Told the drawn view transform and the canvas size whenever either changes. */
+export type ViewListener = (view: View, width: number, height: number) => void;
 
 /** A fall or height tag as drawn: its box in CSS pixels and how it looks. */
 export interface TagDraw {
@@ -328,6 +342,14 @@ export class PlanController {
   /** Fall and height tags drawn last frame, and the ones the layout dropped, fading out. */
   private tagMemo = new Map<string, TagDraw>();
   private fadingTags = new Map<string, TagDraw>();
+  /** Live session: other participants' selections, and ones fading out after a change. */
+  private peerSel = new Map<string, { color: string; ids: string[]; key: string }>();
+  private peerSelFading: { color: string; ids: string[]; key: string }[] = [];
+  private peerSelSeq = 0;
+  /** Where the last `focus_point` centered the view, marked by a ring once. */
+  private focusMark: P | null = null;
+  private viewListeners = new Set<ViewListener>();
+  private notified: { view: View; width: number; height: number } | null = null;
   private catalogCache: { catalog: CatalogItem[]; map: Map<string, CatalogItem> } | null = null;
   private deviceCache: { elements: Element[]; catalog: Map<string, CatalogItem>; all: Map<string, Linkable>; threeWay: Set<string> } | null = null;
   private faceCache: { index: DocIndex; faces: WallFace[] } | null = null;
@@ -417,6 +439,7 @@ export class PlanController {
 
     this.cleanups.push(bus.on("zoom_to_fit", () => this.zoomToFit()));
     this.cleanups.push(bus.on("focus_elements", (ids) => this.focusElements(ids)));
+    this.cleanups.push(bus.on("focus_point", ({ point, level_id }) => this.focusPoint(point, level_id)));
 
     let prev = useApp.getState();
     this.cleanups.push(
@@ -460,6 +483,7 @@ export class PlanController {
     window.clearTimeout(this.resizeSettleTimer);
     for (const c of this.cleanups) c();
     this.cleanups = [];
+    this.viewListeners.clear();
     const s = useApp.getState();
     s.registerCapturePlan(null);
     s.setCursor(null);
@@ -773,6 +797,24 @@ export class PlanController {
   }
 
   /**
+   * Centers the plan on a point at the same zoom, switching to its level
+   * first when one is given (`focus_point`: a live session participant's
+   * pointer, a cursor chat message). A ring marks the spot once the view
+   * has eased there.
+   */
+  focusPoint(p: P, levelId: string | null = null): void {
+    const s = useApp.getState();
+    if (levelId && levelId !== s.activeLevelId && s.doc?.project.levels.some((l) => l.id === levelId)) s.setActiveLevel(levelId);
+    if (this.width === 0 || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
+    this.autoFit = false;
+    const scale = this.view.scale;
+    this.setView({ scale, ox: this.width / 2 - p.x * scale, oy: this.height / 2 + p.y * scale }, dur("scene"));
+    this.focusMark = { x: p.x, y: p.y };
+    this.anim.clear(K.focusRing);
+    this.animate(K.focusRing, 0, dur("scene"), { from: 1, easing: ease.out, drop: true, delayMs: dur("scene") });
+  }
+
+  /**
    * One keyboard zoom step about the cursor, or the middle of the canvas.
    * Short (--dur-press) because it repeats: holding the key must not feel slow.
    */
@@ -824,6 +866,103 @@ export class PlanController {
     return { scale, ox: cx - w.x * scale, oy: cy + w.y * scale };
   }
 
+  // ------------------------------------------------------------ live session
+
+  /** Plan mm to canvas CSS pixels, with the transform on screen right now. */
+  planToScreen(p: P): P {
+    return toScreen(this.drawView(), p);
+  }
+
+  /**
+   * Calls `fn` with the drawn view and the canvas size now, then whenever
+   * either changes: pan, zoom, a fit or focus easing, a resize. It is told
+   * from the draw pass, so following the view costs no frame of its own.
+   */
+  onViewChange(fn: ViewListener): () => void {
+    this.viewListeners.add(fn);
+    fn(this.drawView(), this.width, this.height);
+    return () => {
+      this.viewListeners.delete(fn);
+    };
+  }
+
+  private notifyView(view: View): void {
+    if (this.viewListeners.size === 0) return;
+    const n = this.notified;
+    if (n && n.width === this.width && n.height === this.height && n.view.scale === view.scale && n.view.ox === view.ox && n.view.oy === view.oy) return;
+    this.notified = { view, width: this.width, height: this.height };
+    for (const fn of this.viewListeners) fn(view, this.width, this.height);
+  }
+
+  /** Nothing in progress on the plan: no drawing, dragging, typed entry, inline text or held Space. */
+  isIdle(): boolean {
+    return this.op.kind === "idle" && !this.heightEntry && !this.editor && !this.space;
+  }
+
+  /**
+   * Other participants' selections (live session), outlined thin in their
+   * colors on the level on screen. Only a real change starts a fade and a
+   * redraw; the same selections again cost nothing.
+   */
+  setPeerSelections(list: readonly PeerSelectionDraw[]): void {
+    let changed = false;
+    const seen = new Set<string>();
+    for (const item of list) {
+      seen.add(item.id);
+      const cur = this.peerSel.get(item.id);
+      if (cur && cur.color === item.color && sameIds(cur.ids, item.ids)) continue;
+      if (cur) this.fadePeerSelection(cur);
+      const key = `${K.peerSel}${++this.peerSelSeq}`;
+      this.animate(key, 1, dur("hover"), { from: 0, drop: true });
+      this.peerSel.set(item.id, { color: item.color, ids: [...item.ids], key });
+      changed = true;
+    }
+    for (const [id, cur] of this.peerSel) {
+      if (seen.has(id)) continue;
+      this.peerSel.delete(id);
+      this.fadePeerSelection(cur);
+      changed = true;
+    }
+    if (changed) this.invalidate();
+  }
+
+  private fadePeerSelection(sel: { color: string; ids: string[]; key: string }): void {
+    this.animate(sel.key, 0, exitDur("hover"), { from: 1, drop: true });
+    this.peerSelFading.push(sel);
+  }
+
+  private drawPeerSelections(rc: RenderContext): void {
+    const index = this.index;
+    if (!index) return;
+    const draw = (sel: { color: string; ids: string[] }, alpha: number): void => {
+      if (alpha <= 0.002) return;
+      for (const id of sel.ids) {
+        const el = index.byId.get(id);
+        if (el && index.visibleIds.has(id)) drawPeerOutline(rc, el, sel.color, alpha);
+      }
+    };
+    for (const f of this.peerSelFading) draw(f, this.anim.value(f.key, 0));
+    for (const sel of this.peerSel.values()) draw(sel, this.anim.value(sel.key, 1));
+  }
+
+  /** The ring where `focus_point` centered the view: it grows and fades once. */
+  private drawFocusRing(rc: RenderContext): void {
+    const at = this.focusMark;
+    if (!at || !this.anim.has(K.focusRing)) return;
+    const v = this.anim.value(K.focusRing, 0);
+    if (v <= 0.002) return;
+    const c = toScreen(rc.view, at);
+    const { ctx } = this;
+    ctx.save();
+    ctx.strokeStyle = this.palette.selection;
+    ctx.globalAlpha = 0.85 * v;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 7 + (1 - v) * 22, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   invalidate(): void {
     this.dirty = true;
     this.schedule();
@@ -857,6 +996,7 @@ export class PlanController {
     if (this.returning && !this.anim.has(K.back)) this.returning = null;
     if (this.fading.length > 0) this.dropFinishedFades();
     if (this.fadingLinks.length > 0) this.fadingLinks = this.fadingLinks.filter((f) => this.anim.has(`${K.linkGone}${f.key}`));
+    if (this.peerSelFading.length > 0) this.peerSelFading = this.peerSelFading.filter((f) => this.anim.has(f.key));
     if (this.dirty || running > 0 || looping) {
       this.dirty = false;
       this.frames++;
@@ -898,6 +1038,7 @@ export class PlanController {
     ctx.fillRect(0, 0, this.width, this.height);
     const rc = this.renderContext();
     if (!rc || !this.index) return;
+    this.notifyView(rc.view);
     if (s.gridVisible) drawGrid(rc, this.index.doc.project.settings.grid_mm);
     drawOrigin(rc);
 
@@ -953,6 +1094,8 @@ export class PlanController {
         if (v > 0.002 && el && index.visibleIds.has(id)) drawFlash(rc, el, this.palette.selection, v * 0.45, 1);
       });
     }
+    // Other participants' selections sit under this window's own.
+    if (this.peerSel.size > 0 || this.peerSelFading.length > 0) this.drawPeerSelections(rc);
 
     const selected = new Set(s.selection);
     if (this.op.kind === "idle" || this.op.kind === "link") {
@@ -976,6 +1119,7 @@ export class PlanController {
       if (el && this.index.visibleIds.has(el.id)) drawHighlight(rc, el, "selected", anim.value(`${K.sel}${id}`, 1));
     }
     drawOverlay(rc, this);
+    this.drawFocusRing(rc);
   }
 
   /**
@@ -3159,4 +3303,10 @@ export class PlanController {
 }
 
 type Ctx2D = CanvasRenderingContext2D;
+
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
 

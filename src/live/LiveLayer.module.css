@@ -1,0 +1,290 @@
+/* The live session over the plan. Nothing here takes the pointer: the plan
+   keeps every click, drag and wheel. See LiveLayer.tsx for how cursors move. */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------ remote cursors */
+
+/* Placed from plan mm (--live-x, --live-y, on the cursor) through the view
+   (--ox, --oy, --s, on the layer). Only the plan position glides: a local pan
+   or zoom changes the view variables, which do not transition. */
+.cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform: translate3d(
+    calc(var(--ox, 0) * 1px + var(--live-x, 0) * var(--s, 1) * 1px),
+    calc(var(--oy, 0) * 1px - var(--live-y, 0) * var(--s, 1) * 1px),
+    0
+  );
+  /* About one presence interval (20 a second), linear, so updates join up. */
+  transition:
+    --live-x calc(var(--dur-press) * 0.75) linear,
+    --live-y calc(var(--dur-press) * 0.75) linear;
+  will-change: transform;
+}
+
+.cursorBody {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  opacity: 1;
+  transform: none;
+  transform-origin: 0 0;
+  transition:
+    opacity var(--dur-panel) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+/* Enter: grows from the arrow tip. Leave: shrinks back into it, faster. */
+.enter {
+  animation: cursor-in var(--dur-base) var(--ease-out);
+}
+
+.leave {
+  opacity: 0;
+  transform: scale(0.6);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+/* Someone who has not moved for a while fades back, and so does everyone
+   while the connection to the host is being retried. */
+.cursor[data-idle="true"] .cursorBody:not(.leave),
+.layer[data-stale] .cursorBody:not(.leave) {
+  opacity: 0.4;
+}
+
+/* Local keyframes: CSS modules rename animation names, so the global ui-*
+   ones in global.css cannot be referenced from here. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes cursor-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+.arrow {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  display: block;
+  overflow: visible;
+  filter: drop-shadow(0 1px 1.5px rgba(20, 40, 63, 0.35));
+}
+
+.arrow path {
+  fill: var(--peer);
+  stroke: #fff;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+
+/* The name, right and below the tip; flipped at the canvas edges. */
+.label {
+  position: absolute;
+  top: 16px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  max-width: 240px;
+  padding: 2px 7px 3px;
+  border-radius: 3px 9px 9px 9px;
+  background: var(--peer);
+  color: var(--peer-ink);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(20, 40, 63, 0.25);
+  transform-origin: top left;
+}
+
+.cursor[data-flip-x="true"] .label {
+  left: auto;
+  right: 8px;
+  border-radius: 9px 3px 9px 9px;
+  transform-origin: top right;
+}
+
+.cursor[data-flip-y="true"] .label {
+  top: auto;
+  bottom: 6px;
+  border-radius: 9px 9px 9px 3px;
+  transform-origin: bottom left;
+}
+
+.cursor[data-flip-x="true"][data-flip-y="true"] .label {
+  border-radius: 9px 9px 3px 9px;
+  transform-origin: bottom right;
+}
+
+/* Typing or a message just sent: the name grows into a bubble. */
+.labelBubble {
+  gap: 1px;
+  padding: 4px 10px 6px;
+  border-radius: 3px 12px 12px 12px;
+  white-space: normal;
+}
+
+.labelName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.labelBubble .labelName {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.labelText {
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  animation: fade-in var(--dur-hover) var(--ease-out);
+}
+
+.labelTyping {
+  opacity: 0.75;
+}
+
+/* ------------------------------------------------------------ cursor chat */
+
+/* Tracks the pointer 1:1 (a transform written on every move, no transition). */
+.chatWrap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+
+.chatBubble {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  width: max-content;
+  max-width: 264px;
+  padding: 6px 11px 7px;
+  border-radius: 3px 14px 14px 14px;
+  background: var(--peer);
+  color: var(--peer-ink);
+  font-size: var(--text-md);
+  line-height: 1.4;
+  box-shadow: 0 4px 16px rgba(20, 40, 63, 0.24);
+  transform-origin: top left;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.chatBubble[data-stage="enter"] {
+  opacity: 0;
+  transform: scale(0.85);
+}
+
+.chatBubble[data-stage="exit"] {
+  opacity: 0;
+  transform: scale(0.94);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+/* The text field grows with what is typed: a hidden copy sizes the grid. */
+.chatField {
+  display: grid;
+  min-width: 132px;
+  max-width: 240px;
+}
+
+.chatField::after {
+  content: attr(data-value) " ";
+  grid-area: 1 / 1;
+  visibility: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chatInput {
+  grid-area: 1 / 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  overflow: hidden;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  caret-color: currentColor;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chatInput:focus,
+.chatInput:focus-visible {
+  outline: none;
+}
+
+.chatInput::placeholder {
+  color: currentColor;
+  opacity: 0.7;
+}
+
+.chatCount {
+  flex: none;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.chatSent {
+  max-width: 240px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chatEmpty {
+  opacity: 0.7;
+}
+
+/* "/" outside a live session: the same bubble, in the chrome color. */
+.chatHint {
+  background: rgba(20, 40, 63, 0.92);
+  color: #fff;
+}
+
+.chatHintText {
+  max-width: 240px;
+  font-size: var(--text-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter,
+  .labelText {
+    animation: none;
+  }
+}

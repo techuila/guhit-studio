@@ -1,0 +1,591 @@
+/* Live session chrome: avatars, the Share button, the unread badge and the
+   Share and Join dialogs. A participant's color arrives as --peer. */
+
+/* ------------------------------------------------------------ avatar */
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 50%;
+  background: var(--peer);
+  color: var(--peer-ink);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  user-select: none;
+}
+
+/* The host wears a ring in their own color. */
+.avatarHost {
+  box-shadow:
+    0 0 0 1.5px var(--avatar-gap, var(--surface)),
+    0 0 0 3px var(--peer);
+}
+
+/* ------------------------------------------------------------ top bar */
+
+.avatars {
+  display: flex;
+  align-items: center;
+  flex: none;
+  padding: 0 4px 0 2px;
+  --avatar-gap: var(--chrome);
+}
+
+/* Stacked with a small overlap; each lifts on hover. */
+.avatarButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-left: -6px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--chrome-text);
+  cursor: default;
+  transition:
+    transform var(--dur-hover) var(--ease-out),
+    opacity var(--dur-base) var(--ease-out);
+}
+
+.avatarButton:first-child {
+  margin-left: 0;
+}
+
+.avatarButton > span {
+  box-shadow: 0 0 0 2px var(--chrome);
+}
+
+.avatarButton > .avatarHost {
+  box-shadow:
+    0 0 0 1.5px var(--chrome),
+    0 0 0 3px var(--peer);
+}
+
+.avatarButton:hover:not(:disabled) {
+  z-index: 20 !important;
+  transform: translateY(-1px);
+}
+
+.avatarButton:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+
+.avatarButton:focus-visible {
+  outline-offset: 0;
+}
+
+/* Someone joins: their avatar pops in. Someone leaves: it shrinks away. */
+.avatarEnter {
+  animation: avatar-in var(--dur-base) var(--ease-spring);
+}
+
+.avatarLeave {
+  opacity: 0;
+  transform: scale(0.6);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.avatarMore {
+  width: 26px;
+  height: 24px;
+  margin-left: -4px;
+  border-radius: 12px;
+  background: var(--chrome-2);
+  box-shadow: 0 0 0 2px var(--chrome);
+  color: var(--chrome-text);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+/* Local keyframes: CSS modules rename animation names, so the global ui-*
+   ones in global.css cannot be referenced from here. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* An invalid entry shakes once (MOTION.md, Inspector row). */
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(3px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(1px);
+  }
+}
+
+@keyframes avatar-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+.share > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A small dot says a session runs: green when connected, amber reconnecting. */
+.liveDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4fc38a;
+  box-shadow: 0 0 0 2px rgba(79, 195, 138, 0.22);
+  animation: dot-in var(--dur-base) var(--ease-spring);
+  transition: background var(--dur-base) var(--ease-out);
+}
+
+.liveDot[data-mode="reconnecting"] {
+  background: #e3a33b;
+  box-shadow: 0 0 0 2px rgba(227, 163, 59, 0.24);
+}
+
+@keyframes dot-in {
+  from {
+    transform: scale(0);
+  }
+}
+
+/* ------------------------------------------------------------ unread badge */
+
+.unread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: -1px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-spring);
+}
+
+.unread[data-stage="enter"],
+.unread[data-stage="exit"] {
+  opacity: 0;
+  transform: scale(0.5);
+}
+
+.unread[data-stage="exit"] {
+  transition-timing-function: var(--ease-in);
+}
+
+/* Each new message bumps the count once. */
+.unreadCount {
+  display: inline-block;
+  animation: bump var(--dur-base) var(--ease-spring);
+}
+
+@keyframes bump {
+  from {
+    transform: scale(1.35);
+  }
+}
+
+/* ------------------------------------------------------------ dialogs */
+
+/* A new session state cross-fades in with a small rise. */
+.stateBody {
+  animation: rise-in var(--dur-base) var(--ease-out);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lead {
+  margin: 0 0 8px;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+
+.lead strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.reconnecting {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  color: var(--ink);
+}
+
+.reconnecting svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warn);
+}
+
+.label {
+  margin: 4px 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-md);
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
+}
+
+.input:focus,
+.input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.input:disabled {
+  opacity: 0.6;
+}
+
+.inputBad,
+.inputBad:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 16%, transparent);
+}
+
+.inviteInput {
+  height: auto;
+  min-height: 64px;
+  padding: 7px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  resize: none;
+  overflow-wrap: anywhere;
+}
+
+.hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  animation: fade-in var(--dur-hover) var(--ease-out);
+}
+
+.inviteOk {
+  color: var(--ink-2);
+}
+
+.inviteOk svg {
+  flex: none;
+  color: var(--ok);
+}
+
+.inviteOk strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.error {
+  margin: 2px 0 0;
+  padding: 7px 10px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  animation: shake 320ms var(--ease-out);
+}
+
+.inviteRow {
+  display: flex;
+  gap: 6px;
+}
+
+.invite {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  background: var(--surface-2);
+  cursor: text;
+}
+
+.copy {
+  flex: none;
+  min-width: 88px;
+  height: 32px;
+}
+
+.copyInner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Copy turns teal with a drawn check for a moment. */
+.copyDone,
+.copyDone:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.drawnCheck {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw var(--dur-base) var(--ease-out) forwards;
+}
+
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.addresses {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 2px 0 6px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.addresses code {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  user-select: text;
+}
+
+.people {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.people h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.count {
+  min-width: 18px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
+}
+
+.peopleList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  transition: opacity var(--dur-panel) var(--ease-out);
+}
+
+.peopleStale {
+  opacity: 0.6;
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 6px 8px 6px 10px;
+  --avatar-gap: var(--surface);
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.person + .person {
+  border-top: 1px solid var(--line);
+}
+
+.personEnter {
+  animation: rise-in var(--dur-base) var(--ease-out);
+}
+
+.personLeave {
+  opacity: 0;
+  transform: translateX(8px);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.personName {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.remove {
+  margin-left: auto;
+}
+
+.footLeft {
+  margin-right: auto;
+}
+
+.footAsk {
+  color: var(--danger);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  animation: fade-in var(--dur-hover) var(--ease-out);
+}
+
+.busyLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ------------------------------------------------------------ hub */
+
+/* After a joined session ended: slides down from the header, leaves upward. */
+.ended {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 10px;
+  margin: -8px 32px 14px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  box-shadow: var(--shadow-1);
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.ended[data-stage="enter"],
+.ended[data-stage="exit"] {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.ended[data-stage="exit"] {
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.ended > svg {
+  flex: none;
+  color: var(--accent-strong);
+}
+
+.endedText {
+  flex: 1;
+  min-width: 0;
+}
+
+.endedText strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatarEnter,
+  .liveDot,
+  .unreadCount,
+  .stateBody,
+  .hint,
+  .error,
+  .drawnCheck,
+  .personEnter,
+  .footAsk {
+    animation: none;
+  }
+
+  .drawnCheck {
+    stroke-dashoffset: 0;
+  }
+}

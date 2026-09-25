@@ -61,3 +61,10 @@ Every interaction in Guhit Studio has a microanimation (DECISIONS D11). This fil
 | View mode | 2D / Split / 3D | panes resize with `--dur-panel`, the entering pane fades in |
 | Copilot | messages, busy, proposal | messages rise and fade in, a three-dot busy indicator, the proposal card expands in, Apply morphs into a check mark, the canvas ghost breathes (opacity 0.55 to 0.85, 1.6 s) |
 | Visuals | capture | a quick white flash over the 3D view (120 ms), the new card grows into the gallery |
+| Live session | remote cursors | a cursor grows in from its arrow tip and shrinks back when it leaves (`--dur-base`); between presence updates it glides with a linear transition of about one update (`--dur-press` x 0.75); a local pan, zoom or fit moves every cursor at once with no transition; a cursor idle for 20 s, and every cursor while reconnecting, fades to 40% (`--dur-panel`) |
+| Live session | cursor chat | "/" scales the bubble in at the pointer (`--dur-base`), then it tracks the pointer 1:1; a sent message stays a few seconds, then fades; a remote participant's name label grows into a bubble when they type or send (`--dur-base`) and back when it clears |
+| Live session | remote selections | outlines in the participant's color fade in and out (`--dur-hover`), only when a selection changes |
+| Live session | focus a pointer | clicking an avatar or "Show on plan" eases the plan there (`--dur-scene`), then a ring grows and fades once at the spot |
+| Chat | messages, unread | new messages rise in (`--dur-base`) and the list follows the newest; scrolled up, a "new messages" pill rises from the bottom; the unread badge pops in with `--ease-spring` and bumps on each message |
+| Top bar | avatars, Share | an avatar pops in when someone joins and shrinks away when they leave, lifts 1 px on hover; the live dot pops in and turns amber while reconnecting |
+| Share and Join | states, copy, errors | a new session state cross-fades in with a small rise; Copy turns into a drawn check; an error line shakes once; "End session" asks inline before it ends it for everyone |

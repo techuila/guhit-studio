@@ -201,6 +201,40 @@
   position: relative;
 }
 
+/* When the right group runs out of room (the live session's avatars and
+   Share button share it), TopBar folds its words away one step at a time:
+   data-fold 1 the palette button, 2 also Versions and Import. Each keeps a
+   tooltip, shown only while folded. */
+.paletteButton[data-tip]::after,
+.foldable[data-tip]::after {
+  display: none;
+}
+
+/* Measured unshrunk, so an overflow shows as one. */
+.topRight:not([data-fold="2"]) .paletteButton {
+  flex-shrink: 0;
+}
+
+.topRight[data-fold="1"] .paletteButton span,
+.topRight[data-fold="1"] .paletteButton kbd,
+.topRight[data-fold="2"] .paletteButton span,
+.topRight[data-fold="2"] .paletteButton kbd,
+.topRight[data-fold="2"] .foldable > span {
+  display: none;
+}
+
+.topRight[data-fold="1"] .paletteButton,
+.topRight[data-fold="2"] .paletteButton,
+.topRight[data-fold="2"] .foldable {
+  padding: 0 8px;
+}
+
+.topRight[data-fold="1"] .paletteButton[data-tip]::after,
+.topRight[data-fold="2"] .paletteButton[data-tip]::after,
+.topRight[data-fold="2"] .foldable[data-tip]::after {
+  display: block;
+}
+
 @media (max-width: 1180px) {
   .paletteButton span,
   .paletteButton kbd {
@@ -209,6 +243,10 @@
 
   .paletteButton {
     padding: 0 8px;
+  }
+
+  .paletteButton[data-tip]::after {
+    display: block;
   }
 }
 

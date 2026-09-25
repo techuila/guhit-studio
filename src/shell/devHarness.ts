@@ -9,6 +9,8 @@
 //   ?fixture=1   jump straight into the editor with the fixture loaded.
 //   ?crash=NAME  throws inside one panel (plan, view3d, copilot, visuals,
 //                inspector) to exercise its error boundary. Read by EditorShell.
+//   ?live=MODE   with ?mock: a fake live session (demo, guest, reconnecting)
+//                where two people move, select and chat. src/live/dev/liveMock.ts.
 import type { Command, DocState, IpcError, ProjectMeta, SnapshotMeta } from "../contract/bindings";
 import { ipc } from "../contract/ipc";
 import { bus } from "../state/bus";
@@ -201,19 +203,40 @@ async function installMock(empty: boolean) {
     const handler = handlers[m[1]];
     if (!handler) return json(400, { code: "invalid", message: `${m[1]} is not available in the mock`, element_ids: [] });
     try {
-      return json(200, handler(args));
+      return json(200, await handler(args));
     } catch (e) {
       return json(400, e);
     }
   };
-  // No bridge, so no event stream: app events (live session, window
-  // requests) never arrive in the mock.
+  // No bridge, so no event stream: app events arrive only from the live
+  // session mock below, pushed through `onmessage`.
+  const streams = new Set<SilentEventSource>();
   class SilentEventSource {
     onmessage: ((m: MessageEvent) => void) | null = null;
     onerror: ((e: Event) => void) | null = null;
-    close() {}
+    constructor() {
+      streams.add(this);
+    }
+    close() {
+      streams.delete(this);
+    }
   }
   (window as unknown as { EventSource: unknown }).EventSource = SilentEventSource;
+  const { installLiveMock } = await import("../live/dev/liveMock");
+  installLiveMock(
+    {
+      handlers,
+      emit: (event) => streams.forEach((s) => s.onmessage?.({ data: JSON.stringify(event) } as MessageEvent)),
+      openShared: () => handlers.hub_open({ id: fixture.project.id }) as DocState,
+      closeShared: () => void handlers.hub_close({}),
+      levelId: fixture.project.levels[0]?.id ?? "",
+      projectId: fixture.project.id,
+      projectName: "Sample Bungalow",
+      wallIds: fixture.project.elements.filter((e) => e.kind === "wall").map((e) => e.id),
+      roomIds: fixture.project.elements.filter((e) => e.kind === "room").map((e) => e.id),
+    },
+    new URLSearchParams(window.location.search).get("live"),
+  );
   console.info("[dev] mock IPC installed");
 }
 
