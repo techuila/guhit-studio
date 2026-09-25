@@ -9,11 +9,16 @@
 //!   Claude Code can drive the bridge exactly as it drives the desktop app.
 //!   See docs/MCP.md.
 //! - `GET /health` -> `{"ok":true}`.
+//! - `GET /events`: server-sent events, one JSON `AppEvent` per message (live
+//!   session, presence, chat, window requests). The browser UI subscribes
+//!   with `onAppEvent`; the desktop app gets the same as the Tauri event
+//!   `app_event`.
 //! - CORS: any `http://localhost:*` (or `http://127.0.0.1:*`) origin.
 //! - Binds 127.0.0.1 only. Requests from any other browser origin, or with a
 //!   Host header that is not local, get 403. This blocks other web pages and
 //!   DNS rebinding from driving the bridge.
 
+use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -25,12 +30,15 @@ use axum::http::header::{
 };
 use axum::http::{Method, StatusCode};
 use axum::middleware::{self, Next};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use guhit_app::AppService;
 use guhit_model::IpcError;
 use serde_json::{json, Value};
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::{Stream, StreamExt};
 
 /// Data URLs of up to 25 MB are base64 (4/3) plus JSON framing.
 const MAX_BODY_BYTES: usize = 48 * 1024 * 1024;
@@ -155,8 +163,18 @@ async fn ipc(State(app): State<AppService>, Path(cmd): Path<String>, body: Bytes
     }
 }
 
+/// Server-sent events: every `AppEvent`, as JSON. A receiver that falls
+/// behind skips what it missed; presence is sent again soon anyway.
+async fn events(State(app): State<AppService>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let stream = BroadcastStream::new(app.events())
+        .filter_map(|e| e.ok())
+        .filter_map(|e| Event::default().json_data(e).ok())
+        .map(Ok);
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
 async fn not_found() -> Response {
-    let err = IpcError::new("not_found", "no such route. Use POST /ipc/<cmd> or GET /health");
+    let err = IpcError::new("not_found", "no such route. Use POST /ipc/<cmd>, GET /events or GET /health");
     (StatusCode::NOT_FOUND, Json(err)).into_response()
 }
 
@@ -181,6 +199,7 @@ async fn main() {
 
     let router = Router::new()
         .route("/health", get(health))
+        .route("/events", get(events))
         .route("/ipc/{cmd}", post(ipc))
         // Same port, same service, same open document: an MCP client and the
         // browser UI see each other's changes.

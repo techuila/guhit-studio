@@ -23,6 +23,8 @@ serde_json = { workspace = true }
 guhit-app = { workspace = true }
 guhit-mcp = { workspace = true }
 guhit-model = { workspace = true }
+# tokio: the broadcast error types of the app event forwarder.
+tokio = { version = "1", features = ["sync"] }
 
 # The updater only exists on desktop. Mobile targets skip it, as the plugin
 # docs prescribe, so the crate still builds there.

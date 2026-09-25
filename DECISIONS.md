@@ -154,3 +154,23 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - The certificate's owner name and team stay out of the repo: the workflow passes `APPLE_SIGNING_IDENTITY=Developer ID Application`, which Tauri matches against the imported certificate.
 - One certificate for every Aliteo Mac app, chosen by Axl on 2026-09-25: Guhit reuses TopNotch's Developer ID Application certificate, and the secrets have TopNotch's names (`MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`). Rejected: a certificate per project (nothing gained, more renewals). That certificate comes from the Previous Sub-CA and stops signing on 2027-02-01; the replacement should be made with the G2 Sub-CA and updated in every repo's two certificate secrets.
 - Windows code signing stays open (no certificate yet).
+
+### D29. Live sessions: one computer hosts, others join with an invite
+- Chosen by: Axl (asked for multiplayer: people working on one plan at once, a colored cursor with a name for each person, chat shown at the cursor, and a chat window with the history) and Claude (the mechanism), on 2026-09-25.
+- One computer hosts the open project. Its Rust `Document` stays the only authority (D3): guests keep a read-only copy, send the same typed `Command`s, and the host validates, applies and sends the new state to everyone. The host is a desktop app like any other, so there is still no cloud service (D1): guests reach the host over the local network or a VPN.
+- Security: the host listens only while a session runs, with TLS and a certificate made for that session. The invite carries the host's addresses, a random secret and the certificate's pin; a guest refuses any other certificate, and the host refuses anyone without the secret. The dev bridge hosts on loopback only.
+- Undo stays one shared, snapshot based history (D6 unchanged). Each step records who made it; undoing someone else's step names them and asks first.
+- Presence (pointer, selection, level, cursor chat) is sent many times a second and never saved. Chat messages are saved with the project on the host (`chat.jsonl`), so the chat window keeps the history.
+- Rejected: a cloud relay with accounts (needs a backend, D1), CRDT sync (the engine validates every change and projects are small, D3), WebRTC (needs a signaling server), per-person undo (needs inverse changes, which D6 rejected).
+
+### D30. AI edits can be limited to the selection
+- Chosen by: Axl (select parts of the plan and prompt so only those parts change) and Claude (the rule), on 2026-09-25.
+- "Only the selection" limits the in-app copilot and MCP clients alike. The engine checks every command the AI stages or commits (`guhit_core::scope`) and refuses one that reaches outside with `out_of_scope`, naming the element, so the model can correct itself.
+- Reach: a room reaches its bounding walls, their doors and windows, and what stands inside it; a wall reaches its doors and windows; anything else reaches itself. New elements must land in the selection's area on its level. Roof, levels, layers and settings are outside every scope. What the engine changes as a consequence (connected walls stretching, dimensions following, links removed) is allowed.
+- MCP clients read the window's selection with `get_selection` and can ask for the scope per call; when the user switches "Only the selection" on, the window's selection binds every MCP edit whatever the call says.
+- Rejected: a prompt-only instruction (a model can ignore it), and a check on the resulting diff (a resize moves walls the user never selected, which is what they asked for).
+
+### D31. MCP renders go through the window
+- Chosen by: Claude, on 2026-09-25, for Axl's request that MCP clients make renders too.
+- The path tracer and the plan canvas run in the webview, so MCP render and capture tools ask the open window to do the work (`AppEvent::WindowRequest`, answered with `window_reply`) and wait for it. Results are ordinary Visuals records. AI visualization runs in the backend with the user's own Gemini key (D17) and stays labelled.
+- A long render returns a job id instead of blocking the MCP client; without an open window the tools say so.

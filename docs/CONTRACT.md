@@ -245,6 +245,48 @@ longer appears is listed in `Derived::review_resolved` (resolved). Nothing is
 ever "approved". The review list groups by level, then room, with counts;
 ignoring asks for a note.
 
+## AI edit scope
+
+DECISIONS D30. `EditScope { ids }` limits an AI edit to the selection. The
+copilot receives it as `AiRequest::scope`; MCP edits take it from the call
+(`scope`) or from the window's presence (`Presence::ai_scope`, which binds
+every MCP edit while it is on). `guhit_core::scope::check(project, derived,
+scope_ids, command)` answers for one command; callers check every staged
+command against the project as staged so far, and add the ids each step
+created to the scope, so a later step can build on them (a door on a wall
+the turn added inside the selected room).
+
+Reach, derived on the project being checked:
+
+| Selected | Reaches |
+|---|---|
+| room | itself, its bounding walls (`RoomGeometry::wall_ids`), their doors and windows, and on its level every column, stair, object, text, dimension (both ends), pipe (every point) and camera inside its centerline polygon |
+| wall | itself and its doors and windows |
+| anything else | itself |
+
+Area, for new elements: each selected room's centerline polygon, with 50 mm
+of tolerance so a wall ending on a bounding wall's centerline is inside; the
+bounding box of every other selected element grown by 500 mm. Per level.
+
+| Command | Allowed when |
+|---|---|
+| `add_wall`, `add_wall_chain`, `add_rect_room` | every point or corner is in the area, on its level |
+| `add_opening` | the host wall is in reach |
+| `add_element` | its anchor (asset position, column center, stair origin, text position, dimension ends, pipe points, room seed) is in the area on its level; an opening's host wall is in reach; a camera always (a view changes no part of the plan) |
+| `update_element` | the element is in reach; an opening moved to another wall needs that wall in reach too |
+| `set_wall_endpoints`, `set_wall_length`, `split_wall`, `resize_room`, `delete_elements`, `move_elements`, `rotate_elements`, `duplicate_elements`, `set_material` | every target is in reach |
+| `set_review_mark` | an element target in reach, or a finding whose elements are all in reach; a whole check never |
+| `set_roof`, `set_project_settings`, `update_level`, `add_level`, `delete_level`, `set_layer`, `upsert_material` | never: they change the whole project |
+| `batch` | every command in it |
+
+A refusal is `CoreError::Invalid { code: "out_of_scope" }` naming the
+element, which reaches IPC as `IpcError { code: "invalid" }` with the
+element ids and reaches the model as a tool error that starts with
+`out_of_scope:`. Side effects are allowed: connected walls stretching,
+dimensions following (D12), links removed (D21), rooms appearing in closed
+faces (D7). A scope naming an element that is not in the plan is refused
+with `not_found`.
+
 ## Sheets
 
 `PlanExportOptions::sheet` (default `plan`) picks the sheet: `lighting`,
@@ -334,12 +376,123 @@ with time, date, place and a north arrow on each frame.
   signal is `useApp().captureView` being registered. The 3D view resets `nav`
   to `orbit` when it truly unmounts.
 
+## Live sessions
+
+DECISIONS D29. Types: `crates/guhit-model/src/live.rs`. Code:
+`crates/guhit-app/src/live/`.
+
+- One computer hosts the open project (`live_host`). Its `Document` is the
+  only authority. A guest (`live_join`) keeps a read-only copy: the host's
+  project, revision and undo labels, with `Derived` computed locally by the
+  same engine. Every change a guest makes is a typed `Command` sent to the
+  host, validated and applied there, and the new state goes to everyone.
+- Transport: TCP with TLS 1.3 (rustls, ring). The host makes a self-signed
+  certificate for each session. Frames are a 4-byte big-endian length and a
+  UTF-8 JSON message; at most 64 KiB before the guest is authenticated,
+  48 MiB after. The frame messages are internal to `guhit-app` (host and
+  guest are the same code).
+- Invite: `guhit-live:` then base64url (no padding) of
+  `{"v":1,"secret":...,"pin":...,"addrs":["192.168.1.20:1460",...],"project":"Bungalow"}`.
+  `secret` is 128 random bits. `pin` is the SHA-256 of the certificate
+  (base64url). A guest accepts only the pinned certificate (no CA, no host
+  name check) and tries the addresses in order, 4 s each; the host compares
+  the secret in constant time, answers a wrong secret after a 1 s delay and
+  keeps at most 8 connections waiting to authenticate.
+- Listening: the desktop app on every IPv4 interface, port `live_port` in
+  `settings.json` (default 1460, else the next free one up to 1469, else
+  one the system picks), only while a session runs. The dev bridge on
+  127.0.0.1 only. `LiveStatus::addresses` lists the computer's LAN address
+  first and 127.0.0.1 last.
+- Names: `profile_get`/`profile_set` (`settings.json` key `profile_name`,
+  1 to 40 characters, control characters removed). Hosting and joining need
+  one (`bad_args` otherwise). Colors: the host is 0, each guest gets the
+  lowest color no one in the session has; at most 16 participants
+  (`live_refused` beyond).
+- Ends: the host's `live_leave`, or the host closing or switching the
+  project (`hub_close`, `hub_open` of another, `hub_create`, `bundle_open`,
+  `hub_delete` of it) ends the session for everyone; guests get
+  `LiveStatus::notice` ("Ana ended the live session."), their document
+  closes and their window goes to the hub. A guest's `live_leave` or
+  `hub_close` leaves. `live_remove` (host only) removes a guest with a
+  notice.
+- A guest that loses the connection is `reconnecting`: its window keeps the
+  last plan, edits fail with `live_lost`, and it retries after 1, 2, 4 and
+  8 s with the same invite, asking for its old participant id and color
+  back (the host keeps them 60 s). Back in: `joined` and the host's current
+  state. Otherwise: `off`, notice "Lost the connection to the host.", the
+  document closes.
+- `live_save_copy` (guest, also after the session ended until another
+  project opens) saves the last copy as a new local project with a new id.
+
+On a guest, these go to the host: `doc_apply`, `doc_undo`, `doc_redo`,
+`AppService::commit` and `commit_if_revision` (copilot Apply, MCP edits,
+`import_commit`), `underlay_store`, `underlay_data`, `model_store`,
+`model_data`, `chat_send`. These use the local copy: `doc_state`,
+`doc_revision`, `doc_preview`, `doc_query`, exports, the copilot's reading
+and staging, MCP reads. Renders, exports and the AI log go to
+`<data>/live/<project-id>/`, the guest's folder for the shared project.
+Refused on a guest with `host_only`: `snapshot_create`, `snapshot_list`,
+`snapshot_restore`, `hub_rename` of the shared project, `bundle_save`.
+Refused while joined, with `host_only` and "Leave the live session first":
+`hub_open`, `hub_create`, `bundle_open`. `hub_set_thumbnail` of the shared
+project does nothing on a guest.
+
+History in a live session: every commit records its author
+(`Document::apply_as`), `DocState::undo_by` and `redo_by` say whose step is
+on top. `doc_undo` and `doc_redo` take back or bring back the step on top
+of the one shared history. When that step is someone else's (another
+participant's, or on a guest a step made before the session) and `force`
+is not true, they fail with `other_author` and a sentence naming the
+person and the step ("Ana made the last change: Move wall. Undo it
+anyway?"); the window asks and calls again with `force`. On the host, steps
+with no author (made before the session) are its own.
+
+Presence: `presence_set` stores this window's `Presence`. MCP
+`get_selection` reads it. In a session it goes to the others at most 20
+times a second (the host sends batches every 50 ms, latest wins); `typing`
+is cut to 160 characters and `selection` to 2000 ids. Everyone else's
+arrives as `AppEvent::Presence`; `presence_list` returns the latest of
+each, for a window that loads mid-session. A participant who leaves gets
+`presence: None`.
+
+Chat: `chat_send` (live only, `not_live` otherwise). Text is trimmed, 1 to
+2000 characters, or 160 with `at` (cursor chat). The host stamps the id,
+author, color and time, appends the message to `<project>/chat.jsonl` on the
+host (one JSON object per line, best effort) and sends `AppEvent::Chat` to
+every window, the sender's included. `chat_list` returns the last 500 of
+the open project's chat, oldest first: from `chat.jsonl` on the host or
+with no session, from what the host sent on join plus what came since on a
+guest.
+
+## App events and window requests
+
+`AppService::events()` is a broadcast of `AppEvent`. The desktop shell
+emits each one to the window as the Tauri event `app_event`; the dev bridge
+streams them as server-sent events on `GET /events` (one JSON `AppEvent`
+per `data:` line). The frontend subscribes with `onAppEvent`
+(`src/contract/ipc.ts`). Document changes keep `doc_changed`.
+
+Window requests (DECISIONS D31): `AppService::window_request(task,
+timeout)` emits `AppEvent::WindowRequest` and waits for the window's
+`window_reply { id, reply, error }`. `window_start(task)` and
+`window_wait(id, timeout)` split it for long renders (a job id the MCP
+client can come back with; results are kept 10 minutes). No reply in time,
+or no window listening: `no_window`. A window answers only while it shows a
+project (`no_document` otherwise); the first reply wins.
+
+| `WindowTask` | The window | `WindowReply` |
+|---|---|---|
+| `render { views, quality, size }` | renders like the Render button (`views` empty: the current 3D view, opening the 3D view first when needed) and saves each image to Visuals | `render_ids` in order, `image` a preview of the first at most 1568 px, `note` |
+| `capture_view { camera_id }` | saves a capture of the live 3D view, from the saved view when given | `render_ids` with the record, `image` its preview |
+| `capture_plan { level_id }` | draws the plan of that level (or the one on screen) on white, like the hub thumbnail but full size | `image`, a PNG data URL; nothing saved |
+
 ## Engine API (`guhit-core`)
 
 ```rust
 Document::new(project) -> Document
 doc.state() -> DocState
 doc.apply(command, origin) -> Result<ApplyResult, CoreError>   // one undo step, atomic
+doc.apply_as(command, origin, author) -> Result<ApplyResult, CoreError> // same, recording a live session participant (DocState::undo_by)
 doc.preview(&command) -> Result<ApplyResult, CoreError>        // same result, commits nothing
 doc.undo() / doc.redo() -> Result<DocState, CoreError>
 doc.query(&query) -> Result<serde_json::Value, CoreError>
@@ -350,6 +503,7 @@ doc.rename(name) -> Result<(), CoreError>                   // not an undo step,
 migrate(&mut project)                                      // fills layers missing in older files; Document::new calls it
 templates::plumbing_demo() -> Project                      // the `plumbing-demo` template
 pipe_name(&pipe) -> String                                 // "Kitchen sink waste" or "Cold water pipe 20 mm", as review items say it
+scope::check(&project, &derived, &scope_ids, &command) -> Result<(), CoreError> // AI edit scope, "AI edit scope" above
 ```
 
 App service helpers shared with the AI module: `AppService::commit(command, origin)` (apply + autosave), `AppService::commit_if_revision(command, origin, expected_revision)` (same, atomic, `stale` on mismatch) and `AppService::project_dir()`.
@@ -377,7 +531,7 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | `doc_state` | | `DocState or null` | |
 | `doc_apply` | `command` | `ApplyResult` | autosaves |
 | `doc_preview` | `command` | `ApplyResult` | |
-| `doc_undo`, `doc_redo` | | `DocState` | autosaves |
+| `doc_undo`, `doc_redo` | `force?` | `DocState` | autosaves. In a live session someone else's step needs `force` (`other_author`) |
 | `doc_query` | `query` | JSON | |
 | `doc_revision` | | `{revision, project_id}` | cheap poll for external changes |
 | `snapshot_create` | `label` | `SnapshotMeta` | named version |
@@ -409,10 +563,23 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | `ai_settings_set` | `api_key?`, `model?` | `AiSettings` | `""` removes the key |
 | `ai_chat` | `request` | `AiTurn` | may hold one pending proposal |
 | `ai_resolve` | `proposal_id`, `accept` | `AiResolveResult` | rejects with `stale` if revision moved |
+| `presence_set` | `presence` | `null` | this window's pointer, selection, level, cursor chat and AI scope |
+| `presence_list` | | `PresenceEntry[]` | everyone else's latest presence in the live session |
+| `profile_get` | | `Profile` | |
+| `profile_set` | `name` | `Profile` | 1 to 40 characters |
+| `live_status` | | `LiveStatus` | |
+| `live_host` | `port?` | `LiveStatus` | shares the open project; needs a profile name |
+| `live_join` | `invite` | `DocState` | opens the shared project, closing the open one first |
+| `live_leave` | | `LiveStatus` | host: ends the session for everyone; guest: leaves, the document closes |
+| `live_remove` | `participant_id` | `LiveStatus` | host only |
+| `live_save_copy` | | `ProjectMeta` | guest: the shared project as a new local project |
+| `chat_send` | `text`, `at?`, `level_id?` | `ChatMessage` | live session only |
+| `chat_list` | | `ChatMessage[]` | the open project's chat, oldest first, last 500 |
+| `window_reply` | `id`, `reply?`, `error?` | `null` | the window's answer to a `WindowRequest` |
 
 External changes: after every commit, undo, redo, open, create, close, delete and restore, `AppService::watch_changes()` fires `{revision, project_id, seq}`. The desktop shell forwards it as the Tauri event `doc_changed {revision}`; the dev bridge serves `/mcp` on its port and the UI polls `doc_revision`. The frontend subscribes with `onDocChanged` (`src/contract/ipc.ts`): `App.tsx` switches hub to editor, `EditorShell` refetches state. Full MCP tool list: `docs/MCP.md`.
 
-Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin).
+Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (no address answered), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request). An AI edit outside its scope is `invalid` with a message that starts with `out_of_scope:`.
 
 `hub_open` on the project that is already open returns the current state with its undo history intact.
 
@@ -428,9 +595,11 @@ Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`,
     renders/<id>.png + renders/index.json
     models/<file>       # reference models (glb, gltf, obj)
     ai-log.jsonl          # one line per AI tool call and outcome
+    chat.jsonl            # live session chat, one ChatMessage per line (host)
+  live/<project-id>/      # a guest's folder for a shared project: renders, exports, AI log
   exports/
   trash/
-  settings.json
+  settings.json           # also profile_name, live_port
 ```
 
 `data_dir` is the OS app data dir in the desktop app and `.devdata/` for the bridge.
@@ -441,6 +610,7 @@ Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`,
 
 - `POST /ipc/<cmd>` with the args object as JSON body. 200 + result JSON, or 400 + `IpcError`.
 - `GET /health` -> `{"ok":true}`.
+- `GET /events` -> server-sent events, one JSON `AppEvent` per message.
 - CORS: allow any `http://localhost:*` origin. Binds 127.0.0.1 only.
 - The UI picks the bridge URL from `VITE_BRIDGE_URL` (default `http://localhost:1430`).
 
@@ -454,6 +624,8 @@ Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`,
 | `src/viewer3d/Viewer3D.tsx` | `Viewer3D()` fills its parent | 3D |
 | `src/viewer3d/RenderPanel.tsx` | `RenderPanel()` fills its parent. Visuals gallery. | 3D |
 | `src/ai/AiDock.tsx` | `AiDock()` fills its parent | AI |
+| `src/live/` | live session state (`useLive`), presence sync, remote cursors, cursor chat, the Chat panel, avatars, share and join dialogs | live |
+| `src/shell/windowTasks.ts` | answers `AppEvent::WindowRequest` (render, capture view, capture plan) | shell |
 
 Rules:
 - Read state with `useApp` selectors. Draw `useVisibleDoc()` so AI previews show as ghosts; elements in `preview.diff` are tinted with `--draw-preview`.
@@ -461,3 +633,6 @@ Rules:
 - `Viewer3D` registers `captureView` and `exportScene`, `PlanCanvas` registers `capturePlan`.
 - One-shot view requests go over `src/state/bus.ts`.
 - Respect `project.layers` (visible, locked) and `activeLevelId`.
+- Backend pushes (live session, presence, chat, window requests) arrive through `onAppEvent`; one connection serves every subscriber.
+- `useApp().aiScope` is the "Only the selection" switch (D30): the copilot sends it as `AiRequest::scope`, and it rides this window's presence so MCP clients are held to it too.
+- `useApp().undoConfirm` holds an undo or redo the engine refused as someone else's (`other_author`); the shell asks and calls `resolveUndoConfirm`.

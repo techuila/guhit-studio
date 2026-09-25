@@ -124,7 +124,9 @@ export function AiDock() {
       const isCurrent = () => useCopilot.getState().requestSeq === request;
 
       try {
-        const turn = await ipc.aiChat({ message, selection_ids: app.selection, active_level_id: app.activeLevelId, history });
+        // "Only the selection" limits every edit of this turn to it (DECISIONS D30).
+        const scope = app.aiScope && app.selection.length > 0 ? { ids: app.selection } : null;
+        const turn = await ipc.aiChat({ message, selection_ids: app.selection, active_level_id: app.activeLevelId, history, scope });
         if (!isCurrent()) {
           // The user stopped waiting. Do not show a late ghost.
           if (turn.proposal) dropProposal(turn.proposal.id);

@@ -443,7 +443,7 @@ export class PlanController {
         }
       }),
     );
-    useApp.getState().registerCapturePlan(() => this.capturePlan());
+    useApp.getState().registerCapturePlan((levelId) => this.capturePlan(levelId));
     // Dev only hook so scripted UI checks can map model points to the screen.
     if (import.meta.env.DEV) (window as unknown as { __planController?: PlanController }).__planController = this;
     activeController = this;
@@ -978,10 +978,14 @@ export class PlanController {
     drawOverlay(rc, this);
   }
 
-  /** Renders the plan without grid, handles or cameras on white. */
-  async capturePlan(): Promise<string> {
+  /**
+   * Renders the plan without grid, handles or cameras on white: the level on
+   * screen, or `levelId` when given (an MCP plan image of another level).
+   */
+  async capturePlan(levelId?: string | null): Promise<string> {
     const s = useApp.getState();
     const doc = s.doc;
+    const level = levelId && doc?.project.levels.some((l) => l.id === levelId) ? levelId : s.activeLevelId;
     const W = 2000;
     const H = 1400;
     const canvas = document.createElement("canvas");
@@ -992,7 +996,7 @@ export class PlanController {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, W, H);
     if (doc) {
-      const index = buildIndex(doc, s.activeLevelId);
+      const index = buildIndex(doc, level);
       const rc: RenderContext = {
         ctx,
         view: fitRect(modelBounds(index), W, H, 150),
