@@ -250,42 +250,63 @@ ignoring asks for a note.
 DECISIONS D30. `EditScope { ids }` limits an AI edit to the selection. The
 copilot receives it as `AiRequest::scope`; MCP edits take it from the call
 (`scope`) or from the window's presence (`Presence::ai_scope`, which binds
-every MCP edit while it is on). `guhit_core::scope::check(project, derived,
-scope_ids, command)` answers for one command; callers check every staged
-command against the project as staged so far, and add the ids each step
-created to the scope, so a later step can build on them (a door on a wall
-the turn added inside the selected room).
+every MCP edit while it is on).
+
+`guhit_core::scope`:
+- `validate(project, scope_ids)`: at least one id, and every id in the plan
+  (`not_found` otherwise). Run it once, before the turn.
+- `check(project, derived, scope_ids, command)`: validates, then answers for
+  one command.
+- `check_staged(project, derived, scope_ids, made_ids, command)`: for a
+  command staged after others in the same turn. `project` and `derived` are
+  the plan as staged so far; `made_ids` are the elements the earlier steps
+  created (the staged preview's `diff.added`). Those are in reach, so a later
+  step can build on them (a door on a wall the turn added), but they never
+  widen the area, so what one step makes cannot carry the turn outside the
+  selection. Selected ids that an earlier step removed are skipped.
+- `describe(project, derived, scope_ids)`: one sentence for the model, for
+  example "Room Bedroom with its 4 walls, 1 door, 1 window and 1 object, on
+  Ground Floor".
 
 Reach, derived on the project being checked:
 
 | Selected | Reaches |
 |---|---|
-| room | itself, its bounding walls (`RoomGeometry::wall_ids`), their doors and windows, and on its level every column, stair, object, text, dimension (both ends), pipe (every point) and camera inside its centerline polygon |
+| room | itself; its bounding walls (`RoomGeometry::wall_ids`) and every wall standing inside it; the doors and windows on its part of those walls (center within 50 mm of its centerline polygon: a long wall can bound the next room too); and on its level every column, stair, object, text, dimension (both ends), pipe (every point and the segments between) and camera (on the storey that holds its height) inside its centerline polygon, with 50 mm of tolerance |
 | wall | itself and its doors and windows |
 | anything else | itself |
+| made by an earlier step (`made_ids`) | itself; a wall also its doors and windows |
 
 Area, for new elements: each selected room's centerline polygon, with 50 mm
 of tolerance so a wall ending on a bounding wall's centerline is inside; the
-bounding box of every other selected element grown by 500 mm. Per level.
+bounding box of every other selected element grown by 500 mm. Per level: a
+new wall or room without a level goes on the first level, as the engine puts
+it. Cameras give no area. Walls and pipe runs are checked along every
+segment (points at most 25 mm apart), so a wall from one selected room to
+another cannot cross the room between them.
 
 | Command | Allowed when |
 |---|---|
-| `add_wall`, `add_wall_chain`, `add_rect_room` | every point or corner is in the area, on its level |
-| `add_opening` | the host wall is in reach |
-| `add_element` | its anchor (asset position, column center, stair origin, text position, dimension ends, pipe points, room seed) is in the area on its level; an opening's host wall is in reach; a camera always (a view changes no part of the plan) |
-| `update_element` | the element is in reach; an opening moved to another wall needs that wall in reach too |
-| `set_wall_endpoints`, `set_wall_length`, `split_wall`, `resize_room`, `delete_elements`, `move_elements`, `rotate_elements`, `duplicate_elements`, `set_material` | every target is in reach |
-| `set_review_mark` | an element target in reach, or a finding whose elements are all in reach; a whole check never |
+| `add_wall`, `add_wall_chain`, `add_rect_room` | every point or corner, and every side between them, is in the area on its level |
+| `add_opening` | the host wall is in reach and the opening's center is in the area |
+| `add_element` | its anchor (wall centerline, asset position, column center, stair origin, text position, dimension ends, pipe points and segments, room seed) is in the area on its level; an opening as `add_opening`; a camera always (a view changes no part of the plan); an underlay, linework or reference model never |
+| `update_element` | the element is in reach; an opening moved to another wall as `add_opening` on that wall |
+| `set_wall_endpoints`, `set_wall_length`, `split_wall`, `resize_room`, `delete_elements`, `move_elements`, `rotate_elements`, `set_material` | every target is in reach |
+| `duplicate_elements` | every target is in reach, and every copy lands as `add_element` would; a door or window copied without its wall stays on that wall |
+| `set_review_mark` | an element target in reach, or a finding whose elements are all in reach (a finding the checks no longer make is read from its id, `code:ids`); a whole check never |
 | `set_roof`, `set_project_settings`, `update_level`, `add_level`, `delete_level`, `set_layer`, `upsert_material` | never: they change the whole project |
-| `batch` | every command in it |
+| `batch` | every command in it, each on the project as the steps before it leave it, with what they made in reach; a refusal starts "Step 2 of 3: " like the engine's batch errors |
 
 A refusal is `CoreError::Invalid { code: "out_of_scope" }` naming the
-element, which reaches IPC as `IpcError { code: "invalid" }` with the
-element ids and reaches the model as a tool error that starts with
-`out_of_scope:`. Side effects are allowed: connected walls stretching,
-dimensions following (D12), links removed (D21), rooms appearing in closed
-faces (D7). A scope naming an element that is not in the plan is refused
-with `not_found`.
+element in plain words ("Wall 3000 mm is outside the selection this edit is
+limited to.") with its id in `element_ids`. It reaches IPC as `IpcError {
+code: "invalid" }` with the element ids, and the model as a tool error that
+starts with `out_of_scope:`. Side effects are allowed: connected walls
+stretching, dimensions following (D12), links removed (D21), rooms appearing
+in closed faces (D7). A scope naming an element that is not in the plan, or
+a command naming a target that is not, is refused with `not_found`. The area
+follows the staged plan, so once a step deletes a selected element its area
+is gone: a turn that replaces a selected element adds the new one first.
 
 ## Sheets
 
@@ -503,7 +524,10 @@ doc.rename(name) -> Result<(), CoreError>                   // not an undo step,
 migrate(&mut project)                                      // fills layers missing in older files; Document::new calls it
 templates::plumbing_demo() -> Project                      // the `plumbing-demo` template
 pipe_name(&pipe) -> String                                 // "Kitchen sink waste" or "Cold water pipe 20 mm", as review items say it
-scope::check(&project, &derived, &scope_ids, &command) -> Result<(), CoreError> // AI edit scope, "AI edit scope" above
+scope::validate(&project, &scope_ids) -> Result<(), CoreError>            // AI edit scope ("AI edit scope" above): ids present, not empty
+scope::check(&project, &derived, &scope_ids, &command) -> Result<(), CoreError> // validate, then one command
+scope::check_staged(&project, &derived, &scope_ids, &made_ids, &command)       // a command after others in the same turn
+scope::describe(&project, &derived, &scope_ids) -> String                    // one sentence for the model
 ```
 
 App service helpers shared with the AI module: `AppService::commit(command, origin)` (apply + autosave), `AppService::commit_if_revision(command, origin, expected_revision)` (same, atomic, `stale` on mismatch) and `AppService::project_dir()`.
@@ -579,7 +603,7 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 
 External changes: after every commit, undo, redo, open, create, close, delete and restore, `AppService::watch_changes()` fires `{revision, project_id, seq}`. The desktop shell forwards it as the Tauri event `doc_changed {revision}`; the dev bridge serves `/mcp` on its port and the UI polls `doc_revision`. The frontend subscribes with `onDocChanged` (`src/contract/ipc.ts`): `App.tsx` switches hub to editor, `EditorShell` refetches state. Full MCP tool list: `docs/MCP.md`.
 
-Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (no address answered), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request). An AI edit outside its scope is `invalid` with a message that starts with `out_of_scope:`.
+Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (no address answered), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request). An AI edit outside its scope has no IPC code of its own: the model reads a tool error that starts with `out_of_scope:`, and a proposal that stops fitting its scope before it is applied is `invalid`.
 
 `hub_open` on the project that is already open returns the current state with its undo history intact.
 
@@ -612,7 +636,7 @@ Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`,
 - `GET /health` -> `{"ok":true}`.
 - `GET /events` -> server-sent events, one JSON `AppEvent` per message.
 - CORS: allow any `http://localhost:*` origin. Binds 127.0.0.1 only.
-- The UI picks the bridge URL from `VITE_BRIDGE_URL` (default `http://localhost:1430`).
+- The UI picks the bridge URL from `VITE_BRIDGE_URL` (default `http://localhost:1430`). In development, `?bridge=http://localhost:<port>` points one tab at another bridge: two bridges with their own `--data` and two tabs make a live session on one computer.
 
 ## Frontend join points
 

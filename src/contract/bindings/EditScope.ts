@@ -3,16 +3,18 @@
 /**
  * Limits an AI edit to part of the plan (DECISIONS D30). The engine checks
  * every command the AI stages or commits against it (`guhit_core::scope`)
- * and refuses one that reaches outside with the code `out_of_scope`, naming
- * the element. The copilot and MCP clients are held to it alike.
+ * and refuses one that reaches outside, naming the element: the model reads
+ * a tool error that starts with `out_of_scope:`. The copilot and MCP
+ * clients are held to it alike.
  *
  * What the selection reaches is derived, never stored: a room reaches its
- * bounding walls, their doors and windows, and what stands inside it; a
- * wall reaches its doors and windows; any other element reaches itself. New
- * elements must land inside the area of the selection on its level.
- * Project-wide changes (roof, levels, layers, settings) are outside every
- * scope. Changes the engine makes as a consequence (connected walls
- * stretching, dimensions following, links removed) are allowed.
+ * bounding walls, the doors and windows on its part of them, and what
+ * stands inside it; a wall reaches its doors and windows; any other element
+ * reaches itself. New elements must land inside the area of the selection
+ * on its level. Project-wide changes (roof, levels, layers, settings) are
+ * outside every scope. Changes the engine makes as a consequence (connected
+ * walls stretching, dimensions following, links removed) are allowed.
+ * docs/CONTRACT.md, "AI edit scope", has the full rules.
  */
 export type EditScope = { 
 /**

@@ -9,16 +9,23 @@
 //!
 //! Every editing tool commits exactly one `Command::Batch` with `Origin::Ai`
 //! and an undo label prefixed "MCP: ", so one undo reverts one tool call.
+//!
+//! Every editing tool takes an optional `scope` (DECISIONS D30): the engine
+//! refuses a command that reaches outside it. When the user switched on "Only
+//! the selection" in the window, the window's selection is the scope of every
+//! edit, whatever the call says.
 
 use std::collections::BTreeMap;
 
 use guhit_app::ai::tools as copilot;
-use guhit_app::{store, AppService};
+use guhit_app::AppService;
+use guhit_core::CoreError;
 use guhit_model::*;
 use serde_json::{json, Map, Value};
 
 /// A tool call that did not work. The message goes back to the model as a
 /// tool error, word for word, so it can correct itself and try again.
+#[derive(Debug)]
 pub struct ToolFail(pub String);
 
 impl From<copilot::ToolError> for ToolFail {
@@ -61,11 +68,19 @@ fn strip_step_prefix(message: &str) -> String {
     }
 }
 
-/// What a tool produced. Almost everything is JSON; `get_plan_image` hands
-/// back a picture.
+/// A picture for the model: base64 bytes and their media type.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Picture {
+    pub base64: String,
+    pub mime: String,
+}
+
+/// What a tool produced. Almost everything is JSON; the plan and render tools
+/// hand back pictures with it.
 pub enum Output {
     Json(Value),
-    Image { base64: String, mime: String },
+    /// JSON plus pictures: a render's record and its preview, the plan.
+    Rich { json: Value, images: Vec<Picture> },
 }
 
 fn ok(v: Value) -> Result<Output, ToolFail> {
@@ -80,13 +95,16 @@ pub struct ToolDef {
     pub schema: Value,
     /// `readOnlyHint`. False means the tool writes to the open project.
     pub read_only: bool,
+    /// `openWorldHint`. True when the tool reaches beyond this computer: the
+    /// image provider, or the other people in a live session.
+    pub open_world: bool,
 }
 
 /// Editing tools whose arguments and translation come from the copilot.
 /// Order is the order a client sees them in `tools/list`.
 pub const EDIT_TOOLS: [&str; 17] = copilot::EDIT_TOOLS;
 
-const MM: &str = "All lengths in the arguments and the result are MILLIMETERS.";
+pub(crate) const MM: &str = "All lengths in the arguments and the result are MILLIMETERS.";
 
 /// `export_plan` sheet names, as `SheetKind` spells them.
 const SHEETS: [&str; 6] = ["plan", "lighting", "power", "plumbing", "plumbing_isometric", "aircon"];
@@ -103,7 +121,7 @@ fn sheet_kind(name: &str) -> Option<SheetKind> {
     })
 }
 
-fn obj(properties: Value, required: &[&str]) -> Value {
+pub(crate) fn obj(properties: Value, required: &[&str]) -> Value {
     json!({
         "type": "object",
         "properties": properties,
@@ -174,11 +192,16 @@ pub fn definitions() -> Vec<ToolDef> {
         let (Some(schema), Some(description)) = (schemas.get(name), described.get(name)) else {
             panic!("guhit-mcp: no copilot schema or description for tool `{name}`");
         };
+        let mut schema = schema.clone();
+        if !read_only {
+            schema["properties"]["scope"] = scope_schema();
+        }
         out.push(ToolDef {
             name,
             description: description.clone(),
-            schema: schema.clone(),
+            schema,
             read_only,
+            open_world: false,
         });
     };
 
@@ -188,12 +211,14 @@ pub fn definitions() -> Vec<ToolDef> {
         description: format!("List every Guhit Studio project stored on this machine, newest first: id, name, floor area in square metres, room count and dates. Use an id from here with open_project. {MM}"),
         schema: obj(json!({}), &[]),
         read_only: true,
+        open_world: false,
     });
     out.push(ToolDef {
         name: "open_project",
         description: format!("Open a project by id and make it the document every other tool acts on. The desktop window switches to it. The project that was open is saved first. {MM}"),
         schema: obj(json!({"id": {"type": "string", "description": "Project id from list_projects."}}), &["id"]),
         read_only: false,
+        open_world: false,
     });
     out.push(ToolDef {
         name: "create_project",
@@ -206,12 +231,14 @@ pub fn definitions() -> Vec<ToolDef> {
             &["name"],
         ),
         read_only: false,
+        open_world: false,
     });
     out.push(ToolDef {
         name: "close_project",
         description: format!("Close the open project and send the desktop window back to the project hub. Saves first. {MM}"),
         schema: obj(json!({}), &[]),
         read_only: false,
+        open_world: false,
     });
 
     // ----------------------------------------------------------------- read
@@ -220,15 +247,17 @@ pub fn definitions() -> Vec<ToolDef> {
     }
     out.push(ToolDef {
         name: "get_plan_image",
-        description: format!("The last plan thumbnail the desktop window saved for the open project, as a PNG. It is a picture of the plan as of the last time the window drew it, so it can be older than the current revision. When no window has drawn this project yet there is no thumbnail and this tool says so; use export_plan with format \"svg\" to get a drawing from the engine instead. {MM}"),
-        schema: obj(json!({}), &[]),
+        description: format!("A picture of the plan. With the Guhit Studio window open on the project it is drawn fresh, of the level on screen or of `level`; without a window it is the last thumbnail the window saved, which can be older than the current revision, and this tool says so. When there is neither, use export_plan with format \"svg\" to get a drawing from the engine. {MM}"),
+        schema: obj(json!({"level": {"type": "string", "description": "A level id or name. Omit for the level on screen."}}), &[]),
         read_only: true,
+        open_world: false,
     });
     out.push(ToolDef {
         name: "list_renders",
         description: format!("Saved 3D visuals of the open project, newest first, each tied to the model revision and camera it was captured from. {MM}"),
         schema: obj(json!({}), &[]),
         read_only: true,
+        open_world: false,
     });
 
     // ----------------------------------------------------------------- edit
@@ -245,28 +274,33 @@ pub fn definitions() -> Vec<ToolDef> {
                 "code": {"type": "string", "description": "A whole check, by its code. With element_id, that check on one element."},
                 "element_id": {"type": "string", "description": "With code: only the findings of that check that involve this element."},
                 "note": {"type": "string", "description": "Why the item is set aside, in the user's words. Needed for set_aside."},
+                "scope": scope_schema(),
             }),
             &["action"],
         ),
         read_only: false,
+        open_world: false,
     });
     out.push(ToolDef {
         name: "undo",
-        description: format!("Undo the last change to the open project, whoever made it: this server, the desktop window or the in-app copilot. One call reverts one step. {MM}"),
-        schema: obj(json!({}), &[]),
+        description: format!("Undo the last change to the open project, whoever made it: this server, the desktop window or the in-app copilot. One call reverts one step. In a live session the history is shared: when the last step is someone else's this refuses with other_author and names them; pass force true only after the user confirms. {MM}"),
+        schema: obj(json!({"force": force_schema()}), &[]),
         read_only: false,
+        open_world: false,
     });
     out.push(ToolDef {
         name: "redo",
-        description: format!("Redo the change that was last undone in the open project. {MM}"),
-        schema: obj(json!({}), &[]),
+        description: format!("Redo the change that was last undone in the open project. In a live session, a step that is someone else's needs force true, only after the user confirms. {MM}"),
+        schema: obj(json!({"force": force_schema()}), &[]),
         read_only: false,
+        open_world: false,
     });
     out.push(ToolDef {
         name: "save_version",
         description: format!("Save a named version of the open project that the user can restore later from the desktop app. This is a checkpoint, not an export, and it is not an undo step. {MM}"),
         schema: obj(json!({"label": {"type": "string", "description": "What this version is, for example \"Before moving the kitchen\"."}}), &["label"]),
         read_only: false,
+        open_world: false,
     });
     out.push(ToolDef {
         name: "export_plan",
@@ -288,6 +322,7 @@ pub fn definitions() -> Vec<ToolDef> {
             &["format"],
         ),
         read_only: false,
+        open_world: false,
     });
 
     // ---------------------------------------------------------------- batch
@@ -312,13 +347,34 @@ pub fn definitions() -> Vec<ToolDef> {
                         "additionalProperties": false,
                     },
                 },
+                "scope": scope_schema(),
             }),
             &["steps"],
         ),
         read_only: false,
+        open_world: false,
     });
 
+    // ------------------------------------------ selection, session, visuals
+    out.extend(crate::session::definitions());
+    out.extend(crate::visuals::definitions());
+
     out
+}
+
+/// The `scope` argument every editing tool takes (DECISIONS D30).
+pub(crate) fn scope_schema() -> Value {
+    json!({
+        "description": "Limit this edit to part of the plan: \"selection\" is what the user has selected in the Guhit Studio window right now (get_selection shows it), or give element ids. The engine refuses anything that reaches outside with out_of_scope: other elements, new elements outside the selection's area, project-wide changes such as the roof or levels. What the engine changes as a consequence, such as connected walls stretching, is allowed. When the user switched on \"Only the selection\" in the app, every edit is limited to their selection whatever this says.",
+        "anyOf": [
+            {"type": "string", "enum": ["selection"]},
+            {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        ],
+    })
+}
+
+fn force_schema() -> Value {
+    json!({"type": "boolean", "description": "Take back (or bring back) someone else's step in a live session. Only after the user confirms. Defaults to false."})
 }
 
 // ------------------------------------------------------------------- dispatch
@@ -328,7 +384,7 @@ fn args_object(args: &Value) -> Result<&Map<String, Value>, ToolFail> {
         .ok_or_else(|| ToolFail("invalid arguments: expected a JSON object".into()))
 }
 
-fn opt_str(args: &Value, name: &str) -> Result<Option<String>, ToolFail> {
+pub(crate) fn opt_str(args: &Value, name: &str) -> Result<Option<String>, ToolFail> {
     match args.get(name) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(s)) => Ok(Some(s.clone())),
@@ -336,13 +392,13 @@ fn opt_str(args: &Value, name: &str) -> Result<Option<String>, ToolFail> {
     }
 }
 
-fn req_str(args: &Value, name: &str) -> Result<String, ToolFail> {
+pub(crate) fn req_str(args: &Value, name: &str) -> Result<String, ToolFail> {
     opt_str(args, name)?
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| ToolFail(format!("invalid arguments: `{name}` is required")))
 }
 
-fn opt_bool(args: &Value, name: &str) -> Result<Option<bool>, ToolFail> {
+pub(crate) fn opt_bool(args: &Value, name: &str) -> Result<Option<bool>, ToolFail> {
     match args.get(name) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Bool(b)) => Ok(Some(*b)),
@@ -350,9 +406,26 @@ fn opt_bool(args: &Value, name: &str) -> Result<Option<bool>, ToolFail> {
     }
 }
 
+pub(crate) fn opt_f64(args: &Value, name: &str) -> Result<Option<f64>, ToolFail> {
+    match args.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v
+            .as_f64()
+            .filter(|n| n.is_finite())
+            .map(Some)
+            .ok_or_else(|| ToolFail(format!("invalid arguments: `{name}` must be a number"))),
+    }
+}
+
 /// Run one tool. `args` is whatever the client sent; every tool validates it.
 pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, ToolFail> {
     args_object(&args)?;
+    if let Some(done) = crate::session::call(app, name, &args).await {
+        return done;
+    }
+    if let Some(done) = crate::visuals::call(app, name, &args).await {
+        return done;
+    }
     match name {
         // ------------------------------------------------------------- hub
         "list_projects" => ok(app.handle("hub_list", json!({})).await?),
@@ -380,31 +453,18 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
             ok(app.handle("doc_query", json!({ "query": query })).await?)
         }
         "list_renders" => ok(app.handle("render_list", json!({})).await?),
-        "get_plan_image" => {
-            let dir = app
-                .project_dir()
-                .await
-                .ok_or_else(|| ToolFail("no_document: no project is open".into()))?;
-            match store::thumbnail_data_url(&dir) {
-                Some(url) => {
-                    let base64 = url.rsplit_once("base64,").map(|(_, b)| b.to_string()).ok_or_else(|| {
-                        ToolFail("io: the stored thumbnail is not a PNG data URL".into())
-                    })?;
-                    Ok(Output::Image { base64, mime: "image/png".into() })
-                }
-                None => Err(ToolFail(
-                    "not_found: this project has no saved plan thumbnail yet. A thumbnail is written by the desktop window when it draws the plan, so a project created through this server has none until the window opens it. Use export_plan with format \"svg\" to get a drawing from the engine instead."
-                        .into(),
-                )),
-            }
-        }
+        "get_plan_image" => crate::visuals::plan_image(app, &args).await,
 
         // ------------------------------------------------------------ edit
         n if copilot::is_edit(n) => {
+            let mut args = args;
+            let scope = take_scope(&mut args)?;
             let label = format!("MCP: {}", n.replace('_', " "));
-            edit(app, &label, &[(n.to_string(), args)]).await
+            edit(app, &label, &[(n.to_string(), args)], scope.as_ref()).await
         }
         "batch" => {
+            let mut args = args;
+            let scope = take_scope(&mut args)?;
             let steps = args
                 .get("steps")
                 .and_then(Value::as_array)
@@ -428,25 +488,28 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
                 args_object(&step_args).map_err(|_| {
                     ToolFail(format!("invalid arguments: steps[{i}].args must be a JSON object"))
                 })?;
+                if step_args.get("scope").is_some() {
+                    return Err(ToolFail(format!(
+                        "invalid arguments: steps[{i}].args has a `scope`. Give scope once, on the batch itself"
+                    )));
+                }
                 parsed.push((tool.to_string(), step_args));
             }
             let label = match opt_str(&args, "label")? {
                 Some(l) if !l.trim().is_empty() => format!("MCP: {}", l.trim()),
                 _ => format!("MCP: batch of {} steps", parsed.len()),
             };
-            edit(app, &label, &parsed).await
+            edit(app, &label, &parsed, scope.as_ref()).await
         }
 
         "set_review_mark" => set_review_mark(app, &args).await,
 
         // --------------------------------------------------- history, files
-        "undo" => {
-            let state: Value = app.handle("doc_undo", json!({})).await?;
-            ok(history(&state, "undone"))
-        }
-        "redo" => {
-            let state: Value = app.handle("doc_redo", json!({})).await?;
-            ok(history(&state, "redone"))
+        "undo" | "redo" => {
+            let force = opt_bool(&args, "force")?.unwrap_or(false);
+            let cmd = if name == "undo" { "doc_undo" } else { "doc_redo" };
+            let state: Value = app.handle(cmd, json!({ "force": force })).await?;
+            ok(history(&state, if name == "undo" { "undone" } else { "redone" }))
         }
         "save_version" => {
             let label = req_str(&args, "label")?;
@@ -579,7 +642,18 @@ async fn set_review_mark(app: &AppService, args: &Value) -> Result<Output, ToolF
             note,
         }],
     };
-    let result = app.commit(command, Origin::Ai).await?;
+    let mut scoped = args.clone();
+    let asked = take_scope(&mut scoped)?;
+    let revision = {
+        let s = app.session.lock().await;
+        let doc = s.doc.as_ref().ok_or_else(|| IpcError::new("no_document", "no project is open"))?;
+        if let Some(scope) = resolve_scope(app, doc.project(), asked.as_ref())? {
+            guhit_core::scope::check(doc.project(), doc.derived(), &scope.ids, &command)
+                .map_err(|e| scope_fail(e, doc.project(), doc.derived(), &scope))?;
+        }
+        doc.revision()
+    };
+    let result = app.commit_if_revision(command, Origin::Ai, revision).await?;
     let matches = |i: &Issue| match &target {
         ReviewTarget::Issue { id } => i.id == id.trim(),
         ReviewTarget::Check { code } => i.code == code.trim(),
@@ -646,8 +720,13 @@ fn history(state: &Value, what: &str) -> Value {
 /// The commit is guarded by the revision the translation was done on, so if
 /// the desktop window or the copilot changes the plan in between, nothing is
 /// applied and the caller is told to read the plan again.
-async fn edit(app: &AppService, label: &str, steps: &[(String, Value)]) -> Result<Output, ToolFail> {
-    let (before, commands, per_step, revision) = {
+async fn edit(
+    app: &AppService,
+    label: &str,
+    steps: &[(String, Value)],
+    asked: Option<&ScopeArg>,
+) -> Result<Output, ToolFail> {
+    let (before, commands, per_step, revision, scope) = {
         let s = app.session.lock().await;
         let doc = s
             .doc
@@ -655,14 +734,32 @@ async fn edit(app: &AppService, label: &str, steps: &[(String, Value)]) -> Resul
             .ok_or_else(|| IpcError::new("no_document", "no project is open. Call create_project or open_project first"))?;
         let level_id = first_level(doc.project())?;
         let before = doc.project().clone();
+        let scope = resolve_scope(app, doc.project(), asked)?;
+        if let Some(sc) = &scope {
+            guhit_core::scope::validate(doc.project(), &sc.ids)
+                .map_err(|e| scope_fail(e, doc.project(), doc.derived(), sc))?;
+        }
+        // What earlier steps made is in reach, so a later step can build on
+        // it (a door on a wall the batch just drew inside the room), but it
+        // never widens the area where new elements may go.
+        let mut made_ids: Vec<Id> = vec![];
 
         let mut commands: Vec<Command> = vec![];
-        let mut staged: Option<Project> = None;
+        let mut staged: Option<ApplyResult> = None;
         let mut per_step: Vec<Value> = vec![];
         for (i, (name, args)) in steps.iter().enumerate() {
-            let view = staged.clone().unwrap_or_else(|| before.clone());
-            let next = copilot::to_commands(&view, name, args, &level_id)
+            let (view, view_derived) = match &staged {
+                Some(p) => (&p.state.project, &p.state.derived),
+                None => (doc.project(), doc.derived()),
+            };
+            let next = copilot::to_commands(view, name, args, &level_id)
                 .map_err(|e| step_fail(e.into(), i, name, steps.len()))?;
+            if let Some(sc) = &scope {
+                for command in &next {
+                    guhit_core::scope::check_staged(view, view_derived, &sc.ids, &made_ids, command)
+                        .map_err(|e| step_fail(scope_fail(e, view, view_derived, sc), i, name, steps.len()))?;
+                }
+            }
             commands.extend(next);
             // Validate everything staged so far. A failure here is the engine
             // refusing the whole batch, which is what a commit would do.
@@ -672,7 +769,7 @@ async fn edit(app: &AppService, label: &str, steps: &[(String, Value)]) -> Resul
                     let ipc: IpcError = e.into();
                     step_fail(ipc.into(), i, name, steps.len())
                 })?;
-            let diff = copilot::step_diff(&view, &preview.state.project);
+            let diff = copilot::step_diff(view, &preview.state.project);
             if steps.len() > 1 {
                 let mut one = json!({
                     "step": i + 1,
@@ -688,9 +785,12 @@ async fn edit(app: &AppService, label: &str, steps: &[(String, Value)]) -> Resul
                 }
                 per_step.push(one);
             }
-            staged = Some(preview.state.project);
+            if scope.is_some() {
+                made_ids = preview.diff.added.clone();
+            }
+            staged = Some(preview);
         }
-        (before, commands, per_step, doc.revision())
+        (before, commands, per_step, doc.revision(), scope)
     };
 
     let result = app
@@ -700,7 +800,119 @@ async fn edit(app: &AppService, label: &str, steps: &[(String, Value)]) -> Resul
     if !per_step.is_empty() {
         out["steps"] = Value::Array(per_step);
     }
+    if let Some(sc) = scope {
+        out["scope"] = json!({"ids": sc.ids, "set_by": if sc.locked { "the user (Only the selection)" } else { "this call" }});
+    }
     ok(out)
+}
+
+/// One command a tool built itself (not through the copilot translation),
+/// checked against the scope and committed as one undo step like every edit.
+pub(crate) async fn commit_one(app: &AppService, label: &str, command: Command, args: &Value) -> Result<Output, ToolFail> {
+    let mut scoped = args.clone();
+    let asked = take_scope(&mut scoped)?;
+    let command = Command::Batch { label: label.to_string(), commands: vec![command] };
+    let (before, revision) = {
+        let s = app.session.lock().await;
+        let doc = s
+            .doc
+            .as_ref()
+            .ok_or_else(|| IpcError::new("no_document", "no project is open. Call create_project or open_project first"))?;
+        if let Some(scope) = resolve_scope(app, doc.project(), asked.as_ref())? {
+            guhit_core::scope::check(doc.project(), doc.derived(), &scope.ids, &command)
+                .map_err(|e| scope_fail(e, doc.project(), doc.derived(), &scope))?;
+        }
+        doc.preview(&command).map_err(|e| ToolFail::from(IpcError::from(e)))?;
+        (doc.project().clone(), doc.revision())
+    };
+    let result = app.commit_if_revision(command, Origin::Ai, revision).await?;
+    ok(edit_result(&before, &result))
+}
+
+// ----------------------------------------------------------------- AI scope
+
+/// The `scope` a call asked for (DECISIONS D30).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ScopeArg {
+    /// What the user has selected in the window.
+    Selection,
+    Ids(Vec<Id>),
+}
+
+/// The scope an edit is held to, and who set it.
+struct Scope {
+    ids: Vec<Id>,
+    /// The user switched on "Only the selection": it binds every edit.
+    locked: bool,
+}
+
+/// Take `scope` out of a tool's arguments: the copilot translation refuses
+/// arguments it does not know.
+fn take_scope(args: &mut Value) -> Result<Option<ScopeArg>, ToolFail> {
+    let Some(map) = args.as_object_mut() else {
+        return Ok(None);
+    };
+    let bad = || ToolFail("invalid arguments: `scope` is \"selection\" or a list of element ids".into());
+    match map.remove("scope") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if s == "selection" => Ok(Some(ScopeArg::Selection)),
+        Some(Value::Array(items)) => {
+            let ids: Vec<Id> = items
+                .iter()
+                .map(|v| v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(bad)?;
+            if ids.is_empty() {
+                return Err(ToolFail("invalid arguments: `scope` is an empty list; name at least one element".into()));
+            }
+            Ok(Some(ScopeArg::Ids(ids)))
+        }
+        Some(_) => Err(bad()),
+    }
+}
+
+/// The scope an edit is held to: the window's selection while the user has
+/// "Only the selection" on (it binds every edit, whatever the call asked
+/// for), else what the call asked for. Selection ids no longer in the plan
+/// are dropped.
+fn resolve_scope(app: &AppService, project: &Project, asked: Option<&ScopeArg>) -> Result<Option<Scope>, ToolFail> {
+    let window = app.local_presence();
+    let selected: Vec<Id> = window
+        .selection
+        .iter()
+        .filter(|id| project.elements.iter().any(|e| e.id() == *id))
+        .cloned()
+        .collect();
+    if window.ai_scope && !selected.is_empty() {
+        return Ok(Some(Scope { ids: selected, locked: true }));
+    }
+    match asked {
+        None => Ok(None),
+        Some(ScopeArg::Selection) if selected.is_empty() => Err(ToolFail(
+            "invalid arguments: scope is \"selection\", but nothing is selected in the Guhit Studio window. Ask the user to select the parts to change, or name them by id"
+                .into(),
+        )),
+        Some(ScopeArg::Selection) => Ok(Some(Scope { ids: selected, locked: false })),
+        Some(ScopeArg::Ids(ids)) => Ok(Some(Scope { ids: ids.clone(), locked: false })),
+    }
+}
+
+/// An engine refusal of the scope, as the model should read it.
+fn scope_fail(e: CoreError, project: &Project, derived: &Derived, scope: &Scope) -> ToolFail {
+    if let CoreError::NotFound(id) = &e {
+        return ToolFail(format!("not_found: the scope names an element that is not in the plan: {id}"));
+    }
+    let message = IpcError::from(e).message;
+    let what = guhit_core::scope::describe(project, derived, &scope.ids);
+    if scope.locked {
+        ToolFail(format!(
+            "out_of_scope: {message} The user switched on \"Only the selection\" in Guhit Studio, so every edit is limited to: {what}. Change only those elements and what stands in a selected room, or ask the user to widen the selection or switch it off."
+        ))
+    } else {
+        ToolFail(format!(
+            "out_of_scope: {message} This edit is limited by its scope to: {what}. Change only those elements and what stands in a selected room, or ask the user before widening it."
+        ))
+    }
 }
 
 fn step_fail(f: ToolFail, index: usize, tool: &str, total: usize) -> ToolFail {
@@ -783,10 +995,37 @@ mod tests {
             "set_wall_length", "move_elements", "rename_room", "set_room_usage", "set_opening_size",
             "delete_elements", "set_material", "set_roof", "add_asset", "add_level", "delete_level",
             "set_review_mark", "undo", "redo", "save_version", "export_plan", "batch",
+            "get_selection", "get_session", "send_chat_message", "add_camera", "capture_view",
+            "render_view", "get_render_job", "get_render_image", "visualize_render",
         ] {
             assert!(names.contains(&expected), "tool `{expected}` is missing");
         }
-        assert_eq!(names.len(), 37, "the tool list changed: update docs/MCP.md");
+        assert_eq!(names.len(), 46, "the tool list changed: update docs/MCP.md");
+    }
+
+    #[test]
+    fn every_editing_tool_takes_a_scope() {
+        for d in definitions() {
+            let edits = copilot::is_edit(d.name) || matches!(d.name, "batch" | "set_review_mark" | "add_camera");
+            assert_eq!(
+                d.schema["properties"].get("scope").is_some(),
+                edits,
+                "scope on `{}` is wrong",
+                d.name
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_provider_and_the_session_chat_reach_outside() {
+        for d in definitions() {
+            assert_eq!(
+                d.open_world,
+                matches!(d.name, "visualize_render" | "send_chat_message"),
+                "openWorldHint is wrong for {}",
+                d.name
+            );
+        }
     }
 
     #[test]
@@ -821,6 +1060,10 @@ mod tests {
                     | "get_schedule"
                     | "get_plan_image"
                     | "list_renders"
+                    | "get_selection"
+                    | "get_session"
+                    | "get_render_job"
+                    | "get_render_image"
             );
             assert_eq!(d.read_only, expected, "readOnlyHint is wrong for {}", d.name);
         }

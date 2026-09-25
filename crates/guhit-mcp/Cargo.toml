@@ -11,7 +11,7 @@ guhit-core.workspace = true
 guhit-model.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio = { version = "1", features = ["rt", "macros", "sync", "net"] }
+tokio = { version = "1", features = ["rt", "macros", "sync", "net", "time"] }
 # rmcp: the official Rust MCP SDK. Only the server half and the streamable
 # HTTP transport, which is a tower service we mount on an axum router.
 rmcp = { version = "3.4", default-features = false, features = [
@@ -20,6 +20,12 @@ rmcp = { version = "3.4", default-features = false, features = [
 ] }
 # axum: same server the dev bridge uses, so /mcp can share its port.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+# base64: images cross IPC as data URLs; MCP image content is plain base64.
+base64 = "0.22"
+# image: a saved render goes back to the model at most 1568 px on its long
+# side, as JPEG, so a 4K render fits the client's image limit. Already in the
+# workspace through dxf; only the PNG and JPEG codecs are added.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [dev-dependencies]
 tempfile = "3"
