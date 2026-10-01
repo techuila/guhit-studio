@@ -59,14 +59,6 @@ const MARK = [
   { d: 1400, t: 600 },
 ];
 
-function introSeen() {
-  try {
-    sessionStorage.setItem("guhit:intro", "done");
-  } catch {
-    /* private mode, or storage blocked: the intro simply plays again */
-  }
-}
-
 /* ---- what "the page is ready" means, and how far along it is ---------- */
 function pageReady(onProgress) {
   const jobs = [];
@@ -149,7 +141,6 @@ function runReducedIntro() {
     root.classList.remove("intro-reduced");
     root.classList.add("intro-done");
     introEl.remove();
-    introSeen();
   };
 
   const fade = () => {
@@ -371,7 +362,6 @@ function runIntro() {
     root.classList.remove("intro-on");
     root.classList.add("intro-done");
     introEl.remove();
-    introSeen();
   }
 
   /* skip: anything the visitor does jumps to the end state */
@@ -404,12 +394,30 @@ function runIntro() {
 
     /* The baseline, in the wordmark's own box: an empty inline-block sits on
        it. By this point the fonts are loaded, because the collapse waited for
-       them, so the metric is the final one. */
+       them, so the metric is the final one. The probe goes before the word,
+       never after it: at the largest size the word fills its line, and a probe
+       after it wraps onto a second line, one line-height below the word. */
     const probe = document.createElement("span");
     probe.style.cssText = "display:inline-block;width:0;height:0;overflow:hidden";
-    word.appendChild(probe);
-    const baseline = probe.getBoundingClientRect().bottom - word.getBoundingClientRect().top;
+    word.insertBefore(probe, word.firstChild);
+    const box = word.getBoundingClientRect();
+    const baseline = probe.getBoundingClientRect().bottom - box.top;
     probe.remove();
+
+    /* Each letter's left edge in the real heading, so the outline lands on the
+       real glyphs instead of re-flowing the word with SVG's own spacing. */
+    const xs = [];
+    const range = document.createRange();
+    for (const node of word.childNodes) {
+      if (node.nodeType !== Node.TEXT_NODE) continue;
+      const s = node.data;
+      for (let k = 0; k < s.length; k++) {
+        if (/\s/.test(s[k])) continue;
+        range.setStart(node, k);
+        range.setEnd(node, k + 1);
+        xs.push(range.getBoundingClientRect().left - box.left);
+      }
+    }
 
     const ns = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(ns, "svg");
@@ -439,6 +447,7 @@ function runIntro() {
     letters.split("").forEach((ch, i) => {
       const ts = document.createElementNS(ns, "tspan");
       ts.textContent = ch;
+      if (xs.length === letters.length) ts.setAttribute("x", xs[i].toFixed(2));
       ts.style.setProperty("--i", String(i));
       ts.style.setProperty("--len", `${((LEN[ch] || 4.4) * size).toFixed(0)}`);
       text.appendChild(ts);

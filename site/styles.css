@@ -520,7 +520,7 @@ html.intro-reduced .hero, html.intro-reduced .hero__wrap { z-index: auto; }
 html.intro-reduced .monogram { position: relative; z-index: 210; }
 html.intro-reduced .crosshair { display: none; }
 
-/* the mark is drawn once per session, never again on the way back */
+/* once the intro is over the mark stays drawn */
 html.intro-done .mg { animation: none; stroke-dashoffset: 0; }
 
 /* ---------- the wordmark, written -------------------------------------- */
