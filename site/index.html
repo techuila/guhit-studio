@@ -32,10 +32,10 @@
 <link rel="stylesheet" href="styles.css">
 <script>
 /* Decide the load sequence before the first paint, so the page never flashes
-   the hero and then covers it. No JS, no class, no overlay. */
+   the hero and then covers it. No JS, no class, no overlay. It plays on every
+   load, a refresh included; ?intro=0 skips it. */
 (function () {
   var h = document.documentElement, done = false;
-  try { done = sessionStorage.getItem("guhit:intro") === "done"; } catch (e) {}
   try { if (new URLSearchParams(location.search).get("intro") === "0") done = true; } catch (e) {}
   if (done) return;
   h.className += matchMedia("(prefers-reduced-motion: reduce)").matches ? " intro-reduced" : " intro-on";
