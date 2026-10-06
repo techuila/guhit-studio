@@ -24,6 +24,14 @@ same validation.
 
 ## Setup
 
+The quickest way is the "Connect agent" button in the app, in the editor top
+bar and in the project list. It shows the address and the last agent that
+connected, has one-click install links for Cursor, VS Code, LM Studio and
+Goose, writes a Claude Desktop extension (`.mcpb`) that runs the stdio entry,
+and has an "Allow agents" switch: while it is off, every MCP request is
+refused with "Agents are turned off in Guhit Studio". The rest of this
+section is the manual setup.
+
 Two ways in:
 
 | Way | Use it when | Entry |

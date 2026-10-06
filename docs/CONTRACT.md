@@ -668,10 +668,24 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | `chat_send` | `text`, `at?`, `level_id?` | `ChatMessage` | live session only |
 | `chat_list` | | `ChatMessage[]` | the open project's chat, oldest first, last 500 |
 | `window_reply` | `id`, `reply?`, `error?` | `null` | the window's answer to a `WindowRequest` |
+| `mcp_status` | | `McpStatus` | the MCP server for the Connect agent dialog (DECISIONS D35) |
+| `mcp_set_enabled` | `enabled` | `McpStatus` | the "Allow agents" switch, stored in settings.json as `mcp_enabled` (default on). Takes effect at once: while off, every MCP request gets HTTP 503 and a JSON-RPC error (code -32000, `guhit_app::mcp::DISABLED_MESSAGE`), and the stdio entry passes that error on |
+| `mcp_claude_desktop_bundle` | | `{path}` | writes the Claude Desktop extension `<data>/claude-desktop/guhit-studio.mcpb` (MCPB manifest 0.3, a binary server whose command is `stdio_command` with `--mcp-stdio`) and returns its absolute path. `unavailable` when there is no `stdio_command` (the dev bridge) |
+
+`McpStatus { enabled, listening, port, url, stdio_command, last_client, claude_desktop_bundle }`:
+`listening` is true while the MCP listener is bound, `port` is the port it serves on or tried
+(the bridge's own port in the dev bridge), `url` is `http://127.0.0.1:{port}/mcp`, `stdio_command`
+is the absolute path of the desktop executable (None in the dev bridge), and `claude_desktop_bundle`
+is true when `stdio_command` is set. `last_client` is an `McpClientSeen { name, version, at }`: the
+last `clientInfo` the server saw (from `initialize`, from `_meta` of a 2026-07-28 request, or from
+the stdio entry, which forwards its client's), with `at` (RFC 3339 UTC) moved on every later request.
+Requests over HTTP carry no session, so a request that does not name itself counts for the last
+client that did. In memory only, since the app started. The transports report into
+`AppService::mcp` (`set_port`, `set_listening`, `set_stdio_command`).
 
 External changes: after every commit, undo, redo, open, create, close, delete and restore, a rename of the open project, and every document a live session guest receives, `AppService::watch_changes()` fires `{revision, project_id, seq}`. The desktop shell forwards it as the Tauri event `doc_changed {revision}`; the dev bridge serves `/mcp` on its port and the UI polls `doc_revision`. The frontend subscribes with `onDocChanged` (`src/contract/ipc.ts`): `App.tsx` switches hub to editor, `EditorShell` refetches state. Full MCP tool list: `docs/MCP.md`.
 
-Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (neither an address nor the relay reached the host; the message says why), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request). An AI edit outside its scope has no IPC code of its own: the model reads a tool error that starts with `out_of_scope:`, and a proposal that stops fitting its scope before it is applied is `invalid`.
+Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (neither an address nor the relay reached the host; the message says why), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request), `unavailable` (needs the desktop app, such as the Claude Desktop extension). An AI edit outside its scope has no IPC code of its own: the model reads a tool error that starts with `out_of_scope:`, and a proposal that stops fitting its scope before it is applied is `invalid`.
 
 `hub_open` on the project that is already open returns the current state with its undo history intact.
 
@@ -691,7 +705,8 @@ Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`,
   live/<project-id>/      # a guest's folder for a shared project: renders, exports, AI log
   exports/
   trash/
-  settings.json           # also profile_name, live_port, live_relay, live_direct
+  claude-desktop/guhit-studio.mcpb   # Claude Desktop extension, written by mcp_claude_desktop_bundle
+  settings.json           # also profile_name, live_port, live_relay, live_direct, mcp_port, mcp_enabled
 ```
 
 `data_dir` is the OS app data dir in the desktop app and `.devdata/` for the bridge.

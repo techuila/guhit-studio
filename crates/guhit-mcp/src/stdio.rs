@@ -16,6 +16,11 @@
 //! - The first `tools/call` or `resources/read` while the app is down calls
 //!   `launch` once, waits for the port, then forwards. If the app does not
 //!   come up, the call gets a "not open" error.
+//! - With "Allow agents" off the app answers HTTP 503 and a JSON-RPC error.
+//!   That is the app answering, not the app being down: the error goes to
+//!   the client as it is and nothing is launched.
+//! - The client's `clientInfo` from `initialize` goes with every forwarded
+//!   message as headers, so the app's Connect agent dialog can name it.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -140,6 +145,8 @@ struct Proxy {
     launch: Option<Launch>,
     launched: AtomicBool,
     launch_wait: Duration,
+    /// Name and version from the client's `initialize`.
+    client_info: std::sync::Mutex<Option<(String, String)>>,
 }
 
 impl Proxy {
@@ -161,6 +168,7 @@ impl Proxy {
             launch: config.launch,
             launched: AtomicBool::new(false),
             launch_wait: config.launch_wait,
+            client_info: std::sync::Mutex::new(None),
         })
     }
 
@@ -195,6 +203,12 @@ impl Proxy {
 
     /// The answers to one message: none for a notification, one for a request.
     async fn handle_message(&self, message: Value) -> Vec<Value> {
+        if message.get("method").and_then(Value::as_str) == Some("initialize") {
+            if let Some(info) = message.pointer("/params/clientInfo") {
+                let field = |k: &str| info.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+                *self.client_info.lock().unwrap_or_else(|e| e.into_inner()) = Some((field("name"), field("version")));
+            }
+        }
         match self.forward(&message).await {
             Ok(answers) => answers,
             Err(ForwardError::Down) => self.offline(&message).await,
@@ -293,12 +307,24 @@ impl Proxy {
         for (name, value) in protocol_headers(message) {
             request = request.header(name, value);
         }
+        let client = self.client_info.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some((name, version)) = client.filter(|(n, _)| plain_header_value(n)) {
+            request = request.header(crate::CLIENT_NAME_HEADER, name);
+            if plain_header_value(&version) {
+                request = request.header(crate::CLIENT_VERSION_HEADER, version);
+            }
+        }
         let response = match request.body(message.to_string()).send().await {
             Ok(r) => r,
             Err(e) if e.is_connect() => return Err(ForwardError::Down),
             Err(e) => return Err(ForwardError::Failed(format!("Guhit Studio did not answer: {e}"))),
         };
         let status = response.status();
+        // "Allow agents" is off. A request gets the app's error below; a
+        // notification gets nothing, as JSON-RPC wants.
+        if status == reqwest::StatusCode::SERVICE_UNAVAILABLE && request_id(message).is_none() {
+            return Ok(Vec::new());
+        }
         let is_sse = response
             .headers()
             .get("content-type")

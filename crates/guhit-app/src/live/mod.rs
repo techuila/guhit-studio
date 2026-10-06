@@ -48,7 +48,6 @@ pub const OWNS: &[&str] = &[
     "chat_list",
 ];
 
-const SETTINGS_FILE: &str = "settings.json";
 const PROFILE_KEY: &str = "profile_name";
 /// The project's chat, one `ChatMessage` per line, in the project folder.
 pub const CHAT_FILE: &str = "chat.jsonl";
@@ -220,20 +219,11 @@ fn bad_args(message: &str) -> IpcError {
 // ------------------------------------------------------------------ helpers
 
 fn settings_of(dir: &Path) -> serde_json::Map<String, Value> {
-    std::fs::read_to_string(dir.join(SETTINGS_FILE))
-        .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default()
+    files::read_settings(dir)
 }
 
-/// Merge one key into `settings.json`; other parts of the app keep their own
-/// keys in the same file.
 fn put_setting(dir: &Path, key: &str, value: Value) -> Result<(), IpcError> {
-    let mut settings = settings_of(dir);
-    settings.insert(key.to_string(), value);
-    files::create_dir(dir)?;
-    files::write_json_atomic(&dir.join(SETTINGS_FILE), &Value::Object(settings))
+    files::put_setting(dir, key, Some(value))
 }
 
 /// A display name as people will see it: control characters removed, spaces

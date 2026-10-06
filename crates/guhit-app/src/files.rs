@@ -56,6 +56,37 @@ pub fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> Result<
     write_atomic(path, &bytes)
 }
 
+// ------------------------------------------------------------- settings.json
+
+/// App settings file in the data dir. Several modules keep their own keys in
+/// it, so it is only ever changed one key at a time with [`put_setting`].
+pub const SETTINGS_FILE: &str = "settings.json";
+
+/// Every key in `<dir>/settings.json`. A missing or unreadable file is empty.
+pub fn read_settings(dir: &Path) -> serde_json::Map<String, serde_json::Value> {
+    std::fs::read_to_string(dir.join(SETTINGS_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default()
+}
+
+/// Merge one key into `settings.json`: read, change, write back atomically.
+/// `None` removes the key.
+pub fn put_setting(dir: &Path, key: &str, value: Option<serde_json::Value>) -> Result<(), IpcError> {
+    let mut settings = read_settings(dir);
+    match value {
+        Some(v) => {
+            settings.insert(key.to_string(), v);
+        }
+        None => {
+            settings.remove(key);
+        }
+    }
+    create_dir(dir)?;
+    write_json_atomic(&dir.join(SETTINGS_FILE), &serde_json::Value::Object(settings))
+}
+
 // ---------------------------------------------------------------- safe names
 
 /// Ids that arrive over IPC become folder and file names. Accept only what a

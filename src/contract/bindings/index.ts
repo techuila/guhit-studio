@@ -54,6 +54,8 @@ export type { LiveStatus } from "./LiveStatus";
 export type { Material } from "./Material";
 export type { MaterialCategory } from "./MaterialCategory";
 export type { MaterialPattern } from "./MaterialPattern";
+export type { McpClientSeen } from "./McpClientSeen";
+export type { McpStatus } from "./McpStatus";
 export type { ModelFormat } from "./ModelFormat";
 export type { Mount } from "./Mount";
 export type { Opening } from "./Opening";

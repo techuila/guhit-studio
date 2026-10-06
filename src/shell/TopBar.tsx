@@ -7,6 +7,7 @@ import { Menu } from "../ui/Dialog";
 import { Button, IconButton, Segmented, Spinner, TextField, cx } from "../ui/controls";
 import { BrandMark, Icon } from "../ui/icons";
 import { Presence } from "../ui/motionDom";
+import { ConnectButton } from "./connect/ConnectButton";
 import { MOD, SHIFT, leaveEditor } from "./actions";
 import { useProjectName, useShell } from "./shellStore";
 import s from "./chrome.module.css";
@@ -154,6 +155,7 @@ export function TopBar() {
         <ImportMenu />
         <IconButton icon="settings" tone="chrome" label="Settings" tip="Settings" onClick={() => open("settings")} />
         <LiveAvatars />
+        <ConnectButton variant="chrome" tipSide="bottom" />
         <ShareButton />
         <Button variant="primary" size="md" icon="export" className={s.exportButton} onClick={() => open("export")}>
           Export

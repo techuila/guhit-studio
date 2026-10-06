@@ -12,6 +12,7 @@ pub mod ai;
 pub mod files;
 pub mod interop;
 pub mod live;
+pub mod mcp;
 pub mod render_ai;
 pub mod renders;
 pub mod snapshots;
@@ -96,6 +97,10 @@ pub struct AppService {
     /// True when a live session may listen on every network interface (the
     /// desktop app). False keeps it on loopback (the dev bridge).
     pub(crate) lan: bool,
+    /// MCP server status and the "Allow agents" switch (DECISIONS D35). The
+    /// transports in `guhit-mcp`, the dev bridge and the desktop shell report
+    /// into it.
+    pub mcp: Arc<mcp::McpState>,
 }
 
 /// Deserialize one named argument out of the args object.
@@ -302,6 +307,7 @@ impl AppService {
         Self {
             ai: Arc::new(ai::AiState::for_data_dir(&data_dir)),
             render_ai: Arc::new(render_ai::RenderAiState::for_data_dir(&data_dir)),
+            mcp: Arc::new(mcp::McpState::for_data_dir(&data_dir)),
             session: Arc::new(Mutex::new(Session {
                 data_dir,
                 doc: None,
@@ -492,6 +498,9 @@ impl AppService {
         }
         if window::OWNS.contains(&cmd) {
             return window::handle(self, cmd, args).await;
+        }
+        if mcp::OWNS.contains(&cmd) {
+            return mcp::handle(self, cmd, args).await;
         }
         match cmd {
             // ------------------------------------------------------ library

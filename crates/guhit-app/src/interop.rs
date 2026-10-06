@@ -34,7 +34,6 @@ pub const OWNS: [&str; 9] = [
     "dwg_set_path",
 ];
 
-const SETTINGS_FILE: &str = "settings.json";
 const CONVERTER_KEY: &str = "dwg_converter_path";
 /// Output version handed to the converter. 2018 is what current AutoCAD,
 /// BricsCAD and SketchUp all read.
@@ -105,27 +104,11 @@ fn export_err(e: guhit_export::ExportError) -> IpcError {
 // ------------------------------------------------------------------ settings
 
 fn settings_of(dir: &Path) -> serde_json::Map<String, Value> {
-    std::fs::read_to_string(dir.join(SETTINGS_FILE))
-        .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default()
+    files::read_settings(dir)
 }
 
-/// Merge one key into `settings.json`. Other parts of the app keep their own
-/// keys in the same file, so the file is read, changed and written back.
 fn put_setting(dir: &Path, key: &str, value: Option<&str>) -> Result<(), IpcError> {
-    let mut settings = settings_of(dir);
-    match value {
-        Some(v) => {
-            settings.insert(key.to_string(), json!(v));
-        }
-        None => {
-            settings.remove(key);
-        }
-    }
-    files::create_dir(dir)?;
-    files::write_json_atomic(&dir.join(SETTINGS_FILE), &Value::Object(settings))
+    files::put_setting(dir, key, value.map(|v| json!(v)))
 }
 
 // ------------------------------------------------------- the ODA converter

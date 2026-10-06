@@ -8,6 +8,7 @@ import { dur } from "./ui/motion";
 import { ipc, onDocChanged } from "./contract/ipc";
 import { startWindowTasks } from "./shell/windowTasks";
 import { LiveRoot } from "./live/LiveRoot";
+import { ConnectRoot } from "./shell/connect/ConnectRoot";
 
 function isTextTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -88,6 +89,8 @@ export default function App() {
       <ImportController />
       {/* Live sessions: wiring, share and join dialogs, confirmations (DECISIONS D29). */}
       <LiveRoot />
+      {/* The "Connect an AI agent" dialog, opened from the top bar, the hub and the copilot (DECISIONS D35). */}
+      <ConnectRoot />
     </>
   );
 }

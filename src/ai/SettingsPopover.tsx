@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AiSettings } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
+import { ConnectLink } from "../shell/connect/ConnectButton";
 import { CloseIcon } from "./icons";
 import s from "./AiDock.module.css";
 
@@ -117,7 +118,7 @@ export function SettingsPopover({ settings, loadError, stage = "idle", onClose, 
       <p className={s.popText}>
         Use a Claude API key from platform.claude.com (it starts with sk-ant-api). Claude subscription and Claude
         Code tokens do not work. The key is kept in the app's data folder, readable only by your user account,
-        never in a project file, and it cannot be shown again here.
+        never in a project file, and it cannot be shown again here. <ConnectLink />
       </p>
 
       {message ? (

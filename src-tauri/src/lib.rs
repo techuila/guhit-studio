@@ -61,6 +61,14 @@ fn forward_events(handle: tauri::AppHandle, service: &AppService) {
 /// failure, is printed and ignored: the desktop app must still start.
 fn start_mcp(service: AppService, data_dir: std::path::PathBuf) {
     let port = guhit_mcp::port_from_settings(&data_dir);
+    // The Connect agent dialog shows the port before the listener is up, and
+    // offers this executable as the stdio entry and the Claude Desktop
+    // extension's command.
+    service.mcp.set_port(port);
+    match std::env::current_exe() {
+        Ok(exe) => service.mcp.set_stdio_command(exe),
+        Err(e) => eprintln!("guhit-studio: cannot find this executable for the stdio entry: {e}"),
+    }
     tauri::async_runtime::spawn(async move {
         if let Err(e) = guhit_mcp::serve(service, port).await {
             eprintln!(
