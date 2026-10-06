@@ -83,7 +83,7 @@ pnpm dev           # terminal 2: UI on :1420
 ```
 
 Run the desktop app: `pnpm tauri dev` (dev builds print one `ipc <cmd> -> ok|error` line per call). Build installers: `pnpm tauri build` (macOS: `--bundles app,dmg`, output under `target/release/bundle/`). Local builds are ad-hoc signed; release builds are signed with the Developer ID and notarized when the Apple secrets are set (`docs/RELEASING.md`, "Code signing"). Ad-hoc builds get a new identity on every build, so macOS shows a keychain permission prompt the first time each new build reads the stored Claude API key: click Always Allow. A Developer ID signed build has a stable identity and asks once.
-(macOS builds on macOS, Windows builds on Windows; CI does both). CI runs on macOS and Windows only: the keychain dependency needs extra system packages on Linux.
+(macOS builds on macOS, Windows builds on Windows; CI does both). CI runs on macOS and Windows only: the keychain dependency needs extra system packages on Linux. A pull request into main merges only once all four CI checks pass (test and desktop, on macOS and on Windows); auto-merge waits for them.
 
 Cut a release: `node scripts/bump-version.mjs 0.1.1`, commit, then `git tag v0.1.1 && git push origin v0.1.1`. The tag runs `.github/workflows/release.yml`, which publishes signed macOS and Windows bundles plus `latest.json`, and installed copies update themselves from it. Full steps and the required `TAURI_SIGNING_PRIVATE_KEY` secret: `docs/RELEASING.md`.
 
