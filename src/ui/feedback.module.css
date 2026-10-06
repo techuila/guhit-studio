@@ -32,7 +32,7 @@
   pointer-events: auto;
   /* Enter: plays once on mount. Exit: driven by .toastLeaving below, a
      transition (not a keyframe) so it can be interrupted or re-triggered. */
-  animation: ui-pop-in var(--dur-base) var(--ease-out);
+  animation: global(ui-pop-in) var(--dur-base) var(--ease-out);
   opacity: 1;
   transform: translateY(0) scale(1);
   transition:

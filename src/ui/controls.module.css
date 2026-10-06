@@ -511,12 +511,12 @@ textarea.input {
 .inputInvalid:focus-within {
   border-color: var(--danger);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 18%, transparent);
-  animation: ui-shake 320ms var(--ease-out);
+  animation: global(ui-shake) 320ms var(--ease-out);
 }
 
 /* A committed number field flashes teal briefly (MOTION.md, Inspector row). */
 .numberFlash {
-  animation: ui-commit-flash 500ms var(--ease-out);
+  animation: global(ui-commit-flash) 500ms var(--ease-out);
 }
 
 /* field rows */
@@ -637,5 +637,5 @@ textarea.input {
 }
 
 .spinner {
-  animation: ui-spin 900ms linear infinite;
+  animation: global(ui-spin) 900ms linear infinite;
 }

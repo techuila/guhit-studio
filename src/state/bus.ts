@@ -1,13 +1,16 @@
 // Tiny typed event bus for one-shot view requests that are not state.
 // CONTRACT FILE - owned by the orchestrator.
 
-import type { Camera, Vec3 } from "../contract/bindings";
+import type { Camera, Point, Vec3 } from "../contract/bindings";
 
 export interface BusEvents {
   /** Fit the whole model in the 2D and 3D views. */
   zoom_to_fit: undefined;
   /** Center the views on these elements. */
   focus_elements: string[];
+  /** Center the plan on a point (mm), switching to its level first when one
+   * is given: a live session participant's pointer, a cursor chat message. */
+  focus_point: { point: Point; level_id: string | null };
   /** Move the 3D camera to this pose. */
   apply_camera: Camera;
   /** Open the command palette. */
