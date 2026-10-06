@@ -1084,6 +1084,10 @@ impl RelayServer {
     fn restart(&mut self, config: guhit_relay::Config) {
         self.stop();
         let listener = self.listener.try_clone().expect("a second handle to the relay's socket");
+        // A clone shares the non-blocking mode on Unix but not on Windows. A
+        // blocking listener would hold the relay's one thread in accept, so
+        // the connections it already took would never be served.
+        listener.set_nonblocking(true).unwrap();
         let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
         runtime.spawn(async move {
             let listener = TcpListener::from_std(listener).expect("the relay's listener");
@@ -1295,7 +1299,8 @@ async fn a_host_that_never_accepts_did_not_answer() {
     // A host that registers its room and then never accepts anyone.
     let room = URL_SAFE_NO_PAD.encode([4u8; 16]);
     let tcp = TcpStream::connect(relay.addr).await.unwrap();
-    let (mut control, _) = tokio_tungstenite::client_async(format!("{}/v1/host", relay.url()), tcp).await.unwrap();
+    let handshake = tokio_tungstenite::client_async(format!("{}/v1/host", relay.url()), tcp);
+    let (mut control, _) = tokio::time::timeout(WAIT, handshake).await.expect("the relay to answer in time").unwrap();
     let hello = json!({ "v": 1, "room": room, "key": URL_SAFE_NO_PAD.encode([5u8; 32]) });
     control.send(Message::text(hello.to_string())).await.unwrap();
     assert_eq!(relay_says(&mut control).await["type"], "ready");
