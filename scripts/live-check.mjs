@@ -18,7 +18,9 @@
 //   node scripts/live-check.mjs            # screenshots go to ./live-check/
 //
 // Environment: CHROMIUM_PATH (a Chromium or headless shell), OUT (screenshot
-// folder), KEEP=1 (leave the bridges' data folders for a look).
+// folder), KEEP=1 (leave the bridges' data folders for a look),
+// LIVE_RELAY_URL (a deployed relay, such as wss://guhit-relay.fly.dev, in
+// place of the local one: the same checks against production).
 
 import { chromium } from "playwright-core";
 import { spawn } from "node:child_process";
@@ -176,7 +178,8 @@ async function planPoint(page, x, y) {
 
 // -------------------------------------------------------------------- run
 
-for (const bin of [BRIDGE_BIN, RELAY_BIN]) {
+const DEPLOYED_RELAY = process.env.LIVE_RELAY_URL?.trim().replace(/\/+$/, "") || null;
+for (const bin of DEPLOYED_RELAY ? [BRIDGE_BIN] : [BRIDGE_BIN, RELAY_BIN]) {
   if (!existsSync(bin)) {
     console.error(`No ${bin}. Build it first: cargo build -p guhit-devbridge -p guhit-relay`);
     process.exit(2);
@@ -185,10 +188,15 @@ for (const bin of [BRIDGE_BIN, RELAY_BIN]) {
 mkdirSync(OUT, { recursive: true });
 const data = mkdtempSync(join(tmpdir(), "guhit-live-check-"));
 // Ana reaches guests only through the relay: no listener, no addresses.
-const relayPort = await freePort();
-const relayUrl = `ws://127.0.0.1:${relayPort}`;
-// On loopback only, like the bridges: nothing outside this computer reaches it.
-start(RELAY_BIN, [], { PORT: String(relayPort), RELAY_BIND: "127.0.0.1" });
+let relayUrl = DEPLOYED_RELAY;
+if (!relayUrl) {
+  const relayPort = await freePort();
+  relayUrl = `ws://127.0.0.1:${relayPort}`;
+  // On loopback only, like the bridges: nothing outside this computer reaches it.
+  start(RELAY_BIN, [], { PORT: String(relayPort), RELAY_BIND: "127.0.0.1" });
+}
+// ws:// answers health on http://, wss:// on https://.
+const relayHealth = `${relayUrl.replace(/^ws/, "http")}/health`;
 mkdirSync(join(data, "ana"), { recursive: true });
 writeFileSync(join(data, "ana", "settings.json"), JSON.stringify({ live_relay: relayUrl, live_direct: false }));
 start(BRIDGE_BIN, ["--port", String(A.port), "--data", join(data, "ana")]);
@@ -197,7 +205,7 @@ start(process.execPath, [join(ROOT, "node_modules", "vite", "bin", "vite.js"), "
 
 let browser;
 try {
-  await until("the relay", async () => (await fetch(`http://127.0.0.1:${relayPort}/health`)).ok);
+  await until("the relay", async () => (await fetch(relayHealth)).ok);
   await until("the bridges", async () => (await fetch(`${bridgeUrl(A)}/health`)).ok && (await fetch(`${bridgeUrl(B)}/health`)).ok);
   await until("the UI", async () => (await fetch(`http://localhost:${UI_PORT}/`)).ok, 60000);
 
@@ -353,7 +361,7 @@ try {
   await ben.waitForTimeout(600);
   await shot(ben, "09-ben-session-ended");
 
-  check("the relay is still up", (await fetch(`http://127.0.0.1:${relayPort}/health`)).ok);
+  check("the relay is still up", (await fetch(relayHealth)).ok);
   check("no console errors in Ana's tab", ana.errors === 0, String(ana.errors));
   check("no console errors in Ben's tab", ben.errors === 0, String(ben.errors));
 } catch (e) {
