@@ -25,7 +25,7 @@
 | **Semantic 2D drafting** | Walls, doors, windows, rooms, columns, stairs, furniture, dimensions and notes. Rooms find themselves and show their net area live. Type an exact length while drawing. Snapping, ortho, grids, marquee selection, undo for everything. |
 | **Live 3D** | The same model extruded as you draw: real openings, roof presets (flat, shed, gable), CC0 materials and furniture, HDRI sky, cutaway, camera presets, captures tied to the model revision. |
 | **AI copilot** | Say "palakihin ang bedroom 300 mm sa east" and get a preview of the exact change. Nothing is committed until you approve; one undo reverts it. Answers about areas and counts come from the model, never from guesses. |
-| **Claude Code, Codex, Cursor** | The app is an MCP server. Drive it from your own AI subscription with `claude mcp add --transport http guhit http://localhost:1450/mcp`. See [docs/MCP.md](docs/MCP.md). |
+| **Your own AI agent** | The app is an MCP server. Drive it from Claude Code, Codex, Cursor, VS Code Copilot, Gemini, Cline, Goose, LM Studio and more, on your own subscription or a local model: `claude mcp add --transport http guhit http://127.0.0.1:1450/mcp`. Setup for each agent: [docs/MCP.md](docs/MCP.md#setup). |
 | **AI visualization** | Turn a model capture into a photorealistic image with a style preset, then drag a slider to compare it with the model view. Always labelled, never written back into the model. |
 | **Interoperability** | Export PDF and SVG sheets, DXF 2D and 3D, IFC4, glTF, OBJ, DAE, DWG (through the ODA File Converter) and `.guhit` bundles. Import DXF and DWG as recognized walls or linework, and glTF or OBJ as reference models. See [docs/INTEROP.md](docs/INTEROP.md). |
 | **Local first** | Projects are files on your computer. Versions, autosave, thumbnails. No account. |
@@ -75,7 +75,7 @@ All shortcuts: [docs/SHORTCUTS.md](docs/SHORTCUTS.md), or press `?` in the app.
 | Feature | What it needs | Where the key lives |
 |---|---|---|
 | In-app copilot | A Claude API key from [platform.claude.com](https://platform.claude.com) (`sk-ant-api...`). About 3 to 7 cents per turn. | Copilot settings. Stored in the app's data folder, readable only by your user, never in a project. |
-| Claude Code, Codex, Cursor driving the app | Your existing subscription, inside that tool. No key in Guhit. | Nowhere. See [docs/MCP.md](docs/MCP.md). |
+| An MCP agent (Claude Code, Codex, Cursor and others) driving the app | Your existing subscription, inside that tool. No key in Guhit. | Nowhere. See [docs/MCP.md](docs/MCP.md). |
 | AI visualization | A Google AI Studio key (`AIza...`). About $0.05 to $0.24 per image. | Settings, AI rendering. |
 
 Drawing, 3D and every export work without any key. Claude and ChatGPT consumer subscription tokens are not API keys and will not work in the copilot; use them through the MCP route instead.

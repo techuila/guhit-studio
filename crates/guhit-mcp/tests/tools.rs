@@ -14,6 +14,7 @@ async fn ok(app: &AppService, name: &str, args: Value) -> Value {
     match tools::call(app, name, args).await {
         Ok(Output::Json(v)) => v,
         Ok(Output::Image { .. }) => panic!("`{name}` returned an image, expected JSON"),
+        Ok(Output::Text(_)) => panic!("`{name}` returned text, expected JSON"),
         Err(ToolFail(m)) => panic!("`{name}` failed: {m}"),
     }
 }
@@ -321,9 +322,11 @@ async fn a_plan_image_is_the_saved_thumbnail() {
         .await
         .unwrap();
     match tools::call(&app, "get_plan_image", json!({})).await {
-        Ok(Output::Image { base64, mime }) => {
+        Ok(Output::Image { base64, mime, note }) => {
             assert_eq!(mime, "image/png");
             assert!(base64.starts_with("iVBORw0KGgo"));
+            // Some clients drop image-only results, so a line of text goes along.
+            assert!(note.contains("revision"), "unexpected note: {note}");
         }
         other => panic!("expected an image, got {:?}", other.is_ok()),
     }
@@ -500,4 +503,18 @@ async fn a_second_storey_is_one_batch_and_one_undo_step() {
     ok(&app, "undo", json!({})).await;
     let summary = ok(&app, "get_project_summary", json!({})).await;
     assert_eq!(summary["levels"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn get_guide_returns_the_resource_text_for_clients_without_resources() {
+    let (app, _dir) = app();
+    // No project needed: the guides are fixed text.
+    for (topic, needle) in [("conventions", "+x is east"), ("ph_defaults", "150 mm")] {
+        match tools::call(&app, "get_guide", json!({"topic": topic})).await {
+            Ok(Output::Text(text)) => assert!(text.contains(needle), "{topic}: {text}"),
+            _ => panic!("get_guide {topic} did not return text"),
+        }
+    }
+    let message = fail(&app, "get_guide", json!({"topic": "everything"})).await;
+    assert!(message.contains("conventions"), "unexpected: {message}");
 }

@@ -1,11 +1,11 @@
 # MCP server
 
-Guhit Studio speaks the Model Context Protocol. An MCP client - Claude Code,
-Codex, Cursor - can open a project, draw rooms, hang doors and windows, read
-areas and export a sheet, and the desktop window shows every change as it
-happens.
+Guhit Studio speaks the Model Context Protocol. An MCP client (Claude Code,
+Codex, Cursor, Copilot, Gemini, a local-model app, any agent that speaks MCP)
+can open a project, draw rooms, hang doors and windows, read areas and export
+a sheet, and the desktop window shows every change as it happens.
 
-You say this in Claude Code:
+You say this in your agent:
 
 > draw a 3-bedroom bungalow 10 x 8 m
 
@@ -13,9 +13,10 @@ and watch the plan appear in the app.
 
 ## Why it works this way
 
-The model runs inside your MCP client, on your own subscription. Guhit never
-sees a key, never calls a model and never pays for one. The client does the
-thinking and calls these tools; the Rust engine does the geometry.
+The model runs inside your MCP client, on your own subscription, API key or
+local model. Guhit never sees a key, never calls a model and never pays for
+one. The client does the thinking and calls these tools; the Rust engine does
+the geometry.
 
 This is separate from the in-app copilot, which needs a Console API key of
 your own (DECISIONS D13). Both use the same engine, the same commands and the
@@ -23,37 +24,411 @@ same validation.
 
 ## Setup
 
-The desktop app serves MCP on `http://127.0.0.1:1450/mcp` while it is running.
+Two ways in:
+
+| Way | Use it when | Entry |
+|---|---|---|
+| HTTP URL | The agent takes a Streamable HTTP URL (most do) | `http://127.0.0.1:1450/mcp` |
+| stdio command | The agent only launches a command | the app binary with `--mcp-stdio` |
+
+Always write `127.0.0.1`, never `localhost`: some clients resolve `localhost`
+to IPv6 first. The app listens on `127.0.0.1` and also `[::1]` when the
+machine has IPv6, with no auth, loopback only.
+
+The HTTP URL needs the desktop app to be running. The stdio entry forwards to
+the running app. If the app is not open it still answers the tool list, and
+the first tool call opens the app. It needs no Node.
+
+| Platform | App binary for stdio (`<app binary>` below) |
+|---|---|
+| macOS | `/Applications/Guhit Studio.app/Contents/MacOS/guhit-studio` |
+| Windows | `C:\Users\<you>\AppData\Local\Guhit Studio\guhit-studio.exe` (default per-user install; check your install folder, this path is not verified yet) |
+
+In JSON the Windows path needs escaped backslashes
+(`C:\\Users\\<you>\\AppData\\Local\\Guhit Studio\\guhit-studio.exe`), and most
+clients do not expand `%LOCALAPPDATA%`, so write the full path. `--port N`
+points the stdio entry at a different port.
+
+### Status
+
+Tested against Guhit on 2026-10-07 (connection and tool list, 38 tools):
+Claude Code over HTTP and over the stdio entry, the Cursor CLI over HTTP, and
+the stdio entry inside a built macOS app (`/Applications/...` path layout
+confirmed; with the app closed it lists the tools, and the first tool call
+opened the app and answered in about a second).
+The transport tests in `crates/guhit-mcp/tests/transport.rs` also cover both
+protocol generations (with and without `initialize`, the 2026-07-28 spec). Every
+other snippet follows that agent's official docs as of October 2026 and has not
+been run against Guhit. If a shape is refused, check that agent's current MCP docs; the
+URL (or the stdio command) is the only thing Guhit cares about.
+
+### Supported agents
+
+| Agent | Paid or free | Free or local models | Connects by | Notes |
+|---|---|---|---|---|
+| [Claude Code](#claude-code) | Paid Claude plan or API key | Ollama (Anthropic-compatible API) | HTTP | Tested |
+| [Claude Desktop](#claude-desktop) | Paid Claude plan | No | stdio | Config file is stdio only |
+| [ChatGPT desktop app](#chatgpt-desktop-app) | Paid ChatGPT plan | No | HTTP | Shares Codex config |
+| [Codex CLI and IDE](#codex-cli-and-ide-extension) | ChatGPT plan or API key | `codex --oss` (Ollama, LM Studio) | HTTP | |
+| [Cursor](#cursor) | Free tier and paid | BYOK | HTTP | Warns above about 40 tools |
+| [VS Code with GitHub Copilot](#vs-code-with-github-copilot) | Free tier, paid, or BYOK | BYOK and Ollama, no Copilot plan needed since June 2026 | HTTP | Root key is `servers` |
+| [GitHub Copilot CLI](#github-copilot-cli) | Copilot plan | No | HTTP | |
+| [Windsurf (Devin Desktop)](#windsurf-devin-desktop) | Free tier and paid | No | HTTP | 100 tools total |
+| [JetBrains AI Assistant, Junie](#jetbrains-ai-assistant-and-junie) | Paid | No | HTTP | |
+| [Zed](#zed) | Free editor, bring a model | Ollama | HTTP | No MCP resources, tools work |
+| [Google Antigravity](#google-antigravity) | Free tier and paid | No | HTTP | Must be `serverUrl` |
+| [Gemini CLI](#gemini-cli) | Paid API key or enterprise only | No | HTTP | Must be `httpUrl` |
+| [Kiro](#kiro) | Free tier and paid | No | HTTP | |
+| [Augment](#augment) | Paid | No | HTTP | |
+| [Cline](#cline) | Free extension, bring a model | Ollama, LM Studio | HTTP | |
+| [Kilo Code](#kilo-code) | Free, bring a model | BYOK, Ollama | HTTP | |
+| [Continue](#continue) | Free | Ollama | HTTP | Agent mode only |
+| [Goose](#goose) | Free | Yes | HTTP | Key is `uri` |
+| [OpenCode](#opencode) | Free | Ollama | HTTP | |
+| [Amp](#amp) | Paid | No | HTTP | |
+| [Qwen Code](#qwen-code) | Free CLI | Yes | HTTP | Must be `httpUrl` |
+| [Warp](#warp) | Free tier and paid | No | HTTP | |
+| [Crush](#crush) | Free, bring a model | Ollama, LM Studio | HTTP | |
+| [LM Studio](#lm-studio) | Free | Yes, local | HTTP | Tool images do not reach the model |
+| [Jan](#jan) | Free | Yes, local | HTTP | |
+| [Msty Studio](#msty-studio) | Free tier and paid | Yes | HTTP | |
+| [AnythingLLM](#anythingllm) | Free | Yes | HTTP | Needs `type` |
+| [LibreChat](#librechat) | Free, self-hosted | Yes | HTTP | Needs `allowedAddresses` |
+| [Trae](#trae) | Free tier and paid | No | HTTP | |
+| [Any other agent](#any-other-agent) | | | HTTP or stdio | |
 
 ### Claude Code
 
 ```bash
-claude mcp add --transport http guhit http://localhost:1450/mcp
+claude mcp add --transport http guhit http://127.0.0.1:1450/mcp --scope user
 ```
 
-Remove it again with `claude mcp remove guhit`. Check it with `/mcp` inside
-Claude Code.
+Or in `~/.claude.json` (all projects) or `.mcp.json` (one project):
+
+```json
+{ "mcpServers": { "guhit": { "type": "http", "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+Remove it with `claude mcp remove guhit`. Check it with `/mcp`.
+
+### Claude Desktop
+
+The config file takes a command, not a URL. Edit `claude_desktop_config.json`:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{ "mcpServers": { "guhit": {
+  "command": "/Applications/Guhit Studio.app/Contents/MacOS/guhit-studio",
+  "args": ["--mcp-stdio"]
+} } }
+```
+
+On Windows set `command` to `C:\\Users\\<you>\\AppData\\Local\\Guhit Studio\\guhit-studio.exe`.
+
+Fallback if you have Node:
+
+```json
+{ "mcpServers": { "guhit": {
+  "command": "npx",
+  "args": ["-y", "mcp-remote", "http://127.0.0.1:1450/mcp", "--transport", "http-only"]
+} } }
+```
+
+Restart Claude Desktop after editing.
+
+### ChatGPT desktop app
+
+Settings, MCP servers, Add server, Streamable HTTP, URL
+`http://127.0.0.1:1450/mcp`, then restart. It shares its config with Codex.
+
+### Codex CLI and IDE extension
+
+```bash
+codex mcp add guhit --url http://127.0.0.1:1450/mcp
+```
+
+Or in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.guhit]
+url = "http://127.0.0.1:1450/mcp"
+```
+
+Free or local: `codex --oss` runs Codex on Ollama or LM Studio.
 
 ### Cursor
 
 `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` (one project):
 
 ```json
-{ "mcpServers": { "guhit": { "url": "http://localhost:1450/mcp" } } }
+{ "mcpServers": { "guhit": { "url": "http://127.0.0.1:1450/mcp" } } }
 ```
 
-### Codex
+Cursor warns when the enabled servers pass about 40 tools in total.
 
-`~/.codex/config.toml`:
+### VS Code with GitHub Copilot
 
-```toml
-[mcp_servers.guhit]
-url = "http://localhost:1450/mcp"
+Agent mode. `.vscode/mcp.json` (one project) or the user `mcp.json` (command
+palette, "MCP: Open User Configuration"). The root key is `servers`:
+
+```json
+{ "servers": { "guhit": { "type": "http", "url": "http://127.0.0.1:1450/mcp" } } }
 ```
 
-Codex has moved its MCP configuration around between versions. If this shape
-is refused, check `codex --help` for the current one; the endpoint URL is the
-only thing Guhit cares about.
+Since June 2026, bring-your-own-key models and Ollama work without a Copilot
+plan.
+
+### GitHub Copilot CLI
+
+`~/.copilot/mcp-config.json`, or `/mcp add` inside the CLI:
+
+```json
+{ "mcpServers": { "guhit": { "type": "http", "url": "http://127.0.0.1:1450/mcp", "tools": ["*"] } } }
+```
+
+### Windsurf (Devin Desktop)
+
+Cascade agent, `~/.config/devin/mcp_config.json` (Windows
+`%APPDATA%\devin\mcp_config.json`):
+
+```json
+{ "mcpServers": { "guhit": { "serverUrl": "http://127.0.0.1:1450/mcp" } } }
+```
+
+Devin Local agent:
+
+```bash
+devin mcp add guhit http://127.0.0.1:1450/mcp
+```
+
+Windsurf allows 100 tools in total across servers.
+
+### JetBrains AI Assistant and Junie
+
+AI Assistant: Settings, Tools, AI Assistant, Model Context Protocol (MCP),
+Add, then paste:
+
+```json
+{ "mcpServers": { "guhit": { "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+Junie: the same JSON in `~/.junie/mcp/mcp.json` (all projects) or
+`.junie/mcp/mcp.json` (one project).
+
+### Zed
+
+`settings.json`:
+
+```json
+{ "context_servers": { "guhit": { "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+Zed has no MCP resources. The tools still work.
+
+### Google Antigravity
+
+IDE and CLI. `~/.gemini/config/mcp_config.json` or `.agents/mcp_config.json`.
+The key must be `serverUrl`:
+
+```json
+{ "mcpServers": { "guhit": { "serverUrl": "http://127.0.0.1:1450/mcp" } } }
+```
+
+### Gemini CLI
+
+`~/.gemini/settings.json`:
+
+```json
+{ "mcpServers": { "guhit": { "httpUrl": "http://127.0.0.1:1450/mcp" } } }
+```
+
+Or `gemini mcp add --transport http guhit http://127.0.0.1:1450/mcp`. A plain
+`url` key means the old SSE transport, which Guhit does not serve. Since
+2026-06-18 Gemini CLI serves enterprise and paid API keys only; Google moved
+individuals to Antigravity CLI.
+
+### Kiro
+
+`~/.kiro/settings/mcp.json`:
+
+```json
+{ "mcpServers": { "guhit": { "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+### Augment
+
+```bash
+auggie mcp add guhit --transport http --url http://127.0.0.1:1450/mcp
+```
+
+### Cline
+
+`cline_mcp_settings.json` (Cline, MCP Servers, Configure):
+
+```json
+{ "mcpServers": { "guhit": { "type": "streamableHttp", "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+### Kilo Code
+
+`~/.config/kilo/kilo.jsonc`:
+
+```json
+{ "mcp": { "guhit": { "type": "remote", "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+### Continue
+
+`.continue/mcpServers/guhit.yaml`. MCP works in agent mode only.
+
+```yaml
+name: Guhit Studio
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: guhit
+    type: streamable-http
+    url: http://127.0.0.1:1450/mcp
+```
+
+### Goose
+
+`~/.config/goose/config.yaml`, or add it in Goose, Extensions. The key is
+`uri`, not `url`:
+
+```yaml
+extensions:
+  guhit:
+    name: Guhit Studio
+    type: streamable_http
+    uri: http://127.0.0.1:1450/mcp
+    enabled: true
+    timeout: 300
+```
+
+### OpenCode
+
+`~/.config/opencode/opencode.json`:
+
+```json
+{ "mcp": { "guhit": { "type": "remote", "url": "http://127.0.0.1:1450/mcp", "oauth": false } } }
+```
+
+### Amp
+
+`~/.config/amp/settings.json`:
+
+```json
+{ "amp.mcpServers": { "guhit": { "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+### Qwen Code
+
+`~/.qwen/settings.json`. A plain `url` means SSE, so use `httpUrl`:
+
+```json
+{ "mcpServers": { "guhit": { "httpUrl": "http://127.0.0.1:1450/mcp" } } }
+```
+
+### Warp
+
+Settings, Agents, MCP servers, then paste:
+
+```json
+{ "mcpServers": { "guhit": { "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+### Crush
+
+`~/.config/crush/crush.json`:
+
+```json
+{ "mcp": { "guhit": { "type": "http", "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+### LM Studio
+
+`~/.lmstudio/mcp.json` (Program, Install, Edit mcp.json):
+
+```json
+{ "mcpServers": { "guhit": { "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+Known LM Studio bug: images returned by tools (`get_plan_image`) do not reach
+the model. The tool list fills a small model's context, so prefer a model with
+a 32k or larger context.
+
+### Jan
+
+Settings, MCP Servers, add an HTTP server with the URL
+`http://127.0.0.1:1450/mcp`.
+
+### Msty Studio
+
+Toolbox, Add, HTTP, with the URL `http://127.0.0.1:1450/mcp`.
+
+### AnythingLLM
+
+`anythingllm_mcp_servers.json`. Without `type` it assumes SSE:
+
+```json
+{ "mcpServers": { "guhit": { "type": "streamable", "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+### LibreChat
+
+Self-hosted. In `librechat.yaml`:
+
+```yaml
+mcpServers:
+  guhit:
+    type: streamable-http
+    url: http://127.0.0.1:1450/mcp
+    serverInstructions: true
+```
+
+LibreChat blocks private addresses by default, so add `127.0.0.1` to
+`allowedAddresses` in its MCP settings. If LibreChat runs in Docker it cannot
+reach the app on the host's loopback (see Not supported).
+`serverInstructions: true` passes Guhit's instructions to the model.
+
+### Trae
+
+`.trae/mcp.json`:
+
+```json
+{ "mcpServers": { "guhit": { "url": "http://127.0.0.1:1450/mcp" } } }
+```
+
+### Any other agent
+
+If it takes a Streamable HTTP URL, use `http://127.0.0.1:1450/mcp`. If it only
+launches a command, use the stdio entry:
+`<app binary> --mcp-stdio`.
+
+### Not supported
+
+| Client | Why |
+|---|---|
+| claude.ai on the web, Claude custom connectors | Connect from the vendor's cloud |
+| ChatGPT on the web (developer mode connectors) | Connect from the vendor's cloud |
+| Open WebUI in Docker | Connects from a container |
+
+None of these can reach an app on `127.0.0.1`. Guhit does not expose itself
+to the internet: that would need authentication, and leaving it off is a
+deliberate choice, not a missing setting.
+
+### Tips for every agent
+
+- Approvals: each agent asks before a tool runs. Most have an auto-approve
+  setting: Claude Code permissions, Codex `default_tools_approval_mode`,
+  Gemini CLI trust, Kiro `autoApprove`, Cline `autoApprove`, Copilot CLI
+  `--allow-tool`.
+- Guhit has 38 tools. Small local models get confused by that many, so
+  use a capable model.
+- Restart the agent after editing its config.
 
 ### Changing the port
 
@@ -64,9 +439,10 @@ app:
 { "mcp_port": 1451 }
 ```
 
-The app data folder is `~/Library/Application Support/com.guhit.studio` on
-macOS and `%APPDATA%\com.guhit.studio` on Windows. A port that is already in
-use is reported on stderr and the app starts normally without MCP.
+The app data folder is `~/Library/Application Support/ph.guhit.studio` on
+macOS and `%APPDATA%\ph.guhit.studio` on Windows. A port that is already in
+use is reported on stderr and the app starts normally without MCP. Change the
+port in the agent's URL too, or pass `--port` to the stdio entry.
 
 ### Without the desktop app
 
@@ -75,7 +451,14 @@ can be driven headless:
 
 ```bash
 cargo run -p guhit-devbridge -- --port 1631 --data .devdata/mcp
-claude mcp add --transport http guhit-dev http://localhost:1631/mcp --scope local
+claude mcp add --transport http guhit-dev http://127.0.0.1:1631/mcp --scope local
+```
+
+For an agent that only launches a command, the dev stdio entry proxies to the
+dev bridge:
+
+```bash
+cargo run -p guhit-mcp --bin guhit-mcp-stdio -- --port 1631
 ```
 
 ## The tools
@@ -97,8 +480,9 @@ back in square metres. The plan is +x east, +y north.
 | `list_review_items` | Design review suggestions with their status (open, or ignored with a note), located items with a `location_mm`, and the set-aside findings that are resolved |
 | `get_pipe_takeoff` | Run lengths for every system by material and size, elbows, tees, sleeves, every penetration and the aircon core holes |
 | `get_schedule` | Lights, outlets, switches, fixtures and aircon units per level and room, in the rows of the PH electrical inspection form, with totals per level |
-| `get_plan_image` | The last plan thumbnail the window saved, as a PNG |
+| `get_plan_image` | The last plan thumbnail the window saved, as a PNG, with a line saying whether it predates the last edit |
 | `list_renders` | Saved 3D visuals |
+| `get_guide` | The conventions or the PH defaults (`topic`: `conventions` or `ph_defaults`), the same text as the two doc resources, for agents that do not read resources |
 | `add_wall`, `add_wall_chain` | Walls |
 | `add_rect_room` | Four walls plus a named room |
 | `add_level`, `delete_level` | Add a storey on top of the highest level, or delete a level with everything on it |
@@ -235,7 +619,7 @@ every step created under `steps`, which makes the normal recipe two calls:
 - **The commit is revision guarded.** If the window or the copilot changes the
   plan between the tool reading it and committing, nothing is applied and the
   client is told the plan moved on.
-- **Approval is the MCP client's job.** Claude Code asks before it runs a tool
+- **Approval is the MCP client's job.** Your agent asks before it runs a tool
   and remembers what you allowed. Guhit does not add a second prompt, because
   an MCP client is a program you already trust with your machine. The in-app
   copilot is different: it never commits without you pressing Apply.

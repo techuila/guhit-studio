@@ -471,22 +471,22 @@
 <section class="band band--mcp" aria-labelledby="mcp-h">
   <div class="wrap mcp">
     <div class="mcp__copy">
-      <h2 id="mcp-h" class="h3">Or drive it from Claude Code.</h2>
-      <p>The app serves an MCP endpoint on localhost while it runs. Add it once and your MCP client
+      <h2 id="mcp-h" class="h3">Or drive it from your own AI agent.</h2>
+      <p>The app serves an MCP endpoint on your machine while it runs. Add it once and your agent
         can open projects, draw rooms, hang doors, read areas and export a sheet, with the desktop
-        window updating as it works. The model runs inside your client on your own subscription.
+        window updating as it works. The model runs inside your agent on your own subscription, or on a local model.
         GUHIT never sees a key and never calls a model.</p>
       <p class="mcp__foot">Every call is translated into the same validated command the toolbar
         uses, is one undo step in the app, and is refused outright if the plan moved on.</p>
     </div>
     <div class="mcp__code">
       <div class="code">
-        <code id="mcpCmd">claude mcp add --transport http guhit http://localhost:1450/mcp</code>
+        <code id="mcpCmd">claude mcp add --transport http guhit http://127.0.0.1:1450/mcp</code>
         <button class="copy" type="button" data-copy="#mcpCmd">
           <span class="copy__label">Copy</span>
         </button>
       </div>
-      <p class="code__hint num">Cursor and Codex read the same endpoint.</p>
+      <p class="code__hint num">Claude Code shown. Codex, Cursor, VS Code Copilot, Gemini, Cline, Goose, LM Studio and more use the same endpoint: <a href="https://github.com/techuila/guhit-studio/blob/main/docs/MCP.md#setup">setup for each agent</a>.</p>
       <figure class="shot">
         <img src="assets/app-copilot.webp" width="1120" height="700" loading="lazy" decoding="async"
              alt="The in-app copilot showing a proposed change in Taglish, with the affected walls previewed in purple on the plan and Apply and Discard buttons.">
