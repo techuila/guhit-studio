@@ -904,3 +904,635 @@ if (sun && sunRange) {
   }
   settle(0);
 }
+
+/* ---------- 9. together: a live session to watch, and to join ----------- */
+/* Ana, Ben and Mika work on one plan the way the app shows a live session
+   (DECISIONS D29): each pointer in its own color with a name, cursor chat
+   that grows out of the name, every message landing in the Chat panel, a
+   wall dragged live with its dimension and the room's area following, and an
+   undo that asks before taking back someone else's step. The visitor can
+   join: their pointer gets a name, "/" opens cursor chat at it, and someone
+   answers. One script on a loop clock that runs only while the window is on
+   screen. Under reduced motion one still frame of it stands in, and joining
+   still works. */
+
+const live = document.getElementById("live");
+const liveCanvas = document.getElementById("liveCanvas");
+const livePlan = document.getElementById("livePlan");
+const liveLayer = document.getElementById("liveLayer");
+if (live && liveCanvas && livePlan && liveLayer) {
+  const LOOP = 26000;
+  const PER_CHAR = 90; // ms a typed character takes
+  const SENT_MS = 4000; // the app keeps your own sent message in the bubble this long
+  const REPLY_MS = 3200;
+  // The plan's viewBox, in mm, and a tighter one on phones so it reads bigger
+  // there. The canvas's aspect-ratio in styles.css follows each.
+  const WIDE = { x: -1500, y: -1300, w: 11800, h: 9000 };
+  const SMALL = { x: -500, y: -1500, w: 9600, h: 8800 };
+  const small = matchMedia("(max-width: 560px)");
+  let VB = small.matches ? SMALL : WIDE;
+  const applyViewBox = () => {
+    VB = small.matches ? SMALL : WIDE;
+    livePlan.setAttribute("viewBox", `${VB.x} ${VB.y} ${VB.w} ${VB.h}`);
+  };
+  const motion = () => !reduced.matches;
+
+  const CAST = {
+    ana: { name: "Ana", peer: 0 },
+    ben: { name: "Ben", peer: 1 },
+    mika: { name: "Mika", peer: 2 },
+  };
+  const YOU = { name: "You", peer: 3 };
+
+  /* Where each pointer is at moments of the loop, in plan mm as drawn (y
+     down). "btn" is the Undo anyway button of the question Ben answers. */
+  const PATHS = {
+    ana: [[0, 2100, 3900], [2000, 2600, 3300], [4600, 3000, 2500], [7400, 8000, 2300], [7800, 8000, 2300],
+      [9800, 8600, 2300], [10400, 8540, 2420], [13000, 8380, 2760], [16500, 7600, 1800], [19000, 7400, 1700],
+      [23000, 4300, 2900], [26000, 2100, 3900]],
+    ben: [[0, 6300, 1300], [2000, 6420, 1560], [3300, 6500, 3000], [6000, 6540, 3040], [9000, 6300, 3400],
+      [14000, 5900, 3800], [17000, 6100, 3600], [17800, 6100, 3600], [18500, "btn"], [19400, "btn"],
+      [23000, 6600, 1600], [26000, 6300, 1300]],
+    mika: [[0, 1200, 5200], [3000, 1700, 4600], [8000, 2400, 4200], [12000, 3600, 4600], [13600, 6900, 4300],
+      [15800, 6920, 4320], [17600, 5300, 4500], [19200, 4300, 5000], [23000, 3000, 5000], [26000, 1200, 5200]],
+  };
+  const PHASE = { ana: 0.4, ben: 2.1, mika: 4.3 };
+  // Each line has a second wording for the next loop, so the Chat panel does
+  // not just repeat itself.
+  const SAYS = [
+    { who: "ben", at: 3600, texts: ["Can this room be wider?", "Lakihan pa natin?"], hold: 3000 },
+    { who: "ana", at: 10400, texts: ["Ayan, 600 mm wider.", "Done, plus 600."], hold: 2900 },
+    { who: "mika", at: 13800, texts: ["Mas maganda dati.", "Hmm, too big now."], hold: 2200 },
+    { who: "ana", at: 20000, texts: ["Sige, balik.", "Okay, back to 8000."], hold: 2800 },
+  ];
+  const lineOf = (s, k) => {
+    const text = s.texts[k % s.texts.length];
+    const sent = s.at + text.length * PER_CHAR + 250;
+    return { text, sent, until: sent + s.hold };
+  };
+  const PRESSES = [{ who: "ben", at: 3300 }, { who: "ana", at: 7800 }, { who: "ben", at: 19300 }];
+  const SELECT = [3300, 11000]; // Ben's selection of the bedroom
+  const HOLD = [7800, 9800]; // Ana drags the east wall
+  const ASK = [17800, 19400]; // Ben's undo would take back Ana's step: his app asks him
+  const ASK_AT = [6100, 3600]; // where Ben waits for it
+  const UNDO_AT = 19400;
+  const MIKA_JOINS = 900; // once, in the first loop: her avatar and her pointer arrive
+  const REPLIES = [
+    { who: "ana", text: "Hi! Welcome to the session." },
+    { who: "ben", text: "Uy, may bagong kasama!" },
+    { who: "mika", text: "Kita ko na ang cursor mo." },
+  ];
+
+  /* ---- plan mm to canvas px and back (the plan is drawn with "meet") ---- */
+  let box = { w: 0, h: 0, s: 1, ox: 0, oy: 0 };
+  const layout = () => {
+    const r = liveCanvas.getBoundingClientRect();
+    const s = Math.min(r.width / VB.w, r.height / VB.h) || 1;
+    box = { w: r.width, h: r.height, s, ox: (r.width - VB.w * s) / 2, oy: (r.height - VB.h * s) / 2 };
+  };
+  const toPx = (x, y) => [box.ox + (x - VB.x) * box.s, box.oy + (y - VB.y) * box.s];
+  const toMm = (px, py) => [(px - box.ox) / box.s + VB.x, (py - box.oy) / box.s + VB.y];
+
+  /* ---- the plan's moving parts ---- */
+  const part = (k) => livePlan.querySelector(`[data-w="${k}"]`);
+  const north = part("north"), south = part("south"), east = part("east"), bedFill = part("bedFill");
+  const sel = part("sel"), dimLine = part("dimLine"), dimTicks = part("dimTicks"), dimText = part("dimText");
+  const bedName = part("bedName"), bedArea = part("bedArea");
+  let shownOff = -1;
+  const paintWall = (off) => {
+    off = Math.round(off * 10) / 10;
+    if (off === shownOff) return;
+    shownOff = off;
+    const snap = Math.round(off / 10) * 10; // the numbers move in 10 mm steps, as the app's do
+    north.setAttribute("width", 8150 + off);
+    south.setAttribute("width", 8150 + off);
+    east.setAttribute("x", 7925 + off);
+    bedFill.setAttribute("width", 2875 + off);
+    sel.setAttribute("width", 2875 + off);
+    dimLine.setAttribute("d", `M-75 6150 V7000 M${8075 + off} 6150 V7000 M-75 6850 H${8075 + off}`);
+    dimTicks.setAttribute("d", `M-215 7000 L65 6700 M${7935 + off} 7000 L${8215 + off} 6700`);
+    dimText.setAttribute("x", 4000 + off / 2);
+    dimText.textContent = String(8000 + snap);
+    bedName.setAttribute("x", 6487 + off / 2);
+    bedArea.setAttribute("x", 6487 + off / 2);
+    bedArea.textContent = `${(((2875 + snap) * 5850) / 1e6).toFixed(2)} m²`;
+  };
+
+  /* ---- cursors, built like the app's: an arrow and a name ---- */
+  const ARROW =
+    '<svg class="lc__arrow" width="18" height="20" viewBox="0 0 18 20" aria-hidden="true">' +
+    '<path d="M2 1.8v14.1l3.9-3.6 2.6 5.8 2.7-1.2-2.6-5.7 5.3-.3z"/></svg>';
+  const makeCursor = (who, arrow) => {
+    const el = document.createElement("div");
+    el.className = "lc";
+    el.style.setProperty("--peer", `var(--peer-${who.peer})`);
+    el.innerHTML = `<div class="lc__body">${arrow ? ARROW : ""}<div class="lc__label">` +
+      '<span class="lc__name"></span><span class="lc__text"></span></div><i class="lc__ring"></i></div>';
+    el.querySelector(".lc__name").textContent = who.name;
+    liveLayer.append(el);
+    return { el, label: el.querySelector(".lc__label"), text: el.querySelector(".lc__text"),
+      ring: el.querySelector(".lc__ring"), key: "", x: NaN, y: NaN, flip: null, lw: 0 };
+  };
+  const cursors = { ana: makeCursor(CAST.ana, true), ben: makeCursor(CAST.ben, true), mika: makeCursor(CAST.mika, true) };
+  const you = makeCursor(YOU, false);
+  you.el.classList.add("lc--you", "is-gone");
+
+  // The label sits right of the tip, or left of it when only that side has room.
+  const sideFor = (c) => {
+    const w = c.lw || 60;
+    const flip = c.x + 14 + w > box.w - 4 && c.x - 10 - w > 4;
+    if (flip !== c.flip) {
+      c.flip = flip;
+      c.el.dataset.flip = String(flip);
+    }
+  };
+  const placePx = (c, px, py) => {
+    if (Math.abs(px - c.x) < 0.05 && Math.abs(py - c.y) < 0.05) return;
+    c.x = px;
+    c.y = py;
+    c.el.style.transform = `translate3d(${px.toFixed(1)}px, ${py.toFixed(1)}px, 0)`;
+    sideFor(c);
+  };
+  const paintLabel = (c, state) => {
+    const key = state ? `${state.mode}|${state.text}` : "";
+    if (key === c.key) return;
+    const wasBubble = c.key !== "";
+    c.key = key;
+    c.el.classList.toggle("is-bubble", Boolean(state));
+    c.el.classList.toggle("is-typing", Boolean(state) && state.mode === "typing");
+    c.text.textContent = state ? state.text : "";
+    c.lw = c.label.offsetWidth; // measured only when the words change
+    if (!Number.isNaN(c.x)) sideFor(c);
+    // the name grows into a bubble, as in the app
+    if (state && !wasBubble && motion()) {
+      c.label.animate([{ transform: "scale(0.9)", opacity: 0.6 }, { transform: "none", opacity: 1 }],
+        { duration: 180, easing: EASE_OUT });
+    }
+  };
+  const ring = (c) => {
+    if (!motion()) return;
+    c.ring.animate([{ opacity: 0.9, transform: "scale(0.3)" }, { opacity: 0, transform: "scale(1.4)" }],
+      { duration: 520, easing: EASE_OUT });
+  };
+
+  /* ---- the undo question at Ben's pointer ---- */
+  const ask = document.createElement("div");
+  ask.className = "live__ask";
+  ask.innerHTML = '<p class="live__ask-who num">On Ben\'s screen</p><p class="live__ask-title">Undo someone else\'s change?</p>' +
+    '<p class="live__ask-text">Ana made the last change: Move. Undo it anyway?</p>' +
+    '<div class="live__ask-row"><span>Cancel</span><span class="is-primary">Undo anyway</span></div>';
+  liveLayer.append(ask);
+  const askBtn = ask.querySelector(".is-primary");
+  let btnPx = [0, 0];
+  let askShown = false;
+  const placeAsk = () => {
+    const [ax, ay] = toPx(ASK_AT[0], ASK_AT[1]);
+    const w = ask.offsetWidth || 250;
+    const h = ask.offsetHeight || 110;
+    let x = ax + 18;
+    let y = ay + 24;
+    if (x + w > box.w - 8) x = ax - w - 14;
+    if (y + h > box.h - 8) y = ay - h - 10;
+    ask.style.left = `${x.toFixed(1)}px`;
+    ask.style.top = `${y.toFixed(1)}px`;
+    ask.style.transformOrigin = `${x < ax ? "top right" : "top left"}`;
+    // Ben's pointer lands on the button's middle, wherever the layout put it.
+    // Measured once here, not every frame.
+    btnPx = [x + askBtn.offsetLeft + askBtn.offsetWidth / 2, y + askBtn.offsetTop + askBtn.offsetHeight / 2];
+  };
+  const btnMm = () => toMm(btnPx[0], btnPx[1]);
+
+  /* ---- where everyone is, and what their name says ---- */
+  const easeInOut = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+  const easeOut = (p) => 1 - Math.pow(1 - p, 3);
+  const keyPoint = (k) => (k[1] === "btn" ? btnMm() : [k[1], k[2]]);
+  const raw = (who, t) => {
+    const path = PATHS[who];
+    let i = 0;
+    while (i < path.length - 2 && t >= path[i + 1][0]) i++;
+    const a = path[i];
+    const b = path[i + 1];
+    const e = easeInOut(clamp01((t - a[0]) / (b[0] - a[0])));
+    const A = keyPoint(a);
+    const B = keyPoint(b);
+    return { x: A[0] + (B[0] - A[0]) * e, y: A[1] + (B[1] - A[1]) * e, A, B, e, i };
+  };
+  const dragging = (who, t) => who === "ana" && t >= HOLD[0] && t < HOLD[1];
+  const where = (who, t, abs) => {
+    const r = raw(who, t);
+    if (dragging(who, t)) return [r.x, r.y]; // the wall follows the pointer exactly
+    let { x, y } = r;
+    const dx = r.B[0] - r.A[0];
+    const dy = r.B[1] - r.A[1];
+    const d = Math.hypot(dx, dy);
+    if (d > 1) {
+      // a hand moves in an arc, not along a ruler
+      const bow = d * 0.09 * Math.sin(Math.PI * r.e) * (r.i % 2 ? 1 : -1);
+      x += (-dy / d) * bow;
+      y += (dx / d) * bow;
+    }
+    // and never holds perfectly still
+    const amp = d > 1 ? 10 : 30;
+    x += amp * Math.sin(abs / 820 + PHASE[who]);
+    y += amp * 0.8 * Math.sin(abs / 1070 + PHASE[who] * 1.7);
+    return [x, y];
+  };
+  const wallAt = (t) => {
+    if (t < HOLD[0]) return 0;
+    if (t < HOLD[1]) return Math.max(0, Math.min(600, raw("ana", t).x - 8000));
+    if (t < UNDO_AT) return 600;
+    if (t < UNDO_AT + 360) return 600 * (1 - easeOut((t - UNDO_AT) / 360));
+    return 0;
+  };
+  const replies = [];
+  const sayState = (who, t, abs) => {
+    for (const o of replies) {
+      if (o.who !== who || abs < o.start || abs >= o.until) continue;
+      if (abs < o.sent) {
+        const n = Math.min(o.text.length, Math.floor((abs - o.start) / PER_CHAR) + 1);
+        return { mode: "typing", text: o.text.slice(0, n) };
+      }
+      return { mode: "said", text: o.text };
+    }
+    const k = Math.floor(abs / LOOP);
+    for (const s of SAYS) {
+      const line = lineOf(s, k);
+      if (s.who !== who || t < s.at || t >= line.until) continue;
+      if (t < line.sent) {
+        const n = Math.min(line.text.length, Math.floor((t - s.at) / PER_CHAR) + 1);
+        return { mode: "typing", text: line.text.slice(0, n) };
+      }
+      return { mode: "said", text: line.text };
+    }
+    return null;
+  };
+
+  /* ---- the Chat panel, the avatars and the people count ---- */
+  const log = document.getElementById("liveLog");
+  const count = document.getElementById("liveCount");
+  const peopleCount = document.getElementById("livePeopleCount");
+  const avMika = live.querySelector('.live__av[data-who="mika"]');
+  const avYou = live.querySelector('.live__av[data-who="you"]');
+  let messages = log ? log.children.length : 0;
+  let people = 3;
+  const clockLabel = (d) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (log) {
+    for (const el of log.querySelectorAll("[data-ago]")) {
+      el.textContent = clockLabel(new Date(Date.now() - Number(el.dataset.ago) * 60000));
+    }
+  }
+  const AT_ICON =
+    '<svg class="msg__at" width="9" height="10" viewBox="0 0 18 20" aria-hidden="true"><title>Sent at a spot on the plan</title>' +
+    '<path d="M2 1.8v14.1l3.9-3.6 2.6 5.8 2.7-1.2-2.6-5.7 5.3-.3z" fill="currentColor"/></svg>';
+  const addMessage = (who, text) => {
+    if (!log) return;
+    const li = document.createElement("li");
+    li.className = motion() ? "msg is-new" : "msg";
+    li.style.setProperty("--peer", `var(--peer-${who.peer})`);
+    li.innerHTML = '<i class="msg__av"></i><div><p class="msg__meta"><b></b> <span class="num"></span> ' + AT_ICON +
+      '</p><p class="msg__text"></p></div>';
+    li.querySelector(".msg__av").textContent = who.name[0];
+    li.querySelector("b").textContent = who.name;
+    li.querySelector(".num").textContent = clockLabel(new Date());
+    li.querySelector(".msg__text").textContent = text;
+    log.append(li);
+    while (log.children.length > 12) log.firstElementChild.remove();
+    messages += 1;
+    if (count) count.textContent = String(messages);
+  };
+  const setPeople = (n) => {
+    people = n;
+    if (peopleCount) peopleCount.textContent = String(n);
+  };
+  const popIn = (av) => {
+    if (!av) return;
+    av.hidden = false;
+    if (motion()) av.classList.add("is-in");
+  };
+
+  /* ---- one frame of the loop ---- */
+  let mikaIn = true;
+  let prevAbs = -1;
+  // did a moment of the loop happen in (from, to] of the absolute clock
+  const crossed = (at, from, to) => {
+    const k = Math.floor((to - at) / LOOP);
+    return k >= 0 && k * LOOP + at > from;
+  };
+  const render = (abs) => {
+    if (!box.w) layout();
+    const t = abs % LOOP;
+    const arrived = abs >= MIKA_JOINS;
+    if (arrived !== mikaIn) {
+      mikaIn = arrived;
+      cursors.mika.el.hidden = !arrived;
+      if (arrived) {
+        if (motion()) cursors.mika.el.classList.add("is-in");
+        popIn(avMika);
+        setPeople(people + 1);
+      }
+    }
+    paintWall(wallAt(t));
+    sel.classList.toggle("is-on", t >= SELECT[0] && t < SELECT[1]);
+    east.classList.toggle("is-held", t >= HOLD[0] && t < HOLD[1]);
+    const askOn = t >= ASK[0] && t < ASK[1];
+    if (askOn !== askShown) {
+      askShown = askOn;
+      if (askOn) placeAsk();
+      ask.classList.toggle("is-on", askOn);
+    }
+    askBtn.classList.toggle("is-pressed", t >= 19300 && t < 19460);
+    for (const who of ["ana", "ben", "mika"]) {
+      if (who === "mika" && !mikaIn) continue;
+      const c = cursors[who];
+      paintLabel(c, sayState(who, t, abs));
+      const [x, y] = where(who, t, abs);
+      const [px, py] = toPx(x, y);
+      placePx(c, px, py);
+    }
+    if (prevAbs >= 0) {
+      for (const p of PRESSES) if (crossed(p.at, prevAbs, abs)) ring(cursors[p.who]);
+      const kNow = Math.floor(abs / LOOP);
+      for (const s of SAYS) {
+        for (const k of [kNow - 1, kNow]) {
+          if (k < 0) continue;
+          const line = lineOf(s, k);
+          const when = k * LOOP + line.sent;
+          if (when > prevAbs && when <= abs) addMessage(CAST[s.who], line.text);
+        }
+      }
+      if (crossed(UNDO_AT, prevAbs, abs) && motion()) {
+        // what an undo changes flashes once, as in the app
+        east.animate([{ fill: "#0e8a8f" }, { fill: "#1f2d44" }], { duration: 700, easing: EASE_OUT });
+      }
+    }
+    for (const o of replies) {
+      if (!o.logged && abs >= o.sent) {
+        o.logged = true;
+        addMessage(CAST[o.who], o.text);
+      }
+    }
+    while (replies.length && replies[0].until < abs) replies.shift();
+    prevAbs = abs;
+  };
+
+  /* ---- the clock: runs only while the window is on screen ---- */
+  let clock = 0;
+  let last = 0;
+  let raf = 0;
+  let running = false;
+  let onScreen = false;
+  const frame = (now) => {
+    raf = 0;
+    if (!running) return;
+    clock += last ? Math.min(64, now - last) : 16;
+    last = now;
+    render(clock);
+    raf = requestAnimationFrame(frame);
+  };
+  const play = () => {
+    if (running || !motion() || !onScreen || document.hidden) return;
+    running = true;
+    last = 0;
+    raf = requestAnimationFrame(frame);
+  };
+  const pause = () => {
+    running = false;
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+  };
+  // under reduced motion: Ben has just asked, everyone is in, nothing moves
+  let stillShown = false;
+  const still = () => {
+    clock = LOOP + 6400;
+    prevAbs = -1;
+    render(clock);
+    if (!stillShown) {
+      stillShown = true;
+      addMessage(CAST.ben, SAYS[0].texts[0]);
+    }
+  };
+
+  /* ---- the visitor joins in ---- */
+  const pos = document.getElementById("livePos");
+  const fmt = (n) => (Math.round(n / 10) * 10).toLocaleString("en-US");
+  let hovering = false;
+  let pointerPx = null;
+  let joined = false;
+  const showPos = (p) => {
+    if (!pos) return;
+    if (!p) {
+      pos.textContent = "Ground floor · 1:100";
+      return;
+    }
+    const [x, y] = toMm(p[0], p[1]);
+    pos.textContent = `X ${fmt(x)}  Y ${fmt(6000 - y)} mm`;
+  };
+  const join = () => {
+    if (joined) return;
+    joined = true;
+    popIn(avYou);
+    setPeople(people + 1);
+  };
+
+  const chat = document.createElement("form");
+  chat.className = "you-chat";
+  chat.hidden = true;
+  chat.style.setProperty("--peer", "var(--peer-3)");
+  chat.innerHTML = '<div class="you-chat__bubble"><span class="you-chat__name">You</span>' +
+    '<input class="you-chat__input" maxlength="160" autocomplete="off" spellcheck="false" enterkeyhint="send"' +
+    ' placeholder="Say something" aria-label="Your message, shown at your pointer">' +
+    '<span class="you-chat__text" hidden></span></div>';
+  liveCanvas.append(chat);
+  const chatInput = chat.querySelector(".you-chat__input");
+  const chatText = chat.querySelector(".you-chat__text");
+  let chatMode = "closed"; // closed, typing, sent
+  let chatTimer = 0;
+  let chatPx = [0, 0];
+  const chatBubble = chat.querySelector(".you-chat__bubble");
+  // Like a cursor's label: right of the point, or left of it when only that
+  // side has room; above it near the bottom edge.
+  const placeChat = (p) => {
+    chatPx = p;
+    chat.style.transform = `translate3d(${p[0].toFixed(1)}px, ${p[1].toFixed(1)}px, 0)`;
+    const w = chatBubble.offsetWidth || 200;
+    chat.dataset.flip = String(p[0] + 14 + w > box.w - 4 && p[0] - 6 - w > 4);
+    chat.dataset.flipY = String(p[1] > box.h - 90);
+  };
+  // where the bubble opens without a pointer: open floor in the living room,
+  // far enough left for the bubble to fit on a phone
+  const restPx = () => (small.matches ? toPx(500, 1300) : toPx(2300, 1500));
+  const closeChat = () => {
+    if (chatMode === "closed") return;
+    clearTimeout(chatTimer);
+    chatMode = "closed";
+    const hide = () => {
+      if (chatMode !== "closed") return;
+      chat.hidden = true;
+      if (hovering) you.el.classList.remove("is-gone");
+    };
+    if (motion()) {
+      chat.dataset.stage = "exit";
+      chatTimer = setTimeout(hide, 130);
+    } else {
+      hide();
+    }
+    if (chat.contains(document.activeElement)) chatInput.blur();
+  };
+  const openChat = () => {
+    if (!box.w) layout();
+    clearTimeout(chatTimer);
+    join();
+    chatMode = "typing";
+    chatText.hidden = true;
+    chatText.textContent = "";
+    chatInput.hidden = false;
+    chatInput.value = "";
+    chat.hidden = false;
+    placeChat(hovering && pointerPx ? pointerPx : restPx());
+    you.el.classList.add("is-gone");
+    if (motion()) {
+      chat.dataset.stage = "enter";
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (chatMode === "typing") chat.dataset.stage = "idle";
+      }));
+    } else {
+      chat.dataset.stage = "idle";
+    }
+    chatInput.focus({ preventScroll: true });
+  };
+  let replyCount = 0;
+  const reply = () => {
+    const r = REPLIES[replyCount++ % REPLIES.length];
+    if (running) {
+      const start = clock + 900;
+      const sent = start + r.text.length * PER_CHAR + 250;
+      replies.push({ who: r.who, text: r.text, start, sent, until: sent + REPLY_MS, logged: false });
+      return;
+    }
+    // no clock to ride on: answer at once, and let it go after a moment
+    setTimeout(() => {
+      paintLabel(cursors[r.who], { mode: "said", text: r.text });
+      addMessage(CAST[r.who], r.text);
+      setTimeout(() => paintLabel(cursors[r.who], null), REPLY_MS);
+    }, 900);
+  };
+  chat.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (chatMode !== "typing") return;
+    const text = chatInput.value.replace(/\s+/g, " ").trim().slice(0, 160);
+    if (!text) {
+      closeChat();
+      return;
+    }
+    // the bubble keeps what you sent a moment, then fades, as in the app
+    chatMode = "sent";
+    chatText.textContent = text;
+    chatText.hidden = false;
+    chatInput.hidden = true;
+    placeChat(chatPx);
+    chatInput.blur();
+    addMessage(YOU, text);
+    reply();
+    clearTimeout(chatTimer);
+    chatTimer = setTimeout(closeChat, SENT_MS);
+  });
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeChat();
+    }
+  });
+  chatInput.addEventListener("input", () => placeChat(chatPx)); // the bubble grows with the words
+  chatInput.addEventListener("blur", () => {
+    if (chatMode === "typing" && chatInput.value.trim() === "") closeChat();
+  });
+
+  liveCanvas.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "touch") return;
+    if (!box.w) layout();
+    const r = liveCanvas.getBoundingClientRect();
+    pointerPx = [e.clientX - r.left, e.clientY - r.top];
+    if (!hovering) {
+      hovering = true;
+      if (crosshair) crosshair.classList.add("away");
+    }
+    join();
+    if (chatMode === "closed") you.el.classList.remove("is-gone");
+    placePx(you, pointerPx[0], pointerPx[1]);
+    if (chatMode !== "closed") placeChat(pointerPx);
+    showPos(pointerPx);
+  });
+  liveCanvas.addEventListener("pointerleave", () => {
+    hovering = false;
+    you.el.classList.add("is-gone");
+    if (crosshair) crosshair.classList.remove("away");
+    showPos(null);
+  });
+  const tryBtn = document.getElementById("liveTry");
+  if (tryBtn) {
+    tryBtn.addEventListener("pointerdown", (e) => e.preventDefault()); // keep the focus for the field
+    tryBtn.addEventListener("click", openChat);
+  }
+  addEventListener("keydown", (e) => {
+    if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+    const target = e.target;
+    if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+    if (!hovering && !live.contains(document.activeElement)) return;
+    e.preventDefault();
+    openChat();
+  });
+
+  /* ---- start ---- */
+  applyViewBox();
+  layout();
+  small.addEventListener("change", () => {
+    applyViewBox();
+    layout();
+    for (const c of Object.values(cursors)) c.x = NaN;
+    if (askShown) placeAsk();
+    if (!running) render(clock);
+  });
+  if ("ResizeObserver" in window) {
+    new ResizeObserver(() => {
+      layout();
+      you.x = NaN;
+      for (const c of Object.values(cursors)) c.x = NaN;
+      if (askShown) placeAsk();
+      if (!running) render(clock);
+    }).observe(liveCanvas);
+  }
+  if (motion()) {
+    // the first loop opens with two people in; Mika arrives a moment later
+    mikaIn = false;
+    cursors.mika.el.hidden = true;
+    if (avMika) avMika.hidden = true;
+    setPeople(2);
+    render(0);
+  } else {
+    still();
+  }
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          onScreen = e.isIntersecting;
+          if (onScreen) play();
+          else pause();
+        }
+      },
+      { threshold: 0.12 }
+    ).observe(live);
+  } else {
+    onScreen = true;
+    play();
+  }
+  document.addEventListener("visibilitychange", () => (document.hidden ? pause() : play()));
+  reduced.addEventListener("change", () => {
+    if (reduced.matches) {
+      pause();
+      still();
+    } else {
+      play();
+    }
+  });
+}
