@@ -156,3 +156,37 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - The certificate's owner name and team stay out of the repo: the workflow passes `APPLE_SIGNING_IDENTITY=Developer ID Application`, which Tauri matches against the imported certificate.
 - One certificate for every Aliteo Mac app, chosen by Axl on 2026-09-25: Guhit reuses TopNotch's Developer ID Application certificate, and the secrets have TopNotch's names (`MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`). Rejected: a certificate per project (nothing gained, more renewals). That certificate comes from the Previous Sub-CA and stops signing on 2027-02-01; the replacement should be made with the G2 Sub-CA and updated in every repo's two certificate secrets.
 - Windows code signing stays open (no certificate yet).
+
+### D29. Live sessions: one computer hosts, others join with an invite
+- Chosen by: Axl (asked for multiplayer: people working on one plan at once, a colored cursor with a name for each person, chat shown at the cursor, and a chat window with the history) and Claude (the mechanism), on 2026-09-25.
+- One computer hosts the open project. Its Rust `Document` stays the only authority (D3): guests keep a read-only copy, send the same typed `Command`s, and the host validates, applies and sends the new state to everyone. The host is a desktop app like any other, so there is still no cloud service (D1): guests reach the host over the local network or a VPN.
+- Security: the host listens only while a session runs, with TLS and a certificate made for that session. The invite carries the host's addresses, a random secret and the certificate's pin; a guest refuses any other certificate, and the host refuses anyone without the secret. The dev bridge hosts on loopback only.
+- Undo stays one shared, snapshot based history (D6 unchanged). Each step records who made it; undoing someone else's step names them and asks first.
+- Ending a session for the others is never a side effect: the window asks before going back to the hub or opening a bundle while hosting, and MCP clients get `live_session` from `open_project`, `create_project` and `close_project` until they pass `force`, after the user confirms.
+- Presence (pointer, selection, level, cursor chat) is sent many times a second and never saved. Chat messages are saved with the project on the host (`chat.jsonl`), so the chat window keeps the history.
+- Rejected: a cloud relay with accounts (needs a backend, D1), CRDT sync (the engine validates every change and projects are small, D3), WebRTC (needs a signaling server), per-person undo (needs inverse changes, which D6 rejected).
+
+### D30. AI edits can be limited to the selection
+- Chosen by: Axl (select parts of the plan and prompt so only those parts change) and Claude (the rule), on 2026-09-25.
+- "Only the selection" limits the in-app copilot and MCP clients alike. The engine checks every command the AI stages or commits (`guhit_core::scope`) and refuses one that reaches outside with `out_of_scope`, naming the element, so the model can correct itself.
+- Reach: a room reaches its bounding walls, their doors and windows, and what stands inside it; a wall reaches its doors and windows; anything else reaches itself. New elements must land in the selection's area on its level. Roof, levels, layers and settings are outside every scope. What the engine changes as a consequence (connected walls stretching, dimensions following, links removed) is allowed.
+- MCP clients read the window's selection with `get_selection` and can ask for the scope per call; when the user switches "Only the selection" on, the window's selection binds every MCP edit whatever the call says.
+- Rejected: a prompt-only instruction (a model can ignore it), and a check on the resulting diff (a resize moves walls the user never selected, which is what they asked for).
+
+### D31. MCP renders go through the window
+- Chosen by: Claude, on 2026-09-25, for Axl's request that MCP clients make renders too.
+- The path tracer and the plan canvas run in the webview, so MCP render and capture tools ask the open window to do the work (`AppEvent::WindowRequest`, answered with `window_reply`) and wait for it. Results are ordinary Visuals records. AI visualization runs in the backend with the user's own Gemini key (D17) and stays labelled.
+- A long render returns a job id instead of blocking the MCP client; without an open window the tools say so.
+
+### D32. Live sessions reach over the internet through a relay (the VS Code Live Share model)
+- Chosen by: Axl (a setup like VS Code Live Share), on 2026-09-25, after Claude recommended it over a cloud server and over direct connections only.
+- The host's computer keeps the project and its history (D29 unchanged). Guests connect straight to the host when they can reach it (same network or VPN), and otherwise through a relay server. The relay only forwards the session's bytes: the TLS inside stays end to end and pinned to the certificate in the invite, so the relay cannot read or change a plan. It stores nothing and has no accounts.
+- This is the first backend D1 allowed for: one small stateless service (`crates/guhit-relay`, protocol in `docs/RELAY.md`) that runs anywhere a container runs, placed near the users (Singapore for the Philippines). The app's relay address is a setting, empty until a relay is deployed.
+- Invites list every network address of the host, so a VPN such as Tailscale works without the relay. Large frames are compressed, since the whole project goes to every guest on each change.
+- Rejected: a cloud server that holds the projects (the Figma model: accounts, storage, syncing offline edits, backups, privacy duties for clients' plans, running costs; revisit together with share links and billing), and direct connections only (most homes cannot accept incoming connections, and many Philippine ISPs use carrier-grade NAT).
+
+### D33. The relay runs on Fly.io, in Singapore
+- Chosen by: Axl (signed up for Fly.io and asked to release live sessions to users), on 2026-10-06, after Claude recommended Fly.io over a self-run server.
+- One always-on machine (one shared CPU, 256 MB) in `sin`, from `crates/guhit-relay/fly.toml`, at `wss://guhit-relay.fly.dev`: about US$2.50 a month plus $0.04 per GB of relayed traffic. Release builds get the address from the repository variable `GUHIT_RELAY_URL` (docs/RELEASING.md).
+- One machine only (`fly deploy --ha=false`): rooms live in memory, and a second machine would split them.
+- Rejected: a self-run server in Singapore (a server, HTTPS and updates to look after), and no relay (live sessions on the same network or VPN only).

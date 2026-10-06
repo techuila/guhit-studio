@@ -13,3 +13,5 @@ serde_json.workspace = true
 tokio = { version = "1", features = ["full"] }
 # axum: small HTTP server for POST /ipc/<cmd>. CORS is hand-written, no tower-http.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
+# tokio-stream: turns the app event broadcast into the `GET /events` stream.
+tokio-stream = { version = "0.1", features = ["sync"] }

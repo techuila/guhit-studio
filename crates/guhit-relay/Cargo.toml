@@ -1,0 +1,33 @@
+[package]
+name = "guhit-relay"
+description = "Live session relay: pairs a guest with the host and forwards their bytes (docs/RELAY.md)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+# tokio: the listener, a task per connection, timers, the bounded queue
+# between the two sides of a pair, and "signal" so a container stop ends the
+# bin at once.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
+# axum: the HTTP server and its WebSocket upgrade. "ws" is tokio-tungstenite
+# underneath, so the relay has no WebSocket framing of its own.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws"] }
+# tungstenite: the protocol code under axum's "ws", same copy. Only its error
+# type, which tells a frame over the maximum (close 1009) and a malformed
+# frame (4400) from a connection that dropped.
+tungstenite = { version = "0.29", default-features = false }
+# futures-util: splits a WebSocket into halves, so one task reads while
+# another writes. Already in the tree through axum.
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# ring: SHA-256 of a room's key, so the relay keeps only the digest. Already
+# in the tree through the app's TLS.
+ring = "0.17"
+# base64: checks that a room id is 16 bytes and a key 32, as the protocol says.
+base64 = "0.22"
+
+[dev-dependencies]
+# tokio-tungstenite: the tests' WebSocket client. Plain ws:// only, no TLS.
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect"] }

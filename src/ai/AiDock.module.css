@@ -346,6 +346,74 @@
   line-height: 1.6;
 }
 
+/* ------------------------------------------------------------- AI scope */
+
+/* "Only the selection" (DECISIONS D30): what is selected, and the switch that
+   limits the copilot and MCP clients to it. Tinted with the AI color while on. */
+.scopeRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin: 0 12px 6px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  font-size: var(--text-xs);
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    background var(--dur-hover) var(--ease-out);
+}
+
+.scopeRow[data-stage="enter"],
+.scopeRow[data-stage="exit"] {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.scopeRowOn {
+  border-color: color-mix(in srgb, var(--ai) 35%, var(--line));
+  background: color-mix(in srgb, var(--ai-soft) 60%, var(--surface));
+}
+
+.scopeWhat {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.scopeWhat svg {
+  flex: 0 0 auto;
+}
+
+.scopeWhat b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.scopeLabel {
+  flex: 0 0 auto;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: color var(--dur-hover) var(--ease-out);
+}
+
+.scopeRowOn .scopeLabel {
+  color: var(--ai);
+}
+
 /* ---------------------------------------------------------------- composer */
 
 .composer {

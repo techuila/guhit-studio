@@ -19,7 +19,7 @@ use guhit_model::*;
 use serde_json::{json, Value};
 
 use crate::files::{self};
-use crate::{arg, no_document, store, to_value, AppService, IpcResult};
+use crate::{arg, live, no_document, store, to_value, AppService, IpcResult};
 
 /// Commands this module answers. `AppService::handle` routes on this list.
 pub const OWNS: [&str; 9] = [
@@ -438,32 +438,72 @@ async fn import_commit(app: &AppService, args: Value) -> IpcResult {
 
 // --------------------------------------------------------- reference models
 
-async fn model_store(app: &AppService, args: Value) -> IpcResult {
-    let exts: Vec<&str> = MODEL_EXTS.iter().map(|(e, _)| *e).collect();
-    let (file_name, bytes) = read_input(app, &args, &exts, MAX_MODEL_BYTES).await?;
-    let (stem, ext) = files::split_ext(&file_name);
+/// Store a reference model in a project folder and return the name it got.
+/// The window's own uploads and a live session guest's go through here, so
+/// both get the same name, type and size checks.
+pub(crate) fn store_model(project_dir: &Path, file_name: &str, bytes: &[u8]) -> Result<String, IpcError> {
+    let safe = files::safe_file_name(file_name)?;
+    let (stem, ext) = files::split_ext(&safe);
     let (stem, ext) = (stem.to_string(), ext.to_ascii_lowercase());
-    let s = app.session.lock().await;
-    let dir = s.open_project_dir()?.join("models");
+    if !MODEL_EXTS.iter().any(|(e, _)| *e == ext) {
+        let allowed: Vec<&str> = MODEL_EXTS.iter().map(|(e, _)| *e).collect();
+        return Err(IpcError::new(
+            "invalid",
+            format!("`{safe}` is not a supported file. This command reads: {}", allowed.join(", ")),
+        ));
+    }
+    if bytes.len() > MAX_MODEL_BYTES {
+        return Err(IpcError::new(
+            "invalid",
+            format!("the file is larger than {} MB", MAX_MODEL_BYTES / (1024 * 1024)),
+        ));
+    }
+    let dir = project_dir.join("models");
     files::create_dir(&dir)?;
     // Never overwrite: a ReferenceModel element may already point at that file.
     let target = files::unique_path(&dir, &stem, &ext);
-    files::write_atomic(&target, &bytes)?;
-    let stored = target.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+    files::write_atomic(&target, bytes)?;
+    Ok(target.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string())
+}
+
+/// The media type of a stored reference model, from its name, which must
+/// already be in safe form.
+fn model_mime(file_name: &str) -> Result<&'static str, IpcError> {
+    files::check_file_name(file_name)?;
+    let ext = files::split_ext(file_name).1.to_ascii_lowercase();
+    MODEL_EXTS
+        .iter()
+        .find(|(e, _)| *e == ext)
+        .map(|(_, m)| *m)
+        .ok_or_else(|| IpcError::new("invalid", "reference models are glTF, GLB or OBJ files"))
+}
+
+/// Where a stored reference model of a project folder is, and its media type.
+pub(crate) fn model_file(project_dir: &Path, file_name: &str) -> Result<(PathBuf, &'static str), IpcError> {
+    let mime = model_mime(file_name)?;
+    Ok((project_dir.join("models").join(file_name), mime))
+}
+
+async fn model_store(app: &AppService, args: Value) -> IpcResult {
+    let exts: Vec<&str> = MODEL_EXTS.iter().map(|(e, _)| *e).collect();
+    let (file_name, bytes) = read_input(app, &args, &exts, MAX_MODEL_BYTES).await?;
+    // A live session guest stores it in the shared project, on the host.
+    if let Some(stored) = live::guest_put_file(app, live::wire::FileKind::Model, &file_name, &bytes).await {
+        return stored;
+    }
+    let s = app.session.lock().await;
+    let stored = store_model(&s.open_project_dir()?, &file_name, &bytes)?;
     Ok(json!({ "file_name": stored, "size": bytes.len() }))
 }
 
 async fn model_data(app: &AppService, args: Value) -> IpcResult {
     let file_name: String = arg(&args, "file_name")?;
-    files::check_file_name(&file_name)?;
-    let ext = files::split_ext(&file_name).1.to_ascii_lowercase();
-    let mime = MODEL_EXTS
-        .iter()
-        .find(|(e, _)| *e == ext)
-        .map(|(_, m)| *m)
-        .ok_or_else(|| IpcError::new("invalid", "reference models are glTF, GLB or OBJ files"))?;
+    let mime = model_mime(&file_name)?;
+    if let Some(bytes) = live::guest_get_file(app, live::wire::FileKind::Model, &file_name).await {
+        return to_value(&files::encode_any_data_url(mime, &bytes?));
+    }
     let s = app.session.lock().await;
-    let path = s.open_project_dir()?.join("models").join(&file_name);
+    let (path, mime) = model_file(&s.open_project_dir()?, &file_name)?;
     let bytes = std::fs::read(&path).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => IpcError::new("not_found", format!("model not found: {file_name}")),
         _ => files::io_err("cannot read", &path, e),
@@ -476,13 +516,14 @@ async fn model_data(app: &AppService, args: Value) -> IpcResult {
 async fn export_model(app: &AppService, args: Value) -> IpcResult {
     let format: ModelFormat = arg(&args, "format")?;
     let path: Option<String> = arg(&args, "path")?;
-    let (project, derived, data_dir, external) = {
+    let (project, derived, data_dir, exports, external) = {
         let s = app.session.lock().await;
         let doc = s.open_doc()?;
         (
             doc.project().clone(),
             doc.derived().clone(),
             s.data_dir.clone(),
+            s.exports_dir(),
             app.external_paths,
         )
     };
@@ -495,7 +536,7 @@ async fn export_model(app: &AppService, args: Value) -> IpcResult {
         ModelFormat::Dwg => None,
     };
     if let Some((ext, data)) = text {
-        let target = crate::export_target(&data_dir, path.as_deref(), &stem, ext, external)?;
+        let target = crate::export_target(&data_dir, &exports, path.as_deref(), &stem, ext, external)?;
         files::write_atomic(&target, data.as_bytes())?;
         return to_value(&ExportResult {
             path: target.to_string_lossy().into_owned(),
@@ -528,7 +569,7 @@ async fn export_model(app: &AppService, args: Value) -> IpcResult {
             })
             .await
             .map_err(join_err)??;
-            let target = crate::export_target(&data_dir, path.as_deref(), &stem, "dwg", external)?;
+            let target = crate::export_target(&data_dir, &exports, path.as_deref(), &stem, "dwg", external)?;
             files::write_atomic(&target, &dwg)?;
             to_value(&ExportResult {
                 path: target.to_string_lossy().into_owned(),
@@ -608,6 +649,7 @@ async fn bundle_save(app: &AppService, args: Value) -> IpcResult {
     let bytes = zip_folder(&project_dir)?;
     let target = crate::export_target(
         &data_dir,
+        &s.exports_dir(),
         path.as_deref(),
         &files::slug(&name, "project"),
         "guhit",

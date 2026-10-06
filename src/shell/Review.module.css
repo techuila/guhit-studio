@@ -276,7 +276,7 @@
   gap: 6px;
   padding-top: 5px;
   /* Back from the note form: the buttons fade in rather than pop. */
-  animation: ui-fade-in var(--dur-hover) var(--ease-out);
+  animation: global(ui-fade-in) var(--dur-hover) var(--ease-out);
 }
 
 /* A row's actions reveal by height when the row becomes active. */
@@ -333,7 +333,7 @@
   flex-direction: column;
   gap: 6px;
   padding-top: 6px;
-  animation: ui-rise-in var(--dur-base) var(--ease-out);
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out);
 }
 
 .formLabel {
