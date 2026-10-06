@@ -1901,7 +1901,7 @@ dependencies = [
 
 [[package]]
 name = "guhit-app"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -1931,7 +1931,7 @@ dependencies = [
 
 [[package]]
 name = "guhit-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "guhit-model",
  "serde",
@@ -1941,7 +1941,7 @@ dependencies = [
 
 [[package]]
 name = "guhit-devbridge"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "axum",
  "guhit-app",
@@ -1954,7 +1954,7 @@ dependencies = [
 
 [[package]]
 name = "guhit-export"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "dxf",
  "guhit-model",
@@ -1968,7 +1968,7 @@ dependencies = [
 
 [[package]]
 name = "guhit-import"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "dxf",
  "guhit-model",
@@ -1979,7 +1979,7 @@ dependencies = [
 
 [[package]]
 name = "guhit-mcp"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1996,7 +1996,7 @@ dependencies = [
 
 [[package]]
 name = "guhit-model"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2006,7 +2006,7 @@ dependencies = [
 
 [[package]]
 name = "guhit-relay"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2021,7 +2021,7 @@ dependencies = [
 
 [[package]]
 name = "guhit-studio"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "guhit-app",
  "guhit-mcp",
