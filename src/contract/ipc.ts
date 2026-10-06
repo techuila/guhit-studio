@@ -20,6 +20,7 @@ import type {
   Profile,
   WindowReply,
   DwgConverterStatus,
+  McpStatus,
   ImportInspection,
   ImportOptions,
   ImportResult,
@@ -273,6 +274,13 @@ export const ipc = {
   dwgStatus: () => call<DwgConverterStatus>("dwg_status"),
   /** Sets the ODA File Converter path. Empty string clears it. */
   dwgSetPath: (path: string) => call<DwgConverterStatus>("dwg_set_path", { path }),
+
+  // MCP server for agents (Connect agent dialog, DECISIONS D35).
+  mcpStatus: () => call<McpStatus>("mcp_status"),
+  /** The "Allow agents" switch. Off: every MCP request gets HTTP 503. */
+  mcpSetEnabled: (enabled: boolean) => call<McpStatus>("mcp_set_enabled", { enabled }),
+  /** Writes the Claude Desktop extension (.mcpb). Desktop app only. */
+  mcpClaudeDesktopBundle: () => call<{ path: string }>("mcp_claude_desktop_bundle"),
 
   // AI visualization (Tier 2). Every result is labelled and tied to its source capture.
   renderAiSettingsGet: () => call<RenderAiSettings>("render_ai_settings_get"),

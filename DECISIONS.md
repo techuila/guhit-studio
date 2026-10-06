@@ -202,3 +202,9 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - `docs/MCP.md` has a tested snippet or an official-docs snippet per agent, and says which were tested.
 - Not supported, on purpose: agents that connect from a vendor's cloud or a container (claude.ai web, Claude custom connectors, ChatGPT web, Open WebUI in Docker). Reaching them means exposing the app to the internet with authentication, which needs Axl's decision.
 - Rejected: requiring Node and `mcp-remote` for stdio agents (an extra install for architects; it stays as a fallback in the docs).
+
+### D35. A Connect agent button in the app
+- Chosen by: Axl ("there should be a connect MCP button in the app, like how other application displays it"; picked A1 from the mockup), on 2026-10-07.
+- A "Connect agent" button with a status dot sits in the editor top bar next to Share and in the project list next to "Join a live session". The copilot panel's "subscription tokens do not work" note links to it too.
+- The dialog lists agents down the left (Popular, More agents, Free and local models) with the chosen agent's setup on the right: a one-click "Add to ..." button for agents with an install link (Cursor, VS Code, LM Studio, Goose), "Install in Claude Desktop" through an extension file, and a command or config snippet with Copy for the rest. A status line shows the address, the last agent that connected, and an "Allow agents" switch that turns MCP off.
+- Rejected: a status bar chip only (B) and a Settings section only (C), as too hidden; agent tiles with the setup below (layout 2).

@@ -4,6 +4,7 @@ import type { IpcError, ProjectMeta } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
 import { EndedBanner } from "../live/EndedBanner";
 import { openJoin } from "../live/session";
+import { ConnectButton } from "../shell/connect/ConnectButton";
 import { useShell } from "../shell/shellStore";
 import { UpdateNotice } from "../shell/UpdateNotice";
 import { useApp } from "../state/store";
@@ -146,6 +147,7 @@ export function ProjectHub() {
               />
             </label>
           ) : null}
+          <ConnectButton />
           <Button icon="join" onClick={openJoin}>
             Join a live session
           </Button>

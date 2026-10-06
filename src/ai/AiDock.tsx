@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AiProposal } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
+import { ConnectLink } from "../shell/connect/ConnectButton";
 import { useShell } from "../shell/shellStore";
 import { useApp } from "../state/store";
 import { Switch } from "../ui/controls";
@@ -430,6 +431,9 @@ function NoKeyCard({ onOpenSettings }: { onOpenSettings: () => void }) {
         <li>Create an API key in the Claude Console at platform.claude.com and add credits there.</li>
         <li>Open the copilot settings and paste it. Subscription and Claude Code tokens do not work.</li>
       </ol>
+      <p className={s.emptyText}>
+        <ConnectLink />
+      </p>
       <p className={s.emptyText}>
         The key is kept in the app's data folder, readable only by your user account, never in the project, and
         the app never shows it again. Drawing, 3D and exports work without it.

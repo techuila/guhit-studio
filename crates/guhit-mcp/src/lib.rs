@@ -321,13 +321,121 @@ pub async fn normalize_accept(
     next.run(req).await
 }
 
-/// The MCP endpoint with the `Accept` fix in front of it, as a router that
-/// answers on every path. Nest it wherever the endpoint should live, as
-/// [`router`] and the dev bridge do.
+/// Headers the stdio proxy adds to every message it forwards, with the
+/// `clientInfo` its client sent in `initialize`. That `initialize` may have
+/// been answered by the proxy itself while the app was closed, so the app
+/// would otherwise never learn who is calling. Plain ASCII values only.
+pub const CLIENT_NAME_HEADER: &str = "x-guhit-client-name";
+pub const CLIENT_VERSION_HEADER: &str = "x-guhit-client-version";
+
+/// Largest request body [`gate`] reads. Tool arguments are small; this only
+/// stops a runaway client from filling memory.
+const MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
+/// JSON-RPC error code of the answer while agents are turned off.
+const DISABLED_CODE: i64 = -32000;
+
+/// The `clientInfo` a message carries: in `initialize` params, or in
+/// `_meta` of a protocol 2026-07-28 request (SEP-2575, optional there).
+fn client_info(message: &Value) -> Option<(String, String)> {
+    let params = message.get("params")?;
+    let info = params
+        .get("clientInfo")
+        .filter(|_| message.get("method").and_then(Value::as_str) == Some("initialize"))
+        .or_else(|| params.get("_meta")?.get("io.modelcontextprotocol/clientInfo"))?;
+    let name = info.get("name")?.as_str()?.to_string();
+    let version = info.get("version").and_then(Value::as_str).unwrap_or("").to_string();
+    Some((name, version))
+}
+
+/// In front of the MCP service:
+/// - "Allow agents" off (DECISIONS D35): every request gets HTTP 503 and a
+///   JSON-RPC error with `AppService`'s message, its id echoed when the
+///   body has one. The switch is read on every request, so turning it back
+///   on works at once.
+/// - On: notes the client that called, for the Connect agent dialog. Only
+///   after the service accepted the request, so a request the `Host` guard
+///   refuses never shows up. The body goes on to the service unchanged.
+pub async fn gate(
+    axum::extract::State(app): axum::extract::State<AppService>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::{Method, StatusCode};
+    use axum::response::IntoResponse;
+
+    if req.method() != Method::POST {
+        if !app.mcp.enabled() {
+            return agents_off(Value::Null);
+        }
+        return next.run(req).await;
+    }
+    let (parts, body) = req.into_parts();
+    let Ok(bytes) = axum::body::to_bytes(body, MAX_REQUEST_BYTES).await else {
+        return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+    };
+    let parsed: Option<Value> = serde_json::from_slice(&bytes).ok();
+
+    if !app.mcp.enabled() {
+        let id = parsed
+            .as_ref()
+            .and_then(|m| m.get("id"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        return agents_off(id);
+    }
+
+    let header = |name: &str| {
+        parts
+            .headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+    };
+    let from_proxy = header(CLIENT_NAME_HEADER).map(|n| (n, header(CLIENT_VERSION_HEADER).unwrap_or_default()));
+    let messages: Vec<&Value> = match &parsed {
+        Some(Value::Array(items)) => items.iter().collect(),
+        Some(v @ Value::Object(_)) => vec![v],
+        _ => Vec::new(),
+    };
+    let named = messages.iter().find_map(|m| client_info(m)).or(from_proxy);
+    let is_message = messages.iter().any(|m| m.get("method").is_some());
+
+    let res = next
+        .run(axum::extract::Request::from_parts(parts, axum::body::Body::from(bytes)))
+        .await;
+    if res.status().is_success() {
+        match named {
+            Some((name, version)) => app.mcp.saw_client(&name, &version),
+            None if is_message => app.mcp.touch_client(),
+            None => {}
+        }
+    }
+    res
+}
+
+/// HTTP 503 with the JSON-RPC error for "Allow agents" off.
+fn agents_off(id: Value) -> axum::response::Response {
+    use axum::http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
+    use axum::response::IntoResponse;
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": { "code": DISABLED_CODE, "message": guhit_app::mcp::DISABLED_MESSAGE },
+    });
+    let mut res = (StatusCode::SERVICE_UNAVAILABLE, body.to_string()).into_response();
+    res.headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    res
+}
+
+/// The MCP endpoint with [`gate`] and the `Accept` fix in front of it, as a
+/// router that answers on every path. Nest it wherever the endpoint should
+/// live, as [`router`] and the dev bridge do.
 pub fn endpoint(app: AppService) -> axum::Router {
     axum::Router::new()
-        .fallback_service(service(app))
+        .fallback_service(service(app.clone()))
         .layer(axum::middleware::from_fn(normalize_accept))
+        .layer(axum::middleware::from_fn_with_state(app, gate))
 }
 
 /// An axum router with the MCP endpoint at `/mcp`. Merge this into another
@@ -344,9 +452,15 @@ pub fn router(app: AppService) -> axum::Router {
 /// Some clients resolve `localhost` to `::1` first and do not fall back to
 /// 127.0.0.1, so the IPv6 loopback is served too. It is best effort: a
 /// machine without it keeps running on IPv4. A failed IPv4 bind is the error.
+///
+/// Reports the port, and whether it is bound, to `AppService::mcp` for the
+/// Connect agent dialog.
 pub async fn serve(app: AppService, port: u16) -> std::io::Result<()> {
+    let status = app.mcp.clone();
+    status.set_port(port);
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    status.set_listening(true);
     let router = router(app);
     let v6 = std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port));
     match tokio::net::TcpListener::bind(v6).await {
@@ -364,7 +478,9 @@ pub async fn serve(app: AppService, port: u16) -> std::io::Result<()> {
             println!("guhit-mcp listening on http://{addr}/mcp");
         }
     }
-    axum::serve(listener, router).await
+    let result = axum::serve(listener, router).await;
+    status.set_listening(false);
+    result
 }
 
 /// Port from `<data_dir>/settings.json` key `mcp_port`, or [`DEFAULT_PORT`].

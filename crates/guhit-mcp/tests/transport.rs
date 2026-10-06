@@ -367,3 +367,147 @@ async fn the_stdio_proxy_carries_a_2026_client_without_headers() {
     let versions = by_id(&lines, 1)["result"]["supportedVersions"].as_array().unwrap();
     assert!(versions.contains(&json!("2026-07-28")), "{lines:?}");
 }
+
+fn initialize_as(id: u64, name: &str) -> Value {
+    let mut m = initialize(id);
+    m["params"]["clientInfo"] = json!({"name": name, "version": "9.1"});
+    m
+}
+
+async fn set_enabled(app: &AppService, enabled: bool) {
+    app.handle("mcp_set_enabled", json!({ "enabled": enabled })).await.expect("mcp_set_enabled");
+}
+
+#[tokio::test]
+async fn serve_reports_its_port_and_that_it_listens() {
+    let (app, _dir) = app();
+    let port = free_port();
+    tokio::spawn(guhit_mcp::serve(app.clone(), port));
+    wait_for(port).await;
+    let status = app.mcp.status();
+    assert!(status.listening);
+    assert_eq!(status.port, port);
+    assert_eq!(status.url, format!("http://127.0.0.1:{port}/mcp"));
+}
+
+#[tokio::test]
+async fn with_agents_off_every_post_gets_503_and_the_message() {
+    let (app, _dir) = app();
+    let port = serve_v4(app.clone()).await;
+    let url = format!("http://127.0.0.1:{port}/mcp");
+
+    set_enabled(&app, false).await;
+    let (status, body) = post(&url, None, None, &initialize(7)).await;
+    assert_eq!(status, 503, "{body}");
+    let v: Value = serde_json::from_str(&body).expect("JSON-RPC error body");
+    assert_eq!(v["jsonrpc"], "2.0");
+    assert_eq!(v["id"], 7);
+    assert_eq!(v["error"]["code"], -32000);
+    assert_eq!(
+        v["error"]["message"],
+        "Agents are turned off in Guhit Studio. Turn on Allow agents in the Connect agent dialog."
+    );
+    let (status, body) = post(&url, None, None, &json!({"jsonrpc": "2.0", "id": "abc", "method": "tools/list"})).await;
+    assert_eq!(status, 503);
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["id"], "abc");
+    let (status, body) = post(&url, None, None, &json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).await;
+    assert_eq!(status, 503);
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["id"], Value::Null);
+    assert!(app.mcp.status().last_client.is_none(), "a refused request is not a client");
+
+    // On again: no restart needed.
+    set_enabled(&app, true).await;
+    let (status, body) = post(&url, None, None, &initialize(8)).await;
+    assert_eq!(status, 200, "{body}");
+}
+
+#[tokio::test]
+async fn the_last_client_is_the_one_that_named_itself() {
+    let (app, _dir) = app();
+    let port = serve_v4(app.clone()).await;
+    let url = format!("http://127.0.0.1:{port}/mcp");
+
+    let (status, _) = post(&url, None, None, &initialize_as(1, "Cursor")).await;
+    assert_eq!(status, 200);
+    let seen = app.mcp.status().last_client.expect("Cursor");
+    assert_eq!((seen.name.as_str(), seen.version.as_str()), ("Cursor", "9.1"));
+
+    // A later request that does not name itself keeps the name.
+    let (status, _) = post(&url, None, None, &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).await;
+    assert_eq!(status, 200);
+    assert_eq!(app.mcp.status().last_client.unwrap().name, "Cursor");
+
+    // A 2026-07-28 request names its client in `_meta`.
+    let (status, _) = post_2026(
+        &url,
+        &json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {"_meta": meta_2026()}}),
+        None,
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(app.mcp.status().last_client.unwrap().name, "test");
+
+    // A request the Host guard refuses is not recorded.
+    let (status, _) = post(&url, None, Some("evil.example:80"), &initialize_as(4, "Evil")).await;
+    assert_eq!(status, 403);
+    assert_eq!(app.mcp.status().last_client.unwrap().name, "test");
+}
+
+#[tokio::test]
+async fn with_agents_off_the_stdio_proxy_passes_the_error_through() {
+    let (app, _dir) = app();
+    let port = serve_v4(app.clone()).await;
+    set_enabled(&app, false).await;
+    let launches = Arc::new(AtomicUsize::new(0));
+    let counter = launches.clone();
+    let launch: guhit_mcp::stdio::Launch = Box::new(move || {
+        counter.fetch_add(1, Ordering::SeqCst);
+    });
+
+    let lines = proxy(
+        port,
+        Some(launch),
+        Duration::from_millis(300),
+        &[
+            initialize(1),
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+            json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_rooms", "arguments": {}}}),
+        ],
+    )
+    .await;
+
+    assert_eq!(lines.len(), 3, "the notification gets no line: {lines:?}");
+    for id in [1, 2, 3] {
+        let error = &by_id(&lines, id)["error"];
+        assert_eq!(error["code"], -32000, "{lines:?}");
+        assert_eq!(error["message"], guhit_app::mcp::DISABLED_MESSAGE);
+    }
+    assert_eq!(launches.load(Ordering::SeqCst), 0, "the app is running, nothing is launched");
+}
+
+#[tokio::test]
+async fn the_stdio_proxy_names_its_client_even_after_answering_initialize_itself() {
+    let (app, _dir) = app();
+    let port = free_port();
+    let up = app.clone();
+    let launch: guhit_mcp::stdio::Launch = Box::new(move || {
+        tokio::spawn(guhit_mcp::serve(up.clone(), port));
+    });
+
+    // `initialize` while the app is down is answered by the proxy; the tool
+    // call then starts the app and is the first message it sees.
+    let lines = proxy(
+        port,
+        Some(launch),
+        Duration::from_secs(10),
+        &[
+            initialize_as(1, "Claude Desktop"),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "get_guide", "arguments": {"topic": "conventions"}}}),
+        ],
+    )
+    .await;
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    let seen = app.mcp.status().last_client.expect("named through the headers");
+    assert_eq!((seen.name.as_str(), seen.version.as_str()), ("Claude Desktop", "9.1"));
+}

@@ -598,3 +598,37 @@ pub struct WindowReply {
     #[serde(default)]
     pub note: String,
 }
+
+// -------------------------------------------------------------------- MCP
+
+/// The MCP server as the Connect agent dialog shows it (DECISIONS D35).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct McpStatus {
+    /// The "Allow agents" switch. Off: every MCP request is refused.
+    /// Stored in settings.json as `mcp_enabled`, on by default.
+    pub enabled: bool,
+    /// True while the MCP listener is bound.
+    pub listening: bool,
+    /// The port it serves on, or tried to.
+    pub port: u16,
+    /// `http://127.0.0.1:{port}/mcp`.
+    pub url: String,
+    /// Absolute path of the desktop executable, to run with `--mcp-stdio`.
+    /// None in the dev bridge.
+    pub stdio_command: Option<String>,
+    /// The agent that used the server last, since the app started.
+    pub last_client: Option<McpClientSeen>,
+    /// True when `mcp_claude_desktop_bundle` can write the extension file.
+    pub claude_desktop_bundle: bool,
+}
+
+/// An MCP client as it named itself in `clientInfo`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct McpClientSeen {
+    pub name: String,
+    pub version: String,
+    /// RFC 3339 UTC: its latest request.
+    pub at: String,
+}

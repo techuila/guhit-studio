@@ -196,6 +196,10 @@ async fn main() {
     // Sandboxed: any program on this machine can post here, so a caller does
     // not get to choose where an export is written.
     let app = AppService::new_sandboxed(data.clone());
+    // The Connect agent dialog shows this bridge's own `/mcp`. There is no
+    // desktop executable here, so no stdio command.
+    let status = app.mcp.clone();
+    status.set_port(opts.port);
 
     let router = Router::new()
         .route("/health", get(health))
@@ -218,8 +222,11 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    status.set_listening(true);
     println!("guhit-devbridge listening on http://{addr}  data: {}", data.display());
-    if let Err(e) = axum::serve(listener, router).await {
+    let served = axum::serve(listener, router).await;
+    status.set_listening(false);
+    if let Err(e) = served {
         eprintln!("guhit-devbridge: server error: {e}");
         std::process::exit(1);
     }
