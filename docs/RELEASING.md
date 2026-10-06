@@ -230,24 +230,27 @@ updater key is unrelated to code signing and does not change.
 ## The relay for live sessions
 
 Live sessions reach guests outside the host's network or VPN through the relay
-(DECISIONS D32, `docs/RELAY.md`). A build learns the relay's address at compile
-time from the `GUHIT_RELAY_URL` environment variable. Until a relay is
-deployed it stays unset, and installed copies join on the same network or VPN
+(DECISIONS D32 and D33, `docs/RELAY.md`). It runs on Fly.io in Singapore at
+`wss://guhit-relay.fly.dev`, from `crates/guhit-relay/fly.toml`.
+
+A build learns the relay's address at compile time from the `GUHIT_RELAY_URL`
+environment variable. Release builds take it from the repository variable of
+the same name (Settings > Secrets and variables > Actions > Variables), which
+`.github/workflows/release.yml` passes to the build. It is not a secret: every
+invite carries it. When the variable is missing the release still builds, the
+run shows a warning, and installed copies join on the same network or VPN
 only.
 
-Once a relay runs (`docs/RELAY.md`, "Running a relay"):
+- Deploy a change to the relay: `fly deploy --ha=false --config
+  crates/guhit-relay/fly.toml` from the repository root. Sessions through it
+  drop for a moment and reconnect on their own.
+- Move to another relay: deploy it, change the variable, cut a release.
+- Check it: `https://guhit-relay.fly.dev/health` answers `ok`, and
+  `LIVE_RELAY_URL=wss://guhit-relay.fly.dev node scripts/live-check.mjs` runs
+  the two-tab live check through it.
 
-1. Add a repository variable `GUHIT_RELAY_URL` (Settings > Secrets and
-   variables > Actions > Variables) with its address, for example
-   `wss://guhit-relay.fly.dev`. It is not a secret: every invite carries it.
-2. Pass it to the build in `.github/workflows/release.yml`, in the `env` of
-   the "Build and publish" step:
-   `GUHIT_RELAY_URL: ${{ vars.GUHIT_RELAY_URL }}`.
-3. Cut a release. Copies that update to it use the relay.
-
-An empty value means no relay. On any computer, `live_relay` in the data
-folder's `settings.json` overrides the built-in address, and an empty string
-switches the relay off.
+On any computer, `live_relay` in the data folder's `settings.json` overrides
+the built-in address, and an empty string switches the relay off.
 
 ## Rotating the updater key
 
