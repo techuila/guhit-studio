@@ -55,6 +55,15 @@ export interface AffectedRow {
 }
 
 /** Elements a proposal touches, with names. Removed ones are named from the current document. */
+/** What the selection is, in a few words: "Bedroom", "Wall, 3,000 mm", "3 elements". */
+export function selectionLabel(doc: DocState | null, selection: string[]): string {
+  if (selection.length === 1) {
+    const el = doc?.project.elements.find((e) => e.id === selection[0]);
+    if (el) return elementName(el);
+  }
+  return selection.length === 1 ? "1 element" : `${selection.length} elements`;
+}
+
 export function affectedRows(proposal: AiProposal, doc: DocState | null): AffectedRow[] {
   const after = new Map(proposal.preview.state.project.elements.map((e) => [e.id, e]));
   const before = new Map((doc?.project.elements ?? []).map((e) => [e.id, e]));

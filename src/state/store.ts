@@ -65,8 +65,29 @@ export interface Toast {
 export type CaptureView = () => Promise<{ png: string; camera: Camera }>;
 /** Serializes the live 3D scene, registered by Viewer3D. Returns a data URL. */
 export type ExportScene = (format: "glb" | "obj" | "dae") => Promise<{ data: string; extension: string }>;
-/** A capture of the 2D plan as a PNG data URL, registered by PlanCanvas. */
-export type CapturePlan = () => Promise<string>;
+/** A capture of the 2D plan as a PNG data URL, registered by PlanCanvas: the
+ * level on screen, or `levelId` when given. */
+export type CapturePlan = (levelId?: string | null) => Promise<string>;
+
+/**
+ * An undo or redo the engine held back because the step is someone else's
+ * (live session, code `other_author`). The shell asks, then resolves it.
+ */
+export interface UndoConfirm {
+  redo: boolean;
+  /** The engine's sentence: who made the step and what it was. */
+  message: string;
+}
+
+const AI_SCOPE_KEY = "guhit.aiScope";
+
+function loadAiScope(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(AI_SCOPE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export interface AppState {
   screen: Screen;
@@ -94,11 +115,23 @@ export interface AppState {
   captureView: CaptureView | null;
   capturePlan: CapturePlan | null;
   exportScene: ExportScene | null;
+  /**
+   * AI edits may change only the selection (DECISIONS D30): the copilot
+   * sends it as `AiRequest::scope`, and MCP clients are held to it through
+   * this window's presence. Remembered per computer.
+   */
+  aiScope: boolean;
+  /** An undo or redo waiting for the user to confirm, or null. */
+  undoConfirm: UndoConfirm | null;
 
   /** Applies a command in Rust. Returns null and toasts on failure. */
   dispatch: (command: Command) => Promise<ApplyResult | null>;
+  /** In a live session, someone else's step asks first (`undoConfirm`). */
   undo: () => Promise<void>;
   redo: () => Promise<void>;
+  /** Answers `undoConfirm`: true takes the step back anyway. */
+  resolveUndoConfirm: (accept: boolean) => Promise<void>;
+  setAiScope: (on: boolean) => void;
   /** Replaces the mirror. Used after restore, AI accept, open. */
   setDoc: (doc: DocState | null) => void;
   setPreview: (preview: ApplyResult | null) => void;
@@ -156,6 +189,8 @@ export const useApp = create<AppState>((set, get) => ({
   captureView: null,
   capturePlan: null,
   exportScene: null,
+  aiScope: loadAiScope(),
+  undoConfirm: null,
 
   dispatch: async (command) => {
     set((s) => ({ saving: s.saving + 1 }));
@@ -173,25 +208,26 @@ export const useApp = create<AppState>((set, get) => ({
 
   undo: async () => {
     if (!get().doc?.can_undo) return;
-    set((s) => ({ saving: s.saving + 1 }));
-    try {
-      get().setDoc(await ipc.docUndo());
-    } catch (e) {
-      get().reportError(e);
-    } finally {
-      set((s) => ({ saving: s.saving - 1 }));
-    }
+    await stepHistory(false, false);
   },
 
   redo: async () => {
     if (!get().doc?.can_redo) return;
-    set((s) => ({ saving: s.saving + 1 }));
+    await stepHistory(true, false);
+  },
+
+  resolveUndoConfirm: async (accept) => {
+    const pending = get().undoConfirm;
+    set({ undoConfirm: null });
+    if (pending && accept) await stepHistory(pending.redo, true);
+  },
+
+  setAiScope: (aiScope) => {
+    set({ aiScope });
     try {
-      get().setDoc(await ipc.docRedo());
-    } catch (e) {
-      get().reportError(e);
-    } finally {
-      set((s) => ({ saving: s.saving - 1 }));
+      globalThis.localStorage?.setItem(AI_SCOPE_KEY, aiScope ? "1" : "0");
+    } catch {
+      // the choice lasts this session
     }
   },
 
@@ -301,6 +337,21 @@ export const useApp = create<AppState>((set, get) => ({
   registerCapturePlan: (capturePlan) => set({ capturePlan }),
   registerExportScene: (exportScene) => set({ exportScene }),
 }));
+
+/** One undo or redo. `other_author` turns into a question instead of a toast. */
+async function stepHistory(redo: boolean, force: boolean): Promise<void> {
+  const app = useApp;
+  app.setState((s) => ({ saving: s.saving + 1 }));
+  try {
+    app.getState().setDoc(await (redo ? ipc.docRedo(force) : ipc.docUndo(force)));
+  } catch (e) {
+    const err = toIpcError(e);
+    if (err.code === "other_author" && !force) app.setState({ undoConfirm: { redo, message: err.message } });
+    else app.getState().reportError(err);
+  } finally {
+    app.setState((s) => ({ saving: s.saving - 1 }));
+  }
+}
 
 /** The state to draw: the AI preview when one is active, else the document. */
 export function useVisibleDoc(): DocState | null {

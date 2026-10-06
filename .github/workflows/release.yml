@@ -86,6 +86,22 @@ jobs:
             echo "::warning title=No updater key::TAURI_SIGNING_PRIVATE_KEY is not set, so this release has installers but no update files. See docs/RELEASING.md."
           fi
 
+      # Live sessions reach guests over the internet through the relay
+      # (DECISIONS D32, D33, docs/RELAY.md). Its address is built into the
+      # app from GUHIT_RELAY_URL, a repository variable rather than a secret:
+      # every invite carries it. Without it the release still works, and
+      # guests join on the host's network or VPN only.
+      - name: Check for the relay
+        shell: bash
+        env:
+          RELAY: ${{ vars.GUHIT_RELAY_URL }}
+        run: |
+          if [ -n "$RELAY" ]; then
+            echo "Relay: $RELAY"
+          else
+            echo "::warning title=No relay::GUHIT_RELAY_URL is not set, so this release joins live sessions on the same network or VPN only. See docs/RELEASING.md."
+          fi
+
       # macOS: sign with the Developer ID certificate and notarize, when the
       # secrets are there (docs/RELEASING.md). They have the same names as in
       # the other Aliteo Mac apps, so one certificate and one routine serve
@@ -138,6 +154,8 @@ jobs:
           # The key was generated with --ci, so it has no password. The
           # variable must still be set, to an empty string.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          # The relay's address, read by the app at compile time.
+          GUHIT_RELAY_URL: ${{ vars.GUHIT_RELAY_URL }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Guhit Studio ${{ github.ref_name }}

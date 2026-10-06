@@ -10,4 +10,14 @@ export type DocState = { project: Project, derived: Derived,
 /**
  * Increments on every apply, undo and redo.
  */
-revision: number, can_undo: boolean, can_redo: boolean, undo_label: string | null, redo_label: string | null, };
+revision: number, can_undo: boolean, can_redo: boolean, undo_label: string | null, redo_label: string | null, 
+/**
+ * Who made the step an undo would take back: a live session
+ * participant id. None outside a live session, and for steps made on the
+ * host before the session started.
+ */
+undo_by: string | null, 
+/**
+ * Who made the step a redo would bring back.
+ */
+redo_by: string | null, };

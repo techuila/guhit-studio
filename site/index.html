@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GUHIT Studio - floor plans, live 3D and AI revisions on your desktop</title>
-<meta name="description" content="A desktop drafting studio for Philippine architects. Draw a real floor plan in minutes, see it in 3D as you draw, lay out plumbing, electrical and aircon, light it by the sun or at night, ask AI for revisions you approve, and export to AutoCAD, SketchUp, IFC and PDF. macOS and Windows.">
+<meta name="description" content="A desktop drafting studio for Philippine architects. Draw a real floor plan in minutes, see it in 3D as you draw, lay out plumbing, electrical and aircon, light it by the sun or at night, ask AI for revisions you approve, work on one plan together live, and export to AutoCAD, SketchUp, IFC and PDF. macOS and Windows.">
 <link rel="canonical" href="https://techuila.github.io/guhit-studio/">
 <meta name="theme-color" content="#1f2d44">
 <meta name="color-scheme" content="light">
@@ -12,7 +12,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="GUHIT Studio">
 <meta property="og:title" content="GUHIT Studio - draw, see, build the idea">
-<meta property="og:description" content="Draw a real floor plan in minutes, see it in 3D instantly, lay out services, light it by the sun, ask AI to make revisions, export to AutoCAD, SketchUp, IFC and PDF. A desktop app for macOS and Windows.">
+<meta property="og:description" content="Draw a real floor plan in minutes, see it in 3D instantly, lay out services, light it by the sun, ask AI to make revisions, work on it together live, export to AutoCAD, SketchUp, IFC and PDF. A desktop app for macOS and Windows.">
 <meta property="og:url" content="https://techuila.github.io/guhit-studio/">
 <meta property="og:image" content="https://techuila.github.io/guhit-studio/og.png">
 <meta property="og:image:width" content="1200">
@@ -496,8 +496,109 @@
   </div>
 </section>
 
-<!-- ===================== 06 HAND OFF ===================== -->
-<div class="tag"><span class="tag__no">06</span><span class="tag__name">Hand off</span></div>
+<!-- ===================== 06 TOGETHER ===================== -->
+<div class="tag"><span class="tag__no">06</span><span class="tag__name">Together</span></div>
+<section class="band band--live" id="together" aria-labelledby="tg-h">
+  <div class="wrap">
+    <div class="together">
+      <div class="together__copy">
+        <h2 id="tg-h" class="h2 rise">Draw it together,<br>from anywhere.</h2>
+        <p class="rise">Share the open project and send the invite. Everyone works on the same plan
+          at once, each pointer in its own color with a name beside it. Press
+          <kbd class="kbd-inline">/</kbd> to say something right where you point, and the Chat
+          panel keeps every message with the project.</p>
+        <p class="rise">The project and its undo history stay on your computer. Guests on your
+          network or VPN connect straight to you, everyone else through a relay in Singapore.
+          The session is encrypted end to end, so the relay cannot read your plan.</p>
+      </div>
+      <dl class="facts together__facts rise">
+        <div><dt>People</dt><dd class="num">Up to 16</dd></div>
+        <div><dt>Cursor chat</dt><dd><kbd class="kbd-inline">/</kbd> at your pointer</dd></div>
+        <div><dt>Undo</dt><dd>Asks before taking back someone else's step</dd></div>
+        <div><dt>In between</dt><dd>Encrypted end to end</dd></div>
+      </dl>
+    </div>
+
+    <div class="live rise" id="live" role="group" aria-labelledby="live-cap">
+      <div class="live__bar">
+        <span class="live__title"><svg class="live__mark" viewBox="0 0 1024 1024" aria-hidden="true">
+            <rect width="1024" height="1024" fill="#fff" fill-opacity=".08"/>
+            <path d="M 220 220 H 740 V 290 M 220 220 V 804 H 804 V 540 M 220 540 H 500 V 804 M 804 540 H 640 M 660 380 V 470"
+                  fill="none" stroke="#fff" stroke-width="56"/>
+            <path d="M 500 540 A 160 160 0 0 1 660 380" fill="none" stroke="var(--arc)" stroke-width="56"/>
+          </svg><span>Bahay ni Lola</span><span class="live__saved num">Saved</span></span>
+        <span class="live__people" id="livePeople" aria-hidden="true">
+          <i class="live__av" style="--peer:var(--peer-0)">A</i>
+          <i class="live__av" style="--peer:var(--peer-1)">B</i>
+          <i class="live__av" data-who="mika" style="--peer:var(--peer-2)">M</i>
+          <i class="live__av" data-who="you" style="--peer:var(--peer-3)" hidden>Y</i>
+        </span>
+        <span class="live__share">Share <i class="live__dot"></i></span>
+      </div>
+      <div class="live__body">
+        <div class="live__canvas" id="liveCanvas">
+          <svg class="live__plan" id="livePlan" viewBox="-1500 -1300 11800 9000"
+               preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <defs>
+              <pattern id="lg" width="500" height="500" patternUnits="userSpaceOnUse" x="0" y="0">
+                <path d="M 500 0 L 0 0 0 500" fill="none" stroke="var(--line-2)" stroke-width="10"/>
+              </pattern>
+            </defs>
+            <rect x="-1500" y="-1300" width="11800" height="9000" fill="url(#lg)"/>
+            <rect x="75" y="75" width="4875" height="5850" fill="var(--teal)" opacity=".06"/>
+            <rect data-w="bedFill" x="5050" y="75" width="2875" height="5850" fill="var(--teal)" opacity=".04"/>
+            <rect data-w="sel" class="live__sel" x="5050" y="75" width="2875" height="5850"/>
+            <g fill="var(--navy)">
+              <rect data-w="north" x="-75" y="-75" width="8150" height="150"/>
+              <rect data-w="south" x="-75" y="5925" width="8150" height="150"/>
+              <rect x="-75" y="-75" width="150" height="6150"/>
+              <rect x="4950" y="75" width="100" height="3825"/>
+              <rect x="4950" y="4800" width="100" height="1125"/>
+            </g>
+            <g class="live__win" fill="#fff" stroke="var(--navy)" stroke-width="16">
+              <rect x="1300" y="5925" width="2000" height="150"/>
+              <rect x="5650" y="5925" width="1400" height="150"/>
+              <path d="M1300 6000 H3300 M5650 6000 H7050" fill="none"/>
+            </g>
+            <path d="M5050 4800 H5950 M5950 4800 A900 900 0 0 0 5050 3900" fill="none" stroke="var(--navy)"
+                  stroke-width="22"/>
+            <rect data-w="east" class="live__east" x="7925" y="-75" width="150" height="6150"/>
+            <g class="live__dim">
+              <path data-w="dimLine" d="M-75 6150 V7000 M8075 6150 V7000 M-75 6850 H8075" fill="none"
+                    stroke="var(--blue)" stroke-width="18"/>
+              <path data-w="dimTicks" d="M-215 7000 L65 6700 M7935 7000 L8215 6700" fill="none"
+                    stroke="var(--blue)" stroke-width="24"/>
+              <text data-w="dimText" x="4000" y="6700" text-anchor="middle" font-size="380" fill="var(--blue)">8000</text>
+            </g>
+            <text x="2512" y="2850" text-anchor="middle" font-size="380">Living / Dining</text>
+            <text x="2512" y="3350" text-anchor="middle" font-size="310" fill="var(--ink-2)">28.52 m²</text>
+            <text data-w="bedName" x="6487" y="2850" text-anchor="middle" font-size="380">Bedroom</text>
+            <text data-w="bedArea" x="6487" y="3350" text-anchor="middle" font-size="310" fill="var(--ink-2)">16.82 m²</text>
+          </svg>
+          <div class="live__layer" id="liveLayer" aria-hidden="true"></div>
+          <button class="live__try" id="liveTry" type="button"><kbd>/</kbd><span>Say something</span></button>
+        </div>
+        <aside class="live__chat" aria-label="The session's Chat panel">
+          <p class="live__chat-head">Chat <span class="num" id="liveCount">2</span><span class="live__chat-note">Saved with the project</span></p>
+          <ol class="live__log" id="liveLog" aria-live="off">
+            <li class="msg" style="--peer:var(--peer-0)"><i class="msg__av">A</i><div><p class="msg__meta"><b>Ana</b> <span class="num" data-ago="9">9:32 AM</span></p><p class="msg__text">Nasa Share na ang invite. Pasok kayo.</p></div></li>
+            <li class="msg" style="--peer:var(--peer-1)"><i class="msg__av">B</i><div><p class="msg__meta"><b>Ben</b> <span class="num" data-ago="8">9:33 AM</span></p><p class="msg__text">Andito na ako.</p></div></li>
+          </ol>
+        </aside>
+      </div>
+      <div class="live__status num">
+        <span class="live__state"><i class="live__dot"></i> Live session · relay ready · <span id="livePeopleCount">3</span> people</span>
+        <span class="live__pos" id="livePos">Ground floor · 1:100</span>
+      </div>
+    </div>
+    <p class="art__caption" id="live-cap">A live session on one plan: Ana hosts, Ben and Mika joined with her
+      invite. <span class="live__cap-fine">Point at the plan and press <kbd class="kbd-inline">/</kbd> to join in.</span>
+      <span class="live__cap-touch">Tap Say something to join in.</span></p>
+  </div>
+</section>
+
+<!-- ===================== 07 HAND OFF ===================== -->
+<div class="tag"><span class="tag__no">07</span><span class="tag__name">Hand off</span></div>
 <section class="band" id="handoff" aria-labelledby="ho-h">
   <div class="wrap">
     <div class="band__head">
@@ -637,8 +738,8 @@
   </div>
 </section>
 
-<!-- ===================== 07 SECURE ===================== -->
-<div class="tag tag--dark"><span class="tag__no">07</span><span class="tag__name">Secure by design</span></div>
+<!-- ===================== 08 SECURE ===================== -->
+<div class="tag tag--dark"><span class="tag__no">08</span><span class="tag__name">Secure by design</span></div>
 <section class="band band--dark" id="secure" aria-labelledby="sec-h">
   <div class="wrap">
     <h2 id="sec-h" class="h2 rise">Nothing leaves without you.</h2>
@@ -646,8 +747,8 @@
       <article class="cell rise">
         <h3>Files stay local</h3>
         <p>A project is a folder on your disk with a readable JSON model, snapshots, renders and
-          underlays. There is no account, no sync and no server holding your drawings. Back it up
-          the way you back up everything else.</p>
+          underlays. There is no account, no sync and no server holding your drawings. A live
+          session sends the plan only to the people you invite, encrypted end to end.</p>
       </article>
       <article class="cell rise">
         <h3>Your key, your machine</h3>
@@ -677,8 +778,8 @@
   </div>
 </section>
 
-<!-- ===================== 08 PHILIPPINES ===================== -->
-<div class="tag"><span class="tag__no">08</span><span class="tag__name">Built for the Philippines</span></div>
+<!-- ===================== 09 PHILIPPINES ===================== -->
+<div class="tag"><span class="tag__no">09</span><span class="tag__name">Built for the Philippines</span></div>
 <section class="band" id="ph" aria-labelledby="ph-h">
   <div class="wrap ph">
     <div class="ph__copy">

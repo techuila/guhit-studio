@@ -27,6 +27,8 @@ guhit-model = { workspace = true }
 # so cannot ask it for `app_data_dir()`. Tauri resolves that folder with this
 # same crate, so it is already in Cargo.lock.
 dirs = "6"
+# tokio: the broadcast error types of the app event forwarder.
+tokio = { version = "1", features = ["sync"] }
 
 # The updater only exists on desktop. Mobile targets skip it, as the plugin
 # docs prescribe, so the crate still builds there.
