@@ -182,3 +182,9 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - This is the first backend D1 allowed for: one small stateless service (`crates/guhit-relay`, protocol in `docs/RELAY.md`) that runs anywhere a container runs, placed near the users (Singapore for the Philippines). The app's relay address is a setting, empty until a relay is deployed.
 - Invites list every network address of the host, so a VPN such as Tailscale works without the relay. Large frames are compressed, since the whole project goes to every guest on each change.
 - Rejected: a cloud server that holds the projects (the Figma model: accounts, storage, syncing offline edits, backups, privacy duties for clients' plans, running costs; revisit together with share links and billing), and direct connections only (most homes cannot accept incoming connections, and many Philippine ISPs use carrier-grade NAT).
+
+### D33. The relay runs on Fly.io, in Singapore
+- Chosen by: Axl (signed up for Fly.io and asked to release live sessions to users), on 2026-10-06, after Claude recommended Fly.io over a self-run server.
+- One always-on machine (one shared CPU, 256 MB) in `sin`, from `crates/guhit-relay/fly.toml`, at `wss://guhit-relay.fly.dev`: about US$2.50 a month plus $0.04 per GB of relayed traffic. Release builds get the address from the repository variable `GUHIT_RELAY_URL` (docs/RELEASING.md).
+- One machine only (`fly deploy --ha=false`): rooms live in memory, and a second machine would split them.
+- Rejected: a self-run server in Singapore (a server, HTTPS and updates to look after), and no relay (live sessions on the same network or VPN only).
