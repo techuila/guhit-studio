@@ -224,7 +224,7 @@
   min-height: 26px;
   font-size: var(--text-sm);
   color: var(--ink-2);
-  animation: ui-fade-in var(--dur-hover) var(--ease-out);
+  animation: global(ui-fade-in) var(--dur-hover) var(--ease-out);
 }
 
 .exportNote {
@@ -644,5 +644,5 @@
   color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: 1.45;
-  animation: ui-fade-in var(--dur-hover) var(--ease-out);
+  animation: global(ui-fade-in) var(--dur-hover) var(--ease-out);
 }

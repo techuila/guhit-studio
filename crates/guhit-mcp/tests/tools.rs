@@ -13,7 +13,7 @@ fn app() -> (AppService, tempfile::TempDir) {
 async fn ok(app: &AppService, name: &str, args: Value) -> Value {
     match tools::call(app, name, args).await {
         Ok(Output::Json(v)) => v,
-        Ok(Output::Image { .. }) => panic!("`{name}` returned an image, expected JSON"),
+        Ok(Output::Rich { json, .. }) => json,
         Ok(Output::Text(_)) => panic!("`{name}` returned text, expected JSON"),
         Err(ToolFail(m)) => panic!("`{name}` failed: {m}"),
     }
@@ -322,11 +322,11 @@ async fn a_plan_image_is_the_saved_thumbnail() {
         .await
         .unwrap();
     match tools::call(&app, "get_plan_image", json!({})).await {
-        Ok(Output::Image { base64, mime, note }) => {
-            assert_eq!(mime, "image/png");
-            assert!(base64.starts_with("iVBORw0KGgo"));
-            // Some clients drop image-only results, so a line of text goes along.
-            assert!(note.contains("revision"), "unexpected note: {note}");
+        Ok(Output::Rich { json, images }) => {
+            assert_eq!(json["source"], "thumbnail", "no window is open, so the saved thumbnail");
+            assert_eq!(images.len(), 1);
+            assert_eq!(images[0].mime, "image/png");
+            assert!(images[0].base64.starts_with("iVBORw0KGgo"));
         }
         other => panic!("expected an image, got {:?}", other.is_ok()),
     }

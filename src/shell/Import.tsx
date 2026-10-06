@@ -8,9 +8,11 @@ import type { Element, ImportInspection, ImportMode, ImportOptions, Point, Refer
 import { ipc, isTauri, toIpcError, type FileSource } from "../contract/ipc";
 import { rectIsEmpty } from "../editor2d/geom";
 import { buildIndex, modelBounds } from "../editor2d/model";
+import { others } from "../live/format";
+import { useLive } from "../live/liveStore";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
-import { Dialog } from "../ui/Dialog";
+import { ConfirmDialog, Dialog } from "../ui/Dialog";
 import { Button, CheckRow, Field, NumberField, Segmented, Select } from "../ui/controls";
 import { setBusyLabel } from "../ui/feedback";
 import type { PresenceStage } from "../ui/motion";
@@ -56,6 +58,8 @@ export function ImportController() {
   const [cad, setCad] = useState<CadState | null>(null);
   const [cadError, setCadError] = useState<string | null>(null);
   const [model, setModel] = useState<ModelState | null>(null);
+  /** Asking before a bundle ends the live session this computer hosts. */
+  const [askBundle, setAskBundle] = useState(false);
 
   const lastCad = useLastTruthy(cad);
   const lastModel = useLastTruthy(model);
@@ -123,7 +127,12 @@ export function ImportController() {
     }
   };
 
-  const startBundle = async () => {
+  const startBundle = async (confirmed = false) => {
+    // Opening a bundle while hosting ends the live session for everyone (DECISIONS D29).
+    if (!confirmed && useLive.getState().status.mode === "hosting") {
+      setAskBundle(true);
+      return;
+    }
     if (isTauri) {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const picked = await open({ multiple: false, filters: [{ name: "Guhit project bundle", extensions: ["guhit"] }] });
@@ -198,7 +207,40 @@ export function ImportController() {
       <Presence open={model !== null} exit="panel">
         {(stage) => (lastModel ? <ModelScaleDialog model={lastModel} onClose={() => setModel(null)} stage={stage} /> : null)}
       </Presence>
+
+      <Presence open={askBundle} exit="panel">
+        {(stage) => (
+          <BundleEndsSession
+            stage={stage}
+            onCancel={() => setAskBundle(false)}
+            onConfirm={() => {
+              setAskBundle(false);
+              // Still inside the click: the browser's file picker needs it.
+              void startBundle(true);
+            }}
+          />
+        )}
+      </Presence>
     </>
+  );
+}
+
+function BundleEndsSession({ onConfirm, onCancel, stage }: { onConfirm: () => void; onCancel: () => void; stage?: PresenceStage }) {
+  const count = useLive((st) => others(st.status).length);
+  return (
+    <ConfirmDialog
+      title="End the live session?"
+      message={
+        count > 0
+          ? `Opening a bundle ends the live session for ${count === 1 ? "the other person" : `the other ${count} people`}. This project stays on this computer.`
+          : "Opening a bundle ends the live session. This project stays on this computer."
+      }
+      confirmLabel="Open a bundle"
+      danger
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+      stage={stage}
+    />
   );
 }
 

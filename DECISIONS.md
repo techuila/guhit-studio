@@ -91,6 +91,7 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - Intro on first visit is the page loader (about 6.5 s, skippable, once per session, a fade under reduced motion): navy field, the grid draws one line at a time from the center outward (verticals bottom to top, horizontals left to right), the logo draws stroke by stroke with pauses so the G reads, then the field shrinks into the mark's place while the word GUHIT is outlined from G to T and filled behind the stroke. The collapse waits for fonts and above-the-fold images; while waiting it holds on the finished G with a progress line (4 s cap). Axl rejected the first 2.9 s version as too fast to absorb.
 - Changed by Axl on 2026-09-25: the grid no longer draws one line at a time from the center. Every line starts in a random place at its own moment, evenly paced, and the grid is complete in 1.4 s instead of 2.4 s (directions unchanged). GUHIT is written only after the mark has landed in its place, never while the field is still moving, and the rest of the hero rises in after it; nothing in the hero shows during the collapse. Whole sequence about 6.3 s.
 - Changed by Axl on 2026-10-01: the intro plays on every page load, a refresh included, not once per session (`?intro=0` still skips it).
+- Changed by Axl on 2026-10-06: a chapter 06 Together shows live sessions as a window to watch and join: three people's cursors in the app's colors with names, cursor chat that grows out of the name and lands in the Chat panel, a wall dragged live with its dimension and area following, and the undo question, marked as shown on Ben's screen because only the person undoing sees it. The visitor's pointer gets a name, "/" opens cursor chat at it and someone answers. The chapters after it moved to 07 to 09.
 - Rule from a real bug: the GUHIT outline is placed from the real heading's own glyph positions, and its baseline is probed before the word, never after it (a probe after the word wrapped at the largest size and drew the outline one line low, over the tagline).
 - Rule from a real bug: the act 02 3D house stage never clips (`overflow: visible`), its size derives from the projected model extent, and every plane must clear the stage edge at every scroll position and width (checked by script).
 - Copy states only what the app does. Rejected: percentage "geometry accuracy" claims, a hip roof preset the app does not have.
@@ -157,13 +158,47 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - One certificate for every Aliteo Mac app, chosen by Axl on 2026-09-25: Guhit reuses TopNotch's Developer ID Application certificate, and the secrets have TopNotch's names (`MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`). Rejected: a certificate per project (nothing gained, more renewals). That certificate comes from the Previous Sub-CA and stops signing on 2027-02-01; the replacement should be made with the G2 Sub-CA and updated in every repo's two certificate secrets.
 - Windows code signing stays open (no certificate yet).
 
+### D29. Live sessions: one computer hosts, others join with an invite
+- Chosen by: Axl (asked for multiplayer: people working on one plan at once, a colored cursor with a name for each person, chat shown at the cursor, and a chat window with the history) and Claude (the mechanism), on 2026-09-25.
+- One computer hosts the open project. Its Rust `Document` stays the only authority (D3): guests keep a read-only copy, send the same typed `Command`s, and the host validates, applies and sends the new state to everyone. The host is a desktop app like any other, so there is still no cloud service (D1): guests reach the host over the local network or a VPN.
+- Security: the host listens only while a session runs, with TLS and a certificate made for that session. The invite carries the host's addresses, a random secret and the certificate's pin; a guest refuses any other certificate, and the host refuses anyone without the secret. The dev bridge hosts on loopback only.
+- Undo stays one shared, snapshot based history (D6 unchanged). Each step records who made it; undoing someone else's step names them and asks first.
+- Ending a session for the others is never a side effect: the window asks before going back to the hub or opening a bundle while hosting, and MCP clients get `live_session` from `open_project`, `create_project` and `close_project` until they pass `force`, after the user confirms.
+- Presence (pointer, selection, level, cursor chat) is sent many times a second and never saved. Chat messages are saved with the project on the host (`chat.jsonl`), so the chat window keeps the history.
+- Rejected: a cloud relay with accounts (needs a backend, D1), CRDT sync (the engine validates every change and projects are small, D3), WebRTC (needs a signaling server), per-person undo (needs inverse changes, which D6 rejected).
+
+### D30. AI edits can be limited to the selection
+- Chosen by: Axl (select parts of the plan and prompt so only those parts change) and Claude (the rule), on 2026-09-25.
+- "Only the selection" limits the in-app copilot and MCP clients alike. The engine checks every command the AI stages or commits (`guhit_core::scope`) and refuses one that reaches outside with `out_of_scope`, naming the element, so the model can correct itself.
+- Reach: a room reaches its bounding walls, their doors and windows, and what stands inside it; a wall reaches its doors and windows; anything else reaches itself. New elements must land in the selection's area on its level. Roof, levels, layers and settings are outside every scope. What the engine changes as a consequence (connected walls stretching, dimensions following, links removed) is allowed.
+- MCP clients read the window's selection with `get_selection` and can ask for the scope per call; when the user switches "Only the selection" on, the window's selection binds every MCP edit whatever the call says.
+- Rejected: a prompt-only instruction (a model can ignore it), and a check on the resulting diff (a resize moves walls the user never selected, which is what they asked for).
+
+### D31. MCP renders go through the window
+- Chosen by: Claude, on 2026-09-25, for Axl's request that MCP clients make renders too.
+- The path tracer and the plan canvas run in the webview, so MCP render and capture tools ask the open window to do the work (`AppEvent::WindowRequest`, answered with `window_reply`) and wait for it. Results are ordinary Visuals records. AI visualization runs in the backend with the user's own Gemini key (D17) and stays labelled.
+- A long render returns a job id instead of blocking the MCP client; without an open window the tools say so.
+
+### D32. Live sessions reach over the internet through a relay (the VS Code Live Share model)
+- Chosen by: Axl (a setup like VS Code Live Share), on 2026-09-25, after Claude recommended it over a cloud server and over direct connections only.
+- The host's computer keeps the project and its history (D29 unchanged). Guests connect straight to the host when they can reach it (same network or VPN), and otherwise through a relay server. The relay only forwards the session's bytes: the TLS inside stays end to end and pinned to the certificate in the invite, so the relay cannot read or change a plan. It stores nothing and has no accounts.
+- This is the first backend D1 allowed for: one small stateless service (`crates/guhit-relay`, protocol in `docs/RELAY.md`) that runs anywhere a container runs, placed near the users (Singapore for the Philippines). The app's relay address is a setting, empty until a relay is deployed.
+- Invites list every network address of the host, so a VPN such as Tailscale works without the relay. Large frames are compressed, since the whole project goes to every guest on each change.
+- Rejected: a cloud server that holds the projects (the Figma model: accounts, storage, syncing offline edits, backups, privacy duties for clients' plans, running costs; revisit together with share links and billing), and direct connections only (most homes cannot accept incoming connections, and many Philippine ISPs use carrier-grade NAT).
+
+### D33. The relay runs on Fly.io, in Singapore
+- Chosen by: Axl (signed up for Fly.io and asked to release live sessions to users), on 2026-10-06, after Claude recommended Fly.io over a self-run server.
+- One always-on machine (one shared CPU, 256 MB) in `sin`, from `crates/guhit-relay/fly.toml`, at `wss://guhit-relay.fly.dev`: about US$2.50 a month plus $0.04 per GB of relayed traffic. Release builds get the address from the repository variable `GUHIT_RELAY_URL` (docs/RELEASING.md).
+- One machine only (`fly deploy --ha=false`): rooms live in memory, and a second machine would split them.
+- Rejected: a self-run server in Singapore (a server, HTTPS and updates to look after), and no relay (live sessions on the same network or VPN only).
+
 ## 2026-10-07
 
-### D29. MCP works with every popular agent, not only Claude Code
+### D34. MCP works with every popular agent, not only Claude Code
 - Chosen by: Axl ("mcps should not only support claude code but other ai agents as well. include other popular paid/free agents"), mechanism by Claude after a client survey of 30+ agents.
 - Two entries: the Streamable HTTP URL `http://127.0.0.1:1450/mcp` for agents that take a URL, and the app binary with `--mcp-stdio` for agents that only launch a command (Claude Desktop and others). The stdio entry is a proxy to the running app, never a second document. It answers the tool list while the app is closed and opens the app on the first tool call, so an agent that starts all its servers at launch does not pop the app open.
 - The server answers both MCP protocol generations (with `initialize`, and the 2026-07-28 spec without it), tolerates a missing or partial Accept header, and listens on `[::1]` as well as `127.0.0.1`. Docs always write `127.0.0.1`.
-- `get_guide` mirrors the two doc resources as a tool, because many agents ignore resources and server instructions. Stay at or under 40 tools: Cursor warns above that.
+- `get_guide` mirrors the two doc resources as a tool, because many agents ignore resources and server instructions. With the live session, render and view tools (D29 to D31) the list is 47 tools; Cursor warns above about 40 and Windsurf caps at 100 across all servers, so a smaller core toolset for those agents and for small local models is open.
 - `docs/MCP.md` has a tested snippet or an official-docs snippet per agent, and says which were tested.
 - Not supported, on purpose: agents that connect from a vendor's cloud or a container (claude.ai web, Claude custom connectors, ChatGPT web, Open WebUI in Docker). Reaching them means exposing the app to the internet with authentication, which needs Axl's decision.
 - Rejected: requiring Node and `mcp-remote` for stdio agents (an extra install for architects; it stays as a fallback in the docs).

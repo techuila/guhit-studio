@@ -1283,6 +1283,82 @@ export function drawHighlight(rc: RenderContext, el: Element, strength: "hover" 
 }
 
 /**
+ * What another participant of a live session has selected, in their color:
+ * a soft low-alpha band with a thin line on it, so it reads on paper and on
+ * dark wall poche alike, and stays quieter than this window's own selection
+ * (drawn over it). Rooms get a faint tint and their boundary dashed.
+ */
+export function drawPeerOutline(rc: RenderContext, el: Element, color: string, alpha = 1): void {
+  if (alpha <= 0.002) return;
+  const { ctx } = rc;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  /** The band, then the line, along whatever path is current. */
+  const halo = (): void => {
+    ctx.globalAlpha = 0.2 * alpha;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    ctx.globalAlpha = 0.75 * alpha;
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+  };
+  if (el.kind === "room") {
+    const g = rc.index.roomGeo.get(el.id);
+    if (g) {
+      path(rc, g.polygon);
+      ctx.globalAlpha = 0.07 * alpha;
+      ctx.fill();
+      ctx.setLineDash([6, 4]);
+      ctx.globalAlpha = 0.8 * alpha;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  } else if (el.kind === "column" && el.shape === "round") {
+    const s = toScreen(rc.view, el.center);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, (el.width_mm / 2) * rc.view.scale + 1, 0, Math.PI * 2);
+    halo();
+  } else if (el.kind === "pipe") {
+    const plan = pipePlan(el.points);
+    ctx.globalAlpha = 0.2 * alpha;
+    ctx.lineWidth = pipeBandHalfPx(el, rc.view.scale, rc.uiScale) * 2 + 7;
+    for (const run of plan.runs) {
+      path(rc, run, false);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 0.75 * alpha;
+    ctx.lineWidth = 1.25;
+    const r = pipeRiserRadiusPx(el, rc.view.scale, rc.uiScale) + 3;
+    for (const q of plan.risers) {
+      const s = toScreen(rc.view, q.point);
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  } else if (el.kind === "linework") {
+    for (const pl of el.polylines) {
+      if (pl.length < 2) continue;
+      path(rc, pl, false);
+      halo();
+    }
+  } else {
+    const shape = elementShape(el, rc.index, { labelHeightMm: labelHeightMm(rc.view) });
+    if (shape) {
+      path(rc, shape.points, shape.closed);
+      if (shape.closed && el.kind !== "underlay") {
+        ctx.globalAlpha = 0.08 * alpha;
+        ctx.fill();
+      }
+      halo();
+    }
+  }
+  ctx.restore();
+}
+
+/**
  * One element redrawn on top of itself, scaled about its own center and
  * fading out: the settle after a placement and the flash after a change.
  */

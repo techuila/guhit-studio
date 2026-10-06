@@ -1,8 +1,10 @@
 // The 2D drafting surface. No props, fills its parent. All interaction lives
-// in PlanController; this component mounts the canvas and the two small HTML
-// overlays (type-to-precise box and inline text editor).
+// in PlanController; this component mounts the canvas and the small HTML
+// overlays (type-to-precise box, inline text editor, and the live session
+// layer with other people's cursors and cursor chat).
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { LiveLayer } from "../live/LiveLayer";
 import { useApp } from "../state/store";
 import { usePresence, type PresenceStage } from "../ui/motion";
 import { PlanController, type UiState } from "./controller";
@@ -62,6 +64,7 @@ export function PlanCanvas() {
   return (
     <div ref={rootRef} className={styles.root} data-testid="plan-canvas">
       <canvas ref={canvasRef} className={styles.canvas} style={{ cursor: ui.cursor }} />
+      {controller && hasDoc ? <LiveLayer controller={controller} rootRef={rootRef} /> : null}
       {!hasDoc && <div className={styles.empty}>No project open</div>}
       {typedP.mounted && lastTyped.current && <TypedBox typed={lastTyped.current} stage={typedP.stage} />}
       {ui.editor && controller && (

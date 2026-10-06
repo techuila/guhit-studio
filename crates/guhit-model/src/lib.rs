@@ -9,9 +9,11 @@ pub mod api;
 pub mod command;
 pub mod defaults;
 pub mod derived;
+pub mod live;
 pub mod model;
 
 pub use api::*;
 pub use command::*;
 pub use derived::*;
+pub use live::*;
 pub use model::*;

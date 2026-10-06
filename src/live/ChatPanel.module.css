@@ -1,0 +1,496 @@
+/* The Chat tab. Same frame as the copilot dock: a quiet header, the message
+   list, the composer. Each person reads in their own color (--peer). */
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-md);
+}
+
+/* ------------------------------------------------------------------ header */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.headLive {
+  padding-left: 6px;
+}
+
+.headTitle {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.headMeta {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  animation: fade-in var(--dur-base) var(--ease-out);
+}
+
+.headWarn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* Everyone in the session, scrolling sideways when there are many. */
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.person {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px 0 3px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: default;
+  animation: fade-in var(--dur-base) var(--ease-out);
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.person:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.person:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+
+.person:disabled {
+  color: var(--ink-3);
+}
+
+.person:focus-visible {
+  outline-offset: -2px;
+}
+
+/* -------------------------------------------------------------------- list */
+
+.listWrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.list {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 12px 8px;
+  user-select: text;
+  cursor: auto;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 16px;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--peer);
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiTag {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 15px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--ai-soft);
+  color: var(--ai);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.time {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Each message hangs off a thin rule in its author's color. */
+.message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-left: 3px;
+  padding: 1px 0 1px 11px;
+  border-left: 2px solid color-mix(in srgb, var(--peer) 55%, transparent);
+}
+
+.groupMine .message {
+  border-left-color: var(--line-strong);
+}
+
+.rise {
+  animation: rise var(--dur-base) var(--ease-out);
+}
+
+.text {
+  margin: 0;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.showOnPlan {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  margin-left: -5px;
+  padding: 0 6px 0 5px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.showOnPlan:hover {
+  background: var(--surface-2);
+  color: var(--accent-strong);
+}
+
+.showOnPlan:active {
+  transform: scale(var(--press-scale));
+}
+
+/* "3 new messages": rises from the composer while you read further up. */
+.behind {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  box-shadow: var(--shadow-2);
+  cursor: default;
+  opacity: 1;
+  transform: translateX(-50%);
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-out),
+    background var(--dur-hover) var(--ease-out);
+}
+
+.behind:hover {
+  background: var(--surface-2);
+}
+
+.behind[data-stage="enter"],
+.behind[data-stage="exit"] {
+  opacity: 0;
+  transform: translateX(-50%) translateY(6px);
+}
+
+/* ------------------------------------------------------------- empty state */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 2px;
+  animation: fade-in var(--dur-base) var(--ease-out);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.emptyText {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+/* ---------------------------------------------------------------- composer */
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin: 0 12px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out),
+    opacity var(--dur-hover) var(--ease-out);
+}
+
+.composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.composerOff {
+  opacity: 0.6;
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 96px;
+  padding: 3px 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.45;
+}
+
+.input:focus-visible {
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--ink-3);
+}
+
+.send {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  cursor: default;
+  overflow: hidden;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.send:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.send:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+
+.send:disabled {
+  background: var(--surface-3);
+  color: var(--ink-3);
+}
+
+.sendIcon {
+  display: inline-grid;
+  place-items: center;
+}
+
+.foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 5px 14px 8px;
+  color: var(--ink-3);
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.foot span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --------------------------------------------------------- no live session */
+
+.off {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin: 0 12px 12px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  animation: fade-in var(--dur-base) var(--ease-out);
+}
+
+.off p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.offActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.primary,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.primary {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+  color: #fff;
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.secondary {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.primary:active:not(:disabled),
+.secondary:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+
+.primary:disabled {
+  opacity: 0.5;
+}
+
+/* Local keyframes: CSS modules rename animation names, so the global ui-*
+   ones in global.css cannot be referenced from here. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .empty,
+  .off,
+  .person,
+  .headMeta {
+    animation: none;
+  }
+}

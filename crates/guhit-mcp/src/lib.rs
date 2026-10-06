@@ -16,9 +16,11 @@
 //! - Every change wakes `AppService::watch_changes`, which the desktop shell
 //!   forwards to the window as the Tauri event `doc_changed`.
 
+mod session;
 pub mod stdio;
-pub mod tools;
 mod text;
+pub mod tools;
+pub mod visuals;
 
 use std::sync::Arc;
 
@@ -91,8 +93,9 @@ pub fn tool_list() -> Vec<Tool> {
             tool.input_schema = to_schema(&d.schema);
             let mut annotations = ToolAnnotations::new();
             annotations.read_only_hint = Some(d.read_only);
-            // Nothing here reaches outside this machine.
-            annotations.open_world_hint = Some(false);
+            // Only AI visualization (the image provider) and the live
+            // session chat reach beyond this machine.
+            annotations.open_world_hint = Some(d.open_world);
             if !d.read_only {
                 // Every edit is one undo step, and `delete_elements` and
                 // `delete_level` do remove work the user may want back.
@@ -163,10 +166,14 @@ impl ServerHandler for GuhitMcp {
         let result = match tools::call(&self.app, &request.name, args).await {
             Ok(tools::Output::Json(v)) => CallToolResult::structured(v),
             Ok(tools::Output::Text(text)) => CallToolResult::success(vec![ContentBlock::text(text)]),
-            Ok(tools::Output::Image { base64, mime, note }) => CallToolResult::success(vec![
-                ContentBlock::text(note),
-                ContentBlock::image(base64, mime),
-            ]),
+            // The JSON as structured content and text, then the pictures.
+            Ok(tools::Output::Rich { json, images }) => {
+                let mut result = CallToolResult::structured(json);
+                for picture in images {
+                    result.content.push(ContentBlock::image(picture.base64, picture.mime));
+                }
+                result
+            }
             Err(tools::ToolFail(message)) => {
                 CallToolResult::error(vec![ContentBlock::text(message)])
             }

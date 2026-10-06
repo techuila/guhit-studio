@@ -24,16 +24,18 @@ Stop:
 | `crates/guhit-core` | `Document` engine: commands, undo, joins, rooms, checks, queries | No I/O. Heavily tested. |
 | `crates/guhit-export` | Plan to SVG, PDF, DXF | Depends on `guhit-model` only. |
 | `crates/guhit-import` | DXF to walls or linework | Pure, no file I/O. Rules and limits: `docs/INTEROP.md`. |
-| `crates/guhit-app` | App service: project store, session, exports, AI (`src/ai/`) | No Tauri dependency. Single entry `AppService::handle`. |
+| `crates/guhit-app` | App service: project store, session, exports, AI (`src/ai/`), live sessions (`src/live/`), window requests (`src/window.rs`) | No Tauri dependency. Single entry `AppService::handle`. Pushes to the window through `AppService::events()`. |
 | `crates/guhit-mcp` | MCP server over `guhit-app`, for any MCP agent (Claude Code, Codex, Cursor, Copilot, Gemini, Cline and more) | `docs/MCP.md` has per-agent setup. Reuses the copilot's tool translation. `src/stdio.rs` is the stdio proxy to the running app. |
 | `crates/guhit-devbridge` | Dev-only HTTP transport over `guhit-app` | Port 1430. Also serves `/mcp`. |
+| `crates/guhit-relay` | Relay for live sessions over the internet: pairs a guest with the host and forwards their bytes | DECISIONS D32. Protocol, settings and deploying: `docs/RELAY.md`. No accounts, stores nothing, no app code. |
 | `src-tauri` | Desktop shell | One `ipc` command. No logic. Hosts `/mcp` on 127.0.0.1:1450 (and [::1]). `guhit-studio --mcp-stdio` is the stdio entry for agents that only launch a command. |
 | `src/contract` | `ipc.ts` client and generated `bindings/` | Never hand-edit `bindings/`. |
 | `src/state` | Zustand store and event bus | Frontend join point. |
 | `src/shell`, `src/hub` | App frame, inspector, palette, project hub | Keyboard shortcuts: `docs/SHORTCUTS.md` |
 | `src/editor2d` | 2D plan canvas and tools | |
 | `src/viewer3d` | Three.js live 3D | |
-| `src/ai` | Copilot dock | |
+| `src/ai` | Copilot dock | "Only the selection" limits AI edits (DECISIONS D30). |
+| `src/live` | Live session UI: presence sync, remote cursors, cursor chat, Chat panel, share and join | DECISIONS D29, D32. |
 | `fixtures/` | Golden sample projects: `sample-bungalow`, `plumbing-demo` ("Bungalow with services": plumbing, storm, electrical and aircon) | Regenerate both: `cargo run -p guhit-core --example gen_fixture` |
 | `site/` | Website: the public landing page, plain HTML/CSS/JS, no build step, no dependencies | Deployed to GitHub Pages by `.github/workflows/pages.yml` on a push to main that touches `site/**`. Serve locally with `python3 -m http.server 8090 --directory site`. Brand assets come from `assets/brand/`; app screenshots are optimized WebP copies under `site/assets/`. |
 
@@ -70,6 +72,7 @@ cargo build -p guhit-studio                     # desktop shell compiles
 pnpm gen:types                                  # after any guhit-model change
 pnpm typecheck && pnpm build                    # frontend
 node scripts/csp-check.mjs                      # the build under the release CSP (needs pnpm bridge)
+node scripts/live-check.mjs                     # two tabs in a live session through a local relay, plus MCP (needs cargo build -p guhit-devbridge -p guhit-relay)
 ```
 
 Run the full app in a browser (real Rust engine, no desktop shell):
@@ -80,7 +83,7 @@ pnpm dev           # terminal 2: UI on :1420
 ```
 
 Run the desktop app: `pnpm tauri dev` (dev builds print one `ipc <cmd> -> ok|error` line per call). Build installers: `pnpm tauri build` (macOS: `--bundles app,dmg`, output under `target/release/bundle/`). Local builds are ad-hoc signed; release builds are signed with the Developer ID and notarized when the Apple secrets are set (`docs/RELEASING.md`, "Code signing"). Ad-hoc builds get a new identity on every build, so macOS shows a keychain permission prompt the first time each new build reads the stored Claude API key: click Always Allow. A Developer ID signed build has a stable identity and asks once.
-(macOS builds on macOS, Windows builds on Windows; CI does both). CI runs on macOS and Windows only: the keychain dependency needs extra system packages on Linux.
+(macOS builds on macOS, Windows builds on Windows; CI does both). CI runs on macOS and Windows only: the keychain dependency needs extra system packages on Linux. A pull request into main merges only once all four CI checks pass (test and desktop, on macOS and on Windows); auto-merge waits for them.
 
 Cut a release: `node scripts/bump-version.mjs 0.1.1`, commit, then `git tag v0.1.1 && git push origin v0.1.1`. The tag runs `.github/workflows/release.yml`, which publishes signed macOS and Windows bundles plus `latest.json`, and installed copies update themselves from it. Full steps and the required `TAURI_SIGNING_PRIVATE_KEY` secret: `docs/RELEASING.md`.
 

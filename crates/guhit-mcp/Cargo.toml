@@ -31,12 +31,18 @@ reqwest = { version = "0.13", default-features = false }
 # crypto provider is installed, plain HTTP included. Same spec as guhit-app,
 # so nothing new is compiled.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# base64: images cross IPC as data URLs; MCP image content is plain base64.
+base64 = "0.22"
+# image: a saved render goes back to the model at most 1568 px on its long
+# side, as JPEG, so a 4K render fits the client's image limit. Already in the
+# workspace through dxf; only the PNG and JPEG codecs are added.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+[dev-dependencies]
+tempfile = "3"
 
 # Dev-only: the stdio proxy against any port, such as the dev bridge's. The
 # desktop app has the same proxy behind `--mcp-stdio`.
 [[bin]]
 name = "guhit-mcp-stdio"
 path = "src/bin/guhit-mcp-stdio.rs"
-
-[dev-dependencies]
-tempfile = "3"

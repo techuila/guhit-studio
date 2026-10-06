@@ -227,6 +227,31 @@ first-install problem too. When a certificate exists, the bundle config gains a
 Neither platform's warning is faked or worked around anywhere in the build. The
 updater key is unrelated to code signing and does not change.
 
+## The relay for live sessions
+
+Live sessions reach guests outside the host's network or VPN through the relay
+(DECISIONS D32 and D33, `docs/RELAY.md`). It runs on Fly.io in Singapore at
+`wss://guhit-relay.fly.dev`, from `crates/guhit-relay/fly.toml`.
+
+A build learns the relay's address at compile time from the `GUHIT_RELAY_URL`
+environment variable. Release builds take it from the repository variable of
+the same name (Settings > Secrets and variables > Actions > Variables), which
+`.github/workflows/release.yml` passes to the build. It is not a secret: every
+invite carries it. When the variable is missing the release still builds, the
+run shows a warning, and installed copies join on the same network or VPN
+only.
+
+- Deploy a change to the relay: `fly deploy --ha=false --config
+  crates/guhit-relay/fly.toml` from the repository root. Sessions through it
+  drop for a moment and reconnect on their own.
+- Move to another relay: deploy it, change the variable, cut a release.
+- Check it: `https://guhit-relay.fly.dev/health` answers `ok`, and
+  `LIVE_RELAY_URL=wss://guhit-relay.fly.dev node scripts/live-check.mjs` runs
+  the two-tab live check through it.
+
+On any computer, `live_relay` in the data folder's `settings.json` overrides
+the built-in address, and an empty string switches the relay off.
+
 ## Rotating the updater key
 
 Only if the private key leaks or is lost.
