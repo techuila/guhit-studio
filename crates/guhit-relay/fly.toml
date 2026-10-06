@@ -6,36 +6,46 @@
 # fly builds with the directory it runs in, the repository root, as the
 # context, and reads the dockerfile path below relative to this file.
 # --ha=false keeps it to one machine: rooms live in that machine's memory,
-# and a second one would split them.
+# and a second one would split them. fly launch rewrites this file; keep
+# these comments when it does.
 
-app = "guhit-relay"
-primary_region = "sin"
+app = 'guhit-relay'
+primary_region = 'sin'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
   # Behind Fly's proxy every socket comes from the proxy. The client's
   # address, which the relay's per-address limits count, is in this header.
-  RELAY_CLIENT_IP_HEADER = "fly-client-ip"
+  RELAY_CLIENT_IP_HEADER = 'fly-client-ip'
 
 [http_service]
   internal_port = 8080
   force_https = true
   # Always on: a stopped machine would drop every room.
-  auto_stop_machines = "off"
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
 
   # Sessions are long WebSocket connections. No hard limit here: the relay's
   # own limits answer with close code 4429, which the app understands.
   [http_service.concurrency]
-    type = "connections"
+    type = 'connections'
     soft_limit = 10000
 
   [[http_service.checks]]
-    grace_period = "10s"
-    interval = "30s"
-    method = "GET"
-    path = "/health"
-    timeout = "5s"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
+
+# The smallest machine: one shared CPU and 256 MB. The relay keeps rooms in
+# memory and forwards bytes, so this is plenty to start. Raise the memory here
+# if the counts in the log grow; fly deploy applies it.
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'
+  cpus = 1
+  memory_mb = 256
