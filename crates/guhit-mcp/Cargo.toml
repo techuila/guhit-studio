@@ -11,7 +11,9 @@ guhit-core.workspace = true
 guhit-model.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio = { version = "1", features = ["rt", "macros", "sync", "net"] }
+# io-std, io-util and time: the stdio proxy reads stdin, writes stdout and
+# waits for the app to come up.
+tokio = { version = "1", features = ["rt", "macros", "sync", "net", "io-std", "io-util", "time"] }
 # rmcp: the official Rust MCP SDK. Only the server half and the streamable
 # HTTP transport, which is a tower service we mount on an axum router.
 rmcp = { version = "3.4", default-features = false, features = [
@@ -20,6 +22,21 @@ rmcp = { version = "3.4", default-features = false, features = [
 ] }
 # axum: same server the dev bridge uses, so /mcp can share its port.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+# reqwest: the stdio proxy's HTTP client to the running app. Already in the
+# build through guhit-app. Plain HTTP to loopback only, so no default
+# features: no TLS, no system proxy lookup.
+reqwest = { version = "0.13", default-features = false }
+# rustls: guhit-app turns on reqwest's `rustls-no-provider`, and features are
+# shared across the build, so building any reqwest client panics until a
+# crypto provider is installed, plain HTTP included. Same spec as guhit-app,
+# so nothing new is compiled.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+# Dev-only: the stdio proxy against any port, such as the dev bridge's. The
+# desktop app has the same proxy behind `--mcp-stdio`.
+[[bin]]
+name = "guhit-mcp-stdio"
+path = "src/bin/guhit-mcp-stdio.rs"
 
 [dev-dependencies]
 tempfile = "3"

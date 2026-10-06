@@ -183,8 +183,9 @@ async fn main() {
         .route("/health", get(health))
         .route("/ipc/{cmd}", post(ipc))
         // Same port, same service, same open document: an MCP client and the
-        // browser UI see each other's changes.
-        .nest_service("/mcp", guhit_mcp::service(app.clone()))
+        // browser UI see each other's changes. `endpoint` is the same
+        // endpoint the desktop app serves, `Accept` fix included.
+        .nest_service("/mcp", guhit_mcp::endpoint(app.clone()))
         .fallback(not_found)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn(guard))

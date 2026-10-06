@@ -23,6 +23,10 @@ serde_json = { workspace = true }
 guhit-app = { workspace = true }
 guhit-mcp = { workspace = true }
 guhit-model = { workspace = true }
+# dirs: the platform data dir for `--mcp-stdio`, which runs without Tauri and
+# so cannot ask it for `app_data_dir()`. Tauri resolves that folder with this
+# same crate, so it is already in Cargo.lock.
+dirs = "6"
 
 # The updater only exists on desktop. Mobile targets skip it, as the plugin
 # docs prescribe, so the crate still builds there.

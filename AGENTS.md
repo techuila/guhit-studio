@@ -25,9 +25,9 @@ Stop:
 | `crates/guhit-export` | Plan to SVG, PDF, DXF | Depends on `guhit-model` only. |
 | `crates/guhit-import` | DXF to walls or linework | Pure, no file I/O. Rules and limits: `docs/INTEROP.md`. |
 | `crates/guhit-app` | App service: project store, session, exports, AI (`src/ai/`) | No Tauri dependency. Single entry `AppService::handle`. |
-| `crates/guhit-mcp` | MCP server over `guhit-app`, for Claude Code and other MCP clients | `docs/MCP.md`. Reuses the copilot's tool translation. |
+| `crates/guhit-mcp` | MCP server over `guhit-app`, for any MCP agent (Claude Code, Codex, Cursor, Copilot, Gemini, Cline and more) | `docs/MCP.md` has per-agent setup. Reuses the copilot's tool translation. `src/stdio.rs` is the stdio proxy to the running app. |
 | `crates/guhit-devbridge` | Dev-only HTTP transport over `guhit-app` | Port 1430. Also serves `/mcp`. |
-| `src-tauri` | Desktop shell | One `ipc` command. No logic. Hosts `/mcp` on 127.0.0.1:1450. |
+| `src-tauri` | Desktop shell | One `ipc` command. No logic. Hosts `/mcp` on 127.0.0.1:1450 (and [::1]). `guhit-studio --mcp-stdio` is the stdio entry for agents that only launch a command. |
 | `src/contract` | `ipc.ts` client and generated `bindings/` | Never hand-edit `bindings/`. |
 | `src/state` | Zustand store and event bus | Frontend join point. |
 | `src/shell`, `src/hub` | App frame, inspector, palette, project hub | Keyboard shortcuts: `docs/SHORTCUTS.md` |

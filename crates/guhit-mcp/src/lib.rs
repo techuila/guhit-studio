@@ -7,12 +7,16 @@
 //! never sees a key. See docs/MCP.md.
 //!
 //! - Transport: streamable HTTP at `/mcp`, mounted on an axum router.
-//! - Binds 127.0.0.1 only, and the transport rejects a non-loopback `Host`.
+//! - Binds 127.0.0.1, and [::1] when the machine has it, and the transport
+//!   rejects a non-loopback `Host`.
+//! - Clients that only launch a command get `stdio`: a proxy that speaks
+//!   newline-delimited JSON-RPC and forwards to the running app over HTTP.
 //! - Every edit goes through `AppService::commit_if_revision`, so it is
 //!   validated by the engine, autosaved, and one undo step with `Origin::Ai`.
 //! - Every change wakes `AppService::watch_changes`, which the desktop shell
 //!   forwards to the window as the Tauri event `doc_changed`.
 
+pub mod stdio;
 pub mod tools;
 mod text;
 
@@ -62,16 +66,79 @@ fn to_schema(schema: &Value) -> Arc<JsonObject> {
     Arc::new(schema.as_object().cloned().unwrap_or_default())
 }
 
+/// What `initialize` answers: capabilities, name, version and the
+/// instructions. Shared with the stdio proxy, which answers `initialize`
+/// itself while the app is not running.
+pub fn server_config() -> ServerConfig {
+    ServerConfig::new(
+        ServerCapabilities::builder()
+            .enable_tools()
+            .enable_resources()
+            .build(),
+    )
+    .with_server_info(Implementation::new("guhit-studio", env!("CARGO_PKG_VERSION")))
+    .with_instructions(text::INSTRUCTIONS)
+}
+
+/// Every tool with its schema and annotations, as `tools/list` lists them.
+pub fn tool_list() -> Vec<Tool> {
+    tools::definitions()
+        .into_iter()
+        .map(|d| {
+            let mut tool = Tool::default();
+            tool.name = d.name.into();
+            tool.description = Some(d.description.into());
+            tool.input_schema = to_schema(&d.schema);
+            let mut annotations = ToolAnnotations::new();
+            annotations.read_only_hint = Some(d.read_only);
+            // Nothing here reaches outside this machine.
+            annotations.open_world_hint = Some(false);
+            if !d.read_only {
+                // Every edit is one undo step, and `delete_elements` and
+                // `delete_level` do remove work the user may want back.
+                annotations.destructive_hint =
+                    Some(matches!(d.name, "delete_elements" | "delete_level"));
+            }
+            tool.annotations = Some(annotations);
+            tool
+        })
+        .collect()
+}
+
+/// The `tools/list` result.
+pub fn list_tools_result() -> ListToolsResult {
+    no_cache!(ListToolsResult::with_all_items(tool_list()))
+}
+
+/// The fixed resources, as `resources/list` lists them.
+pub fn resource_list() -> Vec<Resource> {
+    vec![
+        Resource::new(RESOURCE_CURRENT, "Current project")
+            .with_description(
+                "Compact JSON summary of the project open in Guhit Studio right now: id, name, revision, totals, rooms with their areas, and review items with their status. Empty when no project is open.",
+            )
+            .with_mime_type("application/json"),
+        Resource::new(RESOURCE_CONVENTIONS, "Guhit conventions")
+            .with_description(
+                "Units, plan coordinates, wall joins, and the door and window flip conventions this server uses. Read this before drawing.",
+            )
+            .with_mime_type("text/markdown"),
+        Resource::new(RESOURCE_PH_DEFAULTS, "Philippine defaults")
+            .with_description(
+                "Default wall thickness, door and window sizes, level height, the built-in material ids and sensible room sizes for Philippine residential work.",
+            )
+            .with_mime_type("text/markdown"),
+    ]
+}
+
+/// The `resources/list` result.
+pub fn list_resources_result() -> ListResourcesResult {
+    no_cache!(ListResourcesResult::with_all_items(resource_list()))
+}
+
 impl ServerHandler for GuhitMcp {
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(
-            ServerCapabilities::builder()
-                .enable_tools()
-                .enable_resources()
-                .build(),
-        )
-        .with_server_info(Implementation::new("guhit-studio", env!("CARGO_PKG_VERSION")))
-        .with_instructions(text::INSTRUCTIONS)
+        server_config()
     }
 
     async fn list_tools(
@@ -79,28 +146,7 @@ impl ServerHandler for GuhitMcp {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        let tools = tools::definitions()
-            .into_iter()
-            .map(|d| {
-                let mut tool = Tool::default();
-                tool.name = d.name.into();
-                tool.description = Some(d.description.into());
-                tool.input_schema = to_schema(&d.schema);
-                let mut annotations = ToolAnnotations::new();
-                annotations.read_only_hint = Some(d.read_only);
-                // Nothing here reaches outside this machine.
-                annotations.open_world_hint = Some(false);
-                if !d.read_only {
-                    // Every edit is one undo step, and `delete_elements` and
-                    // `delete_level` do remove work the user may want back.
-                    annotations.destructive_hint =
-                        Some(matches!(d.name, "delete_elements" | "delete_level"));
-                }
-                tool.annotations = Some(annotations);
-                tool
-            })
-            .collect();
-        Ok(no_cache!(ListToolsResult::with_all_items(tools)))
+        Ok(list_tools_result())
     }
 
     async fn call_tool(
@@ -116,9 +162,11 @@ impl ServerHandler for GuhitMcp {
         // error: the model has to read the message to correct itself.
         let result = match tools::call(&self.app, &request.name, args).await {
             Ok(tools::Output::Json(v)) => CallToolResult::structured(v),
-            Ok(tools::Output::Image { base64, mime }) => {
-                CallToolResult::success(vec![ContentBlock::image(base64, mime)])
-            }
+            Ok(tools::Output::Text(text)) => CallToolResult::success(vec![ContentBlock::text(text)]),
+            Ok(tools::Output::Image { base64, mime, note }) => CallToolResult::success(vec![
+                ContentBlock::text(note),
+                ContentBlock::image(base64, mime),
+            ]),
             Err(tools::ToolFail(message)) => {
                 CallToolResult::error(vec![ContentBlock::text(message)])
             }
@@ -131,23 +179,7 @@ impl ServerHandler for GuhitMcp {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
-        Ok(no_cache!(ListResourcesResult::with_all_items(vec![
-            Resource::new(RESOURCE_CURRENT, "Current project")
-                .with_description(
-                    "Compact JSON summary of the project open in Guhit Studio right now: id, name, revision, totals, rooms with their areas, and review items with their status. Empty when no project is open.",
-                )
-                .with_mime_type("application/json"),
-            Resource::new(RESOURCE_CONVENTIONS, "Guhit conventions")
-                .with_description(
-                    "Units, plan coordinates, wall joins, and the door and window flip conventions this server uses. Read this before drawing.",
-                )
-                .with_mime_type("text/markdown"),
-            Resource::new(RESOURCE_PH_DEFAULTS, "Philippine defaults")
-                .with_description(
-                    "Default wall thickness, door and window sizes, level height, the built-in material ids and sensible room sizes for Philippine residential work.",
-                )
-                .with_mime_type("text/markdown"),
-        ])))
+        Ok(list_resources_result())
     }
 
     async fn read_resource(
@@ -253,20 +285,79 @@ pub fn service(app: AppService) -> StreamableHttpService<GuhitMcp, LocalSessionM
     )
 }
 
-/// An axum router with the MCP endpoint at `/mcp`. Merge this into another
-/// router to share a port, as the dev bridge does.
-pub fn router(app: AppService) -> axum::Router {
-    axum::Router::new().nest_service("/mcp", service(app))
+/// What `normalize_accept` puts in place of an `Accept` header that does
+/// not name both types.
+const ACCEPT_BOTH: &str = "application/json, text/event-stream";
+
+/// The transport answers a POST only when `Accept` names both
+/// `application/json` and `text/event-stream`, and some clients send only the
+/// first, or nothing. This server always answers a request with plain JSON
+/// (`with_json_response`), so such a client can read the answer: fill in the
+/// header instead of refusing it with 406. Nothing else changes; the `Host`
+/// guard still runs.
+pub async fn normalize_accept(
+    mut req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::{header::ACCEPT, HeaderValue, Method};
+    if req.method() == Method::POST {
+        let accept = req
+            .headers()
+            .get(ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if !(accept.contains("application/json") && accept.contains("text/event-stream")) {
+            req.headers_mut()
+                .insert(ACCEPT, HeaderValue::from_static(ACCEPT_BOTH));
+        }
+    }
+    next.run(req).await
 }
 
-/// Serve MCP on `127.0.0.1:port` until the process ends. Loopback only: the
-/// listener never binds another interface, and the transport refuses a
-/// request whose `Host` is not local, which blocks DNS rebinding.
+/// The MCP endpoint with the `Accept` fix in front of it, as a router that
+/// answers on every path. Nest it wherever the endpoint should live, as
+/// [`router`] and the dev bridge do.
+pub fn endpoint(app: AppService) -> axum::Router {
+    axum::Router::new()
+        .fallback_service(service(app))
+        .layer(axum::middleware::from_fn(normalize_accept))
+}
+
+/// An axum router with the MCP endpoint at `/mcp`. Merge this into another
+/// router to share a port.
+pub fn router(app: AppService) -> axum::Router {
+    axum::Router::new().nest_service("/mcp", endpoint(app))
+}
+
+/// Serve MCP on `127.0.0.1:port` and `[::1]:port` until the process ends.
+/// Loopback only: the listeners never bind another interface, and the
+/// transport refuses a request whose `Host` is not local, which blocks DNS
+/// rebinding.
+///
+/// Some clients resolve `localhost` to `::1` first and do not fall back to
+/// 127.0.0.1, so the IPv6 loopback is served too. It is best effort: a
+/// machine without it keeps running on IPv4. A failed IPv4 bind is the error.
 pub async fn serve(app: AppService, port: u16) -> std::io::Result<()> {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    println!("guhit-mcp listening on http://{addr}/mcp");
-    axum::serve(listener, router(app)).await
+    let router = router(app);
+    let v6 = std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port));
+    match tokio::net::TcpListener::bind(v6).await {
+        Ok(listener6) => {
+            let router6 = router.clone();
+            tokio::spawn(async move {
+                if let Err(e) = axum::serve(listener6, router6).await {
+                    eprintln!("guhit-mcp: the IPv6 listener on {v6} stopped: {e}");
+                }
+            });
+            println!("guhit-mcp listening on http://{addr}/mcp and http://{v6}/mcp");
+        }
+        Err(e) => {
+            eprintln!("guhit-mcp: not serving {v6} ({e}); IPv4 only");
+            println!("guhit-mcp listening on http://{addr}/mcp");
+        }
+    }
+    axum::serve(listener, router).await
 }
 
 /// Port from `<data_dir>/settings.json` key `mcp_port`, or [`DEFAULT_PORT`].

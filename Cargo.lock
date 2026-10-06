@@ -1903,7 +1903,9 @@ dependencies = [
  "guhit-app",
  "guhit-core",
  "guhit-model",
+ "reqwest",
  "rmcp",
+ "rustls",
  "serde",
  "serde_json",
  "tempfile",
@@ -1924,6 +1926,7 @@ dependencies = [
 name = "guhit-studio"
 version = "0.1.1"
 dependencies = [
+ "dirs",
  "guhit-app",
  "guhit-mcp",
  "guhit-model",

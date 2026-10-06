@@ -65,7 +65,11 @@ fn strip_step_prefix(message: &str) -> String {
 /// back a picture.
 pub enum Output {
     Json(Value),
-    Image { base64: String, mime: String },
+    /// Plain text, such as a guide.
+    Text(String),
+    /// A picture with a line of text that says what it shows. Some clients
+    /// drop a result that is only an image, so the text always goes along.
+    Image { base64: String, mime: String, note: String },
 }
 
 fn ok(v: Value) -> Result<Output, ToolFail> {
@@ -151,7 +155,7 @@ fn reused_descriptions() -> BTreeMap<&'static str, String> {
         ("set_room_usage", d("Set the usage type of a room, as one undo step. Usage drives the review checks, so a bathroom is checked differently from a bedroom.")),
         ("set_opening_size", d("Change the size of one door or window, as one undo step. Give only the values that change.")),
         ("delete_elements", d("Delete elements, as one undo step. Deleting a wall also deletes the doors and windows hosted on it.")),
-        ("set_material", d("Assign a material to elements, as one undo step. Walls, columns and openings take a surface material, rooms take a floor material. The material ids are in the resource guhit://docs/ph-defaults.")),
+        ("set_material", d("Assign a material to elements, as one undo step. Walls, columns and openings take a surface material, rooms take a floor material. The material ids are in get_guide with topic \"ph_defaults\".")),
         ("set_roof", d("Change the roof of the open project, as one undo step. Give only the values that change. The Philippine default is a gable roof at 25 degrees with a 600 mm overhang in long-span pre-painted metal.")),
         ("add_asset", d("Place one item from the built-in library, as one undo step: furniture, fixtures, lights, outlets, switches, a panelboard, detectors or aircon units. position is the CENTER of its footprint and the item's local +y is its back (bed head, sofa back, water closet tank). Wall items (outlets, switches, wall lights, panelboards, split aircon indoor units) snap to the nearest wall face within 1000 mm of position, back to the wall; give a point just inside the room near that wall. Ceiling items hang from the ceiling. level (a level id or name) puts it on another level than the first. Linking a switch to its lights is done in the app with the link tool (L).")),
         ("add_level", d("Add a level (storey), as one undo step. By default it is named \"Level N\", its floor sits on top of the highest level (that level's elevation plus its floor-to-floor height) and it is 3000 mm floor to floor. Names are 1 to 60 characters, heights 2000 to 10000 mm, and no two levels share a floor elevation. The result lists the new level under levels_added. Draw on it by passing its name or id as level to add_wall, add_wall_chain, add_rect_room or add_asset, in the same batch or later.")),
@@ -222,6 +226,12 @@ pub fn definitions() -> Vec<ToolDef> {
         name: "get_plan_image",
         description: format!("The last plan thumbnail the desktop window saved for the open project, as a PNG. It is a picture of the plan as of the last time the window drew it, so it can be older than the current revision. When no window has drawn this project yet there is no thumbnail and this tool says so; use export_plan with format \"svg\" to get a drawing from the engine instead. {MM}"),
         schema: obj(json!({}), &[]),
+        read_only: true,
+    });
+    out.push(ToolDef {
+        name: "get_guide",
+        description: format!("Read one of this server's guides as markdown. topic \"conventions\": units, plan coordinates, wall joins, the door and window flip conventions, service run systems, devices and links, review marks. topic \"ph_defaults\": default wall thickness, door and window sizes, level height, the built-in material ids and sensible room sizes for Philippine residential work. The same text as the resources guhit://docs/conventions and guhit://docs/ph-defaults, for clients that do not read resources. Read \"conventions\" before drawing. {MM}"),
+        schema: obj(json!({"topic": {"type": "string", "enum": ["conventions", "ph_defaults"], "description": "Which guide."}}), &["topic"]),
         read_only: true,
     });
     out.push(ToolDef {
@@ -323,6 +333,31 @@ pub fn definitions() -> Vec<ToolDef> {
 
 // ------------------------------------------------------------------- dispatch
 
+/// The text that goes with the plan thumbnail. The thumbnail carries no
+/// revision of its own: the window writes it after it draws, and the project
+/// file is written on every edit, so a thumbnail older than the project file
+/// may miss the latest edits.
+async fn thumbnail_note(app: &AppService, dir: &std::path::Path) -> String {
+    let revision = {
+        let s = app.session.lock().await;
+        s.doc.as_ref().map(|d| d.revision())
+    };
+    let modified = |name: &str| std::fs::metadata(dir.join(name)).and_then(|m| m.modified()).ok();
+    let age = match (modified(store::THUMBNAIL_FILE), modified(store::PROJECT_FILE)) {
+        (Some(thumb), Some(project)) if thumb >= project => {
+            "The window saved it after the last saved edit, so it shows the plan as it is now."
+        }
+        (Some(_), Some(_)) => {
+            "The window saved it before the last edit, so it may not show the latest changes; export_plan with format \"svg\" draws the current plan."
+        }
+        _ => "It may be older than the current plan; export_plan with format \"svg\" draws the current plan.",
+    };
+    match revision {
+        Some(r) => format!("Plan thumbnail of the open project, which is at revision {r}. {age}"),
+        None => format!("Plan thumbnail of the open project. {age}"),
+    }
+}
+
 fn args_object(args: &Value) -> Result<&Map<String, Value>, ToolFail> {
     args.as_object()
         .ok_or_else(|| ToolFail("invalid arguments: expected a JSON object".into()))
@@ -380,6 +415,13 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
             ok(app.handle("doc_query", json!({ "query": query })).await?)
         }
         "list_renders" => ok(app.handle("render_list", json!({})).await?),
+        "get_guide" => match req_str(&args, "topic")?.as_str() {
+            "conventions" => Ok(Output::Text(crate::text::CONVENTIONS.to_string())),
+            "ph_defaults" => Ok(Output::Text(crate::text::PH_DEFAULTS.to_string())),
+            other => Err(ToolFail(format!(
+                "invalid arguments: unknown topic `{other}`. Use \"conventions\" or \"ph_defaults\"."
+            ))),
+        },
         "get_plan_image" => {
             let dir = app
                 .project_dir()
@@ -390,7 +432,7 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
                     let base64 = url.rsplit_once("base64,").map(|(_, b)| b.to_string()).ok_or_else(|| {
                         ToolFail("io: the stored thumbnail is not a PNG data URL".into())
                     })?;
-                    Ok(Output::Image { base64, mime: "image/png".into() })
+                    Ok(Output::Image { base64, mime: "image/png".into(), note: thumbnail_note(app, &dir).await })
                 }
                 None => Err(ToolFail(
                     "not_found: this project has no saved plan thumbnail yet. A thumbnail is written by the desktop window when it draws the plan, so a project created through this server has none until the window opens it. Use export_plan with format \"svg\" to get a drawing from the engine instead."
@@ -778,7 +820,7 @@ mod tests {
             "list_projects", "open_project", "create_project", "close_project",
             "get_project_summary", "list_rooms", "list_elements", "describe_elements",
             "find_rooms_without_exterior_window", "list_review_items", "get_pipe_takeoff", "get_schedule",
-            "get_plan_image", "list_renders",
+            "get_plan_image", "get_guide", "list_renders",
             "add_wall", "add_wall_chain", "add_rect_room", "add_door", "add_window", "resize_room",
             "set_wall_length", "move_elements", "rename_room", "set_room_usage", "set_opening_size",
             "delete_elements", "set_material", "set_roof", "add_asset", "add_level", "delete_level",
@@ -786,7 +828,7 @@ mod tests {
         ] {
             assert!(names.contains(&expected), "tool `{expected}` is missing");
         }
-        assert_eq!(names.len(), 37, "the tool list changed: update docs/MCP.md");
+        assert_eq!(names.len(), 38, "the tool list changed: update docs/MCP.md");
     }
 
     #[test]
@@ -820,6 +862,7 @@ mod tests {
                     | "get_pipe_takeoff"
                     | "get_schedule"
                     | "get_plan_image"
+                    | "get_guide"
                     | "list_renders"
             );
             assert_eq!(d.read_only, expected, "readOnlyHint is wrong for {}", d.name);

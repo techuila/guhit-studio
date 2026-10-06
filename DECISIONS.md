@@ -156,3 +156,14 @@ Newest at the bottom. Format: what was chosen, what was rejected, why.
 - The certificate's owner name and team stay out of the repo: the workflow passes `APPLE_SIGNING_IDENTITY=Developer ID Application`, which Tauri matches against the imported certificate.
 - One certificate for every Aliteo Mac app, chosen by Axl on 2026-09-25: Guhit reuses TopNotch's Developer ID Application certificate, and the secrets have TopNotch's names (`MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`). Rejected: a certificate per project (nothing gained, more renewals). That certificate comes from the Previous Sub-CA and stops signing on 2027-02-01; the replacement should be made with the G2 Sub-CA and updated in every repo's two certificate secrets.
 - Windows code signing stays open (no certificate yet).
+
+## 2026-10-07
+
+### D29. MCP works with every popular agent, not only Claude Code
+- Chosen by: Axl ("mcps should not only support claude code but other ai agents as well. include other popular paid/free agents"), mechanism by Claude after a client survey of 30+ agents.
+- Two entries: the Streamable HTTP URL `http://127.0.0.1:1450/mcp` for agents that take a URL, and the app binary with `--mcp-stdio` for agents that only launch a command (Claude Desktop and others). The stdio entry is a proxy to the running app, never a second document. It answers the tool list while the app is closed and opens the app on the first tool call, so an agent that starts all its servers at launch does not pop the app open.
+- The server answers both MCP protocol generations (with `initialize`, and the 2026-07-28 spec without it), tolerates a missing or partial Accept header, and listens on `[::1]` as well as `127.0.0.1`. Docs always write `127.0.0.1`.
+- `get_guide` mirrors the two doc resources as a tool, because many agents ignore resources and server instructions. Stay at or under 40 tools: Cursor warns above that.
+- `docs/MCP.md` has a tested snippet or an official-docs snippet per agent, and says which were tested.
+- Not supported, on purpose: agents that connect from a vendor's cloud or a container (claude.ai web, Claude custom connectors, ChatGPT web, Open WebUI in Docker). Reaching them means exposing the app to the internet with authentication, which needs Axl's decision.
+- Rejected: requiring Node and `mcp-remote` for stdio agents (an extra install for architects; it stays as a fallback in the docs).
