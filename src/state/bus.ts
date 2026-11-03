@@ -24,6 +24,11 @@ export interface BusEvents {
   render: { views: "current" | "all" | string[] };
   /** Open the shadow study export (frames from the live 3D view). */
   shadow_study: undefined;
+  /** The user moved a view by hand (panned, zoomed, orbited, walked, flew,
+   * picked a camera preset) or pressed on it. Never sent for programmatic
+   * moves (fits and focus from code, follow) or for hovering. Following
+   * someone in a live session stops on it (DECISIONS D37). */
+  user_view: { view: "plan" | "3d" };
 }
 
 type Handler<K extends keyof BusEvents> = (payload: BusEvents[K]) => void;

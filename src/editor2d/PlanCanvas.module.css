@@ -157,6 +157,26 @@
   transition-timing-function: var(--ease-in);
 }
 
+/* Why a typed pipe value was not taken, under the box. */
+.editorError {
+  position: absolute;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--danger);
+  color: #fff;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: editorErrorIn var(--dur-base) var(--ease-out);
+}
+
+@keyframes editorErrorIn {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
 .hint {
   position: absolute;
   left: 50%;

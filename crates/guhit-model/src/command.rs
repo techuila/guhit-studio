@@ -32,6 +32,24 @@ pub enum Side {
     West,
 }
 
+/// One end of a pipe segment or range, in point order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum PipeEnd {
+    Start,
+    End,
+}
+
+/// Points of one pipe run that a `MovePipePoints` moves.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PipePoints {
+    pub pipe_id: Id,
+    /// Point indices, each at most once. Empty: every point of the run.
+    pub indices: Vec<u32>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(export)]
@@ -142,6 +160,56 @@ pub enum Command {
     /// a note (`Some`), or reopen it (`None`). Replaces an existing mark with
     /// the same target.
     SetReviewMark { target: ReviewTarget, note: Option<String> },
+
+    /// Move pipe points in 3D by `delta` (plan x, y and height z, mm):
+    /// one point, a segment (its two points), a whole run (empty
+    /// `indices`) or several runs at once. With `keep_joins`, the ends of
+    /// other runs of a joinable system that rest on what moved follow, as
+    /// `Derived::pipes` joins them: an end meeting a moved end moves with it
+    /// (where three or more ends meet, the others follow the main, never the
+    /// other way round), and a tee branch keeps its place along the segment
+    /// it rests on and follows only the part of the move across it, height
+    /// included, interpolated where the segment's two points move
+    /// differently and kept on the moved segment. A branch never drags the
+    /// run it rests on, and the named runs move only as the command says.
+    /// DECISIONS D39.
+    MovePipePoints {
+        targets: Vec<PipePoints>,
+        delta: Vec3,
+        keep_joins: bool,
+    },
+    /// Set the 3D length of segment `segment` (from point `segment` to
+    /// `segment + 1`). `hold: Start` keeps its first point, and its last point
+    /// and every point after it move along the segment; `End` the other way
+    /// round. The rest of the run keeps its shape and slopes.
+    SetPipeSegmentLength {
+        pipe_id: Id,
+        segment: u32,
+        length_mm: f64,
+        hold: PipeEnd,
+        keep_joins: bool,
+    },
+    /// Make segments `from_segment` to `to_segment` (inclusive) fall by
+    /// `slope_pct` percent of their plan length, from the first point to the
+    /// last (negative rises). Risers, and segments steeper than 100 percent,
+    /// keep their own drop. `hold` is the end
+    /// that keeps its height: the held end of the range, and everything past
+    /// the other end moves up or down with it. Geometry only: Guhit does not
+    /// size or certify a fall (DECISIONS D19).
+    SetPipeSlope {
+        pipe_id: Id,
+        from_segment: u32,
+        to_segment: u32,
+        slope_pct: f64,
+        hold: PipeEnd,
+        keep_joins: bool,
+    },
+    /// Add a bend: a new point at `at`, between the two points of segment
+    /// `segment`.
+    InsertPipePoint { pipe_id: Id, segment: u32, at: Vec3 },
+    /// Remove point `index`. The run keeps at least two points; removing an
+    /// end shortens the run.
+    RemovePipePoint { pipe_id: Id, index: u32 },
 
     /// Apply all or nothing, as one undo step.
     Batch { label: String, commands: Vec<Command> },

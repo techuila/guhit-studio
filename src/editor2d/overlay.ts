@@ -12,8 +12,10 @@ import type { P } from "./geom";
 import { add, dist, dot, left, lerp, mul, sub, unit } from "./geom";
 import { arcPoint, controls, linkArc, linkKey } from "./links";
 import type { LatchGuide } from "./mount";
-import type { PipeShape } from "./pipe";
+import type { PipeEl, PipeShape } from "./pipe";
 import { drainFallPct, formatHeight, formatPct, isRiser, pipeBandHalfPx, pipeNodes, pipePlan, planDist, planOf, segmentFallPct } from "./pipe";
+import { segmentLength } from "./pipeEdit";
+import type { PipePick } from "./pipePick";
 import type { ElementStyle, RenderContext } from "./render";
 import { dimensionTextBox, drawCamera, drawDimension, drawElement, drawOpening, drawPipe, drawWalls, pipeColor, roomLabelTextBox } from "./render";
 import type { SnapResult, SnapType } from "./snap";
@@ -278,19 +280,56 @@ function tempDimension(rc: RenderContext, a: P, b: P, offsetPx: number, style: E
   if (box) frameObstacles.push(box);
 }
 
+/**
+ * The picked segment of the selected run (DECISIONS D39): a soft band in the
+ * selection color over it, fading in, and the one picked before fading out.
+ */
+function drawPipePick(rc: RenderContext, c: PlanController, pipe: PipeEl, op: PlanController["op"]): void {
+  const { ctx, palette, view } = rc;
+  const band = (pick: PipePick | null, alpha: number): void => {
+    if (!pick || pick.kind !== "segment" || pick.pipeId !== pipe.id || alpha <= 0.002) return;
+    // While a segment is dragged its band rides on the ghost.
+    const pts = op.kind === "pipe_drag" && op.pipe.id === pipe.id ? c.pipeDragPreview(op).pipe.points : pipe.points;
+    const a = pts[pick.index];
+    const b = pts[pick.index + 1];
+    if (!a || !b) return;
+    const sa = toScreen(view, a);
+    const sb = toScreen(view, b);
+    ctx.save();
+    ctx.strokeStyle = palette.selection;
+    ctx.lineCap = "round";
+    ctx.globalAlpha = 0.26 * alpha;
+    ctx.lineWidth = pipeBandHalfPx(pipe, view.scale) * 2 + 10;
+    ctx.beginPath();
+    ctx.moveTo(sa.x, sa.y);
+    ctx.lineTo(sb.x, sb.y);
+    ctx.stroke();
+    ctx.restore();
+  };
+  band(c.lastPick, c.anim.value(K.pipePickOut, 0));
+  band(c.pipePick(), 1 - c.anim.value(K.pipePick, 0));
+}
+
 function drawGrips(rc: RenderContext, c: PlanController, op: PlanController["op"]): void {
   const { ctx, palette, view } = rc;
   const grips = c.gripList();
   if (grips.length === 0) return;
   const active = op.kind === "grip" ? op.grip : null;
+  // A dragged pipe part draws its handles on the ghost instead.
+  const dragged = op.kind === "pipe_drag" ? new Set(op.indices) : null;
+  const pick = c.pipePick();
+  const pickA = 1 - c.anim.value(K.pipePick, 0);
   ctx.save();
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = palette.selection;
   for (let i = 0; i < grips.length; i++) {
     const g = grips[i];
     if (active && sameGrip(active, g)) continue;
+    if (dragged && g.kind === "pipe_node" && g.index !== undefined && (dragged.size === 0 || dragged.has(g.index))) continue;
+    if (dragged && (g.kind === "pipe_mid" || g.kind === "pipe_continue")) continue;
     // Scale in from nothing, one after the other, and grow a little under the pointer.
-    const grow = c.anim.value(`${K.grip}${Math.min(i, 7)}`, 1);
+    // The picked segment's middle handle comes with the pick, so it grows in with it.
+    const grow = c.anim.value(`${K.grip}${Math.min(i, 7)}`, 1) * (g.kind === "pipe_mid" ? pickA : 1);
     if (grow <= 0.002) continue;
     const scale = grow * (1 + 0.3 * c.anim.value(`${K.gripHover}${i}`, 0));
     const s = toScreen(view, g.pos);
@@ -334,10 +373,44 @@ function drawGrips(rc: RenderContext, c: PlanController, op: PlanController["op"
       ctx.fillStyle = palette.selection;
       ctx.fill();
     } else if (g.kind === "pipe_node") {
-      ctx.arc(s.x, s.y, 4.5, 0, Math.PI * 2);
+      // The picked point fills with the selection color as it grows a ring.
+      const last = c.lastPick;
+      const picked =
+        pick?.kind === "point" && g.index === pick.index
+          ? pickA
+          : last?.kind === "point" && last.pipeId === g.elementId && g.index === last.index
+            ? c.anim.value(K.pipePickOut, 0)
+            : 0;
+      ctx.arc(s.x, s.y, 4.5 + 1.5 * picked, 0, Math.PI * 2);
+      ctx.fill();
+      if (picked > 0.002) {
+        ctx.save();
+        ctx.globalAlpha *= picked;
+        ctx.fillStyle = palette.selection;
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.stroke();
+      if (picked > 0.002) {
+        ctx.save();
+        ctx.globalAlpha *= 0.35 * picked;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 10, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    } else if (g.kind === "pipe_continue") {
+      // "+": continue the run from this open end.
+      ctx.arc(s.x, s.y, 6, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-    } else if (g.kind === "wall_mid" || g.kind === "dim_offset") {
+      ctx.beginPath();
+      ctx.moveTo(s.x - 3, s.y);
+      ctx.lineTo(s.x + 3, s.y);
+      ctx.moveTo(s.x, s.y - 3);
+      ctx.lineTo(s.x, s.y + 3);
+      ctx.stroke();
+    } else if (g.kind === "wall_mid" || g.kind === "dim_offset" || g.kind === "pipe_mid") {
       ctx.moveTo(s.x, s.y - 6);
       ctx.lineTo(s.x + 6, s.y);
       ctx.lineTo(s.x, s.y + 6);
@@ -675,13 +748,49 @@ function fallTags(rc: RenderContext, pipe: Pick<PipeShape, "system" | "diameter_
   return out;
 }
 
-/** A small label box. */
-function tag(rc: RenderContext, x: number, y: number, text: string, color: string, alpha: number, filled: boolean): void {
+/** The 3D length of a picked segment, on the side away from its fall tag. */
+function lengthTag(rc: RenderContext, pipe: Pick<PipeEl, "id" | "points">, i: number, alpha: number): TagSpec[] {
+  const a = pipe.points[i];
+  const b = pipe.points[i + 1];
+  if (!a || !b || alpha <= 0.002) return [];
+  const text = formatLength(segmentLength(pipe.points, i), rc.unit, true);
+  const w = tagWidth(rc, text);
+  const sa = toScreen(rc.view, a);
+  const sb = toScreen(rc.view, b);
+  return [
+    {
+      cand: { id: `${pipe.id}:l:${i}`, priority: TAG_PRIORITY.fallProblem + 10, w, h: TAG_H, spots: segmentSpots(sb, sa, w, TAG_H) },
+      text,
+      color: rc.palette.selection,
+      filled: false,
+      alpha,
+    },
+  ];
+}
+
+/**
+ * A small label box. `hover` (0 to 1) rings a click to type tag in the
+ * selection color; `scale` bumps it about its center after a height key.
+ */
+function tag(rc: RenderContext, x: number, y: number, text: string, color: string, alpha: number, filled: boolean, hover = 0, scale = 1): void {
   const { ctx, palette } = rc;
   ctx.save();
   ctx.font = `10px ${palette.fontMono}`;
   const w = ctx.measureText(text).width + 8;
   const h = TAG_H;
+  if (scale !== 1) {
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.scale(scale, scale);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
+  }
+  if (hover > 0.002) {
+    ctx.globalAlpha = alpha * hover;
+    ctx.strokeStyle = palette.selection;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(x - 2, y - 2, w + 4, h + 4, 4);
+    ctx.stroke();
+  }
   ctx.globalAlpha = alpha * (filled ? 0.92 : 0.9);
   ctx.fillStyle = filled ? color : palette.paper;
   ctx.beginPath();
@@ -730,9 +839,13 @@ function drawTags(rc: RenderContext, c: PlanController, specs: readonly TagSpec[
     const v = c.anim.value(`${K.tagOut}${t.id}`, 0);
     if (v > 0.002) tag(rc, t.box.x, t.box.y, t.text, t.color, t.alpha * v, t.filled);
   }
+  // The selected run's height tags bump after a height key, like the pipe tool's readout.
+  const edited = c.selectedPipe()?.id;
+  const bump = edited ? 1 + 0.12 * c.anim.value(K.pipeHeight, 0) : 1;
   for (const t of draws) {
     const a = t.alpha * c.anim.value(`${K.tagIn}${t.id}`, 1);
-    if (a > 0.002) tag(rc, t.box.x, t.box.y, t.text, t.color, a, t.filled);
+    const mine = !!edited && t.id.startsWith(`${edited}:`);
+    if (a > 0.002) tag(rc, t.box.x, t.box.y, t.text, t.color, a, t.filled, mine ? c.anim.value(`${K.tagHover}${t.id}`, 0) : 0, mine && t.id.includes(":h:") ? bump : 1);
   }
 }
 
@@ -759,6 +872,8 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
 
   // Links under the grips and ghosts: they belong to the selection.
   drawLinks(rc, c);
+  const editedPipe = c.selectedPipe();
+  if (editedPipe) drawPipePick(rc, c, editedPipe, op);
   drawGrips(rc, c, op);
 
   if (lift > 0.002) {
@@ -811,20 +926,6 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
         noIndexWalls(rc, walls, ghost);
         const me = walls.find((w) => w.id === el.id);
         if (me) tempDimension(rc, me.start, me.end, 26);
-      } else if (el.kind === "pipe") {
-        const next = c.gripResult(op);
-        if (next && next.kind === "pipe") {
-          drawPipe(rc, next, { alpha: 0.55 * fade });
-          drawElement(rc, next, ghost);
-          // Plan lengths of the segments on each side of the moved node.
-          const nodes = pipeNodes(next.points);
-          const i = nodes.findIndex((n) => planDist(n.point, op.current) < 1);
-          if (!returning && i >= 0) {
-            if (i > 0) tempDimension(rc, nodes[i - 1].point, nodes[i].point, 26);
-            if (i + 1 < nodes.length) tempDimension(rc, nodes[i].point, nodes[i + 1].point, 26);
-          }
-          tags.push(...heightTags(rc, next, el.id, fade), ...fallTags(rc, next, el.id, fade));
-        }
       } else {
         const next = c.gripResult(op);
         if (next) {
@@ -834,6 +935,57 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
           }
         }
       }
+      break;
+    }
+    case "pipe_drag": {
+      // The run as it will be, and the joined runs that follow it, as ghosts (DECISIONS D39).
+      const { pipe, followers } = c.pipeDragPreview(op);
+      const follow = (1 - c.anim.value(K.pipeFollow, 0)) * fade;
+      for (const f of followers) {
+        if (!index.visibleIds.has(f.id)) continue;
+        drawPipe(rc, f, { alpha: 0.45 * follow });
+        drawElement(rc, f, { ...ghost, alpha: 0.5 * follow, dashed: true });
+      }
+      drawPipe(rc, pipe, { alpha: 0.55 * fade });
+      drawElement(rc, pipe, ghost);
+      // Handles of the moved points ride on the ghost.
+      ctx.save();
+      ctx.strokeStyle = palette.selection;
+      ctx.fillStyle = palette.selection;
+      ctx.lineWidth = 1.5;
+      const moved = new Set(op.indices);
+      for (const n of pipeNodes(pipe.points)) {
+        if (moved.size > 0 && !moved.has(n.index)) continue;
+        const q = toScreen(view, n.point);
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      if (!returning) {
+        // Plan lengths on both sides of a moved point, or of the moved segment's neighbours.
+        const nodes = pipeNodes(pipe.points);
+        const touched = nodes.map((n, i) => ({ n, i })).filter(({ n }) => moved.has(n.index));
+        const seen = new Set<string>();
+        for (const { i } of touched) {
+          for (const j of [i - 1, i + 1]) {
+            if (j < 0 || j >= nodes.length) continue;
+            const key = `${Math.min(i, j)}-${Math.max(i, j)}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            tempDimension(rc, nodes[Math.min(i, j)].point, nodes[Math.max(i, j)].point, 26);
+          }
+        }
+        if (cursorScreen && !op.typed) {
+          const d = Math.hypot(op.delta.x, op.delta.y);
+          const parts = [`${formatLength(d, unitName, true)}`];
+          if (Math.abs(op.delta.z) >= 0.5) parts.push(`h ${formatHeight(op.delta.z, unitName, true)}`);
+          if (followers.length > 0) parts.push(followers.length === 1 ? "1 joined run follows" : `${followers.length} joined runs follow`);
+          else if (!op.keepJoins) parts.push("joins break");
+          pill(rc, { x: cursorScreen.x + 16, y: cursorScreen.y + 22 }, parts.join("  "));
+        }
+      }
+      tags.push(...heightTags(rc, pipe, op.pipe.id, fade), ...fallTags(rc, pipe, op.pipe.id, fade));
       break;
     }
     case "wall": {
@@ -983,11 +1135,14 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
   if (lift > 0.002) ctx.restore();
 
   // Point heights and falls of the one selected run (a node being dragged shows them on its ghost).
-  if (s.selection.length === 1 && !(op.kind === "grip" && op.element.id === s.selection[0]) && op.kind !== "move") {
+  if (s.selection.length === 1 && !(op.kind === "grip" && op.element.id === s.selection[0]) && op.kind !== "move" && op.kind !== "pipe_drag") {
     const el = index.byId.get(s.selection[0]);
     if (el && el.kind === "pipe" && index.visibleIds.has(el.id)) {
       const a = c.anim.value(`${K.sel}${el.id}`, 1);
       tags.push(...heightTags(rc, el, el.id, a), ...fallTags(rc, el, el.id, a));
+      // The picked segment's length, click to type like the others.
+      const pick = c.pipePick();
+      if (pick?.kind === "segment") tags.push(...lengthTag(rc, el, pick.index, a * (1 - c.anim.value(K.pipePick, 0))));
     }
   }
 

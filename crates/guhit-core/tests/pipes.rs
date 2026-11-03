@@ -957,7 +957,7 @@ fn takeoff_groups_by_system_material_and_size_and_rounds_to_the_millimeter() {
 fn the_pipe_takeoff_query_answers_from_derived_data() {
     let doc = Document::new(templates::plumbing_demo());
     let v = doc.query(&Query::PipeTakeoff).unwrap();
-    assert_eq!(v["total_length_m"], 59.654);
+    assert_eq!(v["total_length_m"], 59.399);
     assert_eq!(v["elbow_count"], 29);
     assert_eq!(v["tee_count"], 9);
     assert_eq!(v["sleeve_count"], 9);
@@ -993,7 +993,7 @@ fn the_pipe_takeoff_query_answers_from_derived_data() {
         .unwrap();
     assert_eq!(list["count"], 20);
     assert_eq!(list["elements"][0]["label"], "Service line");
-    assert_eq!(list["elements"][0]["length_mm"], 10100.0);
+    assert_eq!(list["elements"][0]["length_mm"], 9950.0);
     assert_eq!(list["elements"][18]["label"], "Bedroom line set");
     assert_eq!(list["elements"][18]["system"], "refrigerant");
     // Review items carry their location.
@@ -1132,7 +1132,7 @@ fn preview_equals_apply_for_a_new_pipe() {
     assert_eq!(preview.state.derived, applied.state.derived);
     assert_eq!(applied.diff.added.len(), 1);
     assert_eq!(applied.diff.summary, "Add pipe: added 1 pipe");
-    assert_eq!(applied.state.derived.pipes.takeoff[0].length_m, 15.85);
+    assert_eq!(applied.state.derived.pipes.takeoff[0].length_m, 15.6);
 }
 
 #[test]
@@ -1420,8 +1420,9 @@ fn the_plumbing_demo_known_answers() {
     assert_eq!(count(ElementKind::Opening), 8);
     assert_eq!(count(ElementKind::Room), 3);
     assert_eq!(count(ElementKind::Column), 6);
-    // 10 fixtures and furniture, 22 lights, switches, outlets and aircon.
-    assert_eq!(count(ElementKind::Asset), 32);
+    // 10 fixtures and furniture, the water heater, meter and septic tank,
+    // 22 lights, switches, outlets and aircon.
+    assert_eq!(count(ElementKind::Asset), 35);
     // The concept's 16 plumbing runs, two downspouts, a line set and its
     // condensate drain.
     assert_eq!(count(ElementKind::Pipe), 20);
@@ -1445,21 +1446,23 @@ fn the_plumbing_demo_known_answers() {
     assert_eq!(
         rows,
         vec![
-            (PipeSystem::ColdWater, 20.0, 11.85, 6),
-            (PipeSystem::ColdWater, 25.0, 10.1, 1),
-            (PipeSystem::HotWater, 20.0, 7.47, 2),
-            (PipeSystem::Drainage, 50.0, 7.312, 3),
-            (PipeSystem::Drainage, 100.0, 3.951, 3),
+            (PipeSystem::ColdWater, 20.0, 11.6, 6),
+            // The service line leaves the meter at grade, 150 mm lower.
+            (PipeSystem::ColdWater, 25.0, 9.95, 1),
+            (PipeSystem::HotWater, 20.0, 7.97, 2),
+            (PipeSystem::Drainage, 50.0, 6.692, 3),
+            (PipeSystem::Drainage, 100.0, 3.931, 3),
             (PipeSystem::Vent, 50.0, 4.257, 1),
             // Two downspouts: 3.20 m down plus 1.20 m falling 18 mm, each.
             (PipeSystem::Storm, 100.0, 8.8, 2),
-            // 0.37 m through the wall, 2.043 m down, 0.80 and 0.20 m across.
-            (PipeSystem::Refrigerant, 9.52, 3.413, 1),
-            // 0.371 m through the wall falling 30 mm, 2.13 m down.
-            (PipeSystem::Condensate, 20.0, 2.501, 1),
+            // 0.37 m through the wall, 2.193 m down, 0.20 and 0.915 m across
+            // to the valves on the outdoor unit.
+            (PipeSystem::Refrigerant, 9.52, 3.678, 1),
+            // 0.371 m through the wall falling 30 mm, 2.15 m down.
+            (PipeSystem::Condensate, 20.0, 2.521, 1),
         ]
     );
-    assert_eq!(d.pipes.total_length_m, 59.654);
+    assert_eq!(d.pipes.total_length_m, 59.399);
 
     // Fittings. 22 turns inside plumbing runs, plus the chase end meeting the
     // shower riser at 90 degrees; one at the foot of each downspout, three on
@@ -1527,7 +1530,7 @@ fn the_plumbing_demo_known_answers() {
             "Kitchen sink waste falls 0.8 percent. The 4.30 m run drops 34 mm, under the 2 percent default for 50 mm drainage. Give it more fall: start it higher or connect it lower.",
             "7 pipe penetrations need sleeves or flashing: 6 through the floor slab, 1 through the roof. Set the sleeves before the pour or the blockwork, and detail the flashing before the roofing. 1 aircon core hole goes through a wall: 65 mm, sloped 5 to 7 mm down to the outside. Drill it before the wall is finished.",
             "T&B ceiling light has no switch. Link a switch with the link tool (L).",
-            "Bedroom line set is 3.41 m long, 0.41 m more than the 3 m a standard installation includes. Installers usually charge for each extra meter.",
+            "Bedroom line set is 3.68 m long, 0.68 m more than the 3 m a standard installation includes. Installers usually charge for each extra meter.",
         ]
     );
     // Every item but the two summaries is located; none reads like an

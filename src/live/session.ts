@@ -136,7 +136,10 @@ export function focusPlanPoint(point: Point, levelId: string | null): void {
   whenPlanReady(() => bus.emit("focus_point", { point, level_id: levelId }));
 }
 
-/** Clicking someone's avatar: their pointer comes into view, or a line says where they are. */
+/**
+ * A name in the Chat panel: their pointer comes into view once, or a line
+ * says where they are. The top bar's avatars follow instead (follow.ts).
+ */
 export function focusParticipant(id: string): void {
   const st = useLive.getState();
   const p = participant(st.status, id);

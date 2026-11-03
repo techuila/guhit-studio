@@ -18,8 +18,8 @@
 //! What earlier steps made never widens it. Roof, levels, layers, settings
 //! and materials are outside every scope.
 //! What the engine changes as a consequence of an allowed command (connected
-//! walls stretching, dimensions following, links removed, rooms appearing in
-//! closed faces) is allowed.
+//! walls stretching, joined pipe runs following, dimensions following, links
+//! removed, rooms appearing in closed faces) is allowed.
 
 use std::collections::BTreeSet;
 
@@ -354,6 +354,17 @@ impl<'a> Scope<'a> {
                 self.copies(ids, *delta)
             }
             Command::SetReviewMark { target, note } => self.review_mark(target, note.is_some()),
+            // Pipe editing (DECISIONS D39): every run the command edits must
+            // be in reach. Joined runs that follow with `keep_joins` are a
+            // consequence, like the walls `SetWallLength` stretches.
+            Command::MovePipePoints { targets, .. } => {
+                let ids: Vec<Id> = targets.iter().map(|t| t.pipe_id.clone()).collect();
+                self.targets(&ids)
+            }
+            Command::SetPipeSegmentLength { pipe_id, .. }
+            | Command::SetPipeSlope { pipe_id, .. }
+            | Command::InsertPipePoint { pipe_id, .. }
+            | Command::RemovePipePoint { pipe_id, .. } => self.targets(std::slice::from_ref(pipe_id)),
             Command::SetRoof { .. } => Err(whole("Changing the roof")),
             Command::SetProjectSettings { .. } => Err(whole("Changing the project settings")),
             Command::UpdateLevel { .. } => Err(whole("Changing a level")),

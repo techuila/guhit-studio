@@ -5,6 +5,7 @@
 import { useEffect } from "react";
 import { leaveEditor } from "../shell/actions";
 import { useApp } from "../state/store";
+import { ChatPeek } from "./ChatPeek";
 import { ConfirmDialog } from "../ui/Dialog";
 import { Presence, useLastTruthy } from "../ui/motionDom";
 import { others } from "./format";
@@ -25,21 +26,33 @@ export function LiveRoot() {
       </Presence>
       <UndoConfirm />
       <LeaveConfirm />
+      <ChatPeek />
     </>
   );
 }
 
-/** An undo or redo of someone else's step asks first (`useApp().undoConfirm`). */
+/**
+ * An undo or redo of someone else's step asks first (`useApp().undoConfirm`),
+ * and so does History's "Undo to here" over several steps when any of them
+ * is someone else's (DECISIONS D38).
+ */
 function UndoConfirm() {
   const pending = useApp((st) => st.undoConfirm);
   const last = useLastTruthy(pending);
   const resolve = useApp((st) => st.resolveUndoConfirm);
+  const steps = last?.steps ?? 1;
   return (
     <Presence open={pending !== null} exit="panel">
       {(stage) =>
         last ? (
           <ConfirmDialog
-            title={last.redo ? "Redo someone else's change?" : "Undo someone else's change?"}
+            title={
+              steps > 1
+                ? `${last.redo ? "Redo" : "Undo"} ${steps} steps?`
+                : last.redo
+                  ? "Redo someone else's change?"
+                  : "Undo someone else's change?"
+            }
             message={last.message}
             confirmLabel={last.redo ? "Redo anyway" : "Undo anyway"}
             onConfirm={() => void resolve(true)}

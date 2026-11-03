@@ -36,6 +36,7 @@
 
 /* Stacked with a small overlap; each lifts on hover. */
 .avatarButton {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -79,6 +80,63 @@
 
 .avatarButton:focus-visible {
   outline-offset: 0;
+}
+
+/* Follow mode (DECISIONS D37). The person you follow wears a ring in their
+   color (--peer, set on the button), grown in from the avatar. ::before,
+   since tooltips take ::after (global.css). */
+.avatarButton::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1.5px var(--chrome),
+    0 0 0 3.5px var(--peer);
+  opacity: 0;
+  transform: scale(0.8);
+  pointer-events: none;
+  transition:
+    opacity calc(var(--dur-base) * 0.7) var(--ease-in),
+    transform calc(var(--dur-base) * 0.7) var(--ease-in);
+}
+
+.avatarFollowed::before {
+  opacity: 1;
+  transform: none;
+  transition-duration: var(--dur-base);
+  transition-timing-function: var(--ease-out);
+}
+
+/* Someone who follows you: an eye pops in on their avatar, and shrinks away
+   when they stop. */
+.followMark {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 0 0 1.5px var(--chrome);
+  opacity: 0;
+  transform: scale(0.4);
+  pointer-events: none;
+  transition:
+    opacity calc(var(--dur-base) * 0.7) var(--ease-in),
+    transform calc(var(--dur-base) * 0.7) var(--ease-in);
+}
+
+.followMark[data-on="true"] {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-spring);
 }
 
 /* Someone joins: their avatar pops in. Someone leaves: it shrinks away. */

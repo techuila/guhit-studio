@@ -264,8 +264,14 @@ export function withPendingRiser(d: RunDraft): Vec3[] {
 export interface AddPointOptions {
   /** Fall of the new horizontal segment in percent, null for level. */
   fallPct: number | null;
-  /** Height of a pipe the point snapped to. The run joins it there. */
+  /** Height of a pipe or fixture connection the point snapped to. The run joins it there. */
   snapZ: number | null;
+  /**
+   * `snapZ` is a fixture's connection (DECISIONS D40): a run that starts there
+   * keeps the pen height and drops or climbs to it with a riser, instead of
+   * carrying on at the fixture's height.
+   */
+  fixture?: boolean;
 }
 
 /**
@@ -278,7 +284,8 @@ export interface AddPointOptions {
 export function addRunPoint(d: RunDraft, next: P, o: AddPointOptions): RunDraft {
   if (d.points.length === 0) {
     const z = o.snapZ ?? d.penZ;
-    return { points: [{ x: next.x, y: next.y, z }], penZ: z };
+    // At a fixture the riser to the pen height is pending at the first point.
+    return { points: [{ x: next.x, y: next.y, z }], penZ: o.fixture ? d.penZ : z };
   }
   const pts = [...withPendingRiser(d)];
   const from = pts[pts.length - 1];
@@ -289,9 +296,10 @@ export function addRunPoint(d: RunDraft, next: P, o: AddPointOptions): RunDraft 
     return { points: pts, penZ: pts[pts.length - 1].z };
   }
   let endZ = o.fallPct !== null ? fallEnd(from.z, from, next, o.fallPct) : from.z;
-  // A falling run never climbs a riser into a join: it slopes up to it, so its
-  // fall label and the drain slope review show the problem.
-  if (o.snapZ !== null && (Math.abs(o.snapZ - endZ) < PIPE_EPS_MM || (o.fallPct !== null && o.snapZ > endZ))) endZ = o.snapZ;
+  // A falling run never climbs a riser into another run: it slopes up to it,
+  // so its fall label and the drain slope review show the problem. A fixture
+  // is always met with a riser at its connection (DECISIONS D40).
+  if (o.snapZ !== null && (Math.abs(o.snapZ - endZ) < PIPE_EPS_MM || (!o.fixture && o.fallPct !== null && o.snapZ > endZ))) endZ = o.snapZ;
   pts.push({ x: next.x, y: next.y, z: endZ });
   if (o.snapZ !== null && Math.abs(o.snapZ - endZ) >= PIPE_EPS_MM) pts.push({ x: next.x, y: next.y, z: o.snapZ });
   return { points: pts, penZ: pts[pts.length - 1].z };
@@ -360,6 +368,8 @@ export function isServiceFixture(a: Pick<Asset, "category" | "catalog_key">, sys
 export interface FixturePoint {
   point: P;
   label: string;
+  /** Height a run of the system being drawn joins at (`fixtureConnectionZ`), or null to keep the pen height. */
+  z?: number | null;
 }
 
 /** Snap points of a fixture: its center and the middle of its back edge (local +y). */
@@ -375,7 +385,7 @@ export type PipeSnapKind = "pipe_end" | "pipe_joint" | "tee" | "fixture";
 
 export interface PipeSnap {
   point: P;
-  /** Height the run joins at. Null keeps the pen height (fixtures). */
+  /** Height the run joins at. Null keeps the pen height (a fixture with no connection for the system). */
   z: number | null;
   kind: PipeSnapKind;
   label: string;
@@ -490,7 +500,7 @@ export function snapToPipes(cursor: P, scene: PipeSnapScene, o: PipeSnapOptions)
     if (!onRay(f.point)) continue;
     const d = dist(probe, f.point);
     if (d > bestD) continue;
-    best = { point: f.point, z: null, kind: "fixture", label: f.label, pipeId: null };
+    best = { point: f.point, z: f.z ?? null, kind: "fixture", label: f.label, pipeId: null };
     bestD = d;
   }
   if (best) return best;

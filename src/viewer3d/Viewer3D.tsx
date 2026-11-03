@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ipc } from "../contract/ipc";
+import { useLive } from "../live/liveStore";
 import { bus } from "../state/bus";
 import { useApp, useVisibleDoc, type ExportScene } from "../state/store";
 import { isModalOpen } from "../ui/Dialog";
@@ -13,6 +14,8 @@ import { useWalkSync } from "./walk/useWalkSync";
 import { WalkOverlay } from "./walk/WalkOverlay";
 import { fromViewLight } from "./light/model";
 import { SunControl } from "./light/SunControl";
+import { LivePointers3D } from "./live/LivePointers3D";
+import { historyTintOf, peerTints, sameTint, sameTints, type Tint } from "./live/peers";
 import { useLiveView } from "./render/liveView";
 import { RenderButton } from "./render/RenderButton";
 // Loads the render queue, which answers `bus.emit("render", ...)`.
@@ -151,6 +154,63 @@ const HIDDEN_WHERE: Record<HiddenReason, string> = {
   above: "above the ceiling",
 };
 
+/** The user moved the 3D camera by hand: following someone stops (DECISIONS D37). */
+function userView(): void {
+  bus.emit("user_view", { view: "3d" });
+}
+
+/** Live session tints for the 3D view: the History row under the pointer, and other people's selections. */
+interface LiveTints {
+  history: Tint | null;
+  peers: Tint[];
+}
+
+const NO_TINTS: LiveTints = { history: null, peers: [] };
+
+/**
+ * Keeps the live tints in step with the live store and the History row
+ * under the pointer, in colors read from the tokens (`--peer-N`, `--accent`).
+ * A presence update that only moved a pointer changes nothing here.
+ */
+function useLiveTints(): LiveTints {
+  const [tints, setTints] = useState<LiveTints>(NO_TINTS);
+  useEffect(() => {
+    const colors = new Map<string, string>();
+    const token = (name: string, fallback: string): string => {
+      let c = colors.get(name);
+      if (c === undefined) {
+        c = getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+        colors.set(name, c);
+      }
+      return c;
+    };
+    const colorOf = (i: number) => token(`--peer-${i}`, "#495057");
+    let last = NO_TINTS;
+    const push = () => {
+      const st = useLive.getState();
+      const next: LiveTints = {
+        history: historyTintOf(useApp.getState().historyTint, colorOf, token("--accent", "#0e8a8f")),
+        peers: peerTints(st.status, st.peers, colorOf),
+      };
+      if (sameTint(next.history, last.history) && sameTints(next.peers, last.peers)) return;
+      last = next;
+      setTints(next);
+    };
+    push();
+    const offLive = useLive.subscribe((st, prev) => {
+      if (st.peers !== prev.peers || st.status !== prev.status) push();
+    });
+    const offApp = useApp.subscribe((st, prev) => {
+      if (st.historyTint !== prev.historyTint) push();
+    });
+    return () => {
+      offLive();
+      offApp();
+    };
+  }, []);
+  return tints;
+}
+
 function switchToXray(message: string): void {
   const viewer = useViewer.getState();
   if (viewer.shell !== "solid") return;
@@ -161,6 +221,8 @@ function switchToXray(message: string): void {
 export function Viewer3D() {
   const hostRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<ViewerEngine | null>(null);
+  // The same engine, as state: the live pointer layer mounts once it exists.
+  const [engineState, setEngineState] = useState<ViewerEngine | null>(null);
   const viewLabel = useRef("Exterior corner");
 
   const doc = useVisibleDoc();
@@ -229,6 +291,14 @@ export function Viewer3D() {
         onWalkTo: (reason) => {
           if (reason) switchToXray(`X-ray is on so the finding shows ${HIDDEN_WHERE[reason]}.`);
         },
+        onUserView: userView,
+        // Live presence sends it (`Presence::pointer_3d`).
+        onPointer3d: (point) => useLiveView.getState().setPointer3d(point),
+        onFollowStart: () => {
+          viewLabel.current = "Custom view";
+          setActivePreset(null);
+          if (useApp.getState().activeCameraId) useApp.getState().setActiveCamera(null);
+        },
       });
     } catch (e) {
       console.error("viewer3d: WebGL is not available", e);
@@ -236,6 +306,7 @@ export function Viewer3D() {
       return;
     }
     engineRef.current = engine;
+    setEngineState(engine);
     if (import.meta.env.DEV) (window as unknown as { __viewer3d?: ViewerEngine }).__viewer3d = engine;
     // A remount keeps the shell the user chose, without replaying its fade.
     engine.setShell(useViewer.getState().shell, false);
@@ -258,6 +329,8 @@ export function Viewer3D() {
       if (engine.focusElements(ids)) switchToXray("X-ray is on so the pipe shows through the wall and floor.");
     });
     const offCamera = bus.on("apply_camera", (camera) => {
+      // Every pick of a saved view or a render's camera comes through here.
+      userView();
       viewLabel.current = camera.name || "Saved view";
       setActivePreset(null);
       // A view saved with its light brings it back: time, sky, exposure, lamps.
@@ -275,6 +348,7 @@ export function Viewer3D() {
       if (useApp.getState().hoverId) useApp.getState().setHover(null);
       engine.dispose();
       if (engineRef.current === engine) engineRef.current = null;
+      setEngineState((e) => (e === engine ? null : e));
       // Keys go back to the app when the 3D view is really gone: the global
       // shortcuts are quiet while walking. A remount in the same tick (React
       // StrictMode in dev) keeps walking.
@@ -311,6 +385,9 @@ export function Viewer3D() {
       engine.walkTo(walkRequest.ids, walkRequest.location);
       return;
     }
+    // Walk or fly asked for by hand (the toolbar, Shift+W, the palette). A
+    // change the engine made itself (F, Escape) already matches.
+    if (nav !== "orbit" && engine.navMode() !== nav) userView();
     engine.setNav(nav);
   }, [nav, walkRequest]);
 
@@ -322,9 +399,10 @@ export function Viewer3D() {
     () => (previewDiff ? [...previewDiff.added, ...previewDiff.modified] : []),
     [previewDiff],
   );
+  const tints = useLiveTints();
   useEffect(() => {
-    engineRef.current?.setHighlights({ selection, hoverId, previewIds });
-  }, [selection, hoverId, previewIds, doc, cutaway, activeLevelId]);
+    engineRef.current?.setHighlights({ selection, hoverId, previewIds, historyTint: tints.history, peerTints: tints.peers });
+  }, [selection, hoverId, previewIds, doc, cutaway, activeLevelId, tints]);
 
   useEffect(() => {
     engineRef.current?.setShadows(shadows);
@@ -366,6 +444,7 @@ export function Viewer3D() {
       app.toast("info", "No room to stand in yet. Close a room with walls first.");
       return;
     }
+    userView();
     viewLabel.current = pose.name;
     setActivePreset(p.kind);
   }, []);
@@ -387,10 +466,13 @@ export function Viewer3D() {
   }, [saving]);
 
   const walking = nav !== "orbit";
+  // The follow pill sits where the orbit hint ends (DECISIONS D37); a follower is not orbiting.
+  const following = useLive((st) => st.following !== null);
 
   return (
     <div className={styles.root} data-testid="viewer3d" data-nav={nav} data-shell={shell}>
       <div ref={hostRef} className={styles.canvasHost} data-ready={ready} data-testid="viewer3d-canvas" />
+      {engineState && !contextLost && <LivePointers3D engine={engineState} />}
       {captureFlash > 0 && <div key={captureFlash} className={styles.flash} data-testid="capture-flash" aria-hidden="true" />}
 
       <WalkOverlay
@@ -432,7 +514,10 @@ export function Viewer3D() {
             className={styles.btn}
             data-testid="preset-fit"
             title="Fit the whole model"
-            onClick={() => engineRef.current?.goPreset("fit", [])}
+            onClick={() => {
+              userView();
+              engineRef.current?.goPreset("fit", []);
+            }}
           >
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
               <path {...stroke} d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />
@@ -486,7 +571,7 @@ export function Viewer3D() {
           <span>The graphics context was lost. It comes back on its own when the system frees it.</span>
         </div>
       )}
-      <div className={styles.hint} data-hidden={walking}>
+      <div className={styles.hint} data-hidden={walking || following}>
         Drag to orbit. Right drag to pan. Scroll to zoom. Click to select. Shift+W to walk.
       </div>
     </div>

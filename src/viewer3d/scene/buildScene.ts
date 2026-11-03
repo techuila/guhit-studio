@@ -85,6 +85,12 @@ export interface BuildOptions {
    * engine fills, so an unloaded model simply falls back to its low-poly form.
    */
   packModels?: boolean;
+  /**
+   * Keeps pipe runs whole with the cutaway on. The X-ray and hidden shells
+   * use it: they are for seeing pipes. Default off, so the cutaway cuts runs
+   * on the active level at the wall cut height (DECISIONS D40).
+   */
+  pipesWhole?: boolean;
 }
 
 export interface BuiltScene {
@@ -376,8 +382,16 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       // Outdoor items on the lowest level stand on the ground, not on the plinth height.
       const fps = footprintsOf(level.id);
       const outdoors = level === lowest && !fps.some((fp) => pointInPolygon(e.position, fp));
-      const floorMm = outdoors ? groundMm : level.elevation_mm;
-      const baseYMm = floorMm + Math.max(e.elevation_mm, 0);
+      // Below grade (a septic tank, a meter box) an object sits at its real
+      // elevation from the level floor, the datum its pipes use, so a tank's
+      // inlet meets its pipe. It is buried like the drains: in a solid shell
+      // the ground covers it (a septic tank's faint form reads through it on
+      // purpose), X-ray and hidden fade the ground. Buried means really under
+      // the ground: under the lawn outdoors, under the floor indoors. An
+      // outdoor object between the floor datum and the lawn stands on the lawn.
+      const buried = outdoors ? level.elevation_mm + e.elevation_mm < groundMm : e.elevation_mm < 0;
+      const floorMm = outdoors && !buried ? groundMm : level.elevation_mm;
+      const baseYMm = floorMm + (buried ? e.elevation_mm : Math.max(e.elevation_mm, 0));
       // Only indoor assets on the cut level are trimmed. Outdoor items (trees,
       // cars, plants) are not part of the building and stay full height.
       const cut = outdoors ? null : levelCut(level);
@@ -395,12 +409,14 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       // A pendant's cord ends at the ceiling: the level height, or the
       // underside of the slab above (docs/CONTRACT.md, "Devices, fixtures and links").
       const ceilingMm = ceilingHeightMm(level, sortedLevels);
-      const cacheKey = `${e.id}|${e.catalog_key}|${e.width_mm}|${e.depth_mm}|${e.height_mm}|${e.elevation_mm}|${baseYMm}|${cutY ?? "-"}|${assetsLocked}|${matKey}|${usePack ? "glb" : "proc"}|${lightKey}|${ceilingMm}`;
+      // A buried object reaches up to the ground: the lawn outdoors, the floor indoors.
+      const gradeMm = buried ? (outdoors ? groundMm : level.elevation_mm) - baseYMm : undefined;
+      const cacheKey = `${e.id}|${e.catalog_key}|${e.width_mm}|${e.depth_mm}|${e.height_mm}|${e.elevation_mm}|${baseYMm}|${cutY ?? "-"}|${assetsLocked}|${matKey}|${usePack ? "glb" : "proc"}|${lightKey}|${ceilingMm}|${gradeMm ?? "-"}`;
       let g = opts.cache?.take(cacheKey) ?? null;
       if (!g) {
         const own = new Kit();
         own.cutY = cutY;
-        g = buildAssetForm(own, lib, e, baseYMm / 1000, usePack, { ceilingMm });
+        g = buildAssetForm(own, lib, e, baseYMm / 1000, usePack, { ceilingMm, gradeMm });
         own.cutY = null;
         // A pack model arrives with the pack's shared materials: dress it in
         // this library's copies, which the shell modes may fade.
@@ -426,11 +442,9 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
         const lamp = addLamp(kit, lib, e, g, level.id, roomAt(level.id, e.position), cutY, assetsLocked, root);
         if (lamp) lamps.push(lamp);
       }
-      acc.add(
-        orientedRect(e.position, e.width_mm, e.depth_mm, e.rotation_deg),
-        floorMm,
-        floorMm + Math.max(e.elevation_mm, 0) + e.height_mm,
-      );
+      // Framing stays above ground, as it does for buried drains.
+      const above = (mm: number) => Math.max(mm, groundMm);
+      acc.add(orientedRect(e.position, e.width_mm, e.depth_mm, e.rotation_deg), above(baseYMm), above(baseYMm + e.height_mm));
     }
   }
 
@@ -458,6 +472,10 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
     layerVisible: visible,
     layerLocked: locked,
     slabDepth: (l) => (l === lowest ? PLINTH_MM : 200),
+    // Cut with the walls of the active level, at that world height on every
+    // shown level: a vent rising from below through the active level stops
+    // at the cut walls too.
+    cutOf: (l) => (opts.pipesWhole || !opts.cutaway || !activeLevel ? null : activeLevel.elevation_mm + CUTAWAY_MM - l.elevation_mm),
     addBounds: (pts, z0, z1) => acc.add(pts, z0, z1),
   });
   for (const solo of pipes.solos.values()) root.add(solo);
@@ -858,7 +876,8 @@ export function buildGhosts(project: Project, ids: string[], lib: MaterialLibrar
     } else if (e.kind === "asset") {
       const level = levels.get(e.level_id) ?? lowest;
       if (!level) continue;
-      const floorMm = level.elevation_mm + Math.max(e.elevation_mm, 0);
+      // A buried object's ghost sits where it is, like its form.
+      const floorMm = level.elevation_mm + e.elevation_mm;
       const g = buildAssetForm(kit, lib, e, floorMm / 1000, false, { ceilingMm: ceilingHeightMm(level, project.levels ?? []) });
       const [x, y, z] = planToWorld(e.position.x, e.position.y, floorMm);
       g.position.set(x, y, z);

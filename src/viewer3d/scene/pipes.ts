@@ -18,9 +18,14 @@
 // its batch (hover, selection, an AI preview tint, an enter or exit fade), the
 // engine promotes it: the solo moves to the drawn layer and its triangles in
 // the batch collapse to nothing until it is demoted again.
+//
+// The cutaway cuts runs at the wall cut height of the active level (D40): a
+// run keeps the parts of it below the cut, each with a cap where it was cut,
+// and the fittings and sleeves above the cut go. The cut is one world height,
+// so a run from a lower level rising through the active one stops there too.
 
 import * as THREE from "three";
-import type { DocState, LayerKey, Level, Pipe, PipeFitting, PipePenetration, PipeSystem } from "../../contract/bindings";
+import type { DocState, LayerKey, Level, Pipe, PipeFitting, PipePenetration, PipeSystem, Vec3 } from "../../contract/bindings";
 import { PIPE_COLOR_HEX, PIPE_LAYER, PIPE_SYSTEM_ORDER } from "../../contract/pipes";
 import type { BuildCache } from "./buildCache";
 import { tagElement, type Kit } from "./kit";
@@ -222,9 +227,43 @@ function runAxisAt(pts: V3[], at: V3): V3 {
 }
 
 /**
+ * The parts of a run at or below `cutMm` (heights above its level floor), in
+ * order: one polyline per stretch below the cut, ending exactly at the cut
+ * where a segment crosses it. The cut is on the centerline, so a run lying
+ * just under the cut keeps its full round. Stretches shorter than one segment
+ * are dropped.
+ */
+export function cutRun(points: readonly Vec3[], cutMm: number): Vec3[][] {
+  const pieces: Vec3[][] = [];
+  let cur: Vec3[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    const below = p.z <= cutMm;
+    if (i > 0) {
+      const a = points[i - 1];
+      if (a.z <= cutMm !== below) {
+        const t = (cutMm - a.z) / (p.z - a.z);
+        const at = { x: a.x + (p.x - a.x) * t, y: a.y + (p.y - a.y) * t, z: cutMm };
+        if (below) cur = p.z < cutMm ? [at] : [];
+        else {
+          if (a.z < cutMm) cur.push(at);
+          pieces.push(cur);
+          cur = [];
+        }
+      }
+    }
+    if (below) cur.push(p);
+  }
+  if (cur.length > 0) pieces.push(cur);
+  return pieces.filter((piece) => piece.length >= 2);
+}
+
+/**
  * Tubes, joints and end caps of one run, plus its tees (the runs joined on
  * it) and its sleeves. `floorMm` is the elevation of the run's level; `pipe`
  * heights are above it. `other` finds another run, for a tee's branch.
+ * `cutMm` is the cutaway height above the floor: the run is cut there with a
+ * cap, and fittings and sleeves above it are left out. Null: the whole run.
  */
 export function buildPipeParts(
   pipe: Pipe,
@@ -233,6 +272,7 @@ export function buildPipeParts(
   penetrations: PipePenetration[],
   sleeveLengthMm: (p: PipePenetration) => number,
   other: (id: string) => Pipe | undefined,
+  cutMm: number | null = null,
 ): PipeParts {
   const body = new GeoBuf();
   const sleeves = new GeoBuf();
@@ -240,21 +280,27 @@ export function buildPipeParts(
   const seg = radialSegments(pipe.diameter_mm);
   const pts = pipe.points.map((p) => w(p.x, p.y, floorMm + p.z));
   if (pts.length < 2) return { body, sleeves };
+  const pieces = cutMm === null ? [pts] : cutRun(pipe.points, cutMm).map((piece) => piece.map((p) => w(p.x, p.y, floorMm + p.z)));
+  const above = (z: number) => cutMm !== null && z > cutMm + 1e-6;
 
-  for (let i = 0; i + 1 < pts.length; i++) body.tube(pts[i], pts[i + 1], r, seg);
   const interior: V3[] = [];
-  for (let i = 1; i + 1 < pts.length; i++) {
-    const d1 = sub(pts[i], pts[i - 1]);
-    const d2 = sub(pts[i + 1], pts[i]);
-    const l = length(d1) * length(d2);
-    interior.push(pts[i]);
-    if (l > 1e-12 && dot(d1, d2) / l < BEND_COS) body.sphere(pts[i], r * JOINT_SCALE);
+  for (const piece of pieces) {
+    for (let i = 0; i + 1 < piece.length; i++) body.tube(piece[i], piece[i + 1], r, seg);
+    for (let i = 1; i + 1 < piece.length; i++) {
+      const d1 = sub(piece[i], piece[i - 1]);
+      const d2 = sub(piece[i + 1], piece[i]);
+      const l = length(d1) * length(d2);
+      interior.push(piece[i]);
+      if (l > 1e-12 && dot(d1, d2) / l < BEND_COS) body.sphere(piece[i], r * JOINT_SCALE);
+    }
+    // Run ends and cut ends get the same flat cap.
+    body.disc(piece[0], unit(sub(piece[0], piece[1])), r, seg);
+    const n = piece.length;
+    body.disc(piece[n - 1], unit(sub(piece[n - 1], piece[n - 2])), r, seg);
   }
-  body.disc(pts[0], unit(sub(pts[0], pts[1])), r, seg);
-  const n = pts.length;
-  body.disc(pts[n - 1], unit(sub(pts[n - 1], pts[n - 2])), r, seg);
 
   for (const f of fittings) {
+    if (above(f.position.z)) continue;
     const at = w(f.position.x, f.position.y, floorMm + f.position.z);
     const fr = Math.max(f.diameter_mm, pipe.diameter_mm, 1) / 2000;
     if (f.kind === "elbow") {
@@ -284,6 +330,7 @@ export function buildPipeParts(
   }
 
   for (const p of penetrations) {
+    if (above(p.position.z)) continue;
     const at = w(p.position.x, p.position.y, floorMm + p.position.z);
     const axis = wDir(p.direction);
     const pr = Math.max(p.diameter_mm, pipe.diameter_mm, 1) / 2000;
@@ -434,6 +481,8 @@ export interface PipeBuildContext {
   layerLocked: (key: LayerKey) => boolean;
   /** Depth of the slab under a level, mm. Slab sleeves are that long. */
   slabDepth: (l: Level) => number;
+  /** Cutaway height above the floor for runs on this level, mm, or null for whole runs. */
+  cutOf?: (l: Level) => number | null;
   /** Adds a run to the model bounds: plan points, lowest and highest height mm. */
   addBounds?: (points: { x: number; y: number }[], z0: number, z1: number) => void;
 }
@@ -448,6 +497,29 @@ export function pipeShown(
   if (pipe.points.length < 2 || !layerVisible(pipeLayer(pipe.system))) return false;
   const level = levelOf(pipe.level_id);
   return !!level && levelShown(level);
+}
+
+/** World height of the highest pipe point, mm, or null without pipes: where a cutaway sweep over pipes starts. */
+export function pipeTopMm(doc: DocState | null): number | null {
+  if (!doc) return null;
+  const levels = new Map(doc.project.levels.map((l) => [l.id, l.elevation_mm]));
+  let top: number | null = null;
+  for (const e of doc.project.elements) {
+    if (e.kind !== "pipe") continue;
+    const floor = levels.get(e.level_id) ?? 0;
+    for (const p of e.points) top = Math.max(top ?? -Infinity, floor + p.z);
+  }
+  return top;
+}
+
+/** A run's points in world meters (empty when `id` is not a pipe): what a focus frames when nothing of it is drawn. */
+export function pipeWorldPoints(doc: DocState, id: string): THREE.Vector3[] {
+  const e = doc.project.elements.find((x) => x.id === id);
+  if (!e || e.kind !== "pipe") return [];
+  const levels = doc.project.levels;
+  const level = levels.find((l) => l.id === e.level_id) ?? [...levels].sort((a, b) => a.elevation_mm - b.elevation_mm)[0];
+  const floor = level?.elevation_mm ?? 0;
+  return e.points.map((p) => new THREE.Vector3(...w(p.x, p.y, floor + p.z)));
 }
 
 /** Pipes on visible layers and shown levels, as solos and batches. */
@@ -495,6 +567,9 @@ export function buildPipes(ctx: PipeBuildContext): PipeScene {
       .filter((f) => f.branch_pipe_id)
       .map((f) => JSON.stringify(byId.get(f.branch_pipe_id as string)?.points ?? null))
       .join(";");
+    // A run wholly under the cut is built (and cached) as a whole run.
+    const cutAt = ctx.cutOf?.(level) ?? null;
+    const cut = cutAt !== null && pipe.points.some((p) => p.z > cutAt) ? cutAt : null;
     const key = [
       "pipe",
       JSON.stringify(pipe),
@@ -505,11 +580,14 @@ export function buildPipes(ctx: PipeBuildContext): PipeScene {
       locked,
       mat.uuid,
       sleeveMat.uuid,
+      cut ?? "-",
     ].join("|");
 
     let group = ctx.cache?.take(key) ?? null;
     if (!group) {
-      const parts = buildPipeParts(pipe, level.elevation_mm, fittings, pens, sleeveLength, (id) => byId.get(id));
+      // A run wholly above the cut keeps an empty solo: the engine still
+      // counts it as shown, so the cut never plays as a removal.
+      const parts = buildPipeParts(pipe, level.elevation_mm, fittings, pens, sleeveLength, (id) => byId.get(id), cut);
       group = new THREE.Group();
       group.name = `pipe-${pipe.id}`;
       const geometries: THREE.BufferGeometry[] = [];
@@ -555,6 +633,7 @@ export function buildPipes(ctx: PipeBuildContext): PipeScene {
     if (ctx.addBounds) {
       let top = -Infinity;
       for (const p of pipe.points) top = Math.max(top, p.z);
+      if (cut !== null) top = Math.min(top, cut);
       ctx.addBounds(pipe.points, level.elevation_mm, level.elevation_mm + Math.max(top, 0));
     }
   }

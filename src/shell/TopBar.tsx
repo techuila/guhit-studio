@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useLive } from "../live/liveStore";
+import { ChatButton } from "../live/ChatButton";
 import { LiveAvatars, ShareButton, useStepAuthor } from "../live/TopBarLive";
 import { bus } from "../state/bus";
 import { useApp, type ViewMode } from "../state/store";
@@ -9,6 +10,7 @@ import { BrandMark, Icon } from "../ui/icons";
 import { Presence } from "../ui/motionDom";
 import { ConnectButton } from "./connect/ConnectButton";
 import { MOD, SHIFT, leaveEditor } from "./actions";
+import { HistoryButton } from "./HistoryPanel";
 import { useProjectName, useShell } from "./shellStore";
 import s from "./chrome.module.css";
 
@@ -138,6 +140,7 @@ export function TopBar() {
             disabled={!canRedo}
             onClick={() => void redo()}
           />
+          <HistoryButton />
         </div>
         <Segmented label="View mode" tone="chrome" options={VIEW_OPTIONS} value={viewMode} onChange={setViewMode} />
         <IconButton icon="fit" tone="chrome" label="Zoom to fit" tip="Zoom to fit (F)" onClick={() => bus.emit("zoom_to_fit")} />
@@ -155,6 +158,7 @@ export function TopBar() {
         <ImportMenu />
         <IconButton icon="settings" tone="chrome" label="Settings" tip="Settings" onClick={() => open("settings")} />
         <LiveAvatars />
+        <ChatButton />
         <ConnectButton variant="chrome" tipSide="bottom" />
         <ShareButton />
         <Button variant="primary" size="md" icon="export" className={s.exportButton} onClick={() => open("export")}>

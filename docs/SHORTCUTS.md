@@ -9,7 +9,8 @@ restart the wall tool). Source of truth: `src/shell/shortcuts.tsx` (the
 
 While the 3D view walks or flies (`useViewer` nav is not `orbit`), it owns
 every key without MOD: the global handler ignores them all, including tool
-letters, Delete and `?`. MOD shortcuts keep working. Escape returns to orbit.
+letters, Delete and `?`. MOD shortcuts keep working. Escape returns to orbit,
+except while following someone in a live session, where it stops following.
 
 ## Draw (tools)
 
@@ -42,6 +43,23 @@ the plan canvas (`src/editor2d/controller.ts`).
 | Enter | Finish the run, or apply a typed length |
 | Escape, or Backspace | Step back: the pending riser, then the last point, then the whole run |
 
+### Editing a selected run
+
+One pipe, conduit or line set selected with the Select tool (DECISIONS D39).
+Handled by the plan canvas (`src/editor2d/controller.ts`).
+
+| Key or action | Action |
+|---|---|
+| Click the selected run | Pick the segment under the pointer. Click a point handle to pick that point |
+| Escape | Step out: a picked segment or point back to the whole run, then clear the selection. Following someone, an open dialog or a focused field takes Escape first |
+| PageUp, PageDown | With the pointer over the plan: move the picked part, or the whole run, up or down 100 mm, Shift for 10 mm. Joined runs follow |
+| H, then a number, Enter | With the pointer over the plan: the picked part moves so its height reads the number (H is the Pan tool otherwise) |
+| Click a height, fall or length tag | Type the value, Enter applies it, Escape cancels. Something that is not a number keeps the box open and says why; a value the engine refuses (a fall past 100%, a segment under 10 mm) shows its reason |
+| Drag a point or the picked segment | Move it; joined runs follow. The picked segment's middle diamond moves it sideways only |
+| A number, then Enter, while dragging | Move exactly that far along the drag (SketchUp's way); `600<90` also sets the direction |
+| Alt while dragging | Break the joins: joined runs stay where they are |
+| Click the + past an open end | Continue the run from there with the services tool; Enter finishes and returns to Select |
+
 ### While the link tool is active
 
 Handled by the plan canvas. Click a switch (or an outlet), then each light
@@ -72,6 +90,15 @@ In the Chat tab of the side dock, Enter sends and Shift+Enter starts a new
 line. The palette has Start live session, Show the live session, Copy invite
 (while hosting), Join a live session, Open chat, and End or Leave the live
 session.
+
+Following someone (DECISIONS D37: click their avatar in the top bar):
+
+| Key | Action |
+|---|---|
+| Escape | Stop following. It comes first, before walk mode and the plan: a capture listener in `src/shell/shortcuts.tsx`. A dialog or a text field with the focus keeps its own Escape |
+
+Any pan, zoom, fit, orbit, walk key or view mode key (1, 2, 3) of your own
+also stops it.
 
 ## Toggles
 
@@ -135,6 +162,24 @@ MOD keys pass through (MOD+S still saves a version).
 |---|---|
 | Shift+W | Walk through the building. From the plan-only view the view switches to split first |
 | X | Building shell: solid, then X-ray, then hidden, then solid. Works from the plan view too; the status bar shows the mode while it is not solid |
+
+### The pipe height handle (3D view)
+
+A selected run, or the segment or point picked on it, shows a double arrow in
+the 3D view while orbiting (DECISIONS D39, SketchUp's Move). Handled by
+`src/viewer3d/engine/pipeHandle.ts`; while a move lasts it takes every key
+without MOD, so a digit is a distance and not a view.
+
+| Key or action | Action |
+|---|---|
+| Drag the arrow | Move the run, segment or point up or down, 1:1 with the pointer. Snaps: 10 mm steps, the level floor, the level height, the heights of runs nearby |
+| Click the arrow | Pick it up: it follows the pointer until the next click puts it down |
+| A number, then Enter | Move exactly that far, in the direction of the drag (a minus turns it round) |
+| Up or Down arrow | Lock the move to the vertical (the default) |
+| Right arrow | Lock the move to plan x; again goes back to vertical |
+| Left arrow | Lock the move to plan y; again goes back to vertical |
+| Alt | Break the joins: joined runs stay where they are |
+| Escape | Cancel: the handle eases back and nothing changes |
 
 In walk or fly mode the 3D view handles the keys below
 (`src/viewer3d/engine/walker.ts`). Drag in the 3D view to look around, or use

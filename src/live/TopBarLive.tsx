@@ -1,14 +1,18 @@
-// The live session in the top bar: everyone else's avatar (click one to see
-// their pointer) and the Share button that opens the live session dialog.
+// The live session in the top bar: everyone else's avatar (click one to
+// follow them, DECISIONS D37; again to stop) and the Share button that opens
+// the live session dialog. The person followed wears a ring in their color;
+// someone who follows you wears an eye mark.
 import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useApp } from "../state/store";
 import { Button, cx } from "../ui/controls";
+import { Icon } from "../ui/icons";
 import { useListPresence } from "../ui/useListPresence";
-import { Avatar } from "./Avatar";
-import { avatarTip, others, possessive, stepAuthor } from "./format";
+import { Avatar, peerStyle } from "./Avatar";
+import { toggleFollow } from "./follow";
+import { avatarFollowTip, canFollow, followerIds, others, possessive, stepAuthor } from "./format";
 import { useLive } from "./liveStore";
-import { focusParticipant, openShare } from "./session";
+import { openShare } from "./session";
 import s from "./live.module.css";
 
 /** Avatars shown before the rest fold into "+N". */
@@ -17,27 +21,39 @@ const MAX_AVATARS = 4;
 export function LiveAvatars() {
   const list = useLive(useShallow((st) => others(st.status)));
   const selfId = useLive((st) => st.status.self_id);
+  const following = useLive((st) => st.following);
+  const followers = useLive(useShallow((st) => followerIds(st.status, st.peers, st.status.self_id)));
+  const followable = useLive(useShallow((st) => others(st.status).filter((p) => canFollow(st.peers, p.id)).map((p) => p.id)));
   const shown = useMemo(() => list.slice(0, MAX_AVATARS), [list]);
   const rest = list.slice(MAX_AVATARS);
   const rows = useListPresence(shown, (p) => p.id, "base");
   if (rows.length === 0 && rest.length === 0) return null;
   return (
     <div className={s.avatars} role="group" aria-label="People in the live session">
-      {rows.map((row, i) => (
-        <button
-          key={row.key}
-          type="button"
-          className={cx(s.avatarButton, row.entering && s.avatarEnter, row.leaving && s.avatarLeave)}
-          style={{ zIndex: rows.length - i }}
-          data-tip={avatarTip(row.item, selfId)}
-          data-tip-side="bottom"
-          aria-label={`${avatarTip(row.item, selfId)}. Show ${possessive(row.item.name)} pointer`}
-          disabled={row.leaving}
-          onClick={() => focusParticipant(row.item.id)}
-        >
-          <Avatar p={row.item} size={24} />
-        </button>
-      ))}
+      {rows.map((row, i) => {
+        const followed = following === row.item.id;
+        const followsMe = followers.includes(row.item.id);
+        const tip = avatarFollowTip(row.item, selfId, followed, followsMe, followable.includes(row.item.id));
+        return (
+          <button
+            key={row.key}
+            type="button"
+            className={cx(s.avatarButton, followed && s.avatarFollowed, row.entering && s.avatarEnter, row.leaving && s.avatarLeave)}
+            style={{ ...peerStyle(row.item.color), zIndex: followed ? rows.length + 1 : rows.length - i }}
+            data-tip={tip}
+            data-tip-side="bottom"
+            aria-label={tip}
+            aria-pressed={followed}
+            disabled={row.leaving}
+            onClick={() => toggleFollow(row.item.id)}
+          >
+            <Avatar p={row.item} size={24} />
+            <i className={s.followMark} data-on={followsMe} aria-hidden>
+              <Icon name="eye" size={10} />
+            </i>
+          </button>
+        );
+      })}
       {rest.length > 0 ? (
         <button
           type="button"

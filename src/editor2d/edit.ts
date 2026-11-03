@@ -18,7 +18,11 @@ export type GripKind =
   | "dim_b"
   | "cam_pos"
   | "cam_target"
-  | "pipe_node";
+  | "pipe_node"
+  /** The picked segment's middle: drags it sideways while its neighbours stretch (DECISIONS D39). */
+  | "pipe_mid"
+  /** An open end's "+": continues the run from there. `index` 0 is the start, else the end. */
+  | "pipe_continue";
 
 export interface Grip {
   elementId: string;

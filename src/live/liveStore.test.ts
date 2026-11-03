@@ -14,7 +14,7 @@ const hosting: LiveStatus = {
   project_id: "p",
 };
 
-const pr = (over: Partial<Presence> = {}): Presence => ({ cursor: { x: 1, y: 2 }, level_id: "L", selection: [], typing: null, ai_scope: false, ...over });
+const pr = (over: Partial<Presence> = {}): Presence => ({ cursor: { x: 1, y: 2 }, level_id: "L", selection: [], typing: null, ai_scope: false, following: null, view_mode: "2d", plan_view: null, camera: null, pointer_3d: null, ...over });
 
 function msg(id: string, author: string, sentAt: string): ChatMessage {
   return { id, author_id: author, author_name: author, color: 1, text: id, sent_at: sentAt, at: null, level_id: null, via_ai: false };

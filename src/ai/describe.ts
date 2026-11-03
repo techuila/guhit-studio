@@ -87,6 +87,8 @@ const TOOL_LABEL: Record<string, string> = {
   list_elements: "Listed elements",
   find_rooms_without_exterior_window: "Checked exterior windows",
   list_review_items: "Read review items",
+  get_pipe_takeoff: "Read pipe take-off",
+  get_schedule: "Read schedule",
   add_wall: "Add wall",
   add_wall_chain: "Add walls",
   add_rect_room: "Add room",
@@ -95,6 +97,11 @@ const TOOL_LABEL: Record<string, string> = {
   resize_room: "Resize room",
   set_wall_length: "Set wall length",
   move_elements: "Move",
+  move_pipe_points: "Move pipe",
+  set_pipe_segment_length: "Set pipe length",
+  set_pipe_slope: "Set pipe slope",
+  insert_pipe_point: "Add bend",
+  remove_pipe_point: "Remove bend",
   rename_room: "Rename room",
   set_room_usage: "Set room usage",
   set_opening_size: "Resize opening",
@@ -102,6 +109,8 @@ const TOOL_LABEL: Record<string, string> = {
   set_material: "Set material",
   set_roof: "Change roof",
   add_asset: "Place item",
+  add_level: "Add level",
+  delete_level: "Delete level",
 };
 
 export function toolLabel(name: string): string {

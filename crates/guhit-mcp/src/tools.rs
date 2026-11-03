@@ -106,7 +106,7 @@ pub struct ToolDef {
 
 /// Editing tools whose arguments and translation come from the copilot.
 /// Order is the order a client sees them in `tools/list`.
-pub const EDIT_TOOLS: [&str; 17] = copilot::EDIT_TOOLS;
+pub const EDIT_TOOLS: [&str; 22] = copilot::EDIT_TOOLS;
 
 pub(crate) const MM: &str = "All lengths in the arguments and the result are MILLIMETERS.";
 /// Hub tools in a live session (DECISIONS D29).
@@ -171,6 +171,11 @@ fn reused_descriptions() -> BTreeMap<&'static str, String> {
         ("resize_room", d("Move the wall or walls on one side of a room outward by delta_mm, as one undo step. A negative delta_mm moves them inward. Connected walls stretch to stay joined. Use this for \"make the bedroom 300 wider to the east\".")),
         ("set_wall_length", d("Set an exact centerline length for one wall, as one undo step. anchor says what stays put: \"start\" keeps the start point, \"end\" keeps the end point, \"center\" keeps the midpoint.")),
         ("move_elements", d("Move elements by a distance, as one undo step. dx_mm is east, dy_mm is north. With stretch_connected true, walls attached to a moved wall stay joined and stretch instead of breaking.")),
+        ("move_pipe_points", d("Move points of pipe runs in 3D by one distance, as one undo step: one point, a segment (its two points), a whole run (empty indices) or several runs. dx_mm is east, dy_mm is north, dz_mm is up, so \"lower the sink waste 300 mm\" is dz_mm -300 with empty indices. Point indices are positions in points_mm from describe_elements, from 0; segment n runs from point n to point n + 1. With keep_joins true, the ends of joined runs (the same system, or drainage and vent) that meet a moved point, or rest on a moved segment as a tee, follow so the joints stay closed; false breaks those joins.")),
+        ("set_pipe_segment_length", d("Set the exact 3D length of one segment of a pipe run, as one undo step. Segment n runs from point n to point n + 1 of points_mm. hold \"start\" keeps point n and slides point n + 1 and the rest of the run beyond it along the segment; \"end\" keeps point n + 1 and slides the start side. The rest of the run keeps its shape and slopes. At least 10 mm. keep_joins works as in move_pipe_points.")),
+        ("set_pipe_slope", d("Set the slope of segments from_segment to to_segment of a pipe run, as one undo step: each falls slope_pct percent of its plan length from its first point toward its last, between -100 and 100 (negative rises). Vertical risers keep their own drop. hold is the end that keeps its height (\"start\": point from_segment, \"end\": point to_segment + 1); the part of the run past the other end moves up or down with it. keep_joins works as in move_pipe_points. This sets geometry only: Guhit never sizes a pipe or decides what fall is enough, which is for a registered Master Plumber.")),
+        ("insert_pipe_point", d("Add a bend to a pipe run, as one undo step: a point at `at` (x, y in plan, z above the level floor) between the two points of segment n, so it becomes point n + 1. A riser is two bends on one plan point at two heights, for example two calls in one batch.")),
+        ("remove_pipe_point", d("Remove one point of a pipe run, as one undo step: removing a bend straightens the run there, removing an end shortens it. A run keeps at least two points; delete_elements removes a whole run.")),
         ("rename_room", d("Give a room a new name, as one undo step. The name survives later wall edits.")),
         ("set_room_usage", d("Set the usage type of a room, as one undo step. Usage drives the review checks, so a bathroom is checked differently from a bedroom.")),
         ("set_opening_size", d("Change the size of one door or window, as one undo step. Give only the values that change.")),
@@ -1020,6 +1025,7 @@ mod tests {
             "get_plan_image", "get_guide", "list_renders",
             "add_wall", "add_wall_chain", "add_rect_room", "add_door", "add_window", "resize_room",
             "set_wall_length", "move_elements", "rename_room", "set_room_usage", "set_opening_size",
+            "move_pipe_points", "set_pipe_segment_length", "set_pipe_slope", "insert_pipe_point", "remove_pipe_point",
             "delete_elements", "set_material", "set_roof", "add_asset", "add_level", "delete_level",
             "set_review_mark", "undo", "redo", "save_version", "export_plan", "batch",
             "get_selection", "get_session", "send_chat_message", "add_camera", "capture_view",
@@ -1027,7 +1033,7 @@ mod tests {
         ] {
             assert!(names.contains(&expected), "tool `{expected}` is missing");
         }
-        assert_eq!(names.len(), 47, "the tool list changed: update docs/MCP.md");
+        assert_eq!(names.len(), 52, "the tool list changed: update docs/MCP.md");
     }
 
     #[test]

@@ -434,7 +434,7 @@ deliberate choice, not a missing setting.
   setting: Claude Code permissions, Codex `default_tools_approval_mode`,
   Gemini CLI trust, Kiro `autoApprove`, Cline `autoApprove`, Copilot CLI
   `--allow-tool`.
-- Guhit has 47 tools. Cursor warns above about 40 tools in total and
+- Guhit has 52 tools. Cursor warns above about 40 tools in total and
   Windsurf (Devin Desktop) allows 100 across all servers, so turn off servers
   you are not using. Small local models get confused by that many, so use a
   capable model.
@@ -501,6 +501,7 @@ back in square metres. The plan is +x east, +y north.
 | `add_level`, `delete_level` | Add a storey on top of the highest level, or delete a level with everything on it |
 | `add_door`, `add_window` | Openings hosted on a wall |
 | `resize_room`, `set_wall_length`, `move_elements` | Reshape |
+| `move_pipe_points`, `set_pipe_segment_length`, `set_pipe_slope`, `insert_pipe_point`, `remove_pipe_point` | Edit pipe runs in 3D: move points, a segment or whole runs, set a segment's length or a slope with the end that holds, add or remove a bend. Joined runs follow with `keep_joins` |
 | `rename_room`, `set_room_usage` | Room data |
 | `set_opening_size`, `delete_elements` | Edit and remove |
 | `set_material`, `set_roof` | Finishes |
@@ -524,8 +525,11 @@ selection and `scope`" below.
 Pipes and service runs (cold and hot water, drainage, vent, storm drains,
 electrical conduit, aircon line sets and condensate) are drawn in the app, not
 through these tools. An MCP client can read them (`list_elements` with kind
-`pipe`, `describe_elements`), move or delete them like any element, and answer
-quantity questions with `get_pipe_takeoff`, which covers every system.
+`pipe`, `describe_elements`), edit them with the five pipe tools (point and
+segment numbers follow `points_mm`: segment n runs from point n to point
+n + 1), move or delete them like any element, and answer quantity questions
+with `get_pipe_takeoff`, which covers every system. The pipe tools set
+geometry only; nothing sizes a pipe or decides what fall is enough.
 
 Lights, outlets, switches, the panelboard, detectors and aircon units are
 library objects: `add_asset` places them, and a wall item lands with its back

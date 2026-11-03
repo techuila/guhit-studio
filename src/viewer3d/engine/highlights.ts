@@ -7,13 +7,18 @@
 // The blend starts from the base material as it is right now, not as it was
 // when the highlight began: the X-ray and hidden shell modes change opacity
 // and visibility of the base materials while an element stays selected.
+//
+// "tint" is the live session's color (DECISIONS D37, D38): another
+// participant's selection, or the History row under the pointer, in that
+// person's color. Its look is the selection's; the color comes with the
+// highlight instead of from the spec.
 
 import * as THREE from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import type { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 
-export type HighlightState = "selected" | "selected-soft" | "hover" | "preview" | "preview-selected" | "flash";
+export type HighlightState = "selected" | "selected-soft" | "hover" | "preview" | "preview-selected" | "flash" | "tint" | "tint-soft";
 
 export const SELECT_COLOR = new THREE.Color("#0e8a8f"); // --draw-selection
 export const PREVIEW_COLOR = new THREE.Color("#6b4fbb"); // --draw-preview
@@ -40,6 +45,9 @@ const SPECS: Record<HighlightState, StateSpec> = {
   preview: { tint: PREVIEW_COLOR, mix: 0.6, emissive: PREVIEW_COLOR, emissiveIntensity: 0.35, opacity: 0.78, dropMap: true, outline: false, breathes: true },
   "preview-selected": { tint: PREVIEW_COLOR, mix: 0.6, emissive: PREVIEW_COLOR, emissiveIntensity: 0.6, opacity: 0.78, dropMap: true, outline: true, breathes: true },
   flash: { tint: SELECT_COLOR, mix: 0.12, emissive: SELECT_COLOR, emissiveIntensity: 0.5, opacity: null, dropMap: false, outline: false, breathes: false },
+  // The color is the highlight's own (`Highlight.color`); these are fallbacks.
+  tint: { tint: SELECT_COLOR, mix: 0.5, emissive: SELECT_COLOR, emissiveIntensity: 0.35, opacity: null, dropMap: false, outline: true, breathes: false },
+  "tint-soft": { tint: SELECT_COLOR, mix: 0.2, emissive: SELECT_COLOR, emissiveIntensity: 0.12, opacity: null, dropMap: false, outline: true, breathes: false },
 };
 
 export function spec(state: HighlightState): StateSpec {
@@ -85,10 +93,10 @@ const HULL_FRAGMENT = /* glsl */ `
   }
 `;
 
-function hullMaterial(resolution: THREE.Vector2): THREE.ShaderMaterial {
+function hullMaterial(resolution: THREE.Vector2, color: THREE.Color): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
-      color: { value: SELECT_COLOR.clone() },
+      color: { value: color.clone() },
       opacity: { value: 0 },
       width: { value: 2.2 },
       resolution: { value: resolution.clone() },
@@ -111,10 +119,15 @@ export class Highlight {
   private hullMat: THREE.ShaderMaterial | null = null;
   private released = false;
 
+  /**
+   * `color` overrides the spec's tint, glow and outline color: a live
+   * participant's color for "tint". Null keeps the spec's.
+   */
   constructor(
     readonly id: string,
     public state: HighlightState,
     meshes: THREE.Mesh[],
+    private color: THREE.Color | null = null,
   ) {
     for (const mesh of meshes) {
       const base = mesh.material as THREE.MeshStandardMaterial;
@@ -131,8 +144,17 @@ export class Highlight {
   }
 
   /** Switches look without restarting the fade: `k` carries over. */
-  retarget(state: HighlightState): void {
+  retarget(state: HighlightState, color: THREE.Color | null = null): void {
     this.state = state;
+    if (color === this.color || (color && this.color?.equals(color))) return;
+    this.color = color;
+    const outline = this.outlineColor();
+    this.outlineMaterial?.color.copy(outline);
+    this.hullMat?.uniforms.color.value.copy(outline);
+  }
+
+  private outlineColor(): THREE.Color {
+    return this.color ?? SELECT_COLOR;
   }
 
   /**
@@ -141,7 +163,7 @@ export class Highlight {
    */
   addOutline(mesh: THREE.Mesh, edges: LineSegmentsGeometry, resolution: THREE.Vector2): void {
     this.outlineMaterial ??= new LineMaterial({
-      color: SELECT_COLOR.getHex(),
+      color: this.outlineColor().getHex(),
       linewidth: 2.2,
       toneMapped: false,
       transparent: true,
@@ -157,7 +179,7 @@ export class Highlight {
 
   /** The silhouette band used for pipes, on the same fade as every other outline. */
   addHullOutline(mesh: THREE.Mesh, resolution: THREE.Vector2): void {
-    this.hullMat ??= hullMaterial(resolution);
+    this.hullMat ??= hullMaterial(resolution, this.outlineColor());
     const hull = new THREE.Mesh(mesh.geometry, this.hullMat);
     hull.raycast = () => {};
     hull.renderOrder = 3;
@@ -184,6 +206,8 @@ export class Highlight {
   apply(k: number, breath?: number): void {
     if (this.released) return;
     const s = SPECS[this.state];
+    const tint = this.color ?? s.tint;
+    const glow = this.color ?? s.emissive;
     const strength = Math.min(Math.max(k, 0), 1);
     // Dropping the texture changes the shader, so it only flips once per
     // direction instead of every frame.
@@ -192,10 +216,10 @@ export class Highlight {
       const c = m.clone;
       const b = m.base;
       c.color.copy(b.color);
-      if (s.mix > 0) c.color.lerp(scratch.copy(s.tint), s.mix * strength);
+      if (s.mix > 0) c.color.lerp(scratch.copy(tint), s.mix * strength);
       // From the material's own glow (pipes have one) to the highlight's.
       glowFrom.copy(b.emissive).multiplyScalar(b.emissiveIntensity);
-      glowTo.copy(s.emissive).multiplyScalar(s.emissiveIntensity);
+      glowTo.copy(glow).multiplyScalar(s.emissiveIntensity);
       c.emissive.copy(glowFrom).lerp(glowTo, strength);
       c.emissiveIntensity = 1;
       let opacity = b.opacity;

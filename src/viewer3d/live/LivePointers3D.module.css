@@ -1,0 +1,151 @@
+/* Other people's pointers over the 3D view. Nothing here takes the pointer:
+   the canvas keeps every click, drag and wheel. See LivePointers3D.tsx for
+   how markers move. */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Placed in canvas pixels by a transform. A presence update glides, about
+   one update long (20 a second), linear so updates join up; a camera move
+   sets data-snap and every marker moves with the model at once. */
+.marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transition: transform calc(var(--dur-press) * 0.75) linear;
+  will-change: transform;
+}
+
+.marker[data-snap="true"] {
+  transition: none;
+}
+
+.body {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  opacity: 1;
+  transform: none;
+  transform-origin: 0 0;
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+/* Enter: grows from the dot. Leave: shrinks back into it, faster. */
+.enter {
+  animation: marker-in var(--dur-base) var(--ease-out);
+}
+
+.leave {
+  opacity: 0;
+  transform: scale(0.6);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+/* Behind a wall or a floor: the dot turns into a dashed ring and the name
+   into a light chip in their color, so the name stays readable on any wall. */
+.marker[data-hidden="true"] .dot {
+  background: rgba(255, 255, 255, 0.7);
+  border: 2px dashed var(--peer);
+  box-shadow: none;
+}
+
+.marker[data-hidden="true"] .label {
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--peer);
+  outline: 1px dashed var(--peer);
+  outline-offset: -1px;
+  box-shadow: none;
+}
+
+/* Everyone while reconnecting: where they were, fainter, as on the plan. */
+.layer[data-stale] .body:not(.leave) {
+  opacity: 0.4;
+}
+
+/* Off the view or behind the eyes: gone until it comes back. Last, so it wins over fainter. */
+.marker[data-off="true"] .body:not(.leave) {
+  opacity: 0;
+}
+
+@keyframes marker-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+.dot {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--peer);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(20, 40, 63, 0.4);
+  box-sizing: border-box;
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out);
+}
+
+/* The name, right and below the dot; flipped at the canvas edges. */
+.label {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  width: max-content;
+  max-width: 200px;
+  padding: 2px 7px 3px;
+  border-radius: 3px 9px 9px 9px;
+  background: var(--peer);
+  color: var(--peer-ink);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 3px rgba(20, 40, 63, 0.25);
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
+}
+
+.marker[data-flip-x="true"] .label {
+  left: auto;
+  right: 9px;
+  border-radius: 9px 3px 9px 9px;
+}
+
+.marker[data-flip-y="true"] .label {
+  top: auto;
+  bottom: 9px;
+  border-radius: 9px 9px 9px 3px;
+}
+
+.marker[data-flip-x="true"][data-flip-y="true"] .label {
+  border-radius: 9px 9px 3px 9px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter {
+    animation: none;
+  }
+
+  .marker {
+    transition: none;
+  }
+}

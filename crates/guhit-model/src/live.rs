@@ -69,6 +69,74 @@ pub struct Presence {
     /// AI edits made from their computer may change only their selection
     /// (DECISIONS D30): the copilot and MCP clients.
     pub ai_scope: bool,
+    /// The participant they follow (DECISIONS D37). None when they follow
+    /// no one. The person followed sees it and starts sending `plan_view`
+    /// and `camera`.
+    #[serde(default)]
+    pub following: Option<Id>,
+    /// Plan, 3D or both side by side. None outside a live session and from
+    /// older versions.
+    #[serde(default)]
+    pub view_mode: Option<ViewMode>,
+    /// The part of the plan on their screen. Sent only while someone follows
+    /// them and the plan is on screen.
+    #[serde(default)]
+    pub plan_view: Option<PlanView>,
+    /// Their 3D camera. Sent only while someone follows them and the 3D view
+    /// is on screen.
+    #[serde(default)]
+    pub camera: Option<LiveCamera>,
+    /// The point under their pointer in the 3D view, in plan mm with z above
+    /// project zero (like `Camera`). None while the pointer is off the model.
+    #[serde(default)]
+    pub pointer_3d: Option<Vec3>,
+}
+
+/// Which views a window shows. The same names as the frontend's view modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum ViewMode {
+    /// The plan only.
+    #[serde(rename = "2d")]
+    Plan,
+    /// The 3D view only.
+    #[serde(rename = "3d")]
+    Model,
+    /// Plan and 3D side by side.
+    #[serde(rename = "split")]
+    Split,
+}
+
+/// The part of the plan someone sees: a rectangle in plan mm, so a window of
+/// another size shows the same area.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PlanView {
+    pub center: Point,
+    pub width_mm: f64,
+    pub height_mm: f64,
+}
+
+/// How someone moves through the 3D view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum NavMode {
+    Orbit,
+    Walk,
+    Fly,
+}
+
+/// Someone's 3D camera, in the units of `Camera`: plan mm, z up from
+/// project zero.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LiveCamera {
+    pub position: Vec3,
+    pub target: Vec3,
+    /// Vertical field of view, 5 to 110 degrees.
+    pub fov_deg: f64,
+    pub nav: NavMode,
 }
 
 /// One chat message of a project.

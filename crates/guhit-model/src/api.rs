@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::command::Command;
+use crate::command::{Command, Origin};
 use crate::derived::*;
 use crate::live::*;
 use crate::model::*;
@@ -30,6 +30,41 @@ pub struct DocState {
     /// Who made the step a redo would bring back.
     #[serde(default)]
     pub redo_by: Option<Id>,
+}
+
+/// One step of the shared undo history, as `history_list` returns it
+/// (DECISIONS D38). Kept in memory with the undo step: at most 200, gone
+/// when the project closes. Versions stay the lasting record.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct HistoryStep {
+    /// The step's name, as the undo button shows it: "Move wall".
+    pub label: String,
+    /// What changed, in one sentence (`Diff::summary`).
+    pub summary: String,
+    pub origin: Origin,
+    /// The live session participant who made it. None for steps made
+    /// outside a live session, which are this computer's own.
+    pub author_id: Option<Id>,
+    /// Their name and color at the time, kept after they leave, like chat
+    /// messages keep theirs. None with `author_id` None.
+    pub author_name: Option<String>,
+    pub color: Option<u8>,
+    /// When it was made, RFC 3339. Empty for steps made before this version.
+    pub at: String,
+    /// Elements the step added or changed, for "show me" (at most 200).
+    pub ids: Vec<Id>,
+    /// Elements the step removed.
+    pub removed: Vec<Id>,
+}
+
+/// The undo and redo stacks, newest first: `undo[0]` is what an undo takes
+/// back, `redo[0]` what a redo brings back.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct HistoryList {
+    pub undo: Vec<HistoryStep>,
+    pub redo: Vec<HistoryStep>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]

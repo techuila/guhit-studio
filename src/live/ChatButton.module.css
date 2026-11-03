@@ -1,0 +1,47 @@
+/* The Chat button and its unread count in the top bar (DECISIONS D41). */
+
+.wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur-base) var(--ease-in),
+    transform var(--dur-base) var(--ease-in);
+  /* The session started: the button pops in. */
+  animation: chat-in var(--dur-base) var(--ease-spring);
+}
+
+.leaving {
+  opacity: 0;
+  transform: scale(0.6);
+  pointer-events: none;
+  transition-duration: calc(var(--dur-base) * 0.7);
+}
+
+@keyframes chat-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+/* The count sits on the button's top right corner, ringed in the bar's color. */
+.badge {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  display: flex;
+  pointer-events: none;
+}
+
+.badge > span {
+  box-shadow: 0 0 0 2px var(--chrome);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wrap {
+    animation: none;
+  }
+}

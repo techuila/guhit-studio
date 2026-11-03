@@ -203,6 +203,82 @@ async fn undo_redo_preview_and_query_over_ipc() {
 }
 
 #[tokio::test]
+async fn history_list_and_several_steps_over_ipc() {
+    let tmp = TempDir::new("history");
+    let app = AppService::new(tmp.path().to_path_buf());
+    assert_eq!(fail(&app, "history_list", json!({})).await.code, "no_document");
+
+    create(&app, "History").await;
+    let empty: HistoryList = call(&app, "history_list", json!({})).await;
+    assert_eq!(empty, HistoryList::default());
+
+    let mut added = vec![];
+    for i in 0..4 {
+        let y = 1000.0 * i as f64;
+        let applied: ApplyResult = call(&app, "doc_apply", wall(0.0, y, 3000.0, y)).await;
+        added.push(applied.diff.added[0].clone());
+    }
+    let list: HistoryList = call(&app, "history_list", json!({})).await;
+    assert_eq!(list.undo.len(), 4);
+    assert!(list.redo.is_empty());
+    let newest = &list.undo[0];
+    assert_eq!(newest.label, "Add wall");
+    assert_eq!(newest.origin, Origin::User);
+    // Outside a live session a step is this computer's own: no author.
+    assert_eq!((newest.author_id.clone(), newest.author_name.clone(), newest.color), (None, None, None));
+    assert!(newest.ids.contains(&added[3]), "newest first, with what it added");
+    assert!(list.undo[3].ids.contains(&added[0]));
+    assert!(newest.summary.starts_with("Add wall"), "{}", newest.summary);
+    // Stamped by the app's clock, in RFC 3339.
+    assert_eq!(newest.at.len(), 20, "{}", newest.at);
+    assert!(newest.at.ends_with('Z') && newest.at.as_bytes()[10] == b'T', "{}", newest.at);
+
+    // Three steps back as one revision.
+    let undone: DocState = call(&app, "doc_undo", json!({ "steps": 3 })).await;
+    assert_eq!(wall_count(&undone), 1);
+    assert_eq!(undone.revision, 5);
+    let list: HistoryList = call(&app, "history_list", json!({})).await;
+    assert_eq!((list.undo.len(), list.redo.len()), (1, 3));
+    assert!(list.redo[0].ids.contains(&added[1]), "the next redo is the second wall");
+    // On disk at once: the autosave ran for the one revision.
+    let on_disk: Value = serde_json::from_str(
+        &std::fs::read_to_string(tmp.path().join("projects").join(&undone.project.id).join("project.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(on_disk["elements"].as_array().unwrap().len(), undone.project.elements.len());
+
+    // Too many, zero, or not a number: nothing changes.
+    let err = fail(&app, "doc_redo", json!({ "steps": 4 })).await;
+    assert_eq!((err.code.as_str(), err.message.as_str()), ("invalid", "Only 3 steps can be redone, not 4."));
+    assert_eq!(fail(&app, "doc_undo", json!({ "steps": 0 })).await.code, "bad_args");
+    assert_eq!(fail(&app, "doc_undo", json!({ "steps": -1 })).await.code, "bad_args");
+    let state: Option<DocState> = call(&app, "doc_state", json!({})).await;
+    assert_eq!(state.unwrap().revision, 5);
+
+    let redone: DocState = call(&app, "doc_redo", json!({ "steps": 3 })).await;
+    assert_eq!(wall_count(&redone), 4);
+    assert_eq!(redone.revision, 6);
+    // `steps` left out is one, as before.
+    let undone: DocState = call(&app, "doc_undo", json!({ "force": false })).await;
+    assert_eq!(wall_count(&undone), 3);
+
+    // With the revision the question was asked at, a plan that moved on
+    // since is refused, and nothing is taken back.
+    let asked = undone.revision;
+    let _: ApplyResult = call(&app, "doc_apply", wall(0.0, 9000.0, 3000.0, 9000.0)).await;
+    let err = fail(&app, "doc_undo", json!({ "steps": 2, "force": true, "expected_revision": asked })).await;
+    assert_eq!(err.code, "stale");
+    assert_eq!(err.message, format!("the plan moved on from revision {asked} to {}, so nothing was undone", asked + 1));
+    let err = fail(&app, "doc_redo", json!({ "expected_revision": asked })).await;
+    assert_eq!(err.code, "stale");
+    let state: Option<DocState> = call(&app, "doc_state", json!({})).await;
+    let state = state.unwrap();
+    assert_eq!((wall_count(&state), state.revision), (4, asked + 1));
+    let undone: DocState = call(&app, "doc_undo", json!({ "steps": 2, "expected_revision": asked + 1 })).await;
+    assert_eq!(wall_count(&undone), 2);
+}
+
+#[tokio::test]
 async fn snapshot_create_list_restore() {
     let tmp = TempDir::new("snap");
     let app = AppService::new(tmp.path().to_path_buf());
@@ -831,17 +907,18 @@ async fn the_plumbing_demo_template_opens_with_its_pipes() {
     let pipes = state.project.elements.iter().filter(|e| e.kind() == ElementKind::Pipe).count();
     // The 16 plumbing runs, two downspouts, a line set and a condensate drain.
     assert_eq!(pipes, 20);
-    assert_eq!(state.derived.pipes.total_length_m, 59.654);
+    assert_eq!(state.derived.pipes.total_length_m, 59.399);
     assert_eq!(state.derived.pipes.sleeve_count, 9);
     let objects = state.project.elements.iter().filter(|e| e.kind() == ElementKind::Asset).count();
-    assert_eq!(objects, 32);
-    // 22 devices, the three T&B fixtures, the kitchen sink and the washer.
-    assert_eq!(state.derived.schedule.iter().map(|r| r.count).sum::<u32>(), 27);
+    assert_eq!(objects, 35);
+    // 22 devices, the three T&B fixtures, the kitchen sink, the washer, the
+    // water heater, the water meter and the septic tank.
+    assert_eq!(state.derived.schedule.iter().map(|r| r.count).sum::<u32>(), 30);
 
     let takeoff: Value = call(&app, "doc_query", json!({ "query": { "type": "pipe_takeoff" } })).await;
-    assert_eq!(takeoff["total_length_m"], json!(59.654));
+    assert_eq!(takeoff["total_length_m"], json!(59.399));
     let schedule: Value = call(&app, "doc_query", json!({ "query": { "type": "schedule" } })).await;
-    assert_eq!(schedule["levels"][0]["total"], json!(27));
+    assert_eq!(schedule["levels"][0]["total"], json!(30));
 
     // A review item set aside over IPC is one undo step and comes back open.
     let marked: ApplyResult = call(

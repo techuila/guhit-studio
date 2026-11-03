@@ -1,7 +1,7 @@
 // Live session state for the window (DECISIONS D29, docs/CONTRACT.md "Live
 // sessions"). The backend owns the session; this is what the UI shows of it:
 // the status, this computer's profile, everyone else's presence, the chat,
-// and the local cursor chat. Filled by wiring.ts from `onAppEvent` and the
+// the local cursor chat, and who this window follows (follow.ts). Filled by wiring.ts from `onAppEvent` and the
 // `live_*`, `presence_*`, `chat_*` and `profile_*` calls.
 //
 // Presence changes many times a second: read it with narrow selectors (one
@@ -76,6 +76,11 @@ export interface LiveState {
    * saved (`live_save_copy`) until another project opens.
    */
   ended: { projectName: string | null } | null;
+  /**
+   * The participant this window follows (DECISIONS D37), null for no one.
+   * Set only through follow.ts, which also stops it.
+   */
+  following: string | null;
 
   setStatus: (status: LiveStatus) => void;
   setProfile: (profile: Profile) => void;
@@ -100,6 +105,7 @@ export interface LiveState {
   setAskLeave: (on: boolean) => void;
   setJoining: (on: boolean) => void;
   setEnded: (ended: { projectName: string | null } | null) => void;
+  setFollowing: (id: string | null) => void;
 }
 
 let sentSeq = 1;
@@ -118,6 +124,7 @@ export const useLive = create<LiveState>((set, get) => ({
   askLeave: false,
   joining: false,
   ended: null,
+  following: null,
 
   setStatus: (status) =>
     set((s) => {
@@ -212,4 +219,7 @@ export const useLive = create<LiveState>((set, get) => ({
   setAskLeave: (askLeave) => set({ askLeave }),
   setJoining: (joining) => set({ joining }),
   setEnded: (ended) => set({ ended }),
+  setFollowing: (following) => {
+    if (get().following !== following) set({ following });
+  },
 }));
