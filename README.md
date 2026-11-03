@@ -121,11 +121,11 @@ site/                  the landing page, published with GitHub Pages
 
 Two rules hold everything together. The Rust engine is the only authority over the model: the UI keeps a read-only mirror and sends typed commands, and the AI uses the same commands. And every command is deterministic, validated, and one undo step, so a preview always equals the commit.
 
-Further reading: [AGENTS.md](AGENTS.md) (repo map, constraints, how to verify), [DECISIONS.md](DECISIONS.md) (locked decisions and why), [docs/CONTRACT.md](docs/CONTRACT.md) (types, IPC, conventions), [docs/MOTION.md](docs/MOTION.md) (the motion system).
+Further reading: [docs/CONTRACT.md](docs/CONTRACT.md) (types, IPC, conventions), [docs/MOTION.md](docs/MOTION.md) (the motion system), [docs/SHORTCUTS.md](docs/SHORTCUTS.md) (keyboard shortcuts), [docs/MCP.md](docs/MCP.md) (connecting an AI agent).
 
 ## Contributing
 
-Issues and pull requests are welcome. Please read [AGENTS.md](AGENTS.md) and [DECISIONS.md](DECISIONS.md) first: they say what is locked and what is open.
+Issues and pull requests are welcome. Please read [docs/CONTRACT.md](docs/CONTRACT.md) first, and open an issue before a large change so we can agree on the approach.
 
 **Before you open a pull request**
 
