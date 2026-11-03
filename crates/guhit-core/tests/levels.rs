@@ -251,6 +251,7 @@ fn the_last_level_and_locked_layers_stay() {
             height_mm: None,
             material_id: None,
             level_id: Some(upper.clone()),
+            role: None,
         },
     );
     apply_checked(

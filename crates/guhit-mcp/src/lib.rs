@@ -41,6 +41,7 @@ pub const PORT_SETTING: &str = "mcp_port";
 const RESOURCE_CURRENT: &str = "guhit://project/current";
 const RESOURCE_CONVENTIONS: &str = "guhit://docs/conventions";
 const RESOURCE_PH_DEFAULTS: &str = "guhit://docs/ph-defaults";
+const RESOURCE_WORKFLOWS: &str = "guhit://docs/workflows";
 
 /// The MCP server. One per transport; they all share the one `AppService`,
 /// so they all act on the single open document.
@@ -131,6 +132,11 @@ pub fn resource_list() -> Vec<Resource> {
                 "Default wall thickness, door and window sizes, level height, the built-in material ids and sensible room sizes for Philippine residential work.",
             )
             .with_mime_type("text/markdown"),
+        Resource::new(RESOURCE_WORKFLOWS, "Guhit workflows")
+            .with_description(
+                "The full working rules the server instructions summarize: drawing a house, site walls, moving walls, pipes and devices, the selection scope, views and renders, live sessions, honesty.",
+            )
+            .with_mime_type("text/markdown"),
     ]
 }
 
@@ -199,6 +205,8 @@ impl ServerHandler for GuhitMcp {
             RESOURCE_CONVENTIONS => ResourceContents::text(text::CONVENTIONS, uri)
                 .with_mime_type("text/markdown"),
             RESOURCE_PH_DEFAULTS => ResourceContents::text(text::PH_DEFAULTS, uri)
+                .with_mime_type("text/markdown"),
+            RESOURCE_WORKFLOWS => ResourceContents::text(text::WORKFLOWS, uri)
                 .with_mime_type("text/markdown"),
             RESOURCE_CURRENT => {
                 let summary = current_project(&self.app).await;
@@ -513,6 +521,43 @@ mod tests {
         assert!(instructions.to_lowercase().contains("code compliance"));
         assert!(info.capabilities.tools.is_some());
         assert!(info.capabilities.resources.is_some());
+    }
+
+    /// Claude Code keeps the first 4096 characters of the instructions and
+    /// drops the rest. What protects the user must never be in the part
+    /// that is dropped: the honesty rules sit in the first 1500 characters,
+    /// the consent rules right after them, and the whole text stays well
+    /// under the cut.
+    #[test]
+    fn instructions_fit_the_client_cut_with_the_rules_first() {
+        let text = text::INSTRUCTIONS;
+        let chars = text.chars().count();
+        assert!(chars <= 4000, "the instructions are {chars} characters; keep them under 4000 (Claude Code cuts at 4096)");
+        let at = |needle: &str| {
+            text.find(needle)
+                .map(|i| text[..i].chars().count())
+                .unwrap_or_else(|| panic!("the instructions lost `{needle}`"))
+        };
+        for needle in [
+            "Honesty rules:",
+            "permit approval, structural certification or code compliance",
+            "never estimate them",
+            "never work around a refusal",
+            "is never approved",
+        ] {
+            let i = at(needle);
+            assert!(i + needle.len() <= 1500, "`{needle}` ends at character {}, past the first 1500", i + needle.len());
+        }
+        let consent = at("Ask the user first:");
+        assert!(consent > at("Honesty rules:"));
+        for needle in [
+            "Pass `force` only after the user confirms",
+            "costs the user money",
+            "only when the user names it",
+        ] {
+            assert!(at(needle) < 2500, "`{needle}` must come early");
+        }
+        assert!(at("Ask the user first:") < at("Units:"), "consent comes before drawing advice");
     }
 
     #[test]

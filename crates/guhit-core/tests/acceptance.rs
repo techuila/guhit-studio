@@ -35,7 +35,7 @@ fn rooms(d: &Document) -> Vec<(String, f64)> {
 }
 
 fn wall(start: Point, end: Point, t: f64) -> Command {
-    Command::AddWall { start, end, thickness_mm: Some(t), height_mm: None, material_id: None, level_id: None }
+    Command::AddWall { start, end, thickness_mm: Some(t), height_mm: None, material_id: None, level_id: None, role: None  }
 }
 
 fn rect(w: f64, d: f64, name: &str) -> Command {

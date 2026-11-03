@@ -17,6 +17,12 @@ thiserror.workspace = true
 # connections and length-prefixed frames).
 tokio = { version = "1", features = ["sync", "fs", "rt", "macros", "time", "net", "io-util"] }
 
+# chrono: already in the build through dxf (guhit-import). The local
+# calendar date for the sheet title block: the engine and the export crate
+# have no clock or time zone, and the computer's own date is what a sheet
+# exported at 02:48 should read. Clock only, no serde or wasm.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
 # --- backend agent deps below this line ---
 # base64: PNG/JPEG data URLs cross IPC and are stored as files.
 base64 = "0.22"

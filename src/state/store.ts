@@ -18,6 +18,7 @@ import type {
   PipeSystem,
   Point,
   ViewMode as ContractViewMode,
+  WallRole,
 } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
 
@@ -45,6 +46,9 @@ export type Tool =
 
 export interface ToolOptions {
   wallThicknessMm: number | null;
+  /** Wall tool: "site" draws a lot fence or boundary wall (1800 mm, on the
+   * site layer, never part of a room). */
+  wallRole: WallRole;
   openingStyle: OpeningStyle | null;
   /** CatalogItem.key placed by the asset tool. */
   assetKey: string | null;
@@ -192,6 +196,7 @@ export const useApp = create<AppState>((set, get) => ({
   tool: "select",
   toolOptions: {
     wallThicknessMm: null,
+    wallRole: "building",
     openingStyle: null,
     assetKey: null,
     pipeSystem: "cold_water",
@@ -221,6 +226,13 @@ export const useApp = create<AppState>((set, get) => ({
     try {
       const result = await ipc.docApply(command);
       get().setDoc(result.state);
+      // Walls that moved on the far side of a joint, which nobody asked
+      // to move: say so, the same sentence the history keeps.
+      if (result.diff.also_moved?.length) {
+        const at = result.diff.summary.indexOf("; also moved: ");
+        const names = at >= 0 ? result.diff.summary.slice(at + "; also moved: ".length) : `${result.diff.also_moved.length} walls`;
+        get().toast("info", `Also moved: ${names}`);
+      }
       return result;
     } catch (e) {
       get().reportError(e);

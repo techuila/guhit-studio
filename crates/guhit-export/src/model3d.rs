@@ -607,6 +607,7 @@ mod tests {
             thickness_mm: 150.0,
             height_mm: None,
             material_id: None,
+            role: guhit_model::WallRole::Building,
         };
         let f = frame(v(0.0, 0.0), v(4000.0, 0.0)).unwrap();
         let outline = local_outline(&wall, None, &f);

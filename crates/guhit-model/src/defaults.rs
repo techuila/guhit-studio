@@ -43,6 +43,9 @@ pub fn now_rfc3339() -> String {
 pub const DEFAULT_LEVEL_HEIGHT_MM: f64 = 3000.0;
 /// 150 mm: 6 inch CHB, the common PH exterior wall.
 pub const DEFAULT_WALL_THICKNESS_MM: f64 = 150.0;
+/// Height of a site wall (a lot fence or boundary wall) drawn without one:
+/// the usual PH perimeter CHB fence.
+pub const SITE_WALL_HEIGHT_MM: f64 = 1800.0;
 
 pub const DOOR_DEFAULT: (f64, f64, f64) = (900.0, 2100.0, 0.0);
 pub const WINDOW_DEFAULT: (f64, f64, f64) = (1200.0, 1200.0, 900.0);
@@ -85,6 +88,7 @@ pub fn default_layers() -> Vec<Layer> {
         Storm,
         Electrical,
         Aircon,
+        Site,
     ]
     .into_iter()
     .map(|key| Layer {

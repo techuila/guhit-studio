@@ -25,6 +25,7 @@ fn wall_el(id: &str, a: (f64, f64), b: (f64, f64)) -> Element {
         thickness_mm: 150.0,
         height_mm: None,
         material_id: None,
+        role: WallRole::Building,
     })
 }
 
@@ -1379,7 +1380,7 @@ fn a_version_2_project_opens_with_the_new_layers() {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|l| !matches!(l["key"].as_str(), Some("storm" | "electrical" | "aircon")))
+        .filter(|l| !matches!(l["key"].as_str(), Some("storm" | "electrical" | "aircon" | "site")))
         .map(|l| {
             let mut l = l.clone();
             if l["key"] == "drainage" {
@@ -1411,10 +1412,10 @@ fn a_version_2_project_opens_with_the_new_layers() {
     let doc = Document::new(old);
     let project = doc.project();
     assert_eq!(project.schema_version, SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 3);
+    assert_eq!(SCHEMA_VERSION, 4);
     let keys: Vec<LayerKey> = project.layers.iter().map(|l| l.key).collect();
     let expected: Vec<LayerKey> = defaults::default_layers().iter().map(|l| l.key).collect();
-    assert_eq!(keys, expected, "all 16 layers, in LayerKey order");
+    assert_eq!(keys, expected, "all 17 layers, in LayerKey order");
     for l in &project.layers[13..] {
         assert!(l.visible && !l.locked, "{:?}", l.key);
     }

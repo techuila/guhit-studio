@@ -73,6 +73,7 @@ fn add_wall_validation() {
                 height_mm: None,
                 material_id: None,
                 level_id: None,
+                role: None,
             },
         );
         assert_eq!(code(&e), "wall_thickness");
@@ -86,6 +87,7 @@ fn add_wall_validation() {
             height_mm: None,
             material_id: Some("mat-nope".into()),
             level_id: None,
+            role: None,
         },
     );
     assert_eq!(code(&e), "unknown_material");
@@ -98,6 +100,7 @@ fn add_wall_validation() {
             height_mm: None,
             material_id: None,
             level_id: Some("level-nope".into()),
+            role: None,
         },
     );
     assert_eq!(code(&e), "unknown_level");
@@ -117,6 +120,7 @@ fn add_wall_chain_open_and_closed() {
             closed: false,
             thickness_mm: Some(100.0),
             level_id: None,
+            role: None,
         },
     );
     assert_eq!(walls(&r.state.project).len(), 2);
@@ -128,6 +132,7 @@ fn add_wall_chain_open_and_closed() {
             closed: false,
             thickness_mm: Some(100.0),
             level_id: None,
+            role: None,
         },
     );
     assert_eq!(
@@ -150,6 +155,7 @@ fn add_wall_chain_open_and_closed() {
             closed: false,
             thickness_mm: None,
             level_id: None,
+            role: None,
         },
     );
     assert_eq!(code(&e), "chain_too_short");
@@ -160,6 +166,7 @@ fn add_wall_chain_open_and_closed() {
             closed: false,
             thickness_mm: None,
             level_id: None,
+            role: None,
         },
     );
     assert_eq!(code(&e), "wall_too_short");
@@ -208,8 +215,9 @@ fn set_wall_endpoints_drags_joined_walls_and_keeps_openings_in_place() {
     assert_eq!(wall(&r.state.project, W3).start, p(9000.0, 6000.0));
     assert_eq!(
         r.diff.summary,
-        "Moved 1 wall, stretched 2 walls, updated 1 dimension"
+        "Moved 1 wall, stretched 2 walls, updated 1 dimension; also moved: Wall 9000 mm, Wall 9000 mm"
     );
+    assert_eq!(r.diff.also_moved, vec![W1.to_string(), W3.to_string()], "the walls that followed are named");
     // The south dimension was snapped to both ends of the south wall, so it
     // still measures it.
     assert_eq!(dimension(&r.state.project, DIM).b, p(9000.0, 0.0));
@@ -794,6 +802,7 @@ fn add_element_assigns_ids_and_validates() {
         thickness_mm: 150.0,
         height_mm: None,
         material_id: None,
+        role: WallRole::Building,
     });
     assert_eq!(
         code(&apply_rejected(
@@ -990,8 +999,9 @@ fn move_wall_with_stretch_keeps_joints_without_stretch_breaks_them() {
     assert_eq!(wall(&r.state.project, W3).start, p(9000.0, 6000.0));
     assert_eq!(
         r.diff.summary,
-        "Moved 1 wall, stretched 2 walls, updated 1 dimension"
+        "Moved 1 wall, stretched 2 walls, updated 1 dimension; also moved: Wall 9000 mm, Wall 9000 mm"
     );
+    assert_eq!(r.diff.also_moved, vec![W1.to_string(), W3.to_string()], "the walls that followed are named");
     assert_eq!(dimension(&r.state.project, DIM).b, p(9000.0, 0.0));
     assert_eq!(rooms(&r.state.project).len(), 2);
     assert_eq!(
@@ -1674,7 +1684,7 @@ fn the_south_dimension_follows_a_resize_and_still_reads_true() {
     );
     assert!(r.diff.modified.contains(&DIM.to_string()));
     assert!(
-        r.diff.summary.ends_with(", updated 1 dimension"),
+        r.diff.summary.contains(", updated 1 dimension; also moved: "),
         "{}",
         r.diff.summary
     );

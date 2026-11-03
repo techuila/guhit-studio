@@ -73,8 +73,15 @@ pub struct Diff {
     pub added: Vec<Id>,
     pub modified: Vec<Id>,
     pub removed: Vec<Id>,
-    /// One plain sentence, for example "Moved 1 wall, stretched 2 walls".
+    /// One plain sentence, for example "Moved 1 wall, stretched 2 walls;
+    /// also moved: Wall 4150 mm, Wall 3000 mm".
     pub summary: String,
+    /// Walls the command reshaped although it did not name them: walls
+    /// joined to a moved wall that stretched or shifted to follow it. Every
+    /// edit result names them, so nobody misses a wall that moved on the far
+    /// side of a joint. Also in `modified`. Left out of the JSON when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_moved: Vec<Id>,
 }
 
 /// Result of `apply` and of `preview`. For a preview, `state` is hypothetical
@@ -187,6 +194,13 @@ pub struct PlanExportOptions {
     /// (PDF only). Wording stays "suggestion", never approval.
     #[serde(default)]
     pub review_page: bool,
+    /// The title block DATE, "YYYY-MM-DD" on the computer's own calendar.
+    /// The app fills it in with today's local date when it is None, so a
+    /// sheet exported at 02:48 on 4 Nov in Manila reads 2026-11-04. Without
+    /// it (an export outside the app) the sheet shows the day the project
+    /// last changed, in UTC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
 }
 
 /// The plan sheets a PH permit and hand-off set asks for. Every sheet keeps

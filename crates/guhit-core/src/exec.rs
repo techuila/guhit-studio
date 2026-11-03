@@ -20,12 +20,16 @@ pub struct Outcome {
     pub label: String,
     /// Optional sentence that describes the change better than the counts.
     pub summary: Option<String>,
+    /// Walls the command reshaped without naming them: joined walls that
+    /// stretched or shifted to follow. `Diff::also_moved` names them.
+    pub also_moved: Vec<Id>,
 }
 
 fn outcome(label: &str) -> Outcome {
     Outcome {
         label: label.to_string(),
         summary: None,
+        also_moved: vec![],
     }
 }
 
@@ -43,8 +47,9 @@ fn run(project: &mut Project, command: &Command) -> Result<Outcome, CoreError> {
                 "The batch has no commands.",
             ));
         }
+        let mut also_moved: Vec<Id> = vec![];
         for (i, c) in commands.iter().enumerate() {
-            run(project, c).map_err(|e| match e {
+            let done = run(project, c).map_err(|e| match e {
                 CoreError::Invalid {
                     code,
                     message,
@@ -56,13 +61,21 @@ fn run(project: &mut Project, command: &Command) -> Result<Outcome, CoreError> {
                 },
                 other => other,
             })?;
+            for id in done.also_moved {
+                if !also_moved.contains(&id) {
+                    also_moved.push(id);
+                }
+            }
         }
         let label = if label.trim().is_empty() {
             "Batch"
         } else {
             label.trim()
         };
-        return Ok(outcome(label));
+        return Ok(Outcome {
+            also_moved,
+            ..outcome(label)
+        });
     }
 
     // Ids are seeded per leaf command, from the project as it is right now
@@ -279,6 +292,23 @@ fn plural(n: usize, one: &str) -> String {
     }
 }
 
+/// The layer a new wall of `role` goes on.
+fn role_layer(role: WallRole) -> LayerKey {
+    match role {
+        WallRole::Building => LayerKey::Walls,
+        WallRole::Site => LayerKey::Site,
+    }
+}
+
+/// The height a new wall gets when the command gives none: a site wall is a
+/// 1800 mm fence, a building wall takes its level's height.
+fn site_height(role: WallRole) -> Option<f64> {
+    match role {
+        WallRole::Building => None,
+        WallRole::Site => Some(defaults::SITE_WALL_HEIGHT_MM),
+    }
+}
+
 fn new_wall(
     project: &Project,
     ids: &mut IdGen,
@@ -299,13 +329,16 @@ fn new_wall(
             .iter()
             .find(|m| m.id == defaults::MAT_WALL_DEFAULT)
             .map(|m| m.id.clone()),
+        role: WallRole::Building,
     }
 }
 
-/// True when an existing wall on the level already covers the whole segment.
+/// True when an existing building wall on the level already covers the
+/// whole segment. A fence along the same line does not: it never bounds a
+/// room.
 fn covered_by_existing(project: &Project, level_id: &Id, a: Point, b: Point) -> bool {
     project.elements.iter().any(|e| match e {
-        Element::Wall(w) if &w.level_id == level_id => {
+        Element::Wall(w) if &w.level_id == level_id && !w.is_site() => {
             dist_point_segment(a, w.start, w.end) <= JOIN_EPS
                 && dist_point_segment(b, w.start, w.end) <= JOIN_EPS
         }
@@ -358,9 +391,17 @@ fn set_wall_geometry(project: &mut Project, wall_id: &Id, start: Point, end: Poi
 /// Move walls to new endpoints. With `stretch`, walls joined to a moved wall
 /// follow so joints stay closed. `smart` is for rigid translations: a wall
 /// that continues the moved wall in a straight line stays put when a cross
-/// wall at the same joint can keep the plan closed. Returns the ids of the
-/// walls that were stretched.
-fn move_walls(project: &mut Project, moves: &[WallMove], stretch: bool, smart: bool) -> Vec<Id> {
+/// wall at the same joint (its end or its body) keeps the plan closed, a wall
+/// resting on a moved wall's body slides along its own line onto it, and a
+/// follower that was square or parallel to the wall it follows must stay
+/// that way: when it would turn, the move is refused with the wall named
+/// (`stretch_turns_wall`). Returns the ids of the walls that were stretched.
+fn move_walls(
+    project: &mut Project,
+    moves: &[WallMove],
+    stretch: bool,
+    smart: bool,
+) -> Result<Vec<Id>, CoreError> {
     struct Moved {
         level: Id,
         old_s: Point,
@@ -391,6 +432,8 @@ fn move_walls(project: &mut Project, moves: &[WallMove], stretch: bool, smart: b
         .collect();
 
     let mut follow: Vec<WallMove> = vec![];
+    // Followers that were square or parallel to the wall they follow.
+    let mut square: BTreeSet<Id> = BTreeSet::new();
     if stretch {
         for w in &others {
             let mut ends = [w.start, w.end];
@@ -399,6 +442,7 @@ fn move_walls(project: &mut Project, moves: &[WallMove], stretch: bool, smart: b
                 let p = *end;
                 let far = if k == 0 { w.end } else { w.start };
                 let mut target: Option<Point> = None;
+                let mut mover: Option<(Point, Point)> = None;
                 // Shared endpoint.
                 for m in moved.iter().filter(|m| m.level == w.level_id) {
                     let (old_j, new_j) = if dist(p, m.old_s) <= JOIN_EPS {
@@ -419,6 +463,7 @@ fn move_walls(project: &mut Project, moves: &[WallMove], stretch: bool, smart: b
                         break;
                     }
                     target = Some(new_j);
+                    mover = Some((m.old_s, m.old_e));
                     break;
                 }
                 // End resting on the body of a moved wall (T junction).
@@ -432,7 +477,19 @@ fn move_walls(project: &mut Project, moves: &[WallMove], stretch: bool, smart: b
                         let (along, d) = project_on_segment(p, m.old_s, m.old_e);
                         if d <= JOIN_EPS && along > 0.0 && along < len {
                             if dist_point_segment(p, m.new_s, m.new_e) > JOIN_EPS {
-                                target = Some(lerp(m.new_s, m.new_e, along / len));
+                                // On a rigid move the end slides along its own
+                                // wall onto the moved one, so it stays straight.
+                                let slid = if smart {
+                                    match (unit(sub(p, far)), unit(sub(m.new_e, m.new_s))) {
+                                        (Some(wd), Some(nd)) => line_intersect(far, wd, m.new_s, nd)
+                                            .filter(|x| dist_point_segment(*x, m.new_s, m.new_e) <= JOIN_EPS),
+                                        _ => None,
+                                    }
+                                } else {
+                                    None
+                                };
+                                target = Some(slid.unwrap_or_else(|| lerp(m.new_s, m.new_e, along / len)));
+                                mover = Some((m.old_s, m.old_e));
                             }
                             break;
                         }
@@ -441,6 +498,14 @@ fn move_walls(project: &mut Project, moves: &[WallMove], stretch: bool, smart: b
                 if let Some(t) = target {
                     *end = t;
                     touched = true;
+                    if let (Some((ms, me)), Some(wd)) = (mover, unit(sub(w.end, w.start))) {
+                        if let Some(md) = unit(sub(me, ms)) {
+                            // Square (or parallel) within a degree.
+                            if cross(wd, md).abs() < 0.0175 || dot(wd, md).abs() < 0.0175 {
+                                square.insert(w.id.clone());
+                            }
+                        }
+                    }
                 }
             }
             if touched {
@@ -452,13 +517,56 @@ fn move_walls(project: &mut Project, moves: &[WallMove], stretch: bool, smart: b
             }
         }
     }
+    if smart {
+        // A follower that was square to the wall it follows keeps its
+        // direction, or the move is refused: a wall that turns on the far
+        // side of a joint is the surprise nobody reads in a summary.
+        let turned: Vec<(&Wall, f64)> = follow
+            .iter()
+            .filter(|f| square.contains(&f.id))
+            .filter_map(|f| {
+                let w = others.iter().find(|w| w.id == f.id)?;
+                let (old_d, new_d) = (unit(sub(w.end, w.start))?, unit(sub(f.end, f.start))?);
+                // How far an end moves across the wall's own line.
+                let side = cross(old_d, sub(f.start, w.start)).abs().max(cross(old_d, sub(f.end, w.end)).abs());
+                // More than about 0.05 degrees.
+                (cross(old_d, new_d).abs() > 1e-3).then_some((w, side))
+            })
+            .collect();
+        if !turned.is_empty() {
+            let names: Vec<String> = turned
+                .iter()
+                .map(|(w, _)| format!("Wall {:.0} mm", dist(w.start, w.end)))
+                .collect();
+            let worst = turned.iter().map(|(_, d)| *d).fold(0.0, f64::max);
+            let (its, them, they) = if turned.len() == 1 { ("its end", "it", "it moves") } else { ("their ends", "them", "they move") };
+            return Err(CoreError::invalid_for(
+                "stretch_turns_wall",
+                format!(
+                    "This move would turn {} out of line: {its} at the joint would move {:.0} mm sideways. Select {them} too so {they} along, or move without stretching connected walls.",
+                    join_names(&names),
+                    worst
+                ),
+                turned.iter().map(|(w, _)| w.id.clone()).collect(),
+            ));
+        }
+    }
     for m in moves {
         set_wall_geometry(project, &m.id, m.start, m.end);
     }
     for f in &follow {
         set_wall_geometry(project, &f.id, f.start, f.end);
     }
-    follow.into_iter().map(|f| f.id).collect()
+    Ok(follow.into_iter().map(|f| f.id).collect())
+}
+
+/// "A", "A and B", "A, B and C".
+fn join_names(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 /// Joint rule for rigid translations. `w` has its end `p` on the joint
@@ -488,8 +596,14 @@ fn joint_should_follow(
         // A straight continuation of the moved wall stays where it is when a
         // cross wall at the joint keeps the old joint on its line: that wall
         // either extends through the joint or stays with the joint on its body.
+        // The joint can also sit on the cross wall's body (a T): a partition
+        // and the lanai wall beyond it both ending on the house's south
+        // wall. Staying put keeps that wall a T on the same cross wall, where
+        // following would turn it into a diagonal (R2 problem 6).
         return !unmoved.iter().any(|q| {
-            let at_joint = dist(q.start, old_j) <= JOIN_EPS || dist(q.end, old_j) <= JOIN_EPS;
+            let at_joint = dist(q.start, old_j) <= JOIN_EPS
+                || dist(q.end, old_j) <= JOIN_EPS
+                || dist_point_segment(old_j, q.start, q.end) <= JOIN_EPS;
             let Some(qd) = unit(sub(q.end, q.start)) else {
                 return false;
             };
@@ -580,17 +694,23 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
             height_mm,
             material_id,
             level_id,
+            role,
         } => {
-            ensure_unlocked(project, ElementKind::Wall)?;
+            let role = role.unwrap_or_default();
+            ensure_layer_unlocked(project, role_layer(role))?;
             let level = resolve_level(project, level_id)?;
             let mut wall = new_wall(project, ids, &level, *start, *end, *thickness_mm);
-            wall.height_mm = *height_mm;
+            wall.role = role;
+            wall.height_mm = height_mm.or(site_height(role));
             if material_id.is_some() {
                 wall.material_id = material_id.clone();
             }
             validate_wall(project, &wall)?;
             project.elements.push(Element::Wall(wall));
-            Ok(outcome("Add wall"))
+            Ok(outcome(match role {
+                WallRole::Building => "Add wall",
+                WallRole::Site => "Add site wall",
+            }))
         }
 
         Command::AddWallChain {
@@ -598,8 +718,10 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
             closed,
             thickness_mm,
             level_id,
+            role,
         } => {
-            ensure_unlocked(project, ElementKind::Wall)?;
+            let role = role.unwrap_or_default();
+            ensure_layer_unlocked(project, role_layer(role))?;
             let level = resolve_level(project, level_id)?;
             if points.len() < 2 {
                 return Err(CoreError::invalid(
@@ -619,11 +741,16 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
             }
             let count = segs.len();
             for (a, b) in segs {
-                let wall = new_wall(project, ids, &level, a, b, *thickness_mm);
+                let mut wall = new_wall(project, ids, &level, a, b, *thickness_mm);
+                wall.role = role;
+                wall.height_mm = site_height(role);
                 validate_wall(project, &wall)?;
                 project.elements.push(Element::Wall(wall));
             }
-            Ok(outcome(&format!("Add {}", plural(count, "wall"))))
+            Ok(outcome(&format!(
+                "Add {}",
+                plural(count, if role == WallRole::Site { "site wall" } else { "wall" })
+            )))
         }
 
         Command::AddRectRoom {
@@ -691,10 +818,11 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 }],
                 true,
                 false,
-            );
+            )?;
             Ok(Outcome {
                 label: "Move wall ends".into(),
                 summary: Some(move_summary(1, 0, stretched.len())),
+                also_moved: stretched,
             })
         }
 
@@ -769,9 +897,13 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 }
             }
             let shifted = moves.len() - 1;
-            let stretched = move_walls(project, &moves, true, true);
+            let shifted_ids: Vec<Id> = moves.iter().skip(1).map(|m| m.id.clone()).collect();
+            let stretched = move_walls(project, &moves, true, true)?;
+            let mut also_moved = shifted_ids;
+            also_moved.extend(stretched.iter().cloned());
             Ok(Outcome {
                 label: "Set wall length".into(),
+                also_moved,
                 summary: Some(format!(
                     "Set wall length to {:.0} mm{}",
                     length_mm,
@@ -967,8 +1099,9 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                     _ => None,
                 })
                 .collect();
-            let stretched = move_walls(project, &moves, true, true);
+            let stretched = move_walls(project, &moves, true, true)?;
             Ok(Outcome {
+                also_moved: stretched.clone(),
                 label: format!("Resize {}", room.name),
                 summary: Some(format!(
                     "Moved the {side_name} side of {} by {:.0} mm ({}), stretched {}",
@@ -1125,10 +1258,11 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 }
             }
             let wall_count = moves.len();
-            let stretched = move_walls(project, &moves, *stretch_connected, true);
+            let stretched = move_walls(project, &moves, *stretch_connected, true)?;
             Ok(Outcome {
                 label: "Move".into(),
                 summary: Some(move_summary(wall_count, moved_other, stretched.len())),
+                also_moved: stretched,
             })
         }
 
@@ -1541,6 +1675,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 summary: Some(format!(
                     "Added {name}, floor at {elevation:.0} mm, {height:.0} mm floor to floor"
                 )),
+                also_moved: vec![],
             })
         }
 

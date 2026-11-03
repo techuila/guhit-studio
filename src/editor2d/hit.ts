@@ -91,6 +91,27 @@ export function hitTest(p: P, index: DocIndex, opt: HitOptions): string | null {
 }
 
 /**
+ * The room whose floor is under `p`: what a click that hit nothing else
+ * selects, as Revit and SketchUp pick a room or a face by its inside. The
+ * smallest room wins where rooms nest. Rooms on locked layers are skipped.
+ */
+export function roomFloorAt(p: P, index: DocIndex, opt: Pick<HitOptions, "includeLocked"> = {}): string | null {
+  let best: string | null = null;
+  let bestArea = Infinity;
+  for (const el of index.visible) {
+    if (el.kind !== "room") continue;
+    if (!opt.includeLocked && isLocked(el, index)) continue;
+    const g = index.roomGeo.get(el.id);
+    if (!g || g.polygon.length < 3 || !pointInPolygon(p, g.polygon)) continue;
+    if (g.area_mm2 < bestArea) {
+      best = el.id;
+      bestArea = g.area_mm2;
+    }
+  }
+  return best;
+}
+
+/**
  * Marquee selection. `crossing` false: window, elements fully inside.
  * `crossing` true: anything the rectangle touches.
  */

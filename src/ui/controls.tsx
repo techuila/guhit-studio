@@ -333,6 +333,11 @@ interface NumberFieldProps {
   decimals?: number;
   integer?: boolean;
   disabled?: boolean;
+  /**
+   * The value differs across a selection: the field shows "Mixed" and any
+   * number typed commits, even one equal to `value`.
+   */
+  mixed?: boolean;
 }
 
 export function NumberField({
@@ -348,6 +353,7 @@ export function NumberField({
   decimals = 2,
   integer,
   disabled,
+  mixed,
 }: NumberFieldProps) {
   const isLength = kind === "length";
   const toText = (n: number) => (isLength ? lengthToInput(n, unit) : numberToInput(n, integer ? 0 : decimals));
@@ -362,12 +368,12 @@ export function NumberField({
   const flash = useFlash(500);
   const send = (n: number) => {
     const v = clamp(n);
-    if (Math.abs(v - value) > 1e-6) {
+    if (mixed || Math.abs(v - value) > 1e-6) {
       onCommit(v);
       flash.fire();
     }
   };
-  const d = useDraft(toText(value), (text) => {
+  const d = useDraft(mixed ? "" : toText(value), (text) => {
     const n = parse(text);
     if (n === null) return false;
     send(n);
@@ -400,6 +406,7 @@ export function NumberField({
         aria-label={label}
         className={s.numberInput}
         value={d.value}
+        placeholder={mixed ? "Mixed" : undefined}
         disabled={disabled}
         onFocus={d.onFocus}
         onChange={d.onChange}

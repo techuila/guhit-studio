@@ -3,7 +3,7 @@
 // selected pipes. Quantities come from `Derived::pipes`, computed by the
 // engine; nothing here measures on its own.
 import { useEffect, useRef, useState, type RefObject } from "react";
-import type { Command, DocState, Element, PipeSystem } from "../contract/bindings";
+import type { DocState, Element, PipeSystem } from "../contract/bindings";
 import { useApp } from "../state/store";
 import { Button, Field, Section, Select, cx } from "../ui/controls";
 import { copyText } from "../ui/clipboard";
@@ -24,12 +24,12 @@ import {
   takeoffTitle,
   withSystem,
 } from "./pipes";
+import { updateElements } from "./commitLatest";
 import { useSection, useShell } from "./shellStore";
 import s from "./Inspector.module.css";
 
 type PipeElement = Extract<Element, { kind: "pipe" }>;
 
-const dispatch = (command: Command) => void useApp.getState().dispatch(command);
 
 // ---------------------------------------------------------------- copy button
 
@@ -188,20 +188,19 @@ export function PipesMultiFields({ pipes }: { pipes: PipeElement[] }) {
   const setSystem = (next: string) => {
     if (next === MIXED) return;
     const target = next as PipeSystem;
-    const commands: Command[] = pipes.filter((p) => p.system !== target).map((p) => ({ type: "update_element", element: withSystem(p, target) }));
-    if (commands.length === 0) return;
-    dispatch({ type: "batch", label: n === 1 ? "Set pipe system" : `Set system of ${n} pipes`, commands });
+    const edits = pipes.filter((p) => p.system !== target).map((p) => ({ base: p, next: withSystem(p, target) }));
+    if (edits.length === 0) return;
+    void updateElements(n === 1 ? "Set pipe system" : `Set system of ${n} pipes`, edits);
   };
 
   const setSize = (value: string) => {
     if (value === MIXED) return;
     const [material, d] = value.split(":");
     const diameter = Number(d);
-    dispatch({
-      type: "batch",
-      label: n === 1 ? "Set pipe size" : `Set size of ${n} pipes`,
-      commands: pipes.map((p) => ({ type: "update_element", element: { ...p, material: material as PipeElement["material"], diameter_mm: diameter } })),
-    });
+    void updateElements(
+      n === 1 ? "Set pipe size" : `Set size of ${n} pipes`,
+      pipes.map((p) => ({ base: p, next: { ...p, material: material as PipeElement["material"], diameter_mm: diameter } })),
+    );
   };
 
   return (

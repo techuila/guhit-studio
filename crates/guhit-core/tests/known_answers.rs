@@ -67,6 +67,7 @@ fn l_shaped_room() {
             closed: true,
             thickness_mm: Some(200.0),
             level_id: None,
+            role: None,
         },
     );
     assert_eq!(walls(&r.state.project).len(), 6);
@@ -242,7 +243,7 @@ fn resize_room_west_stretches_the_corner_walls_and_keeps_openings_in_place() {
     assert_eq!(door.offset_mm, 2000.0);
     assert_eq!(
         r.diff.summary,
-        "Moved the west side of Living / Dining by 500 mm (1 wall), stretched 2 walls, updated 1 dimension"
+        "Moved the west side of Living / Dining by 500 mm (1 wall), stretched 2 walls, updated 1 dimension; also moved: Wall 8500 mm, Wall 8500 mm"
     );
     // The south dimension was drawn on the south wall, which is now 8500 long.
     let dim = dimension(&r.state.project, "00000000-0000-4000-8000-000000000501");
@@ -266,6 +267,7 @@ fn triangular_room_matches_the_inradius_formula() {
             closed: true,
             thickness_mm: Some(200.0),
             level_id: None,
+            role: None,
         },
     );
     let g = &r.state.derived.rooms[0];
@@ -356,6 +358,7 @@ fn wall_outlines_tile_the_plan_at_l_t_and_three_way_joints() {
             closed: true,
             thickness_mm: Some(200.0),
             level_id: None,
+            role: None,
         },
     );
     assert_walls_tile(&r.state);
@@ -369,6 +372,7 @@ fn wall_outlines_tile_the_plan_at_l_t_and_three_way_joints() {
             closed: true,
             thickness_mm: Some(200.0),
             level_id: None,
+            role: None,
         },
     );
     assert_walls_tile(&r.state);

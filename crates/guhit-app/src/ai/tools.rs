@@ -149,6 +149,12 @@ const FLIP_HINGE_DOC: &str =
 const LEVEL_DOC: &str =
     "The level to draw on: its id or its exact name, from get_project_summary. Omit it for the level the user is working on.";
 
+const ROLE_DOC: &str = "\"building\" (the default) for the house's own walls. \"site\" for a lot fence or boundary wall: it is 1800 mm high, sits on the site layer, never closes a room and never changes the house's outside walls or floor area.";
+
+fn role_schema() -> Value {
+    json!({"type": "string", "enum": ["building", "site"], "description": ROLE_DOC})
+}
+
 fn level_schema() -> Value {
     json!({"type": "string", "description": LEVEL_DOC})
 }
@@ -238,17 +244,19 @@ pub fn definitions() -> Vec<Value> {
                 "end": point_schema("Wall centerline end"),
                 "thickness_mm": {"type": "number", "description": "Omit to use the project default."},
                 "level": level_schema(),
+                "role": role_schema(),
             }),
             &["start", "end"], true,
         ),
         tool(
             "add_wall_chain",
-            "Stage connected walls through a list of points. closed joins the last point back to the first.",
+            "Stage connected walls through a list of points. closed joins the last point back to the first. For a lot fence round the house, pass role \"site\".",
             json!({
                 "points": {"type": "array", "items": point_schema("Corner point"), "description": "At least 2 points, in order."},
                 "closed": {"type": "boolean"},
                 "thickness_mm": {"type": "number", "description": "Omit to use the project default."},
                 "level": level_schema(),
+                "role": role_schema(),
             }),
             &["points", "closed"], true,
         ),
@@ -564,6 +572,7 @@ struct AddWallInput {
     end: PointInput,
     thickness_mm: Option<f64>,
     level: Option<String>,
+    role: Option<WallRole>,
 }
 
 #[derive(Deserialize)]
@@ -573,6 +582,7 @@ struct AddWallChainInput {
     closed: bool,
     thickness_mm: Option<f64>,
     level: Option<String>,
+    role: Option<WallRole>,
 }
 
 #[derive(Deserialize)]
@@ -914,7 +924,10 @@ fn opening_command(
 /// The core seeds new ids per leaf command, from the project as it is right
 /// before that leaf runs, so the id of a wall staged in step 1 does not move
 /// when step 2 joins the batch. A later step can host a window on it.
-fn wall_command(start: Point, end: Point, thickness_mm: Option<f64>, level_id: &Id) -> Command {
+///
+/// `role` "site" is a lot fence or boundary wall (1800 mm high, never part of
+/// a room). A building wall goes as None, so its command is what it was.
+fn wall_command(start: Point, end: Point, thickness_mm: Option<f64>, level_id: &Id, role: Option<WallRole>) -> Command {
     Command::AddWall {
         start,
         end,
@@ -922,6 +935,7 @@ fn wall_command(start: Point, end: Point, thickness_mm: Option<f64>, level_id: &
         height_mm: None,
         material_id: None,
         level_id: Some(level_id.clone()),
+        role: role.filter(|r| *r == WallRole::Site),
     }
 }
 
@@ -1045,7 +1059,7 @@ pub fn to_commands(
         }
         return Ok(points
             .windows(2)
-            .map(|seg| wall_command(seg[0], seg[1], thickness_mm, level_id))
+            .map(|seg| wall_command(seg[0], seg[1], thickness_mm, level_id, i.role))
             .collect());
     }
     single_command(project, name, input, level_id).map(|c| vec![c])
@@ -1065,6 +1079,7 @@ fn single_command(
                 i.end.point("end")?,
                 positive_opt(i.thickness_mm, "thickness_mm")?,
                 &pick_level(project, i.level.as_deref(), level_id)?,
+                i.role,
             )
         }
         "add_rect_room" => {
@@ -1387,6 +1402,28 @@ pub fn element_label_in(el: &Element, rooms: &std::collections::BTreeMap<Id, Str
     }
 }
 
+/// Walls an edit reshaped although the call did not name them
+/// (`Diff::also_moved`), as the model reads them: id, label and where the
+/// wall runs now. Copilot and MCP results carry this, so a wall that moved on
+/// the far side of a joint is never missed.
+pub fn also_moved_list(project: &Project, ids: &[Id]) -> Value {
+    Value::Array(
+        ids.iter()
+            .filter_map(|id| project.elements.iter().find(|e| e.id() == id))
+            .map(|el| match el {
+                Element::Wall(w) => json!({
+                    "id": w.id,
+                    "kind": "wall",
+                    "label": element_label(el),
+                    "start": w.start,
+                    "end": w.end,
+                }),
+                other => json!({"id": other.id(), "kind": other.kind(), "label": element_label(other)}),
+            })
+            .collect(),
+    )
+}
+
 /// What one staged call changed: the difference between the staged project
 /// before and after it. New ids are listed so the model can refer to an
 /// element it just staged.
@@ -1395,27 +1432,39 @@ pub fn element_label_in(el: &Element, rooms: &std::collections::BTreeMap<Id, Str
 /// new ids per leaf command from the project state right before that leaf, so
 /// appending another step never moves an id an earlier step produced.
 pub fn step_diff(before: &Project, after: &Project) -> Value {
-    // Objects are named with their room, so five ceiling lights read apart.
-    let rooms_after = guhit_core::asset_rooms(after);
-    let rooms_before = guhit_core::asset_rooms(before);
-    let brief = |el: &Element| json!({"id": el.id(), "kind": el.kind(), "label": element_label_in(el, &rooms_after)});
-    let brief_before =
-        |el: &Element| json!({"id": el.id(), "kind": el.kind(), "label": element_label_in(el, &rooms_before)});
-    let mut added = vec![];
-    let mut modified = vec![];
+    use std::collections::BTreeMap;
+    let old: BTreeMap<&Id, &Element> = before.elements.iter().map(|e| (e.id(), e)).collect();
+    let new: BTreeMap<&Id, &Element> = after.elements.iter().map(|e| (e.id(), e)).collect();
+    let mut added_els: Vec<&Element> = vec![];
+    let mut modified_els: Vec<&Element> = vec![];
     for el in &after.elements {
-        match before.elements.iter().find(|b| b.id() == el.id()) {
-            None => added.push(brief(el)),
-            Some(b) if b != el => modified.push(brief(el)),
+        match old.get(el.id()) {
+            None => added_els.push(el),
+            Some(b) if *b != el => modified_els.push(el),
             _ => {}
         }
     }
-    let removed: Vec<Value> = before
-        .elements
-        .iter()
-        .filter(|b| !after.elements.iter().any(|a| a.id() == b.id()))
-        .map(brief_before)
-        .collect();
+    let removed_els: Vec<&Element> = before.elements.iter().filter(|b| !new.contains_key(b.id())).collect();
+    // Objects are named with their room, so five ceiling lights read apart.
+    // Finding rooms analyzes the plan, so it is done only when an object is
+    // listed.
+    let is_asset = |e: &&Element| matches!(e, Element::Asset(_));
+    let rooms_after = if added_els.iter().chain(&modified_els).any(is_asset) {
+        guhit_core::asset_rooms(after)
+    } else {
+        BTreeMap::new()
+    };
+    let rooms_before = if removed_els.iter().any(is_asset) {
+        guhit_core::asset_rooms(before)
+    } else {
+        BTreeMap::new()
+    };
+    let brief = |el: &Element| json!({"id": el.id(), "kind": el.kind(), "label": element_label_in(el, &rooms_after)});
+    let brief_before =
+        |el: &Element| json!({"id": el.id(), "kind": el.kind(), "label": element_label_in(el, &rooms_before)});
+    let added: Vec<Value> = added_els.into_iter().map(brief).collect();
+    let modified: Vec<Value> = modified_els.into_iter().map(brief).collect();
+    let removed: Vec<Value> = removed_els.into_iter().map(brief_before).collect();
     let level = |l: &Level| {
         json!({"id": l.id, "name": l.name, "elevation_mm": l.elevation_mm, "height_mm": l.height_mm})
     };

@@ -22,6 +22,10 @@
 //! - Walls are IfcWall with PredefinedType .SOLIDWALL., not
 //!   IfcWallStandardCase. That subtype demands an IfcMaterialLayerSetUsage,
 //!   and the model carries one material per wall, not a layer build-up.
+//! - A site wall (a lot fence or boundary wall, `WallRole::Site`) is an
+//!   IfcWall with PredefinedType .USERDEFINED. and ObjectType 'BOUNDARYWALL',
+//!   named "Site wall N", external and not load bearing. IFC4 has no
+//!   boundary wall type of its own.
 //! - A gable roof is one IfcRoof aggregating two sloped IfcSlab planes. The
 //!   triangular gable ends are not written as walls: the walls keep their own
 //!   height and the roof planes cover them, exactly as the live 3D view does.
@@ -31,6 +35,8 @@
 //!   glazing. It exists so the hole reads as an opening in a viewer.
 //! - A stair is one IfcStairFlight box the full level height, with the riser
 //!   and tread numbers as properties. Individual treads are not modelled.
+//!   A flight of n risers has n - 1 treads of `run_mm / (n - 1)`, as the
+//!   inspector shows them.
 //! - Dimension elements are skipped: IFC has no plain 2D dimension in this
 //!   context and a wrong one is worse than none.
 //! - Linework, ReferenceModel, Underlay and Camera elements are skipped. They
@@ -640,10 +646,17 @@ pub fn write_with_counts(
                 .step
                 .shape(axis_ctx, "Axis", "Curve2D", &[axis_line]);
             let shape = build.step.product_shape(&[axis, body]);
+            let site = w.wall.is_site();
+            let name = if site { format!("Site wall {}", n + 1) } else { format!("Wall {}", n + 1) };
+            let (object_type, predefined) = if site {
+                (s("BOUNDARYWALL"), ".USERDEFINED.")
+            } else {
+                ("$".to_string(), ".SOLIDWALL.")
+            };
             let wall = build.step.add(&format!(
-                "IFCWALL({},$,{},$,$,{place},{shape},$,.SOLIDWALL.)",
+                "IFCWALL({},$,{},$,{object_type},{place},{shape},$,{predefined})",
                 s(&guid(&w.wall.id)),
-                s(&format!("Wall {}", n + 1))
+                s(&name)
             ));
             build.contained[i].push(wall);
             wall_refs.insert(w.wall.id.as_str(), wall);
@@ -653,8 +666,10 @@ pub fn write_with_counts(
                 "Pset_WallCommon",
                 &w.wall.id,
                 &[
-                    ("Reference", Val::Text(format!("Wall {}", n + 1))),
-                    ("IsExternal", Val::Bool(w.exterior)),
+                    ("Reference", Val::Text(name.clone())),
+                    // A fence stands outside the building whatever the
+                    // topology says.
+                    ("IsExternal", Val::Bool(w.exterior || site)),
                     ("LoadBearing", Val::Bool(false)),
                 ],
                 &[wall],
@@ -912,12 +927,17 @@ pub fn write_with_counts(
                 build.step.placement(Some(place_parent), a)
             };
             let risers = st.riser_count.max(1) as i64;
+            // A straight flight of n risers has n - 1 treads between them,
+            // and the run is their total going: the tread the inspector
+            // shows, so treads times tread length is the run.
+            let treads = (risers - 1).max(1);
+            let tread = st.run_mm.max(1.0) / treads as f64;
             let flight = build.step.add(&format!(
                 "IFCSTAIRFLIGHT({},$,'Flight',$,$,{flight_place},{shape},$,{risers},{},{},{},.STRAIGHT.)",
                 s(&guid_for("flight", &st.id)),
                 risers - 1,
                 r(rise / risers as f64),
-                r(st.run_mm.max(1.0) / risers as f64)
+                r(tread)
             ));
             let stair_place = {
                 let a = build.step.axis_at(0.0, 0.0, 0.0);
@@ -940,7 +960,7 @@ pub fn write_with_counts(
                     ("NumberOfRiser", Val::Count(risers)),
                     ("NumberOfTreads", Val::Count(risers - 1)),
                     ("RiserHeight", Val::Length(rise / risers as f64)),
-                    ("TreadLength", Val::Length(st.run_mm.max(1.0) / risers as f64)),
+                    ("TreadLength", Val::Length(tread)),
                 ],
                 &[flight],
             );

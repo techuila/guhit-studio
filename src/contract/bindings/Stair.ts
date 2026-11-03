@@ -3,7 +3,9 @@ import type { Point } from "./Point";
 
 /**
  * Straight single-flight stair. `origin` is the center of the first riser,
- * the flight runs along the rotated +y direction. Going depth is
- * `run_mm / riser_count`; total rise is the level height.
+ * the flight runs along the rotated +y direction; total rise is the level
+ * height. The 2D and 3D drawings split the run into `riser_count` steps, the
+ * last flush with the floor above; the inspector and the IFC count
+ * `riser_count - 1` treads of `run_mm / (riser_count - 1)`.
  */
 export type Stair = { id: string, level_id: string, origin: Point, rotation_deg: number, width_mm: number, run_mm: number, riser_count: number, };

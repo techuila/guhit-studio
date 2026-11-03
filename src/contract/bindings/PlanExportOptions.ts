@@ -21,4 +21,12 @@ sheet: SheetKind,
  * Add a page listing open and set-aside review items with their notes
  * (PDF only). Wording stays "suggestion", never approval.
  */
-review_page: boolean, };
+review_page: boolean, 
+/**
+ * The title block DATE, "YYYY-MM-DD" on the computer's own calendar.
+ * The app fills it in with today's local date when it is None, so a
+ * sheet exported at 02:48 on 4 Nov in Manila reads 2026-11-04. Without
+ * it (an export outside the app) the sheet shows the day the project
+ * last changed, in UTC.
+ */
+date?: string | null, };

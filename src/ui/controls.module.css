@@ -495,6 +495,10 @@ textarea.input {
   outline: none;
 }
 
+.numberInput::placeholder {
+  color: var(--ink-3);
+}
+
 .numberSuffix {
   flex: none;
   padding-right: 7px;

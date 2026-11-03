@@ -9,11 +9,18 @@
 //
 // A flight joins its own level to the level whose floor sits at its top.
 // Around it the walker meets thin strips of wall, so the rest of the stair is
-// solid: on the lower level both sides and the head are closed (walk in at
-// the foot only), on the upper level both sides and the foot are closed (walk
-// in at the head only, never into the stairwell). On the flight only the
-// sides hold the walker, at the stair's width. A flight with no level at its
-// top is closed at the head too: the walker stops at the top.
+// solid: on the lower level the sides and the head are closed, on the upper
+// level the sides and the foot (never into the stairwell). The first and last
+// treads, within `STAIR_OPEN_RISE_MM` of either floor, stay open at the sides
+// where that floor is beside them: a walker can step on or off the flight
+// there at an angle, or off the top sideways when the head meets a wall.
+//
+// On the flight the walker is held by the stair's own sides, not by strips:
+// `holdOnFlight` keeps it within the width where the sides are closed, and
+// narrows over one walker radius where a closed side begins, a funnel with no
+// corner to catch on. Walls and objects of either level that stand on the
+// flight's footprint do not block a walker on it. A flight with no level at
+// its top is closed at the head: the walker stops at the top.
 
 import type { DocState } from "../../contract/bindings";
 import { levelResolver, polyCollider, type Collider } from "../geom/collision";
@@ -23,6 +30,17 @@ import type { Pt } from "../geom/coords";
 export const STAIR_TOP_MATCH_MM = 300;
 /** Thickness of the wall strips around a flight. */
 export const STAIR_STRIP_MM = 20;
+/** Within this rise of the floor at either end, the sides of a flight are open where that floor is beside them. */
+export const STAIR_OPEN_RISE_MM = 450;
+
+/** Which sides of a flight are open at its foot and at its head: [left, right], facing up the flight. */
+export interface StairOpen {
+  low: [boolean, boolean];
+  high: [boolean, boolean];
+}
+
+/** Every side closed, foot to head. */
+export const STAIR_CLOSED: StairOpen = { low: [false, false], high: [false, false] };
 
 export interface StairInfo {
   id: string;
@@ -144,21 +162,112 @@ export function flightLevelId(s: StairInfo, u: number): string {
 }
 
 function strip(s: StairInfo, u0: number, u1: number, v0: number, v1: number): Collider | null {
+  if (!(u1 - u0 > 1)) return null;
   return polyCollider([stairPoint(s, u0, v0), stairPoint(s, u0, v1), stairPoint(s, u1, v1), stairPoint(s, u1, v0)], "stair", s.id);
+}
+
+/** `u` where the walking line is `h` above the stair's floor (the inverse of `rampHeight`), within the flight. */
+export function uAtHeight(s: StairInfo, h: number): number {
+  const step = s.rise / s.risers;
+  return Math.min(Math.max((h / step - 0.5) * s.going, 0), s.run);
+}
+
+/** Where a side of a flight is closed: `u` from `from` to `to`. Side 0 is the left facing up, 1 the right. */
+export function closedSide(s: StairInfo, open: StairOpen, side: 0 | 1): { from: number; to: number } {
+  const from = open.low[side] ? uAtHeight(s, STAIR_OPEN_RISE_MM) : 0;
+  const to = open.high[side] && s.topLevelId ? uAtHeight(s, s.rise - STAIR_OPEN_RISE_MM) : s.run;
+  return { from, to: Math.max(from, to) };
 }
 
 /**
  * The wall strips of a flight. `lower`: seen from the level it stands on
- * (sides and head). `upper`: seen from the level at its top (sides and foot).
- * `flight`: for a walker on it (sides, and the head when no level is at the top).
+ * (sides and head). `upper`: seen from the level at its top (sides and
+ * foot). The sides leave the open treads of `open` free.
  */
-export function stairColliders(s: StairInfo, part: "lower" | "upper" | "flight"): Collider[] {
+export function stairColliders(s: StairInfo, part: "lower" | "upper", open: StairOpen = STAIR_CLOSED): Collider[] {
   const t = STAIR_STRIP_MM;
   const hw = s.width / 2;
-  const out: (Collider | null)[] = [strip(s, 0, s.run, hw, hw + t), strip(s, 0, s.run, -hw - t, -hw)];
-  if (part === "lower" || (part === "flight" && !s.topLevelId)) out.push(strip(s, s.run, s.run + t, -hw - t, hw + t));
-  if (part === "upper") out.push(strip(s, -t, 0, -hw - t, hw + t));
+  const left = closedSide(s, open, 0);
+  const right = closedSide(s, open, 1);
+  const out: (Collider | null)[] =
+    part === "lower"
+      ? [strip(s, left.from, s.run, -hw - t, -hw), strip(s, right.from, s.run, hw, hw + t), strip(s, s.run, s.run + t, -hw - t, hw + t)]
+      : [strip(s, 0, left.to, -hw - t, -hw), strip(s, 0, right.to, hw, hw + t), strip(s, -t, 0, -hw - t, hw + t)];
   return out.filter((c): c is Collider => c !== null);
+}
+
+/**
+ * Keeps a walker of radius `r` at `p` on a flight between its sides where
+ * they are closed, and short of the head when no level is at the top. Toward
+ * a closed stretch the allowed width narrows at 45 degrees, so walking in at
+ * an angle slides inward smoothly instead of catching on a corner.
+ */
+export function holdOnFlight(s: StairInfo, p: Pt, r: number, open: StairOpen = STAIR_CLOSED): Pt {
+  const { u, v } = stairLocal(s, p);
+  const inner = Math.max(s.width / 2 - r, 0);
+  const limit = (side: 0 | 1) => {
+    const c = closedSide(s, open, side);
+    // A side closed from the very foot still lets the walker in at the foot's full width.
+    const from = c.from > 0 ? c.from : Math.min(r, c.to);
+    return inner + Math.max(0, from - u, u - c.to);
+  };
+  let nv = v;
+  if (v < -limit(0)) nv = -limit(0);
+  if (v > limit(1)) nv = limit(1);
+  let nu = u;
+  if (!s.topLevelId && u > s.run - r) nu = s.run - r;
+  if (nu === u && nv === v) return p;
+  return stairPoint(s, nu, nv);
+}
+
+/** True when a blocker stands on the flight's footprint, more than `inset` inside its edges. */
+export function onFootprint(s: StairInfo, c: Collider, inset = 30): boolean {
+  const hw = s.width / 2 - inset;
+  const u0 = inset;
+  const u1 = s.run - inset;
+  if (!(hw > 0 && u1 > u0)) return false;
+  if (c.kind === "circle") {
+    const { u, v } = stairLocal(s, c.c);
+    const du = Math.max(u0 - u, 0, u - u1);
+    const dv = Math.max(-hw - v, 0, v - hw);
+    return Math.hypot(du, dv) < c.r;
+  }
+  const local = c.pts.map((q) => stairLocal(s, q));
+  const inRect = (q: StairLocal) => q.u > u0 && q.u < u1 && Math.abs(q.v) < hw;
+  if (local.some(inRect)) return true;
+  const rect: StairLocal[] = [
+    { u: u0, v: -hw },
+    { u: u1, v: -hw },
+    { u: u1, v: hw },
+    { u: u0, v: hw },
+  ];
+  const inPoly = (q: StairLocal) => pointInLocal(q, local);
+  if (rect.some(inPoly)) return true;
+  for (let i = 0; i < local.length; i++) {
+    const a = local[i];
+    const b = local[(i + 1) % local.length];
+    for (let k = 0; k < 4; k++) if (crosses(a, b, rect[k], rect[(k + 1) % 4])) return true;
+  }
+  return false;
+}
+
+function pointInLocal(p: StairLocal, poly: StairLocal[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    if (a.v > p.v !== b.v > p.v && p.u < ((b.u - a.u) * (p.v - a.v)) / (b.v - a.v) + a.u) inside = !inside;
+  }
+  return inside;
+}
+
+function crosses(a: StairLocal, b: StairLocal, c: StairLocal, d: StairLocal): boolean {
+  const o = (p: StairLocal, q: StairLocal, r: StairLocal) => (q.u - p.u) * (r.v - p.v) - (q.v - p.v) * (r.u - p.u);
+  const d1 = o(c, d, a);
+  const d2 = o(c, d, b);
+  const d3 = o(a, b, c);
+  const d4 = o(a, b, d);
+  return d1 * d2 < 0 && d3 * d4 < 0;
 }
 
 /** Outline, tread lines and the up arrow of a flight, for the minimap. */

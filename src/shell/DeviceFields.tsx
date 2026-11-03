@@ -6,13 +6,14 @@
 // Guhit coordinates: the circuit tag is a free label and nothing here checks
 // circuits, loads, ratings or aircon sizing (DECISIONS D21).
 import type { ReactNode } from "react";
-import type { AirconSpec, AssetLight, CatalogItem, Command, DocState, Element } from "../contract/bindings";
+import type { AirconSpec, AssetLight, CatalogItem, DocState, Element } from "../contract/bindings";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
 import { Button, Field, IconButton, NumberField, ReadOnly, Segmented, Switch, TextField, cx } from "../ui/controls";
 import { Icon, type IconName } from "../ui/icons";
 import { useListPresence } from "../ui/useListPresence";
 import { activateTool, linkFrom } from "./actions";
+import { updateElement, updateElements } from "./commitLatest";
 import {
   AIRCON_ROLE_LABEL,
   DEVICE_LABEL,
@@ -39,8 +40,8 @@ import {
 } from "./devices";
 import s from "./Inspector.module.css";
 
-const dispatch = (command: Command) => void useApp.getState().dispatch(command);
-const update = (element: Element) => dispatch({ type: "update_element", element });
+/** Lays the fields this edit changed over the latest element (`commitLatest.ts`). */
+const update = (base: Element, element: Element) => void updateElement(base, element);
 
 /** The icon for a device in lists and the inspector head. */
 export function deviceIcon(item: CatalogItem | undefined, asset?: AssetEl): IconName {
@@ -65,7 +66,7 @@ export function DeviceBasics({ el, item, doc }: { el: AssetEl; item: CatalogItem
         </Field>
       ) : null}
       <Field label="Circuit" hint="A free tag for the schedules, for example L1 or C3">
-        <TextField label="Circuit tag" value={el.circuit} placeholder="For example L1" onCommit={(circuit) => update({ ...el, circuit })} />
+        <TextField label="Circuit tag" value={el.circuit} placeholder="For example L1" onCommit={(circuit) => update(el, { ...el, circuit })} />
       </Field>
       <Field label="Mounting" hint={ref === "center" ? "Floor to the center of the box" : "Floor to the underside"}>
         <NumberField
@@ -76,7 +77,7 @@ export function DeviceBasics({ el, item, doc }: { el: AssetEl; item: CatalogItem
           max={20000}
           step={50}
           value={mountingHeight(el, ref)}
-          onCommit={(h) => update({ ...el, elevation_mm: elevationFor(h, el, ref) })}
+          onCommit={(h) => update(el, { ...el, elevation_mm: elevationFor(h, el, ref) })}
         />
         <span className={s.fieldAfter}>{ref === "center" ? "to center" : "to underside"}</span>
       </Field>
@@ -107,7 +108,7 @@ function GroupHead({ icon, children, aside }: { icon: IconName; children: ReactN
 }
 
 function LightGroup({ el, light }: { el: AssetEl; light: AssetLight }) {
-  const set = (patch: Partial<AssetLight>) => update({ ...el, light: { ...light, ...patch } });
+  const set = (patch: Partial<AssetLight>) => update(el, { ...el, light: { ...light, ...patch } });
   const color = colorOf(light.kelvin);
   return (
     <div className={s.group}>
@@ -235,7 +236,7 @@ function LinksGroup({ el, item, doc }: { el: AssetEl; item: CatalogItem | undefi
   if (mode === "linked_from" && list.length === 0) return null;
   const threeWay = mode === "controls" && isThreeWay(el, doc.project.elements);
 
-  const remove = (other: AssetEl) => (outgoing ? update(withoutLink(el, other.id)) : update(withoutLink(other, el.id)));
+  const remove = (other: AssetEl) => (outgoing ? update(el, withoutLink(el, other.id)) : update(other, withoutLink(other, el.id)));
   const go = (other: AssetEl) => {
     useApp.getState().select([other.id]);
     bus.emit("focus_elements", [other.id]);
@@ -299,15 +300,14 @@ export function DevicesMultiFields({ devices }: { devices: AssetEl[] }) {
   const circuit = sharedCircuit(devices);
   const lights = lightsOn(devices);
   const setCircuit = (tag: string) =>
-    dispatch({ type: "batch", label: n === 1 ? "Set circuit tag" : `Set circuit tag of ${n} devices`, commands: devices.map((d) => ({ type: "update_element", element: { ...d, circuit: tag } })) });
+    void updateElements(n === 1 ? "Set circuit tag" : `Set circuit tag of ${n} devices`, devices.map((d) => ({ base: d, next: { ...d, circuit: tag } })));
   const setOn = (on: boolean) => {
     const fixtures = devices.filter((d) => d.light && d.light.on !== on);
     if (fixtures.length === 0) return;
-    dispatch({
-      type: "batch",
-      label: on ? `Turn on ${fixtures.length === 1 ? "a light" : `${fixtures.length} lights`}` : `Turn off ${fixtures.length === 1 ? "a light" : `${fixtures.length} lights`}`,
-      commands: fixtures.map((d) => ({ type: "update_element", element: { ...d, light: { ...d.light!, on } } })),
-    });
+    void updateElements(
+      on ? `Turn on ${fixtures.length === 1 ? "a light" : `${fixtures.length} lights`}` : `Turn off ${fixtures.length === 1 ? "a light" : `${fixtures.length} lights`}`,
+      fixtures.map((d) => ({ base: d, next: { ...d, light: { ...d.light!, on } } })),
+    );
   };
   return (
     <>

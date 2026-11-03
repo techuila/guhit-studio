@@ -4,6 +4,7 @@ import fixture from "../../../fixtures/sample-bungalow.docstate.json";
 import { EYE_HEIGHT_MM } from "../geom/cameraMath";
 import { buildCollisionWorld, WALKER_RADIUS_MM } from "../geom/collision";
 import {
+  ESC_CONFIRM_MS,
   MAX_DT_S,
   NO_INPUT,
   NUDGE_MM_PER_PX,
@@ -12,6 +13,7 @@ import {
   SPEED_MIN_MM_S,
   WALK_SPEED_MM_S,
   WalkState,
+  walkEscape,
   wheelIntent,
   type WalkInput,
 } from "./walker";
@@ -183,5 +185,17 @@ describe("scroll and swipe", () => {
     expect(wheelIntent({ ...e, deltaY: 3, deltaMode: 1 }, false)).toEqual({ kind: "move", forwardPx: -120, rightPx: 0 });
     expect(wheelIntent({ ...e, deltaY: 5000 }, false)).toEqual({ kind: "move", forwardPx: -300, rightPx: 0 });
     expect(wheelIntent({ ...e, deltaY: 0 }, false)).toBeNull();
+  });
+});
+
+describe("Escape while walking", () => {
+  it("clears a selection first, then asks, then leaves on a second Escape soon after", () => {
+    expect(walkEscape(1000, 0, true)).toBe("used");
+    expect(walkEscape(1000, 0, false)).toBe("ask");
+    expect(walkEscape(1000 + ESC_CONFIRM_MS - 1, 1000, false)).toBe("exit");
+    // Too late: it asks again instead of leaving.
+    expect(walkEscape(1000 + ESC_CONFIRM_MS + 1, 1000, false)).toBe("ask");
+    // A selection still goes first after an ask.
+    expect(walkEscape(1200, 1000, true)).toBe("used");
   });
 });

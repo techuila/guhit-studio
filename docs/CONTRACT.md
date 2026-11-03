@@ -17,7 +17,9 @@ What every part of the app agrees on. Types live in `crates/guhit-model`
 - Walls join when endpoints are within 1 mm. New ids are seeded per leaf command, so an id does not change when a batch grows.
 - `Derived::footprints` can hold several buildings per level, largest first.
 - Dimension endpoints within 1 mm of a wall joint or outline corner follow it when a command moves the wall (DECISIONS D12).
-- Stairs: going depth = `run_mm / riser_count`. Annotations: `position` is the left end of the first baseline.
+- Stairs: the 2D and 3D drawings split `run_mm` into `riser_count` steps, the last one flush with the floor above. The inspector and the IFC give a straight flight `riser_count - 1` treads of `run_mm / (riser_count - 1)`, so treads times tread length is the run. Annotations: `position` is the left end of the first baseline.
+- Walls have a `role` (`WallRole`, schema 4): `building` (the default, and every wall of an older file; left out of the JSON) or `site`. See "Site walls".
+- `Diff::also_moved`: walls a command reshaped that it did not name (joined walls that stretched or shifted to follow). Also in `modified`, named in `summary` ("; also moved: Wall 4150 mm, Wall 3000 mm"), left out of the JSON when empty. See "Moving walls".
 
 ## Pipes
 
@@ -39,7 +41,7 @@ compliance; plumbing plans are signed by a registered Master Plumber (RA 1378).
   `storm`; `conduit` is on `electrical`; `refrigerant` and `condensate` are on
   `aircon`. Electrical and lighting objects share the `electrical` layer, aircon
   units the `aircon` layer. Visible and locked work like every other layer.
-  Schema 2 added the plumbing layers, schema 3 the others;
+  Schema 2 added the plumbing layers, schema 3 the others, schema 4 `site`;
   `guhit_core::migrate` adds missing layers when a `Document` is created.
 - Colors: tokens `--pipe-cold`, `--pipe-hot`, `--pipe-drain`, `--pipe-vent`,
   `--pipe-storm`, `--pipe-conduit`, `--pipe-refrigerant`, `--pipe-condensate`
@@ -380,13 +382,71 @@ a command naming a target that is not, is refused with `not_found`. The area
 follows the staged plan, so once a step deletes a selected element its area
 is gone: a turn that replaces a selected element adds the new one first.
 
+## Site walls
+
+A lot fence or boundary wall is a wall with `role: "site"`
+(`AddWall::role`, `AddWallChain::role`, both optional; None is a building
+wall and keeps the command JSON, and so its ids, as before).
+
+- Topology: site walls are left out of the building's wall graph. They never
+  close a room (the yard is no room), never make a building wall interior,
+  and never count in `floor_area_m2`, `gross_area_m2` or the footprints. They
+  join each other for their mitred outlines and always read `exterior`. A room
+  drawn along a fence gets its own wall on that side.
+- Height: a site wall drawn without one is `SITE_WALL_HEIGHT_MM` (1800 mm).
+- Layer: `LayerKey::Site` (label "Site"), after `aircon`, visible and locked
+  like the others. `element_layer` and the frontend `layerOf` put site walls
+  there; a locked site layer refuses new site walls only.
+- Review: no `wall_dangling` for a site wall, and a near miss counts only
+  between walls of one role.
+- Plan exports: category `Cat::Site`, SVG group `site-walls`, DXF layer
+  `L-SITE` (written only when there are site walls, so other plans give the
+  same file). 3D DXF: faces on `L-SITE`. IFC: `IfcWall` with ObjectType
+  `'BOUNDARYWALL'` and PredefinedType `.USERDEFINED.`, named "Site wall N",
+  `IsExternal` true.
+- 2D draws them at half opacity; the wall tool flyout has "Building wall"
+  and "Fence or site wall" (`ToolOptions::wallRole`).
+- MCP and copilot: `role` "building" or "site" on `add_wall` and
+  `add_wall_chain`; queries list a wall's `role`.
+
+## Moving walls
+
+`move_elements` with `stretch_connected`, `resize_room` and `set_wall_length`
+move walls rigidly, and joined walls follow:
+
+- A wall joined at a moved wall's end, at an angle, slides its end to the
+  joint's new place.
+- A wall resting on a moved wall's body (a T) slides along its own line onto
+  the moved wall, so it stays straight.
+- A wall that continues the moved wall in a straight line stays put when a
+  cross wall at the joint, by its end or its body, keeps the joint on its line
+  (R2: a lanai wall below the south wall no longer turns diagonal when the
+  partition above it moves).
+- A follower that was square or parallel to the wall it follows (within 1
+  degree) must keep its direction. When it would turn, the move is refused
+  with `stretch_turns_wall`, naming the walls: "This move would turn Wall
+  1800 mm out of line: its end at the joint would move 500 mm sideways.
+  Select it too so it moves along, or move without stretching connected
+  walls." Diagonal walls follow as before.
+- `set_wall_endpoints` (dragging a wall end) is not rigid: its followers
+  still follow the end wherever it goes.
+
+Every result names the walls that followed: `Diff::also_moved` and the
+summary sentence; MCP edit results and copilot steps add `also_moved` with
+each wall's id, label and new ends; the window shows an "Also moved: ..."
+toast.
+
 ## Sheets
 
 `PlanExportOptions::sheet` (default `plan`) picks the sheet: `lighting`,
 `power` (with a schedule of loads whose rating columns stay blank for the
 PEE), `plumbing` (with a fixture table), `plumbing_isometric` (water and
 sanitary diagrams, not to scale, legend box, a blank Master Plumber block),
-`aircon`. `review_page` adds a PDF page of review items and notes. DXF writes
+`aircon`. `review_page` adds a PDF page of review items and notes.
+`PlanExportOptions::date` is the title block DATE ("YYYY-MM-DD"); `export_plan`
+fills in today on the computer's own calendar (`guhit_app::local_date`) when
+it is None, and the export crate, which has no clock, falls back to the date
+of the project's last change. DXF writes
 devices as blocks with attributes (type, tag, height, room) on NCS style
 layers (`E-LITE-FIXT`, `E-POWR-DEVC`, `M-HVAC-EQPM` and the service run
 layers).
@@ -446,8 +506,10 @@ with time, date, place and a north arrow on each frame.
 - `nav`: `orbit`, `walk` (eye height 1600 mm on the active level; walls,
   columns and objects taller than 300 mm block; door openings let you
   through), `fly` (free, nothing blocks).
-  While not `orbit` the 3D view owns every key without MOD; Escape returns
-  to orbit.
+  While not `orbit` the 3D view owns every key without MOD; Escape clears
+  the selection, then two Escapes within 2 s return to orbit. A walk starts
+  in the largest room of the level, on the spot with the longest open view,
+  looking along it (`geom/walkStart.ts`).
 - `shell`: `solid`, `xray` (the building is drawn faint so pipes read through
   it), `hidden` (only floors, pipes and ghosted outlines). Pipes stay solid.
 - `bus.emit("walk_to", { ids, location })` enters walk mode near a finding.
@@ -460,7 +522,8 @@ with time, date, place and a north arrow on each frame.
   800 to 2500 mm (default 1600), speed (default 1.4 m/s); the wheel changes
   speed while walking. Clicking the minimap moves you there; double-clicking
   the floor glides there at eye height. Walking onto a stair's run climbs it
-  as a ramp and switches level at the landing. Door leaves swing open as you
+  as a ramp and switches level at the landing; its first and last treads are
+  open at the sides where a floor is beside them (`walk/stairs.ts`). Door leaves swing open as you
   approach and close behind you (view only). Mouse-only: drag to look, scroll
   or two-finger swipe to move.
 - The global shortcut handler defers keys to the 3D view only while that view
@@ -752,6 +815,10 @@ doc.state() -> DocState
 doc.apply(command, origin) -> Result<ApplyResult, CoreError>   // one undo step, atomic
 doc.apply_as(command, origin, author) -> Result<ApplyResult, CoreError> // same, recording a live session participant (DocState::undo_by)
 doc.preview(&command) -> Result<ApplyResult, CoreError>        // same result, commits nothing
+Staging::new(&project, label)                              // a batch built step by step on one working copy
+staging.push(&commands) -> Result<Project, CoreError>       // run them after the staged steps; all or nothing; returns the project before them; errors read "Step k of n: " counting every staged command
+staging.project() / .diff() / .derived() / .also_moved() / .command()  // staged view, preview diff, derived (computed on call), walls that followed, the Batch
+doc.apply_staged(staging, origin, author, at) -> Result<ApplyResult, CoreError> // commit it as apply_at would, without running it again when the project is unchanged
 doc.apply_at(command, origin, author, at) -> Result<ApplyResult, CoreError> // same, recording when (the caller's clock, RFC 3339)
 doc.undo() / doc.redo() -> Result<DocState, CoreError>
 doc.undo_steps(n) / doc.redo_steps(n) -> Result<DocState, CoreError> // n steps as one revision, all or nothing (bad_steps for 0, too_many_steps)
@@ -770,7 +837,14 @@ scope::check_staged(&project, &derived, &scope_ids, &made_ids, &command)       /
 scope::describe(&project, &derived, &scope_ids) -> String                    // one sentence for the model
 ```
 
-App service helpers shared with the AI module: `AppService::commit(command, origin)` (apply + autosave), `AppService::commit_if_revision(command, origin, expected_revision)` (same, atomic, `stale` on mismatch) and `AppService::project_dir()`.
+App service helpers shared with the AI module: `AppService::commit(command, origin)` (apply + autosave), `AppService::commit_if_revision(command, origin, expected_revision)` (same, atomic, `stale` on mismatch), `AppService::commit_staged_if_revision(staging, origin, expected_revision)` (the same for a `Staging`, holding the session lock only to swap the result in; a guest sends the batch to the host) and `AppService::project_dir()`.
+
+Batches stage linearly: MCP `batch` and the copilot run each step once on one
+working copy, so N steps cost N steps (a 200 step batch takes about 0.6 s in
+a debug build; re-previewing the whole batch per step took 179 s). MCP stages
+outside the session lock. The engine keeps a small process-wide cache of
+level analyses and room label points keyed by the exact wall geometry, so
+unchanged levels are not analyzed again; results are identical.
 
 `AppService::new` allows caller-supplied export paths (desktop, from the native save dialog). `AppService::new_sandboxed` (dev bridge) rejects any path outside its data dir with `forbidden`. `snapshot_restore` continues the revision counter, revisions never repeat.
 

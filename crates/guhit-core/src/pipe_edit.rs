@@ -735,6 +735,7 @@ fn move_points(
             delta_words(delta),
             followed_words(followed)
         )),
+        also_moved: vec![],
     })
 }
 
@@ -803,6 +804,7 @@ fn set_length(
             mm(length_mm),
             followed_words(followed)
         )),
+        also_moved: vec![],
     })
 }
 
@@ -914,6 +916,7 @@ fn set_slope(
             mm(slope_pct.abs()),
             followed_words(followed)
         )),
+        also_moved: vec![],
     })
 }
 
@@ -948,6 +951,7 @@ fn insert_point(
     Ok(Outcome {
         label: "Add bend".into(),
         summary: None,
+        also_moved: vec![],
     })
 }
 
@@ -977,6 +981,7 @@ fn remove_point(project: &mut Project, pipe_id: &Id, index: u32) -> Result<Outco
         }
         .into(),
         summary: None,
+        also_moved: vec![],
     })
 }
 
@@ -1817,6 +1822,7 @@ mod tests {
             thickness_mm: 150.0,
             height_mm: None,
             material_id: None,
+            role: WallRole::Building,
         }));
         let d = Document::new(p);
         let code = |c: Command| refused(&d, c).0;

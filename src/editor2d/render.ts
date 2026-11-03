@@ -225,20 +225,25 @@ export function drawOrigin(rc: RenderContext): void {
  * Walls as solid poche. All outlines are stroked first, then filled, so the
  * seams between mitred neighbours disappear and only the outer edge shows.
  */
+/** Site walls (fences, boundary walls) draw at this opacity. */
+const SITE_WALL_ALPHA = 0.5;
+
 export function drawWalls(rc: RenderContext, walls: readonly Wall[], styleOf: (id: string) => ElementStyle | null): void {
   const { ctx, palette } = rc;
-  const groups = new Map<string, { style: ElementStyle | null; walls: Wall[] }>();
+  const groups = new Map<string, { style: ElementStyle | null; walls: Wall[]; site: boolean }>();
   for (const w of walls) {
     const st = styleOf(w.id);
-    const key = st ? `${st.color}|${st.alpha}|${st.dashed}|${st.hollow}` : "";
+    // A lot fence or boundary wall draws lighter than the building.
+    const site = w.role === "site";
+    const key = st ? `${st.color}|${st.alpha}|${st.dashed}|${st.hollow}` : site ? "site" : "";
     let g = groups.get(key);
-    if (!g) groups.set(key, (g = { style: st, walls: [] }));
+    if (!g) groups.set(key, (g = { style: st, walls: [], site: !st && site }));
     g.walls.push(w);
   }
   for (const g of groups.values()) {
     const st = g.style;
     ctx.save();
-    ctx.globalAlpha = st?.alpha ?? 1;
+    ctx.globalAlpha = st?.alpha ?? (g.site ? SITE_WALL_ALPHA : 1);
     // Round joins: mitred outlines have 45 degree tips that would spike with miter joins.
     ctx.lineJoin = "round";
     ctx.strokeStyle = st?.color ?? palette.wall;

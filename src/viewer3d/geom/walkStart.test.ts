@@ -3,7 +3,7 @@ import type { DocState, Pipe } from "../../contract/bindings";
 import fixture from "../../../fixtures/sample-bungalow.docstate.json";
 import { buildCollisionWorld, isClear, WALKER_RADIUS_MM } from "./collision";
 import { pointInPolygon } from "./polygon";
-import { DOOR_STANDOFF_MM, FINDING_STANDOFF_MM, hiddenAt, pipeMostlyHidden, walkStartPose, walkToPose } from "./walkStart";
+import { bestViewInRoom, DOOR_STANDOFF_MM, FINDING_STANDOFF_MM, hiddenAt, longestView, pipeMostlyHidden, viewDistance, walkStartPose, walkToPose } from "./walkStart";
 
 const base = fixture as unknown as DocState;
 const LEVEL = base.project.levels[0].id;
@@ -13,24 +13,56 @@ const living = base.derived.rooms[0].polygon;
 describe("walkStartPose", () => {
   const world = buildCollisionWorld(base, LEVEL);
 
-  it("starts inside the room under the orbit target, keeping the orbit heading", () => {
-    const pose = walkStartPose(base, LEVEL, world, { x: 2500, y: 3000 }, 1.1);
-    expect(pose.from).toBe("room");
-    expect(pose.x).toBeCloseTo(2500, 6);
-    expect(pose.y).toBeCloseTo(3000, 6);
-    expect(pose.yaw).toBeCloseTo(1.1, 6);
-  });
+  const edgesOf = (w: typeof world): [{ x: number; y: number }, { x: number; y: number }][] => [
+    ...w.wallPieces.flatMap((poly) => poly.map((a, i) => [a, poly[(i + 1) % poly.length]] as [{ x: number; y: number }, { x: number; y: number }])),
+    ...base.derived.footprints.flatMap((f) => f.polygon.map((a, i) => [a, f.polygon[(i + 1) % f.polygon.length]] as [{ x: number; y: number }, { x: number; y: number }])),
+  ];
 
-  it("moves off a wall to a clear spot in the same room", () => {
-    const pose = walkStartPose(base, LEVEL, world, { x: 120, y: 3000 }, 0);
+  it("starts in the largest room, clear of the walls, looking along its longest open view", () => {
+    // The orbit target in the bedroom does not pull the start there: the living room is larger.
+    const pose = walkStartPose(base, LEVEL, world, { x: 6500, y: 3000 }, 1.1);
     expect(pose.from).toBe("room");
     expect(pointInPolygon(pose, living)).toBe(true);
-    expect(isClear(pose, R, world)).toBe(true);
-    expect(Math.hypot(pose.x - 120, pose.y - 3000)).toBeLessThan(700);
+    expect(isClear(pose, R + 400, world)).toBe(true);
+    const edges = edgesOf(world);
+    // Never facing a wall: at least 4.5 m of room ahead in the 4.9 x 5.9 m living room.
+    expect(viewDistance(pose, pose.yaw, edges)).toBeGreaterThan(4500);
+    // A better view than from the middle of the room.
+    const fromLabel = longestView(base.derived.rooms[0].label_point, edges);
+    expect(longestView(pose, edges).length).toBeGreaterThanOrEqual(fromLabel.length - 1);
   });
 
-  it("without a room under the target, stands just outside the first exterior door, facing in", () => {
-    const pose = walkStartPose(base, LEVEL, world, { x: 20000, y: 20000 }, 0);
+  it("measures a view to the first wall, through door gaps, and stops at the building outline", () => {
+    const edges = edgesOf(world);
+    // East from the living room: the partition at x = 4950 (no door there at y = 1000).
+    expect(viewDistance({ x: 1000, y: 1000 }, 0, edges)).toBeCloseTo(3950, 0);
+    // South through the front door gap (x 1050 to 1950): stops at the outline, not 30 m out.
+    expect(viewDistance({ x: 1500, y: 3000 }, -Math.PI / 2, edges)).toBeCloseTo(3075, 0);
+  });
+
+  it("never starts on a stair", async () => {
+    const { twoLevelDoc } = await import("../walk/testModel");
+    const d = twoLevelDoc();
+    const w = buildCollisionWorld(d, LEVEL);
+    const pose = walkStartPose(d, LEVEL, w, null, null);
+    expect(pose.from).toBe("room");
+    // The flight: x 150 to 1050, y 1200 to 5100, plus a walker's radius.
+    const onIt = pose.x > 150 - R && pose.x < 1050 + R && pose.y > 1200 - 250 - R && pose.y < 5100 + R;
+    expect(onIt).toBe(false);
+  });
+
+  it("picks the best spot in a room on its own", () => {
+    const v = bestViewInRoom({ polygon: living, label: base.derived.rooms[0].label_point }, edgesOf(world), world);
+    expect(v).not.toBeNull();
+    expect(pointInPolygon(v!, living)).toBe(true);
+    expect(v!.length).toBeGreaterThan(4500);
+  });
+
+  it("with no rooms, stands just outside the first exterior door, facing in", () => {
+    const d = structuredClone(base);
+    d.project.elements = d.project.elements.filter((e) => e.kind !== "room");
+    d.derived.rooms = [];
+    const pose = walkStartPose(d, LEVEL, world, { x: 20000, y: 20000 }, 0);
     expect(pose.from).toBe("door");
     // Front door: center (1500, 0) on a 150 mm wall; outside is south.
     expect(pose.x).toBeCloseTo(1500, 3);
@@ -38,8 +70,8 @@ describe("walkStartPose", () => {
     expect(pose.yaw).toBeCloseTo(Math.PI / 2, 6);
   });
 
-  it("with no target at all, uses the door rule too", () => {
-    expect(walkStartPose(base, LEVEL, world, null, null).from).toBe("door");
+  it("with no target at all, still starts in the largest room", () => {
+    expect(walkStartPose(base, LEVEL, world, null, null).from).toBe("room");
   });
 
   it("with neither rooms nor doors, stands south of the model and faces it", () => {

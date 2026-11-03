@@ -35,7 +35,7 @@ import type { Grip } from "./edit";
 import { gripsFor, hitGrip, jointInset, normalDelta, rotationFromGrip } from "./edit";
 import type { P, Rect, Seg } from "./geom";
 import { add, angleDeg, cross, dirDeg, dist, dot, mul, normDeg, projectParam, rectFromPoints, rectIsEmpty, sub, unit } from "./geom";
-import { hitTest, hitsElement, marqueeSelect } from "./hit";
+import { hitTest, hitsElement, marqueeSelect, roomFloorAt } from "./hit";
 import type { AssetEl, Linkable, LinkPair } from "./links";
 import { allLinks, defaultBow, deviceKindOf, linkArc, linkKey, linkables, linksOf, resolveLinkClick, threeWaySwitches, trimLink } from "./links";
 import type { DocIndex, OpeningEl, WallEl } from "./model";
@@ -56,8 +56,8 @@ import {
   usableGuides,
 } from "./mount";
 import { drawOverlay } from "./overlay";
-import type { FaceSnap, OpeningPlacement, OpeningSpan } from "./place";
-import { doorSwingSide, findHostWall, placeOnWall, roomSideOfWall, snapToFace } from "./place";
+import type { FaceSnap, OpeningFit, OpeningPlacement, OpeningSpan } from "./place";
+import { doorSwingSide, findHostWall, fitOnWall, openingFitNote, openingMinWidth, placeOnWall, roomSideOfWall, snapToFace } from "./place";
 import type { FixturePoint, PipeEl, PipeSnapScene, PipeSpec } from "./pipe";
 import {
   PIPE_HEIGHT_STEP,
@@ -112,7 +112,7 @@ import { computeIntersections, emptyScene, snap } from "./snap";
 import { assetSymbolAnchor } from "./symbols";
 import type { Box } from "./tags";
 import type { TypedState } from "./typed";
-import { emptyTyped, formatArea, isTypedKey, typedIsEmpty, typedKey, typedValues } from "./typed";
+import { emptyTyped, formatArea, formatLength, isTypedKey, typedIsEmpty, typedKey, typedValues } from "./typed";
 import type { View } from "./view";
 import { clampScale, fitRect, panBy, snapStep, toScreen, toWorld, zoomAt } from "./view";
 
@@ -140,6 +140,7 @@ const LAYER_LABEL: Record<LayerKey, string> = {
   storm: "Storm drainage",
   electrical: "Electrical",
   aircon: "Aircon",
+  site: "Site",
 };
 function layerLabel(key: LayerKey): string {
   return LAYER_LABEL[key] ?? key;
@@ -176,6 +177,8 @@ export const K = {
   back: "drag.back",
   marquee: "marquee",
   ghostOpening: "ghost.o",
+  /** The door or window ghost's width easing to a narrower fit and back. */
+  ghostWidth: "ghost.w",
   ghostPlace: "ghost.p",
   swing: "ghost.swing",
   hinge: "ghost.hinge",
@@ -249,7 +252,17 @@ const BREATH_MS = 1600;
 export type Op =
   | { kind: "idle" }
   | { kind: "pan"; last: P }
-  | { kind: "press"; downScreen: P; downWorld: P; hitId: string | null; additive: boolean; alt: boolean; pipe?: PipePress }
+  | {
+      kind: "press";
+      downScreen: P;
+      downWorld: P;
+      hitId: string | null;
+      additive: boolean;
+      alt: boolean;
+      pipe?: PipePress;
+      /** The room whose empty floor was pressed: a click selects it, a drag still draws a marquee. */
+      floorId?: string | null;
+    }
   | { kind: "marquee"; start: P; current: P; additive: boolean }
   | { kind: "move"; ids: string[]; ref: P; delta: P; duplicate: boolean; committing: boolean }
   | { kind: "slide"; opening: OpeningEl; host: Wall; placement: OpeningPlacement; committing: boolean }
@@ -335,6 +348,10 @@ export interface OpeningGhost {
   opening: OpeningEl;
   host: Wall;
   placement: OpeningPlacement;
+  /** True when the tool's width did not fit and the ghost is narrower. */
+  narrowed: boolean;
+  /** Said beside the cursor: the width it narrowed to, or why it cannot go here and what would. */
+  note: string | null;
 }
 
 export interface PlacementGhost {
@@ -479,6 +496,8 @@ export class PlanController {
   private prevCommitted: { id: string | null; json: Map<string, string>; index: DocIndex } | null = null;
   private snapOn = false;
   private swingTarget = 1;
+  /** The door or window ghost's last note, to bump it once when it changes. */
+  private ghostNote: string | null = null;
   private hingeTarget = 0;
   /** View the running ease started from. Null when the view is settled. */
   private viewFrom: View | null = null;
@@ -1361,6 +1380,16 @@ export class PlanController {
       this.lastOpeningGhost = og;
       const swing = og.opening.flip_side ? -1 : 1;
       const hinge = og.opening.flip_hinge ? 1 : 0;
+      // Narrowed to fit: the ghost eases to the new width and its note bumps once.
+      if (fresh) this.anim.set(K.ghostWidth, og.opening.width_mm);
+      else this.animate(K.ghostWidth, og.opening.width_mm, dur("hover"), { easing: ease.out });
+      if (og.note !== this.ghostNote) {
+        if (og.note && !fresh) {
+          this.anim.clear(K.placeRefused);
+          this.animate(K.placeRefused, 0, dur("base"), { from: 1, easing: ease.out, drop: true });
+        }
+        this.ghostNote = og.note;
+      }
       if (fresh) {
         this.anim.set(K.swing, swing);
         this.anim.set(K.hinge, hinge);
@@ -2073,6 +2102,7 @@ export class PlanController {
         if (op.pipe) {
           if (op.pipe.pick) usePipePick.getState().setPick(op.pipe.pick);
         } else if (op.hitId) s.select([op.hitId], op.additive);
+        else if (op.floorId) s.select([op.floorId], op.additive);
         else if (!op.additive) s.select([]);
         this.op = { kind: "idle" };
         break;
@@ -2228,8 +2258,12 @@ export class PlanController {
         return;
       }
     }
-    const hitId = hitTest(world, this.index, this.hitOptions());
-    this.op = { kind: "press", downScreen: screen, downWorld: world, hitId, additive: e.shiftKey, alt: e.altKey };
+    let hitId = hitTest(world, this.index, this.hitOptions());
+    // Nothing but the floor (or a traced image under it): a click selects the room.
+    const under = hitId ? this.index.byId.get(hitId) : null;
+    const floorId = !hitId || under?.kind === "underlay" ? roomFloorAt(world, this.index) : null;
+    if (floorId) hitId = null;
+    this.op = { kind: "press", downScreen: screen, downWorld: world, hitId, additive: e.shiftKey, alt: e.altKey, floorId };
   }
 
   private beginDrag(op: Extract<Op, { kind: "press" }>, alt: boolean): void {
@@ -2343,6 +2377,20 @@ export class PlanController {
       }
     }
     return placeOnWall(world, host, width, insetS, insetE, this.gridStep(), SNAP_PX / this.view.scale, useApp.getState().snapEnabled, others);
+  }
+
+  /** `placementFor` that narrows the width to fit, down to `min` (place.ts `fitOnWall`). */
+  private fitFor(world: P, host: Wall, width: number, min: number): OpeningFit {
+    const index = this.index;
+    const insetS = index ? jointInset(index, host, "start") : 0;
+    const insetE = index ? jointInset(index, host, "end") : 0;
+    const others: OpeningSpan[] = [];
+    if (index) {
+      for (const e of index.byId.values()) {
+        if (e.kind === "opening" && e.wall_id === host.id) others.push({ offset: e.offset_mm, width: e.width_mm });
+      }
+    }
+    return fitOnWall(world, host, width, min, insetS, insetE, this.gridStep(), SNAP_PX / this.view.scale, useApp.getState().snapEnabled, others);
   }
 
   private commitSlide(op: Extract<Op, { kind: "slide" }>): void {
@@ -2545,12 +2593,15 @@ export class PlanController {
     }
     op.committing = true;
     op.typed = null;
+    const { wallThicknessMm, wallRole } = useApp.getState().toolOptions;
     void this.run({
       type: "add_wall_chain",
       points: op.points.map((q) => ({ x: q.x, y: q.y })),
       closed,
-      thickness_mm: useApp.getState().toolOptions.wallThicknessMm,
+      thickness_mm: wallThicknessMm,
       level_id: this.levelId(),
+      // A fence or boundary wall: on the site layer, 1800 mm, never a room.
+      ...(wallRole === "site" ? { role: "site" as const } : {}),
     });
   }
 
@@ -3337,7 +3388,10 @@ export class PlanController {
     const host = findHostWall(world, walls, 14 / this.view.scale);
     if (!host) return null;
     const d = openingDefaults(type, useApp.getState().toolOptions.openingStyle);
-    const placement = this.placementFor(world, host, d.width);
+    // The tool keeps its style (CAD habit), but a width that does not fit the
+    // wall under the pointer narrows to the widest that does.
+    const fit = this.fitFor(world, host, d.width, openingMinWidth(type, d.style));
+    const placement = fit.placement;
     let cursorFlip = false;
     if (type === "door") {
       const exterior = index.wallGeo.get(host.id)?.exterior ?? false;
@@ -3351,19 +3405,27 @@ export class PlanController {
       opening_type: type,
       style: d.style,
       offset_mm: placement.offset,
-      width_mm: d.width,
+      width_mm: fit.width,
       height_mm: d.height,
       sill_mm: d.sill,
       flip_side: cursorFlip !== this.flipSide,
       flip_hinge: this.flipHinge,
       material_id: null,
     };
-    return { opening, host, placement };
+    const unit = index.doc.project.settings.display_unit;
+    const note = openingFitNote(type, d.style, fit, (mm) => formatLength(mm, unit, true));
+    return { opening, host, placement, narrowed: fit.narrowed, note };
   }
 
   private placeOpening(): void {
     const g = this.openingGhost;
-    if (!g || !g.placement.valid) return;
+    if (!g) return;
+    if (!g.placement.valid) {
+      // Nothing is placed: the reason near the cursor bumps once.
+      this.anim.clear(K.placeRefused);
+      this.animate(K.placeRefused, 0, dur("base"), { from: 1, easing: ease.out, drop: true });
+      return;
+    }
     const o = g.opening;
     const command: Command = {
       type: "add_opening",

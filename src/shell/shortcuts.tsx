@@ -417,7 +417,7 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
       ["F", "Switch walk and fly"],
       ["E / Q", "Up and down while flying"],
       ["X", "Building solid, X-ray, hidden"],
-      ["Esc", "Back to orbit"],
+      ["Esc", "Clear the selection, then Esc twice back to orbit"],
     ],
   },
   {

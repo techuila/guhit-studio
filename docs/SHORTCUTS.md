@@ -9,8 +9,9 @@ restart the wall tool). Source of truth: `src/shell/shortcuts.tsx` (the
 
 While the 3D view walks or flies (`useViewer` nav is not `orbit`), it owns
 every key without MOD: the global handler ignores them all, including tool
-letters, Delete and `?`. MOD shortcuts keep working. Escape returns to orbit,
-except while following someone in a live session, where it stops following.
+letters, Delete and `?`. MOD shortcuts keep working. Escape clears the
+selection, then two Escapes return to orbit, except while following someone
+in a live session, where it stops following.
 
 ## Draw (tools)
 
@@ -192,7 +193,7 @@ its Lock mouse button.
 | F | Switch between walk and fly |
 | E or Space, Q or C | Up and down, in fly mode |
 | X | Building solid, X-ray, hidden |
-| Escape | Back to orbit. With the mouse locked, the first Escape only frees the mouse |
+| Escape | Clears the selection first. With nothing selected it asks ("Press Esc again to stop walking"), and a second Escape within 2 s goes back to orbit, so a stray Escape never ends the walk. With the mouse locked, the first Escape only frees the mouse |
 
 Switching to the plan-only view (the 2D button, or the palette) ends a walk,
 so the plan gets its keys back.
@@ -219,6 +220,16 @@ status bar opens the Levels section.
 | Arrow keys | Nudge the selection by the project's grid step |
 | Shift+Arrow | Nudge by 10x the grid step |
 | Alt+Arrow | Nudge by 1 mm |
+
+With Select, a click on a room's empty floor (nothing else under the
+pointer: no wall, opening, object or label) selects the room, as Revit and
+SketchUp do; Shift adds it. A drag from the floor still draws a marquee.
+
+The door and window tools keep the last style. Over a wall too short for
+that style's width, the ghost narrows to the widest 50 mm size that fits
+and says so ("Narrowed to 750 mm to fit"); below the style's narrowest
+(single swing 600, sliding door 700, double 1000, windows 300 to 600) it
+refuses and says what would fit.
 
 A held arrow key is one undo step: the move commits on keyup or after 250 ms
 of no further repeats, whichever comes first. While it is held, the move is

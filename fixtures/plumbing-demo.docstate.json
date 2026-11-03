@@ -1,6 +1,6 @@
 {
   "project": {
-    "schema_version": 3,
+    "schema_version": 4,
     "id": "00000000-0000-4000-8000-000000000002",
     "name": "Bungalow with services",
     "created_at": "2026-09-23T00:00:00Z",
@@ -103,6 +103,11 @@
       },
       {
         "key": "aircon",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "site",
         "visible": true,
         "locked": false
       }

@@ -465,6 +465,7 @@ async fn stale_proposal_is_refused() {
         height_mm: None,
         material_id: None,
         level_id: None,
+        role: None,
     };
     r.app.commit(user_edit, Origin::User).await.unwrap();
     let after_edit = r.project().await;
@@ -633,6 +634,7 @@ fn center_position_uses_half_the_wall_length() {
         thickness_mm: 150.0,
         height_mm: None,
         material_id: None,
+        role: WallRole::Building,
     }));
     let cmd = super::tools::to_command(&project, "add_window", &json!({"wall_id": "w1", "position": "center"}), &level_id).unwrap();
     match cmd {
@@ -668,6 +670,7 @@ fn every_edit_tool_translates_to_a_typed_command() {
         thickness_mm: 150.0,
         height_mm: None,
         material_id: None,
+        role: WallRole::Building,
     }));
     project.elements.push(Element::Opening(Opening {
         id: "o1".into(),
@@ -1000,6 +1003,7 @@ fn wall_items_snap_to_the_nearest_face_and_ceiling_items_follow_the_ceiling() {
         thickness_mm: 150.0,
         height_mm: None,
         material_id: None,
+        role: WallRole::Building,
     }));
     let place = |key: &str, x: f64, y: f64| match super::tools::to_command(
         &project,
@@ -1337,4 +1341,53 @@ async fn without_a_scope_the_turn_reads_as_before() {
     assert!(context.contains("Selected elements: none\nRoof: "), "{context}");
     let intent = r.log_lines().await.into_iter().find(|l| l["event"] == "intent").unwrap();
     assert_eq!(intent["scope_ids"], Value::Null);
+}
+
+/// The copilot draws a lot fence as site walls, and a staged move names the
+/// walls it reshaped without being asked (R2 problems 2 and 6).
+#[tokio::test]
+async fn a_staged_fence_is_site_walls_and_a_staged_move_names_what_followed() {
+    let fence = json!({
+        "points": [{"x": -2000, "y": -2000}, {"x": 8000, "y": -2000}, {"x": 8000, "y": 8000}, {"x": -2000, "y": 8000}],
+        "closed": true,
+        "role": "site",
+    });
+    let room = json!({"origin": {"x": 0, "y": 0}, "width_mm": 4000, "depth_mm": 3000, "name": "Sala"});
+    let r = rig_with(ScriptedClient::dynamic(Box::new(move |index, request| match index {
+        0 => ScriptedClient::tools(&[("add_rect_room", room.clone()), ("add_wall_chain", fence.clone())]),
+        1 => {
+            let (body, _) = first_result(request);
+            // The east wall of the room the turn staged.
+            let east = body["this_step"]["added"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|e| e["kind"] == "wall")
+                .nth(1)
+                .unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            ScriptedClient::tools(&[(
+                "move_elements",
+                json!({"ids": [east], "dx_mm": 500, "dy_mm": 0, "stretch_connected": true}),
+            )])
+        }
+        _ => {
+            let (body, is_error) = first_result(request);
+            assert!(!is_error, "{body}");
+            let also = body["this_step"]["also_moved"].as_array().expect("also_moved on the step");
+            assert_eq!(also.len(), 2, "{body}");
+            assert!(also.iter().all(|w| w["label"] == "Wall 4500 mm"), "{body}");
+            ScriptedClient::text("Done.")
+        }
+    })))
+    .await;
+
+    let proposal = r.chat("draw the sala and the lot fence, then widen the sala").await.unwrap().proposal.expect("proposal");
+    let state = &proposal.preview.state;
+    let site = state.project.elements.iter().filter(|e| matches!(e, Element::Wall(w) if w.is_site())).count();
+    assert_eq!(site, 4);
+    assert_eq!(state.derived.rooms.len(), 1, "the yard is no room");
+    assert_eq!(proposal.preview.diff.also_moved.len(), 0, "against the plan before the turn every wall is new");
 }

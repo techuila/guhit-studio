@@ -3,7 +3,7 @@ import type { DocState, Element } from "../contract/bindings";
 import fixture from "../../fixtures/sample-bungalow.docstate.json";
 import { gripsFor, hitGrip, jointInset, normalDelta, rotationFromGrip, stretchedWalls, translateElement, walledJointMove } from "./edit";
 import { pt, rectFromPoints } from "./geom";
-import { hitTest, marqueeSelect } from "./hit";
+import { hitTest, marqueeSelect, roomFloorAt } from "./hit";
 import { annotationBox, buildIndex, isLocked, layerOf, modelBounds, openingFrame, stairOutline, wallOutline } from "./model";
 
 const doc = fixture as unknown as DocState;
@@ -83,6 +83,33 @@ describe("hit testing", () => {
   it("picks a room by its label and assets by their footprint", () => {
     expect(hitTest(pt(2512, 3000), index, opt)).toBe("00000000-0000-4000-8000-000000000301");
     expect(hitTest(pt(6900, 4800), index, opt)).toBe("00000000-0000-4000-8000-000000000401");
+  });
+
+  it("finds the room whose empty floor is under a click that hit nothing else", () => {
+    // Far from the label, under no wall, opening or object.
+    expect(hitTest(pt(1000, 1000), index, opt)).toBeNull();
+    const room = roomFloorAt(pt(1000, 1000), index);
+    expect(room).not.toBeNull();
+    expect(index.byId.get(room!)?.kind).toBe("room");
+    expect(index.roomGeo.get(room!)!.polygon.length).toBeGreaterThan(2);
+    // Outside every room.
+    expect(roomFloorAt(pt(-3000, -3000), index)).toBeNull();
+    // Rooms on a locked layer are not picked by their floor either.
+    const locked = buildIndex(withLayers((k) => (k === "rooms" ? { locked: true } : {})), null);
+    expect(roomFloorAt(pt(1000, 1000), locked)).toBeNull();
+  });
+
+  it("picks the smaller of two rooms that overlap", () => {
+    const d = structuredClone(doc);
+    const big = d.derived.rooms[0];
+    const rooms = d.project.elements.filter((e) => e.kind === "room");
+    const other = rooms.find((r) => r.id !== big.room_id)!;
+    const g = d.derived.rooms.find((r) => r.room_id === other.id)!;
+    // Lay a small square for the other room inside the first one.
+    const c = big.label_point;
+    g.polygon = [pt(c.x - 300, c.y - 300), pt(c.x + 300, c.y - 300), pt(c.x + 300, c.y + 300), pt(c.x - 300, c.y + 300)];
+    g.area_mm2 = 360000;
+    expect(roomFloorAt(pt(c.x + 100, c.y + 100), buildIndex(d, null))).toBe(other.id);
   });
 
   it("picks a dimension on its line", () => {

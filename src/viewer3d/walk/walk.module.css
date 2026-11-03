@@ -127,6 +127,24 @@
   transition-timing-function: var(--ease-out);
 }
 
+/* The first Escape asks before the walk ends: same place and motion as the speed readout. */
+.exitAsk {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.exitAsk kbd {
+  display: inline-block;
+  min-width: 18px;
+  margin: 0 2px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--chrome-text) 16%, transparent);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
 /* Settings and mouse lock, bottom right. */
 .controls {
   position: absolute;

@@ -14,8 +14,23 @@ import type { Roof } from "./Roof";
 import type { Side } from "./Side";
 import type { Vec3 } from "./Vec3";
 import type { WallAnchor } from "./WallAnchor";
+import type { WallRole } from "./WallRole";
 
-export type Command = { "type": "add_wall", start: Point, end: Point, thickness_mm: number | null, height_mm: number | null, material_id: string | null, level_id: string | null, } | { "type": "add_wall_chain", points: Array<Point>, closed: boolean, thickness_mm: number | null, level_id: string | null, } | { "type": "add_rect_room", origin: Point, width_mm: number, depth_mm: number, name: string | null, thickness_mm: number | null, level_id: string | null, } | { "type": "set_wall_endpoints", wall_id: string, start: Point, end: Point, } | { "type": "set_wall_length", wall_id: string, length_mm: number, anchor: WallAnchor, } | { "type": "split_wall", wall_id: string, at_mm: number, } | { "type": "add_opening", wall_id: string, opening_type: OpeningType, offset_mm: number, width_mm: number | null, height_mm: number | null, sill_mm: number | null, style: OpeningStyle | null, 
+export type Command = { "type": "add_wall", start: Point, end: Point, thickness_mm: number | null, 
+/**
+ * None: the level height, or `SITE_WALL_HEIGHT_MM` for a site wall.
+ */
+height_mm: number | null, material_id: string | null, level_id: string | null, 
+/**
+ * None is a building wall. Left out of the JSON when None, so a
+ * building wall's command (and the ids it seeds) is what it was.
+ */
+role?: WallRole | null, } | { "type": "add_wall_chain", points: Array<Point>, closed: boolean, thickness_mm: number | null, level_id: string | null, 
+/**
+ * None is a building wall. Left out of the JSON when None, so a
+ * building wall's command (and the ids it seeds) is what it was.
+ */
+role?: WallRole | null, } | { "type": "add_rect_room", origin: Point, width_mm: number, depth_mm: number, name: string | null, thickness_mm: number | null, level_id: string | null, } | { "type": "set_wall_endpoints", wall_id: string, start: Point, end: Point, } | { "type": "set_wall_length", wall_id: string, length_mm: number, anchor: WallAnchor, } | { "type": "split_wall", wall_id: string, at_mm: number, } | { "type": "add_opening", wall_id: string, opening_type: OpeningType, offset_mm: number, width_mm: number | null, height_mm: number | null, sill_mm: number | null, style: OpeningStyle | null, 
 /**
  * None means false. See `Opening::flip_side` for the convention.
  */

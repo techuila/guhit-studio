@@ -18,7 +18,26 @@ import { boundsOf, pointInPolygon } from "../geom/polygon";
 import { roomsOn } from "../geom/walkStart";
 import type { WalkNav } from "../engine/walker";
 import type { MinimapScene } from "./minimap";
-import { approachHeight, flightLevelId, onFlight, rampHeight, stairColliders, stairLocal, stairOutline, stairsOf, type StairInfo } from "./stairs";
+import {
+  approachHeight,
+  flightLevelId,
+  holdOnFlight,
+  onFlight,
+  onFootprint,
+  rampHeight,
+  stairColliders,
+  stairLocal,
+  stairOutline,
+  stairPoint,
+  stairsOf,
+  uAtHeight,
+  STAIR_OPEN_RISE_MM,
+  type StairInfo,
+  type StairOpen,
+} from "./stairs";
+
+/** How far beside a flight the floor is looked for, to open its first and last treads at the sides. */
+const SIDE_PROBE_MM = 400;
 
 /** A floor this far above the feet still counts as under them when fly mode ends, and a flight snaps as close. */
 export const LAND_SNAP_MM = 600;
@@ -34,6 +53,7 @@ export class WalkWorlds implements WalkNav {
   private readonly worlds = new Map<string, CollisionWorld>();
   private readonly flights = new Map<string, CollisionWorld>();
   private readonly areas = new Map<string, Pt[][]>();
+  private readonly open = new Map<string, StairOpen>();
 
   constructor(
     readonly doc: DocState,
@@ -64,7 +84,7 @@ export class WalkWorlds implements WalkNav {
     if (!world) {
       const base = buildCollisionWorld(this.doc, id, { eyeMm: this.eyeMm });
       const strips = this.stairs.flatMap((s) =>
-        s.levelId === id ? stairColliders(s, "lower") : s.topLevelId === id ? stairColliders(s, "upper") : [],
+        s.levelId === id ? stairColliders(s, "lower", this.openSides(s)) : s.topLevelId === id ? stairColliders(s, "upper", this.openSides(s)) : [],
       );
       world = strips.length > 0 ? { ...base, colliders: [...base.colliders, ...strips] } : base;
       this.worlds.set(id, world);
@@ -72,16 +92,47 @@ export class WalkWorlds implements WalkNav {
     return world;
   }
 
+  /**
+   * What blocks a walker on a flight: the walls and objects of its lower
+   * level (its upper level on the upper half), less the flight's own strips
+   * and anything standing on its footprint. The sides are held by
+   * `holdOnFlight`.
+   */
   flightWorld(s: StairInfo, high: boolean): CollisionWorld {
     const levelId = high && s.topLevelId ? s.topLevelId : s.levelId;
     const key = `${s.id}|${levelId}`;
     let world = this.flights.get(key);
     if (!world) {
       const base = this.levelWorld(levelId);
-      world = { ...base, colliders: [...base.colliders.filter((c) => c.id !== s.id), ...stairColliders(s, "flight")] };
+      world = { ...base, colliders: base.colliders.filter((c) => c.id !== s.id && !onFootprint(s, c)) };
       this.flights.set(key, world);
     }
     return world;
+  }
+
+  holdOnFlight(s: StairInfo, p: Pt, r: number): Pt {
+    return holdOnFlight(s, p, r, this.openSides(s));
+  }
+
+  /**
+   * Which sides of a flight's first and last treads are open: where the floor
+   * of the level at that end is beside them, 400 mm out from the side.
+   */
+  openSides(s: StairInfo): StairOpen {
+    let open = this.open.get(s.id);
+    if (!open) {
+      const hw = s.width / 2 + SIDE_PROBE_MM;
+      const lowU = uAtHeight(s, STAIR_OPEN_RISE_MM) / 2;
+      const highU = (uAtHeight(s, s.rise - STAIR_OPEN_RISE_MM) + s.run) / 2;
+      const floorAt = (levelId: string | null, u: number, v: number) =>
+        levelId !== null && (levelId === this.lowestLevelId() || this.inside(levelId, stairPoint(s, u, v)));
+      open = {
+        low: [floorAt(s.levelId, lowU, -hw), floorAt(s.levelId, lowU, hw)],
+        high: [floorAt(s.topLevelId, highU, -hw), floorAt(s.topLevelId, highU, hw)],
+      };
+      this.open.set(s.id, open);
+    }
+    return open;
   }
 
   stairAt(levelId: string, p: Pt): StairInfo | null {
@@ -135,7 +186,8 @@ export class WalkWorlds implements WalkNav {
     if (!polys) {
       polys = [...groupFootprints(this.doc.derived?.footprints, levelId), ...roomsOn(this.doc, levelId).map((r) => r.polygon)];
       if (polys.length === 0) {
-        const b = boundsOf(this.levelWorld(levelId).wallPieces.flat());
+        // The level's own walls, without the stair strips (those ask this very question).
+        const b = boundsOf(buildCollisionWorld(this.doc, levelId, { eyeMm: this.eyeMm }).wallPieces.flat());
         if (b) polys.push([{ x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY }, { x: b.maxX, y: b.maxY }, { x: b.minX, y: b.maxY }]);
       }
       this.areas.set(levelId, polys);

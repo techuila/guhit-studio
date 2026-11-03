@@ -163,8 +163,8 @@ fn reused_descriptions() -> BTreeMap<&'static str, String> {
         ("get_pipe_takeoff", d("Run quantities of the open project from the engine, for every system: cold and hot water, drainage, vent, storm drains, electrical conduit, aircon line sets and condensate. Centerline length in metres per system, material and size, elbow, tee and sleeve counts, and every slab, wall and roof penetration with its position; an aircon run through a wall has its core hole size. Conduit needs no sleeves. Call this for any question about run lengths, fittings or sleeves instead of adding them up yourself. Guhit counts runs; it never sizes them: plumbing is for a registered Master Plumber, electrical for a Professional Electrical Engineer, aircon for a Professional Mechanical Engineer.")),
         ("get_schedule", d("Device and fixture counts of the open project from the engine, per level and room: lights, outlets, switches, the panelboard, detectors, aircon units, sanitary and utility fixtures. Each row has the catalog name and the row of the PH electrical inspection form it counts under; each level has totals by group and by form row. Call this for any question about how many lights, outlets, switches or fixtures there are instead of counting yourself. Circuits, loads and ratings are for the Professional Electrical Engineer.")),
         // edit
-        ("add_wall", d("Add one straight wall between two points and commit it as one undo step. Omit thickness_mm to use the project default of 150 mm CHB. level (a level id or name) puts it on another level than the first.")),
-        ("add_wall_chain", d("Add connected walls running through a list of points, as one undo step. closed joins the last point back to the first. Omit thickness_mm to use the project default of 150 mm. level (a level id or name) puts them on another level than the first.")),
+        ("add_wall", d("Add one straight wall between two points and commit it as one undo step. Omit thickness_mm to use the project default of 150 mm CHB. level (a level id or name) puts it on another level than the first. role \"site\" makes a lot fence or boundary wall: 1800 mm high, on the site layer (L-SITE in DXF), never part of a room, the building's outside walls or the floor area.")),
+        ("add_wall_chain", d("Add connected walls running through a list of points, as one undo step. closed joins the last point back to the first. Omit thickness_mm to use the project default of 150 mm. level (a level id or name) puts them on another level than the first. For the fence round a lot pass role \"site\" with closed true: site walls are 1800 mm high, sit on the site layer and never make the yard a room or the house walls interior.")),
         ("add_rect_room", d("Add a rectangular room: four walls plus a named room, as one undo step. origin is the SOUTH-WEST corner, width_mm runs east and depth_mm runs north, both measured on wall CENTERLINES. With the default 150 mm walls a 4000 x 3000 room has a net floor of 3850 x 2850. To share a wall with a room you already drew, put this origin exactly on that room's centerline. level (a level id or name) puts it on another level than the first, for example the \"Second Floor\" add_level made.")),
         ("add_door", d("Add a door on an existing wall, as one undo step. Get wall_id from list_rooms or list_elements. Defaults are 900 wide by 2100 high. A door between two rooms goes on the wall they share.")),
         ("add_window", d("Add a window on an existing wall, as one undo step. Get wall_id from list_rooms or list_elements. Defaults are 1200 wide by 1200 high with a 900 sill. Windows belong on exterior walls.")),
@@ -269,8 +269,8 @@ pub fn definitions() -> Vec<ToolDef> {
     });
     out.push(ToolDef {
         name: "get_guide",
-        description: format!("Read one of this server's guides as markdown. topic \"conventions\": units, plan coordinates, wall joins, the door and window flip conventions, service run systems, devices and links, review marks. topic \"ph_defaults\": default wall thickness, door and window sizes, level height, the built-in material ids and sensible room sizes for Philippine residential work. The same text as the resources guhit://docs/conventions and guhit://docs/ph-defaults, for clients that do not read resources. Read \"conventions\" before drawing. {MM}"),
-        schema: obj(json!({"topic": {"type": "string", "enum": ["conventions", "ph_defaults"], "description": "Which guide."}}), &["topic"]),
+        description: format!("Read one of this server's guides as markdown. topic \"conventions\": units, plan coordinates, wall joins, the door and window flip conventions, service run systems, devices and links, review marks. topic \"workflows\": the full working rules the server instructions summarize (drawing a house, site walls, moving walls, pipes and devices, the selection scope, views and renders, live sessions, honesty). topic \"ph_defaults\": default wall thickness, door and window sizes, level height, the built-in material ids and sensible room sizes for Philippine residential work. The same text as the resources guhit://docs/conventions, guhit://docs/workflows and guhit://docs/ph-defaults, for clients that do not read resources. Read \"conventions\" before drawing. {MM}"),
+        schema: obj(json!({"topic": {"type": "string", "enum": ["conventions", "workflows", "ph_defaults"], "description": "Which guide."}}), &["topic"]),
         read_only: true,
         open_world: false,
     });
@@ -481,8 +481,9 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
         "get_guide" => match req_str(&args, "topic")?.as_str() {
             "conventions" => Ok(Output::Text(crate::text::CONVENTIONS.to_string())),
             "ph_defaults" => Ok(Output::Text(crate::text::PH_DEFAULTS.to_string())),
+            "workflows" => Ok(Output::Text(crate::text::WORKFLOWS.to_string())),
             other => Err(ToolFail(format!(
-                "invalid arguments: unknown topic `{other}`. Use \"conventions\" or \"ph_defaults\"."
+                "invalid arguments: unknown topic `{other}`. Use \"conventions\", \"workflows\" or \"ph_defaults\"."
             ))),
         },
         "get_plan_image" => crate::visuals::plan_image(app, &args).await,
@@ -611,6 +612,7 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
                 show_pipes: opt_bool(&args, "show_pipes")?.unwrap_or(true),
                 sheet,
                 review_page,
+                date: None,
             };
             ok(app
                 .handle(
@@ -741,93 +743,95 @@ fn history(state: &Value, what: &str) -> Value {
 
 // ----------------------------------------------------------------- committing
 
-/// Translate the steps, validate the whole thing with `Document::preview`,
-/// then commit it as one `Command::Batch`.
+/// Translate the steps, stage each one on one working copy of the project
+/// (`guhit_core::Staging`), then commit the staged batch as one undo step.
 ///
 /// Translation runs against the staged view: the open project with the earlier
 /// steps of this call already applied, so step 2 can name an element step 1
 /// made. The core seeds new ids per leaf command, so an id from step 1 does
 /// not move when step 2 is appended.
 ///
-/// The commit is guarded by the revision the translation was done on, so if
-/// the desktop window or the copilot changes the plan in between, nothing is
-/// applied and the caller is told to read the plan again.
+/// Each step runs once, so a batch of N steps costs N steps (re-previewing the
+/// whole staged batch per step cost N squared: 45 steps took 15.7 s). Staging
+/// runs on a copy, outside the session lock, so the window and other agents
+/// are not held up while it works; the lock is taken again only to swap the
+/// result in. The commit is guarded by the revision the staging started from,
+/// so if the desktop window or the copilot changes the plan in between,
+/// nothing is applied and the caller is told to read the plan again.
 async fn edit(
     app: &AppService,
     label: &str,
     steps: &[(String, Value)],
     asked: Option<&ScopeArg>,
 ) -> Result<Output, ToolFail> {
-    let (before, commands, per_step, revision, scope) = {
+    let (before, before_derived, level_id, revision, scope) = {
         let s = app.session.lock().await;
         let doc = s
             .doc
             .as_ref()
             .ok_or_else(|| IpcError::new("no_document", "no project is open. Call create_project or open_project first"))?;
         let level_id = first_level(doc.project())?;
-        let before = doc.project().clone();
         let scope = resolve_scope(app, doc.project(), asked)?;
         if let Some(sc) = &scope {
             guhit_core::scope::validate(doc.project(), &sc.ids)
                 .map_err(|e| scope_fail(e, doc.project(), doc.derived(), sc))?;
         }
-        // What earlier steps made is in reach, so a later step can build on
-        // it (a door on a wall the batch just drew inside the room), but it
-        // never widens the area where new elements may go.
-        let mut made_ids: Vec<Id> = vec![];
-
-        let mut commands: Vec<Command> = vec![];
-        let mut staged: Option<ApplyResult> = None;
-        let mut per_step: Vec<Value> = vec![];
-        for (i, (name, args)) in steps.iter().enumerate() {
-            let (view, view_derived) = match &staged {
-                Some(p) => (&p.state.project, &p.state.derived),
-                None => (doc.project(), doc.derived()),
-            };
-            let next = copilot::to_commands(view, name, args, &level_id)
-                .map_err(|e| step_fail(e.into(), i, name, steps.len()))?;
-            if let Some(sc) = &scope {
-                for command in &next {
-                    guhit_core::scope::check_staged(view, view_derived, &sc.ids, &made_ids, command)
-                        .map_err(|e| step_fail(scope_fail(e, view, view_derived, sc), i, name, steps.len()))?;
-                }
-            }
-            commands.extend(next);
-            // Validate everything staged so far. A failure here is the engine
-            // refusing the whole batch, which is what a commit would do.
-            let preview = doc
-                .preview(&Command::Batch { label: label.to_string(), commands: commands.clone() })
-                .map_err(|e| {
-                    let ipc: IpcError = e.into();
-                    step_fail(ipc.into(), i, name, steps.len())
-                })?;
-            let diff = copilot::step_diff(view, &preview.state.project);
-            if steps.len() > 1 {
-                let mut one = json!({
-                    "step": i + 1,
-                    "tool": name,
-                    "created": diff["added"],
-                    "changed": diff["modified"],
-                    "deleted": diff["removed"],
-                });
-                for key in ["levels_added", "levels_removed"] {
-                    if let Some(v) = diff.get(key) {
-                        one[key] = v.clone();
-                    }
-                }
-                per_step.push(one);
-            }
-            if scope.is_some() {
-                made_ids = preview.diff.added.clone();
-            }
-            staged = Some(preview);
-        }
-        (before, commands, per_step, doc.revision(), scope)
+        // Derived data is only read by the scope check.
+        let derived = scope.as_ref().map(|_| doc.derived().clone());
+        (doc.project().clone(), derived, level_id, doc.revision(), scope)
     };
 
-    let result = app
-        .commit_if_revision(Command::Batch { label: label.to_string(), commands }, Origin::Ai, revision)
-        .await?;
+    let mut staging = guhit_core::Staging::new(&before, label);
+    // What earlier steps made is in reach, so a later step can build on it (a
+    // door on a wall the batch just drew inside the room), but it never
+    // widens the area where new elements may go.
+    let mut made_ids: Vec<Id> = vec![];
+    let mut per_step: Vec<Value> = vec![];
+    for (i, (name, args)) in steps.iter().enumerate() {
+        let next = copilot::to_commands(staging.project(), name, args, &level_id)
+            .map_err(|e| step_fail(e.into(), i, name, steps.len()))?;
+        if let (Some(sc), Some(base_derived)) = (&scope, &before_derived) {
+            let staged_derived;
+            let view_derived = if i == 0 {
+                base_derived
+            } else {
+                staged_derived = staging.derived();
+                &staged_derived
+            };
+            let view = staging.project();
+            for command in &next {
+                guhit_core::scope::check_staged(view, view_derived, &sc.ids, &made_ids, command)
+                    .map_err(|e| step_fail(scope_fail(e, view, view_derived, sc), i, name, steps.len()))?;
+            }
+        }
+        // A refusal here is the engine refusing the whole batch, which is
+        // what a commit would do.
+        let view = staging.push(&next).map_err(|e| {
+            let ipc: IpcError = e.into();
+            step_fail(ipc.into(), i, name, steps.len())
+        })?;
+        if steps.len() > 1 {
+            let diff = copilot::step_diff(&view, staging.project());
+            let mut one = json!({
+                "step": i + 1,
+                "tool": name,
+                "created": diff["added"],
+                "changed": diff["modified"],
+                "deleted": diff["removed"],
+            });
+            for key in ["levels_added", "levels_removed"] {
+                if let Some(v) = diff.get(key) {
+                    one[key] = v.clone();
+                }
+            }
+            per_step.push(one);
+        }
+        if scope.is_some() {
+            made_ids = staging.diff().added;
+        }
+    }
+
+    let result = app.commit_staged_if_revision(staging, Origin::Ai, revision).await?;
     let mut out = edit_result(&before, &result);
     if !per_step.is_empty() {
         out["steps"] = Value::Array(per_step);
@@ -987,6 +991,12 @@ fn edit_result(before: &Project, result: &ApplyResult) -> Value {
         if let Some(v) = step.get(key) {
             out[key] = v.clone();
         }
+    }
+    if !result.diff.also_moved.is_empty() {
+        out["also_moved"] = copilot::also_moved_list(&result.state.project, &result.diff.also_moved);
+        out["note"] = json!(
+            "also_moved lists walls this edit reshaped that the call did not name: walls joined to what moved. Tell the user which ones."
+        );
     }
     out
 }

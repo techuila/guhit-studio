@@ -1,7 +1,7 @@
 // Placement math for openings on walls and assets against wall faces.
 // Pure, tested in place.test.ts.
 
-import type { RoomGeometry, Wall } from "../contract/bindings";
+import type { OpeningStyle, RoomGeometry, Wall } from "../contract/bindings";
 import type { P, Seg } from "./geom";
 import { add, angleDeg, clamp, closestOnSegment, cross, dist, dot, mul, normDeg, roundTo, sub, unit } from "./geom";
 
@@ -110,6 +110,107 @@ export function placeOnWall(
     side,
     snapped,
   };
+}
+
+/**
+ * The narrowest each style still works at, mm: below this a door is no longer
+ * a door you walk through, a window no longer one you open. The door and
+ * window tools narrow to fit a short wall, never below these.
+ */
+export const OPENING_MIN_WIDTH: Record<"door" | "window", Partial<Record<OpeningStyle, number>>> = {
+  door: { swing_single: 600, swing_double: 1000, sliding: 700 },
+  window: { sliding: 600, casement: 400, jalousie: 300, fixed: 300 },
+};
+
+/** Narrowed widths step down in 50 mm, the sizes doors and windows are sold in. */
+export const OPENING_FIT_STEP = 50;
+
+export function openingMinWidth(type: "door" | "window", style: OpeningStyle): number {
+  return OPENING_MIN_WIDTH[type][style] ?? (type === "door" ? 600 : 300);
+}
+
+/**
+ * The free stretch of wall around `at` (mm from the wall start): between the
+ * inside corners, less the other openings. Null when `at` is inside one.
+ */
+export function freeGapAt(at: number, length: number, insetStart: number, insetEnd: number, others: readonly OpeningSpan[]): { lo: number; hi: number } | null {
+  let lo = insetStart;
+  let hi = length - insetEnd;
+  const t = clamp(at, lo, hi);
+  for (const o of others) {
+    const a = o.offset - o.width / 2;
+    const b = o.offset + o.width / 2;
+    if (t > a && t < b) return null;
+    if (b <= t) lo = Math.max(lo, b);
+    if (a >= t) hi = Math.min(hi, a);
+  }
+  return hi > lo ? { lo, hi } : null;
+}
+
+export interface OpeningFit {
+  placement: OpeningPlacement;
+  /** The width placed: `wanted`, or narrower to fit. */
+  width: number;
+  /** True when `width` is narrower than `wanted`. */
+  narrowed: boolean;
+  /** The free length the opening had to fit into. */
+  clear: number;
+  /** The style's narrowest width (`OPENING_MIN_WIDTH`). */
+  min: number;
+}
+
+/**
+ * Places an opening of `wanted` width, or when it does not fit the free
+ * stretch under the cursor, the widest 50 mm size that does, down to `min`.
+ * When even `min` does not fit, the placement is refused at `wanted`.
+ */
+export function fitOnWall(
+  p: P,
+  wall: Wall,
+  wanted: number,
+  min: number,
+  insetStart: number,
+  insetEnd: number,
+  step: number,
+  tol: number,
+  snapEnabled: boolean,
+  others: readonly OpeningSpan[] = [],
+): OpeningFit {
+  const first = placeOnWall(p, wall, wanted, insetStart, insetEnd, step, tol, snapEnabled, others);
+  const L = dist(wall.start, wall.end);
+  const at = dot(sub(p, wall.start), unit(sub(wall.end, wall.start)));
+  const gap = freeGapAt(at, L, insetStart, insetEnd, others);
+  const clear = gap ? gap.hi - gap.lo : 0;
+  if (first.valid) return { placement: first, width: wanted, narrowed: false, clear, min };
+  const width = Math.floor((clear + 1e-6) / OPENING_FIT_STEP) * OPENING_FIT_STEP;
+  if (gap && width >= min && width < wanted) {
+    const narrow = placeOnWall(p, wall, width, insetStart, insetEnd, step, tol, snapEnabled, others);
+    if (narrow.valid) return { placement: narrow, width, narrowed: true, clear, min };
+  }
+  return { placement: first, width: wanted, narrowed: false, clear, min };
+}
+
+const STYLE_NOUN: Record<"door" | "window", Partial<Record<OpeningStyle, string>>> = {
+  door: { swing_single: "single swing door", swing_double: "double swing door", sliding: "sliding door" },
+  window: { sliding: "sliding window", casement: "casement window", jalousie: "jalousie window", fixed: "fixed window" },
+};
+
+/**
+ * The short note beside the cursor for a door or window ghost: the width it
+ * narrowed to, or why it cannot go here and what would. Null when it places
+ * as chosen. `fmt` formats a length in the display unit.
+ */
+export function openingFitNote(type: "door" | "window", style: OpeningStyle, fit: OpeningFit, fmt: (mm: number) => string): string | null {
+  if (fit.placement.valid) return fit.narrowed ? `Narrowed to ${fmt(fit.width)} to fit` : null;
+  const noun = STYLE_NOUN[type][style] ?? type;
+  // Nothing free under the cursor, or room enough that only a neighbor is in the way.
+  if (fit.clear <= 0 || fit.clear >= fit.min) return fit.placement.reason === "short" ? "Wall too short" : "Overlaps another opening";
+  const where = fit.placement.reason === "overlap" ? "free here" : "clear";
+  const others = Object.entries(OPENING_MIN_WIDTH[type])
+    .filter(([key, min]) => key !== style && min !== undefined && min <= fit.clear)
+    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0));
+  const alt = others.length > 0 ? `. A ${STYLE_NOUN[type][others[0][0] as OpeningStyle]} fits` : "";
+  return `${fmt(fit.clear)} ${where}, a ${noun} needs ${fmt(fit.min)}${alt}`;
 }
 
 /**

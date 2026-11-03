@@ -21,6 +21,7 @@ use crate::text::est_width;
 fn layer_color(cat: Cat) -> u8 {
     match cat {
         Cat::Wall => 7,
+        Cat::Site => 8,
         Cat::Door => 4,
         Cat::Glaz => 5,
         Cat::Cols => 7,
@@ -376,14 +377,20 @@ pub(crate) fn write_parts(p: &Parts, scale: u32) -> String {
 
     w.pair(0, "TABLE");
     w.pair(2, "LAYER");
-    let arch = if p.arch_layers { Cat::ALL.len() as i64 } else { 0 };
-    w.int(70, arch + 1 + systems.len() as i64 + p.layers.len() as i64);
+    // The site layer is only written when the plan has site walls, so a
+    // plan without a fence gives the same file as before.
+    let has_site = p.items.iter().any(|i| i.cat == Cat::Site);
+    let arch_cats: Vec<Cat> = dxf_layer_order()
+        .into_iter()
+        .filter(|c| p.arch_layers && (*c != Cat::Site || has_site))
+        .collect();
+    w.int(70, arch_cats.len() as i64 + 1 + systems.len() as i64 + p.layers.len() as i64);
     w.pair(0, "LAYER");
     w.pair(2, "0");
     w.int(70, 0);
     w.int(62, 7);
     w.pair(6, "CONTINUOUS");
-    for cat in dxf_layer_order().into_iter().filter(|_| p.arch_layers) {
+    for cat in arch_cats {
         w.pair(0, "LAYER");
         w.pair(2, cat.dxf_layer());
         w.int(70, 0);
@@ -572,9 +579,10 @@ fn prim_on(w: &mut Writer, layer: &str, prim: &Prim, linetype: Option<&str>) {
 }
 
 /// Layer table order, walls first.
-pub fn dxf_layer_order() -> [Cat; 9] {
+pub fn dxf_layer_order() -> [Cat; 10] {
     [
         Cat::Wall,
+        Cat::Site,
         Cat::Door,
         Cat::Glaz,
         Cat::Cols,

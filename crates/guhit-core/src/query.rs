@@ -179,6 +179,8 @@ impl<'a> Ctx<'a> {
             "thickness_mm": mm(w.thickness_mm),
             "height_mm": mm(crate::validate::wall_height(self.project, w)),
             "material": self.material_name(&w.material_id),
+            // "site": a lot fence or boundary wall, never part of a room.
+            "role": enum_str(&w.role),
             "faces_outside": t.map(|t| t.exterior),
             "joined_at_start_to": t.map(|t| t.joined_at_start.clone()),
             "joined_at_end_to": t.map(|t| t.joined_at_end.clone()),

@@ -65,6 +65,7 @@ import {
   WALK_FOV,
   WalkControls,
   WalkState,
+  walkEscape,
   type GlideTarget,
   type TouchMove,
   type WalkMode,
@@ -123,6 +124,10 @@ export interface WalkHandlers {
   onLevel?: (levelId: string | null) => void;
   /** A click on an element while walking or flying. True when it was used (a switch), so it does not select. */
   onWalkClick?: (id: string) => boolean;
+  /** Escape while walking: true when the app used it (it cleared the selection), so the walk goes on. */
+  onEscape?: () => boolean;
+  /** The first Escape asked to stop walking (true), or that ask ended (false): a walk ended or another key. */
+  onExitArmed?: (armed: boolean) => void;
 }
 
 export interface Highlights {
@@ -328,6 +333,8 @@ export class ViewerEngine {
   /** Door leaves open as the walker comes up to them, view only (walk/doors.ts). */
   private walkDoors = new DoorSwing();
   private walkHandlers: WalkHandlers = {};
+  /** When the first Escape asked to stop walking; 0 when it has not. */
+  private escArmedAt = 0;
 
   /** Pipes (D39, D40): the 3D height handle; runs built whole while the cutaway is baked (X-ray, hidden); the shell-change sweep. */
   private pipeHandle: PipeHandle;
@@ -469,6 +476,16 @@ export class ViewerEngine {
         this.invalidate();
       },
       exit: () => {
+        // A selection goes first; then the first Escape only asks, so a
+        // stray Escape never drops the walk (ESC_CONFIRM_MS).
+        const now = performance.now();
+        const step = walkEscape(now, this.escArmedAt, this.walkHandlers.onEscape?.() ?? false);
+        if (step === "used") return;
+        if (step === "ask") {
+          this.escArmedAt = now;
+          this.walkHandlers.onExitArmed?.(true);
+          return;
+        }
         this.userView(true);
         this.requestNav("orbit");
       },
@@ -1766,6 +1783,10 @@ export class ViewerEngine {
 
   private leaveWalk(tween: boolean): void {
     if (this.nav === "orbit") return;
+    if (this.escArmedAt !== 0) {
+      this.escArmedAt = 0;
+      this.walkHandlers.onExitArmed?.(false);
+    }
     const eye = this.camera.position.clone();
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion).normalize();
     this.walkControls.detach();

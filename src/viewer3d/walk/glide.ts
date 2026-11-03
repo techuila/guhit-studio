@@ -49,7 +49,7 @@ export function levelTarget(worlds: WalkWorlds, levelId: string, p: Pt, r = WALK
   const s = worlds.stairAt(levelId, p);
   if (s) {
     const high = rampHeight(s, stairLocal(s, p).u) >= s.rise / 2;
-    const q = pushOut(p, r, worlds.flightWorld(s, high));
+    const q = worlds.holdOnFlight(s, pushOut(p, r, worlds.flightWorld(s, high)), r);
     if (onFlight(s, q)) {
       const { u } = stairLocal(s, q);
       return { x: q.x, y: q.y, levelId: flightLevelId(s, u), stair: s, floorZ: s.bottomZ + rampHeight(s, u) };

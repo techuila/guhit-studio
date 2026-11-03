@@ -52,6 +52,7 @@ pub const SLAB_LAYER: &str = "A-FLOR-SLAB";
 fn layer_color(layer: &str) -> i64 {
     match layer {
         "A-WALL" => 7,
+        SITE_LAYER => 8,
         "A-DOOR" => 4,
         "A-GLAZ" => 5,
         "A-COLS" => 7,
@@ -66,13 +67,29 @@ fn layer_color(layer: &str) -> i64 {
     }
 }
 
+/// The site layer, `Cat::Site` in the plan.
+const SITE_LAYER: &str = "L-SITE";
+
+/// Every layer but the site layer, which `layers_for` adds only when there
+/// are site walls, so a model without a fence gives the same file as before.
 fn all_layers() -> Vec<&'static str> {
     let mut v: Vec<&'static str> = crate::dxf::dxf_layer_order()
         .iter()
         .map(|c| c.dxf_layer())
+        .filter(|l| *l != SITE_LAYER)
         .collect();
     v.push(ROOF_LAYER);
     v.push(SLAB_LAYER);
+    v
+}
+
+/// `all_layers`, with the site layer after the walls when a face or a plan
+/// item is on it.
+fn layers_for(faces: &Faces, items: &[plan::Item]) -> Vec<&'static str> {
+    let mut v = all_layers();
+    if faces.list.iter().any(|f| f.layer == SITE_LAYER) || items.iter().any(|i| i.cat == plan::Cat::Site) {
+        v.insert(1, SITE_LAYER);
+    }
     v
 }
 
@@ -191,6 +208,8 @@ impl Faces {
 /// Wall solid with its openings cut out: strips and height intervals, the same
 /// decomposition the live 3D viewer uses, so reveals exist on all four sides.
 fn wall_faces(faces: &mut Faces, w: &WallSolid, elevation: f64) {
+    // A lot fence or boundary wall goes on the site layer.
+    let wall_layer: &'static str = if w.wall.is_site() { SITE_LAYER } else { "A-WALL" };
     let cells = wall_cells(w);
     let intervals = cells.heights.len().saturating_sub(1);
     let on_cut = |u: f64, cut: f64| cut.is_finite() && (u - cut).abs() < 0.01;
@@ -225,7 +244,7 @@ fn wall_faces(faces: &mut Faces, w: &WallSolid, elevation: f64) {
                 let pa = w.frame.to_plan(a);
                 let pb = w.frame.to_plan(b);
                 faces.quad(
-                    "A-WALL",
+                    wall_layer,
                     lift(pa, h0),
                     lift(pb, h0),
                     lift(pb, h1),
@@ -237,7 +256,7 @@ fn wall_faces(faces: &mut Faces, w: &WallSolid, elevation: f64) {
             if k + 1 == intervals || !cells.solid[si][k + 1] {
                 for t in &tris {
                     faces.tri(
-                        "A-WALL",
+                        wall_layer,
                         lift(w.frame.to_plan(poly[t[0]]), h1),
                         lift(w.frame.to_plan(poly[t[1]]), h1),
                         lift(w.frame.to_plan(poly[t[2]]), h1),
@@ -248,7 +267,7 @@ fn wall_faces(faces: &mut Faces, w: &WallSolid, elevation: f64) {
             if k == 0 || !cells.solid[si][k - 1] {
                 for t in &tris {
                     faces.tri(
-                        "A-WALL",
+                        wall_layer,
                         lift(w.frame.to_plan(poly[t[2]]), h0),
                         lift(w.frame.to_plan(poly[t[1]]), h0),
                         lift(w.frame.to_plan(poly[t[0]]), h0),
@@ -283,7 +302,7 @@ fn wall_faces(faces: &mut Faces, w: &WallSolid, elevation: f64) {
             let h0 = e + cells.heights[k];
             let h1 = e + cells.heights[k + 1];
             faces.quad(
-                "A-WALL",
+                wall_layer,
                 lift(a, h0),
                 lift(b, h0),
                 lift(b, h1),
@@ -533,7 +552,7 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
     crate::dxf::write_pipe_linetypes(&mut w.s, &dashes, scale as f64);
     w.pair(0, "ENDTAB");
 
-    let mut layers = all_layers();
+    let mut layers = layers_for(&faces, &items);
     w.pair(0, "TABLE");
     w.pair(2, "LAYER");
     w.int(70, layers.len() as i64 + 1 + pipe_systems.len() as i64);
@@ -683,7 +702,7 @@ fn flat_entity(w: &mut Writer, item: &Item, cat: Cat) {
 /// How many faces each layer got, pipe layers included when they have
 /// tubes. Used by the tests and by the report.
 pub fn faces_per_layer(faces: &Faces) -> Vec<(&'static str, usize)> {
-    let mut layers = all_layers();
+    let mut layers = layers_for(faces, &[]);
     layers.extend(tube_systems(faces).into_iter().map(pipes::dxf_layer));
     layers
         .into_iter()

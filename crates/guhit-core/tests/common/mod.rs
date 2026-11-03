@@ -32,6 +32,7 @@ pub fn add_wall(a: Point, b: Point) -> Command {
         height_mm: None,
         material_id: None,
         level_id: None,
+        role: None,
     }
 }
 

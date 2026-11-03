@@ -127,6 +127,7 @@ export type { ViewMode } from "./ViewMode";
 export type { Wall } from "./Wall";
 export type { WallAnchor } from "./WallAnchor";
 export type { WallGeometry } from "./WallGeometry";
+export type { WallRole } from "./WallRole";
 export type { WindowReply } from "./WindowReply";
 export type { WindowRequest } from "./WindowRequest";
 export type { WindowTask } from "./WindowTask";

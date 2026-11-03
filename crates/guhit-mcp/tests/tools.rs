@@ -539,7 +539,13 @@ async fn a_second_storey_is_one_batch_and_one_undo_step() {
 async fn get_guide_returns_the_resource_text_for_clients_without_resources() {
     let (app, _dir) = app();
     // No project needed: the guides are fixed text.
-    for (topic, needle) in [("conventions", "+x is east"), ("ph_defaults", "150 mm")] {
+    for (topic, needle) in [
+        ("conventions", "+x is east"),
+        ("ph_defaults", "150 mm"),
+        // The detail the short instructions leave out.
+        ("workflows", "Opening, creating or closing a project ends a session"),
+        ("workflows", "never sizes"),
+    ] {
         match tools::call(&app, "get_guide", json!({"topic": topic})).await {
             Ok(Output::Text(text)) => assert!(text.contains(needle), "{topic}: {text}"),
             _ => panic!("get_guide {topic} did not return text"),
@@ -547,4 +553,93 @@ async fn get_guide_returns_the_resource_text_for_clients_without_resources() {
     }
     let message = fail(&app, "get_guide", json!({"topic": "everything"})).await;
     assert!(message.contains("conventions"), "unexpected: {message}");
+}
+
+/// R2 problem 2 through MCP: `role: "site"` draws the lot fence as site
+/// walls, and the house keeps its rooms, outside walls and floor area.
+#[tokio::test]
+async fn a_site_fence_leaves_the_house_rooms_and_area_alone() {
+    let (app, _dir) = app();
+    new_project(&app).await;
+    ok(
+        &app,
+        "add_rect_room",
+        json!({"origin": {"x": 0, "y": 0}, "width_mm": 8000, "depth_mm": 6000, "name": "House"}),
+    )
+    .await;
+    let before = ok(&app, "get_project_summary", json!({})).await;
+    let fence = ok(
+        &app,
+        "add_wall_chain",
+        json!({
+            "points": [{"x": -2000, "y": -4000}, {"x": 10000, "y": -4000}, {"x": 10000, "y": 11000}, {"x": -2000, "y": 11000}],
+            "closed": true,
+            "role": "site",
+        }),
+    )
+    .await;
+    assert_eq!(fence["created"].as_array().unwrap().len(), 4, "four walls and no yard room");
+    let after = ok(&app, "get_project_summary", json!({})).await;
+    assert_eq!(after["totals"]["net_floor_area_m2"], before["totals"]["net_floor_area_m2"]);
+    assert_eq!(after["totals"]["gross_footprint_area_m2"], before["totals"]["gross_footprint_area_m2"]);
+    assert_eq!(after["totals"]["rooms"], 1);
+    let walls = ok(&app, "list_elements", json!({"kind": "wall"})).await;
+    let site: Vec<&Value> = walls["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|w| w["role"] == "site")
+        .collect();
+    assert_eq!(site.len(), 4);
+    assert!(site.iter().all(|w| w["height_mm"] == 1800.0));
+    // The house walls still face outside.
+    let rooms = ok(&app, "list_rooms", json!({})).await;
+    let house = &rooms["rooms"][0];
+    assert!(house["bounding_walls"].as_array().unwrap().iter().all(|w| w["faces_outside"] == true), "{house}");
+
+    let bad = fail(&app, "add_wall", json!({"start": {"x": 0, "y": 0}, "end": {"x": 1000, "y": 0}, "role": "fence"})).await;
+    assert!(bad.contains("building") && bad.contains("site"), "{bad}");
+}
+
+/// R2 problem 6 through MCP: every edit result names the walls it reshaped
+/// that the call did not name.
+#[tokio::test]
+async fn an_edit_result_names_walls_it_also_moved() {
+    let (app, _dir) = app();
+    new_project(&app).await;
+    ok(&app, "add_rect_room", json!({"origin": {"x": 0, "y": 0}, "width_mm": 4000, "depth_mm": 3000})).await;
+    let (_, walls) = room_walls(&app).await;
+    let described = ok(&app, "describe_elements", json!({"ids": walls})).await;
+    // The east wall: both ends at x = 4000.
+    let east = described["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["start"]["x_mm"] == 4000.0 && e["end"]["x_mm"] == 4000.0)
+        .map(|e| e["id"].as_str().unwrap().to_string())
+        .expect("an east wall");
+    let moved = ok(
+        &app,
+        "move_elements",
+        json!({"ids": [east], "dx_mm": 500, "dy_mm": 0, "stretch_connected": true}),
+    )
+    .await;
+    let also = moved["also_moved"].as_array().expect("also_moved is listed");
+    assert_eq!(also.len(), 2, "the north and south walls stretched: {moved}");
+    for w in also {
+        assert_eq!(w["kind"], "wall");
+        assert_eq!(w["label"], "Wall 4500 mm");
+    }
+    let summary = moved["summary"].as_str().unwrap();
+    assert!(summary.ends_with("; also moved: Wall 4500 mm, Wall 4500 mm"), "{summary}");
+    assert!(moved["note"].as_str().unwrap().contains("Tell the user"));
+
+    // A move that would turn a square wall is refused with its name.
+    let refused = fail(
+        &app,
+        "move_elements",
+        json!({"ids": [walls[0]], "dx_mm": 300, "dy_mm": 300, "stretch_connected": true}),
+    )
+    .await;
+    assert!(refused.contains("stretch") || refused.contains("out of line"), "{refused}");
 }
