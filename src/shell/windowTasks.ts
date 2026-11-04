@@ -7,7 +7,7 @@
 // `startWindowTasks` runs once from App.tsx, so a request is answered from
 // the hub too: with `no_document`.
 
-import type { IpcError, WindowReply, WindowRequest } from "../contract/bindings";
+import type { IpcError, ViewVisibility, WindowReply, WindowRequest } from "../contract/bindings";
 import { ipc, onAppEvent, toIpcError } from "../contract/ipc";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
@@ -110,17 +110,22 @@ async function capturePlan(levelId: string | null): Promise<WindowReply> {
   }
 }
 
-async function captureView(cameraId: string | null): Promise<WindowReply> {
+async function captureView(cameraId: string | null, visibility: ViewVisibility | null): Promise<WindowReply> {
   await need3dView();
   if (cameraId) {
     bus.emit("apply_camera", cameraOf(cameraId));
     // The camera flies to the saved view; capture once it has landed.
     await sleep(dur("scene") + 250);
   }
-  const capture = useApp.getState().captureView;
-  if (!capture) fail("invalid", "The 3D view in Guhit Studio closed. Open it and try again.");
+  if (!useApp.getState().captureView) fail("invalid", "The 3D view in Guhit Studio closed. Open it and try again.");
   useViewer.getState().flashCapture();
-  const { png, camera } = await capture();
+  // The roof and cutaway the task asks for, or the model's defaults: never
+  // this window's toggles, which the client cannot see. The window's own
+  // state comes back right after.
+  const { captureForTask } = await import("../viewer3d/render/liveView");
+  const shot = captureForTask(visibility);
+  if (!shot) fail("invalid", "The 3D view in Guhit Studio closed. Open it and try again.");
+  const { png, camera } = shot;
   const record = await ipc.renderCapture(camera, png);
   useViewer.getState().bumpRenders();
   return {
@@ -136,7 +141,7 @@ async function render(task: Extract<WindowRequest["task"], { type: "render" }>):
   useApp.getState().toast("info", "Rendering for an MCP client. The images go to Visuals.");
   // Loaded with the 3D view; imported here so the hub bundle stays small.
   const { renderForRequest } = await import("../viewer3d/render/renderQueue");
-  const results = await renderForRequest(task.views, task.quality, task.size);
+  const results = await renderForRequest(task.views, task.quality, task.size, task.visibility ?? null);
   const first = results[0];
   const data = await ipc.renderData(first.recordId);
   const notes = results.map((r) =>
@@ -176,7 +181,7 @@ export async function runWindowTask(request: WindowRequest): Promise<WindowReply
     case "capture_plan":
       return capturePlan(task.level_id);
     case "capture_view":
-      return captureView(task.camera_id);
+      return captureView(task.camera_id, task.visibility ?? null);
     case "render":
       return render(task);
   }

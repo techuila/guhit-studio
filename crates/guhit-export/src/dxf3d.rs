@@ -5,8 +5,10 @@
 //! R12 (AC1009) flavor like `dxf.rs`: 3DFACE exists there and it is the most
 //! widely readable DXF. Model space, millimeters, 1:1, y is north, z is up.
 //!
-//! Layers: the nine 2D layers plus A-ROOF and A-FLOR-SLAB, and one layer per
-//! pipe system when the project has pipes (`pipes::dxf_layer`).
+//! Layers: the 2D layers plus A-ROOF and A-FLOR-SLAB, and one layer per
+//! pipe system when the project has pipes (`pipes::dxf_layer`). Slabs are
+//! prisms on A-FLOR-SLAB with the voids of their level cut out; railings are
+//! solids on A-FLOR-HRAL, a layer written only when there is a rail.
 //!
 //! Pipes are closed 8-sided tubes at world height (level elevation plus the
 //! point's z), mitred at bends. Their faces keep a CONTINUOUS linetype on
@@ -17,7 +19,8 @@
 //! keep their own height and the roof planes cover them; openings are boxes;
 //! a door or window is one thin panel; Linework, ReferenceModel, Underlay and
 //! Camera elements have no solid. Stairs do get real treads here, one box per
-//! riser, because 3DFACE geometry is cheap.
+//! tread (n - 1 of them for n risers, DECISIONS D44), because 3DFACE geometry
+//! is cheap.
 
 use guhit_model::{
     ColumnShape, Derived, Element, LayerKey, OpeningType, PipeSystem, Project, RoofKind,
@@ -63,33 +66,32 @@ fn layer_color(layer: &str) -> i64 {
         "A-ANNO-TEXT" => 7,
         ROOF_LAYER => 2,
         SLAB_LAYER => 9,
+        "A-FLOR-OTLN" => 8,
+        RAIL_LAYER => 6,
         _ => 7,
     }
 }
 
 /// The site layer, `Cat::Site` in the plan.
 const SITE_LAYER: &str = "L-SITE";
+/// Railing solids, and `Cat::Rail` in the plan linework.
+pub const RAIL_LAYER: &str = "A-FLOR-HRAL";
 
-/// Every layer but the site layer, which `layers_for` adds only when there
-/// are site walls, so a model without a fence gives the same file as before.
-fn all_layers() -> Vec<&'static str> {
+/// The 2D layers in table order, then A-ROOF and A-FLOR-SLAB. The site,
+/// slab outline and railing layers are there only when a face or a plan item
+/// is on them, so a model without them gives the same file as before.
+fn layers_for(faces: &Faces, items: &[plan::Item]) -> Vec<&'static str> {
+    let used = |cat: Cat| {
+        let layer = cat.dxf_layer();
+        faces.list.iter().any(|f| f.layer == layer) || items.iter().any(|i| i.cat == cat)
+    };
     let mut v: Vec<&'static str> = crate::dxf::dxf_layer_order()
-        .iter()
+        .into_iter()
+        .filter(|c| *c != Cat::StrsBelow && (!crate::dxf::optional_cat(*c) || used(*c)))
         .map(|c| c.dxf_layer())
-        .filter(|l| *l != SITE_LAYER)
         .collect();
     v.push(ROOF_LAYER);
     v.push(SLAB_LAYER);
-    v
-}
-
-/// `all_layers`, with the site layer after the walls when a face or a plan
-/// item is on it.
-fn layers_for(faces: &Faces, items: &[plan::Item]) -> Vec<&'static str> {
-    let mut v = all_layers();
-    if faces.list.iter().any(|f| f.layer == SITE_LAYER) || items.iter().any(|i| i.cat == plan::Cat::Site) {
-        v.insert(1, SITE_LAYER);
-    }
     v
 }
 
@@ -200,6 +202,64 @@ impl Faces {
 
     fn box_solid(&mut self, layer: &'static str, poly: &[V], z0: f64, z1: f64) {
         self.prism(layer, poly, &|_| z0, &|_| z1);
+    }
+
+    /// A flat slab from `z0` to `z1` with holes cut through it. The caps are
+    /// convex pieces of the outline less the holes, the sides are the
+    /// outline's edges plus the hole edges that lie inside it. A slab no
+    /// hole touches is a plain prism.
+    fn holed_slab(&mut self, layer: &'static str, poly: &[V], holes: &[Vec<V>], z0: f64, z1: f64) {
+        let cut: Vec<&Vec<V>> = holes.iter().filter(|h| overlap_area(poly, h) > 1.0).collect();
+        if cut.is_empty() {
+            self.box_solid(layer, poly, z0, z1);
+            return;
+        }
+        let mut pieces = triangles(poly);
+        for hole in &cut {
+            for t in triangles(hole) {
+                pieces = pieces.iter().flat_map(|p| subtract_convex(p, &t)).collect();
+            }
+        }
+        for p in &pieces {
+            self.cap(layer, p, &|_| z1, true);
+            self.cap(layer, p, &|_| z0, false);
+        }
+        for i in 0..poly.len() {
+            let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
+            self.quad(layer, lift(a, z0), lift(b, z0), lift(b, z1), lift(a, z1));
+        }
+        // The walls of each hole face into it.
+        for hole in &cut {
+            for i in 0..hole.len() {
+                let (a, b) = (hole[i], hole[(i + 1) % hole.len()]);
+                if point_in_polygon((a + b) * 0.5, poly) {
+                    self.quad(layer, lift(b, z0), lift(a, z0), lift(a, z1), lift(b, z1));
+                }
+            }
+        }
+    }
+
+    /// A railing piece: its upright profile swept across, at `e` above 0.
+    fn rail_piece(&mut self, layer: &'static str, piece: &RailPiece, e: f64) {
+        let prof = &piece.profile;
+        if prof.len() < 3 {
+            return;
+        }
+        let half = piece.thickness / 2.0;
+        let at = |p: V, s: f64| {
+            let (q, w) = piece.at(p, s);
+            lift(q, e + w)
+        };
+        // The right face looks along `across`, the left face the other way.
+        for t in triangulate(prof) {
+            let (a, b, c) = (prof[t[0]], prof[t[1]], prof[t[2]]);
+            self.tri(layer, at(a, half), at(b, half), at(c, half));
+            self.tri(layer, at(c, -half), at(b, -half), at(a, -half));
+        }
+        for i in 0..prof.len() {
+            let (a, b) = (prof[i], prof[(i + 1) % prof.len()]);
+            self.quad(layer, at(a, -half), at(b, -half), at(b, half), at(a, half));
+        }
     }
 }
 
@@ -341,8 +401,20 @@ pub fn build_faces(project: &Project, derived: &Derived) -> Faces {
     for ls in &scene.levels {
         let e = ls.level.elevation_mm;
 
+        // A void cuts every floor of its level: the footprint slabs and its
+        // floor, balcony and deck slabs.
+        let voids: Vec<Vec<V>> = ls.voids.iter().map(|s| slab_outline(s)).collect();
         for fp in &ls.footprints {
-            faces.box_solid(SLAB_LAYER, fp, e - SLAB_THICKNESS_MM, e);
+            faces.holed_slab(SLAB_LAYER, fp, &voids, e - SLAB_THICKNESS_MM, e);
+        }
+        for sl in &ls.slabs {
+            let (bottom, top) = slab_heights(sl);
+            faces.holed_slab(SLAB_LAYER, &slab_outline(sl), &voids, e + bottom, e + top);
+        }
+        for run in &ls.railings {
+            for piece in railing_pieces(run) {
+                faces.rail_piece(RAIL_LAYER, &piece, e);
+            }
         }
 
         for w in &ls.walls {
@@ -471,7 +543,10 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
         .into_iter()
         .filter(|s| tubes.contains(s) || flat_systems.contains(s))
         .collect();
-    let dashes = crate::dxf::pipe_dashes(&pipe_systems);
+    let mut dashes = crate::dxf::pipe_dashes(&pipe_systems);
+    if items.iter().any(|i| i.cat == Cat::StrsBelow) && !dashes.contains(&crate::dxf::HIDDEN) {
+        dashes.insert(0, crate::dxf::HIDDEN);
+    }
 
     // Bounds over everything, for the header extents.
     let mut min = p3(f64::INFINITY, f64::INFINITY, f64::INFINITY);
@@ -625,10 +700,17 @@ pub fn write(project: &Project, derived: &Derived) -> Result<String, ExportError
 /// have no 2D meaning; everything else matches the 2D DXF writer.
 fn flat_entity(w: &mut Writer, item: &Item, cat: Cat) {
     let layer = cat.dxf_layer();
+    // A stair seen from above its top is dashed on the stairs layer.
+    let linetype = |w: &mut Writer| {
+        if cat == Cat::StrsBelow {
+            w.pair(6, crate::dxf::hidden_linetype());
+        }
+    };
     match &item.prim {
         Prim::Line { a, b } => {
             w.pair(0, "LINE");
             w.pair(8, layer);
+            linetype(w);
             w.num(10, a.x);
             w.num(20, a.y);
             w.num(30, 0.0);
@@ -639,6 +721,7 @@ fn flat_entity(w: &mut Writer, item: &Item, cat: Cat) {
         Prim::Poly { pts, closed, .. } => {
             w.pair(0, "POLYLINE");
             w.pair(8, layer);
+            linetype(w);
             w.int(66, 1);
             w.num(10, 0.0);
             w.num(20, 0.0);
@@ -662,6 +745,7 @@ fn flat_entity(w: &mut Writer, item: &Item, cat: Cat) {
         } => {
             w.pair(0, "ARC");
             w.pair(8, layer);
+            linetype(w);
             w.num(10, c.x);
             w.num(20, c.y);
             w.num(30, 0.0);
@@ -672,6 +756,7 @@ fn flat_entity(w: &mut Writer, item: &Item, cat: Cat) {
         Prim::Circle { c, r, .. } => {
             w.pair(0, "CIRCLE");
             w.pair(8, layer);
+            linetype(w);
             w.num(10, c.x);
             w.num(20, c.y);
             w.num(30, 0.0);

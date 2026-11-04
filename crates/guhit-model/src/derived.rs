@@ -30,6 +30,44 @@ pub struct Derived {
     /// Review marks whose finding the checks no longer produce: resolved.
     #[serde(default)]
     pub review_resolved: Vec<ReviewMark>,
+    /// Every guard rail and handrail to draw: the open edges of slabs, the
+    /// open sides of stairs and the guard around a stair's opening on the
+    /// level above (DECISIONS D50). The plan, the 3D view and the exports
+    /// draw these and never work out open edges themselves.
+    #[serde(default)]
+    pub railings: Vec<RailingRun>,
+}
+
+/// One continuous rail: a straight or bent run along open edges.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RailingRun {
+    /// The slab or stair that carries the rail.
+    pub host_id: Id,
+    /// The level it stands on. A stair's well guard stands on the level the
+    /// stair arrives at.
+    pub level_id: Id,
+    pub kind: RailingRunKind,
+    /// The foot of the rail, two or more points in order: plan x and y, z the
+    /// walking surface above the level's floor (a slab's `top_offset_mm`, a
+    /// stair's nosing line). A run that goes all the way round repeats its
+    /// first point at the end.
+    pub points: Vec<Vec3>,
+    /// Top of the rail above its foot.
+    pub height_mm: f64,
+    pub style: RailingStyle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum RailingRunKind {
+    /// Along an open edge of a floor, balcony, deck or void.
+    SlabEdge,
+    /// Along an open side of a stair flight, rising with it.
+    StairSide,
+    /// Round the opening a stair makes in the floor it arrives at.
+    StairWell,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
@@ -108,9 +146,11 @@ pub struct Footprint {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Totals {
-    /// Sum of net room areas.
+    /// Sum of net room areas, less what voids, balconies and decks cover
+    /// (docs/CONTRACT.md, "Slabs and railings").
     pub floor_area_m2: f64,
-    /// Sum of footprint areas.
+    /// Sum of footprint areas, plus floor slabs where they reach past the
+    /// footprints, less what voids, balconies and decks cover inside them.
     pub gross_area_m2: f64,
     pub wall_length_m: f64,
     pub room_count: u32,

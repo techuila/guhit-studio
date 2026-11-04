@@ -285,6 +285,7 @@ pub fn inside(pt: Point, poly: &[Point]) -> bool {
 pub fn assert_invariants(state: &DocState) {
     let project = &state.project;
     let derived = &state.derived;
+    let has_slabs = project.elements.iter().any(|e| matches!(e, Element::Slab(_)));
 
     // No NaN or infinity anywhere: serde_json writes those as null, which
     // does not read back as a number.
@@ -386,7 +387,8 @@ pub fn assert_invariants(state: &DocState) {
             area(&g.centerline_polygon) > 0.0,
             "centerline polygon is not counter-clockwise"
         );
-        assert!(g.area_mm2 > 0.0);
+        // A void can cover a whole room (docs/CONTRACT.md, "Slabs and railings").
+        assert!(if has_slabs { g.area_mm2 >= 0.0 } else { g.area_mm2 > 0.0 });
         assert!(
             g.area_mm2 <= area(&g.polygon) + 1e-3,
             "net area is more than its polygon"
@@ -449,9 +451,15 @@ pub fn assert_invariants(state: &DocState) {
         }
         gross += f.area_mm2;
     }
-    assert!((derived.totals.gross_area_m2 - gross / 1e6).abs() < 1e-6);
     let net: f64 = derived.rooms.iter().map(|r| r.area_mm2).sum();
-    assert!((derived.totals.floor_area_m2 - net / 1e6).abs() < 1e-6);
+    if has_slabs {
+        // Balconies and decks are not floor area, voids come off.
+        assert!(derived.totals.floor_area_m2 <= net / 1e6 + 1e-6);
+        assert!(derived.totals.gross_area_m2 >= -1e-6);
+    } else {
+        assert!((derived.totals.gross_area_m2 - gross / 1e6).abs() < 1e-6);
+        assert!((derived.totals.floor_area_m2 - net / 1e6).abs() < 1e-6);
+    }
     assert_eq!(derived.totals.room_count as usize, rooms(project).len());
 
     // Review items stay calm.

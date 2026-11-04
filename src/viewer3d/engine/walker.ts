@@ -48,8 +48,23 @@ export const EYE_MAX_MM = 2500;
 /** Drag and pointer lock: radians per CSS pixel. The view follows the pointer 1:1. */
 export const LOOK_RAD_PER_PX = 0.0042;
 export const PITCH_LIMIT = 1.35;
-/** Vertical field of view while walking or flying. */
-export const WALK_FOV = 72;
+/**
+ * Horizontal field of view while walking or flying, degrees: about a 21 mm
+ * lens on full frame, the wide end of what interior photographers use. It
+ * was a fixed 72 degrees vertical, about 104 horizontal at 16:9, which read
+ * as a wide angle game lens (the senior architect review).
+ */
+export const WALK_HFOV = 80;
+/** The vertical field of view stays in this range, so a very wide or very tall window does not distort. */
+export const WALK_VFOV_MIN = 42;
+export const WALK_VFOV_MAX = 62;
+
+/** Vertical field of view while walking or flying at this aspect (width / height): `WALK_HFOV` across. */
+export function walkFov(aspect: number): number {
+  const a = Number.isFinite(aspect) && aspect > 0 ? aspect : 16 / 9;
+  const v = (2 * Math.atan(Math.tan((WALK_HFOV * Math.PI) / 360) / a) * 180) / Math.PI;
+  return Math.min(Math.max(v, WALK_VFOV_MIN), WALK_VFOV_MAX);
+}
 /** The longest frame movement integrates. A longer stall moves as if it were this long. */
 export const MAX_DT_S = 0.1;
 /** Scroll and swipe: millimeters moved per CSS pixel of wheel at the default speed. */

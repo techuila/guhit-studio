@@ -22,7 +22,7 @@ describe("runWindowTask", () => {
       code: "no_document",
     });
     await expect(
-      runWindowTask({ id: "r2", task: { type: "render", views: [], quality: "quick", size: "hd" } }),
+      runWindowTask({ id: "r2", task: { type: "render", views: [], quality: "quick", size: "hd", visibility: null } }),
     ).rejects.toMatchObject({ code: "no_document" });
   });
 });

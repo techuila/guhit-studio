@@ -10,10 +10,18 @@
 // model. Nothing here runs a frame loop. A marker behind something solid
 // dims: one raycast per marker on a pointer update and once the camera
 // rests, never per frame.
+//
+// Agents (DECISIONS D47) show here too, with or without a live session: a
+// diamond with the AI mark in their color, their name and status line, at
+// the point they work on. Their point moves once per call, seconds apart,
+// so it glides over `--dur-scene`.
 
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Vec3 } from "../../contract/bindings";
+import { AiMark } from "../../live/AgentAvatar";
+import { agentById, agentPointerIds, statusText } from "../../live/agents";
+import { useAgents } from "../../live/agentsStore";
 import { participant, peerVar } from "../../live/format";
 import { useLive } from "../../live/liveStore";
 import { labelFlip } from "../../live/placement";
@@ -126,14 +134,80 @@ export function LivePointers3D({ engine }: { engine: ViewerEngine }) {
 
   const ids = useLive(useShallow((st) => pointerIds(st.status, st.peers)));
   const rows = useListPresence(ids, (id) => id, "base");
+  const agentIds = useAgents(useShallow((st) => agentPointerIds(st.views, Date.now())));
+  const agentRows = useListPresence(agentIds, (id) => id, "base");
   // Reconnecting: the markers show where people were, not where they are.
   const stale = useLive((st) => st.status.mode === "reconnecting");
-  if (!board || rows.length === 0) return null;
+  if (!board || rows.length + agentRows.length === 0) return null;
   return (
     <div className={s.layer} data-stale={stale || undefined} data-testid="live-pointers-3d" aria-hidden>
       {rows.map((row) => (
         <Marker key={row.key} id={row.key} board={board} entering={row.entering} leaving={row.leaving} />
       ))}
+      {agentRows.map((row) => (
+        <AgentMarker key={`agent:${row.key}`} id={row.key} board={board} entering={row.entering} leaving={row.leaving} />
+      ))}
+    </div>
+  );
+}
+
+/** An agent's point in 3D: a diamond with the AI mark, its name and what it is doing. */
+function AgentMarker({ id, board, entering, leaving }: { id: string; board: PointerBoard; entering: boolean; leaving: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const name = useAgents((st) => agentById(st.views, id)?.name ?? null);
+  const color = useAgents((st) => agentById(st.views, id)?.color ?? null);
+  const activity = useAgents((st) => agentById(st.views, id)?.activity ?? null);
+  const line = useAgents((st) => {
+    const a = agentById(st.views, id);
+    return a ? statusText(a) : null;
+  });
+  const shownName = useLastTruthy(name) ?? "";
+  const shownColor = useLastTruthy(color) ?? 0;
+  const shownLine = useLastTruthy(line);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Agents and people have different ids, so they share the board.
+    board.add(id, el);
+    const apply = () => {
+      const p = agentById(useAgents.getState().views, id)?.presence.pointer_3d;
+      if (p) board.move(id, p);
+    };
+    apply();
+    const stop = useAgents.subscribe((st, prev) => {
+      if (st.views !== prev.views) apply();
+    });
+    return () => {
+      stop();
+      board.remove(id, el);
+    };
+  }, [board, id]);
+
+  return (
+    <div
+      ref={ref}
+      className={cx(s.marker, s.agentMarker)}
+      style={{ "--peer": peerVar(shownColor) } as CSSProperties}
+      data-snap="true"
+      data-off="true"
+      data-hidden="false"
+      data-activity={activity ?? undefined}
+      data-testid={`live-agent-3d-${id}`}
+    >
+      <div className={cx(s.body, entering && s.enter, leaving && s.leave)}>
+        <span className={s.agentDot}>
+          <AiMark size={8} />
+        </span>
+        <span className={cx(s.label, s.agentLabel)}>
+          <span className={s.agentName}>{shownName}</span>
+          {shownLine ? (
+            <span key={shownLine} className={s.agentStatus}>
+              {shownLine}
+            </span>
+          ) : null}
+        </span>
+      </div>
     </div>
   );
 }

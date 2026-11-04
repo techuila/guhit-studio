@@ -61,7 +61,8 @@ describe("glide targets", () => {
   });
 
   it("takes a tread hit onto the flight", () => {
-    const u = 7.5 * 243.75;
+    // The middle of tread 8 (15 treads of 260 mm, DECISIONS D44).
+    const u = 7.5 * 260;
     const t = hitTarget(worlds, { x: 600, y: 1200 + u, z: 8 * 187.5, up: 1 }, { x: 3000, y: 3000, levelId: L1 });
     expect(t?.stair?.id).toBe(STAIR);
     expect(t?.floorZ).toBeCloseTo(8 * 187.5, 6);

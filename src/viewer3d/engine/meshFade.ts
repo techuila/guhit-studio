@@ -6,6 +6,7 @@
 // texture counts return to their steady values once the animation is over.
 
 import * as THREE from "three";
+import { cloneMaterial } from "../scene/materials";
 
 interface Member {
   mesh: THREE.Mesh;
@@ -63,8 +64,8 @@ export class MeshFade {
   private cloneFor(base: THREE.Material): THREE.Material {
     let clone = this.clones.get(base.uuid);
     if (clone) return clone;
-    clone = base.clone();
-    clone.userData = { ...base.userData };
+    // Hooks kept: glass stays glass, a wall keeps its occlusion.
+    clone = cloneMaterial(base);
     clone.transparent = true;
     clone.depthWrite = false;
     this.clones.set(base.uuid, clone);

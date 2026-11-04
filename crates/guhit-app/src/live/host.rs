@@ -125,6 +125,8 @@ struct Link {
     doc_seq: u64,
     /// Presence versions it has been sent.
     seen: HashMap<Id, u64>,
+    /// Its hello listed "agents": it is sent the session's agents.
+    agents: bool,
 }
 
 struct Departed {
@@ -380,7 +382,7 @@ pub(crate) async fn start(app: &AppService, port: Option<u16>) -> Result<LiveSta
     }
     .encode();
     let id = app.live.host_id.get_or_init(defaults::new_id).clone();
-    let me = Participant { id, name, color: 0, role: ParticipantRole::Host };
+    let me = Participant { id, name, color: 0, role: ParticipantRole::Host, agent: None };
     let host = Arc::new(Host {
         me: me.clone(),
         project_id: project_id.clone(),
@@ -491,6 +493,9 @@ pub(crate) fn end(app: &AppService, host: &Arc<Host>, notice: &str, own_notice: 
     }
     if ours {
         app.emit(AppEvent::Live { status });
+        app.agents.clear_remote();
+        // This computer's agents work for its person outside a session.
+        app.agents.publish();
     }
 }
 
@@ -549,8 +554,6 @@ pub(crate) fn chat(
     level_id: Option<Id>,
     via_ai: bool,
 ) -> Result<ChatMessage, IpcError> {
-    let text = check_chat(text, at, level_id.as_deref())?;
-    let _order = lock(&host.chat_order);
     let author = {
         let inner = lock(&host.inner);
         if inner.ended {
@@ -563,6 +566,25 @@ pub(crate) fn chat(
             .cloned()
             .ok_or_else(|| not_live("You are not in the live session."))?
     };
+    chat_by(app, host, author, text, at, level_id, via_ai)
+}
+
+/// `chat` with the author given: a participant, or an agent of the host or
+/// of a guest (DECISIONS D47), which is not one.
+pub(crate) fn chat_by(
+    app: &AppService,
+    host: &Host,
+    author: Participant,
+    text: &str,
+    at: Option<Point>,
+    level_id: Option<Id>,
+    via_ai: bool,
+) -> Result<ChatMessage, IpcError> {
+    let text = check_chat(text, at, level_id.as_deref())?;
+    let _order = lock(&host.chat_order);
+    if lock(&host.inner).ended {
+        return Err(not_live("The live session has ended."));
+    }
     let message = ChatMessage {
         id: defaults::new_id(),
         author_id: author.id,
@@ -640,6 +662,50 @@ impl Host {
         inner.presence.insert(id.clone(), Slot { version, presence });
     }
 
+    /// A guest's agents, as it shows them (DECISIONS D47): each one that
+    /// guest's, at most `MAX_REMOTE_AGENTS`, none taking an id another
+    /// agent has here.
+    fn agents_arrived(&self, app: &AppService, guest_id: &Id, agents: Vec<AgentSummary>) {
+        let owner = lock(&self.inner).participants.iter().find(|p| &p.id == guest_id).cloned();
+        let Some(owner) = owner else { return };
+        let known = app.agents_list();
+        let taken = |id: &Id| {
+            known.iter().any(|a| {
+                &a.participant.id == id
+                    && a.participant.agent.as_ref().and_then(|i| i.owner_id.as_ref()) != Some(guest_id)
+            })
+        };
+        let agents: Vec<AgentSummary> =
+            super::clean_agents(agents, Some(&owner), crate::agents::MAX_REMOTE_AGENTS)
+                .into_iter()
+                .filter(|a| !taken(&a.participant.id))
+                .collect();
+        for a in &agents {
+            app.live.remember_agent(&a.participant, Some(owner.id.clone()), &owner.name);
+        }
+        app.agents.set_remote(guest_id, agents);
+    }
+
+    /// The session's agents changed (DECISIONS D47): each guest that knows
+    /// agents gets this computer's and the other guests', never its own. A
+    /// full queue skips them; the next change sends them again.
+    pub(crate) fn send_agents(&self, local: &[AgentSummary], remote: &std::collections::BTreeMap<Id, Vec<AgentSummary>>) {
+        let inner = lock(&self.inner);
+        if inner.ended {
+            return;
+        }
+        for (guest_id, link) in inner.guests.iter().filter(|(_, l)| l.agents) {
+            let agents: Vec<AgentSummary> = local
+                .iter()
+                .chain(remote.iter().filter(|(source, _)| *source != guest_id).flat_map(|(_, list)| list))
+                .cloned()
+                .collect();
+            if let Ok(frame) = wire::shared(&ToGuest::Agents { agents }, MAX_FRAME_BYTES) {
+                let _ = link.tx.try_send(Out::Frame(frame));
+            }
+        }
+    }
+
     /// Everyone else's latest presence, in the order of the participants.
     pub(crate) fn presence_list(&self) -> Vec<PresenceEntry> {
         let inner = lock(&self.inner);
@@ -714,6 +780,7 @@ impl Host {
     /// connection of the same participant (a rejoin replaced this one).
     fn leave(&self, app: &AppService, id: &str, conn: Option<u64>, how: Leave) {
         let mut events = vec![];
+        let mut gone: Vec<Id> = vec![];
         {
             let mut inner = lock(&self.inner);
             if inner.ended {
@@ -727,6 +794,7 @@ impl Host {
                     continue;
                 }
                 let Some(link) = inner.guests.remove(&id) else { continue };
+                gone.push(id.clone());
                 match &how {
                     Leave::Removed(notice) => {
                         let end = wire::shared(&ToGuest::End { notice: notice.clone() }, MAX_FRAME_BYTES).ok();
@@ -780,6 +848,10 @@ impl Host {
         }
         for event in events {
             app.emit(event);
+        }
+        // Their agents go with them.
+        for id in gone {
+            app.agents.set_remote(&id, vec![]);
         }
     }
 
@@ -955,9 +1027,10 @@ pub(crate) async fn connection(app: AppService, host: Arc<Host>, io: BoxIo, perm
     let Ok(Ok(bytes)) = tokio::time::timeout(AUTH_TIMEOUT, hello).await else {
         return;
     };
-    let Ok(ToHost::Hello { v, secret, name, rejoin }) = wire::decode::<ToHost>(&bytes) else {
+    let Ok(ToHost::Hello { v, secret, name, rejoin, features }) = wire::decode::<ToHost>(&bytes) else {
         return;
     };
+    let agents = features.iter().any(|f| f == FEATURE_AGENTS);
     if v != PROTOCOL_VERSION {
         return refuse(
             &mut wr,
@@ -973,7 +1046,7 @@ pub(crate) async fn connection(app: AppService, host: Arc<Host>, io: BoxIo, perm
     if name.is_empty() {
         return refuse(&mut wr, "Pick a name before joining.").await;
     }
-    let joined = match register(&app, &host, &name, rejoin).await {
+    let joined = match register(&app, &host, &name, rejoin, agents).await {
         Ok(joined) => joined,
         Err(message) => return refuse(&mut wr, &message).await,
     };
@@ -992,7 +1065,15 @@ struct Joined {
 /// Admit a guest: its participant, the welcome at the head of its queue, and
 /// everyone else told. Under the session lock, so no change slips between the
 /// plan in the welcome and the guest's place in the broadcast.
-async fn register(app: &AppService, host: &Arc<Host>, name: &str, rejoin: Option<Rejoin>) -> Result<Joined, String> {
+async fn register(
+    app: &AppService,
+    host: &Arc<Host>,
+    name: &str,
+    rejoin: Option<Rejoin>,
+    agents: bool,
+) -> Result<Joined, String> {
+    // The session's agents for a guest that knows them, all but its own.
+    let session_agents = if agents { app.agents_list() } else { vec![] };
     let s = app.session.lock().await;
     let Some(doc) = s.doc.as_ref().filter(|d| d.project().id == host.project_id) else {
         return Err("The host closed the project.".to_string());
@@ -1037,6 +1118,7 @@ async fn register(app: &AppService, host: &Arc<Host>, name: &str, rejoin: Option
             name: String::new(),
             color: free_color(&inner.participants),
             role: ParticipantRole::Guest,
+            agent: None,
         });
         participant.name = name.to_string();
         let mut participants: Vec<Participant> =
@@ -1065,9 +1147,13 @@ async fn register(app: &AppService, host: &Arc<Host>, name: &str, rejoin: Option
             },
             chat,
             presence,
+            features: wire::features(),
         }));
         let welcome = wire::shared(&welcome, MAX_FRAME_BYTES)
             .map_err(|_| "The shared project is too large to send.".to_string())?;
+        let theirs = |a: &AgentSummary| a.participant.agent.as_ref().and_then(|i| i.owner_id.as_ref()) == Some(&participant.id);
+        let session_agents: Vec<AgentSummary> = session_agents.into_iter().filter(|a| !theirs(a)).collect();
+        let agents_frame = if agents { wire::shared(&ToGuest::Agents { agents: session_agents }, MAX_FRAME_BYTES).ok() } else { None };
 
         if let Some(old) = rejoin.as_ref().and_then(|r| inner.guests.remove(&r.id)) {
             old.kill.send_replace(true);
@@ -1079,8 +1165,11 @@ async fn register(app: &AppService, host: &Arc<Host>, name: &str, rejoin: Option
         let conn = host.next_conn.fetch_add(1, Ordering::Relaxed) + 1;
         let (tx, rx) = mpsc::channel(QUEUE_FRAMES);
         let kill = watch::channel(false).0;
-        // A new queue always has room for its first frame.
+        // A new queue always has room for its first frames.
         let _ = tx.try_send(Out::Frame(welcome));
+        if let Some(frame) = agents_frame {
+            let _ = tx.try_send(Out::Frame(frame));
+        }
         let seen = inner
             .presence
             .iter()
@@ -1089,7 +1178,7 @@ async fn register(app: &AppService, host: &Arc<Host>, name: &str, rejoin: Option
             .collect();
         inner.guests.insert(
             participant.id.clone(),
-            Link { conn, token: token_tag, tx: tx.clone(), kill: kill.clone(), doc_seq: seq, seen },
+            Link { conn, token: token_tag, tx: tx.clone(), kill: kill.clone(), doc_seq: seq, seen, agents },
         );
 
         // Tell the others; one too slow for it is let go below.
@@ -1150,6 +1239,7 @@ async fn serve(
             ToHost::Bye => break Some(Leave::Bye),
             ToHost::Hello { .. } => break Some(Leave::Dropped),
             ToHost::Presence { presence } => host.set_presence(&id, Some(clean_presence(presence))),
+            ToHost::Agents { agents } => host.agents_arrived(&app, &id, agents),
             ToHost::Request { id: request_id, request } => {
                 let edit = matches!(request, Request::Apply { .. } | Request::Undo { .. } | Request::Redo { .. });
                 let result = answer(&app, &host, &id, request, &mut upload).await;
@@ -1193,9 +1283,19 @@ async fn answer(
     }
     let project = Some(host.project_id.as_str());
     match request {
-        Request::Apply { command, origin, expected_revision } => {
+        Request::Apply { command, origin, expected_revision, agent } => {
+            // The guest's agent is the author when the guest shows it; other
+            // agents' claims hold it off, and its first edit after a quiet
+            // spell saves a version first (DECISIONS D47).
+            let agent = agent.filter(|a| app.agents.remote_agent(guest_id, a).is_some());
             let mut s = app.session.lock().await;
-            let result = app.commit_locked(&mut s, command, origin, expected_revision, Some(guest_id.clone()), project)?;
+            if let Some(agent) = &agent {
+                if project.is_some_and(|p| s.doc.as_ref().is_some_and(|d| d.project().id == p)) {
+                    app.agent_check_remote(&s, agent, &command)?;
+                }
+            }
+            let author = agent.unwrap_or_else(|| guest_id.clone());
+            let result = app.commit_locked(&mut s, command, origin, expected_revision, Some(author), project)?;
             to_json(&Applied { revision: result.state.revision, diff: result.diff })
         }
         Request::Undo { force, steps, expected_revision } => {
@@ -1204,8 +1304,11 @@ async fn answer(
         Request::Redo { force, steps, expected_revision } => {
             step(app, guest_id, true, force, steps, expected_revision, project).await
         }
-        Request::Chat { text, at, level_id, via_ai } => {
-            to_json(&chat(app, host, guest_id, &text, at, level_id, via_ai)?)
+        Request::Chat { text, at, level_id, via_ai, agent } => {
+            match agent.and_then(|a| app.agents.remote_agent(guest_id, &a)) {
+                Some(author) => to_json(&chat_by(app, host, author, &text, at, level_id, true)?),
+                None => to_json(&chat(app, host, guest_id, &text, at, level_id, via_ai)?),
+            }
         }
         Request::FileGet { kind, file_name, offset } => file_get(&host.project_dir()?, kind, &file_name, offset),
         Request::FilePut { kind, file_name, offset, total, data } => {
@@ -1344,7 +1447,7 @@ mod tests {
     use super::*;
 
     fn guest(color: u8) -> Participant {
-        Participant { id: defaults::new_id(), name: "G".into(), color, role: ParticipantRole::Guest }
+        Participant { id: defaults::new_id(), name: "G".into(), color, role: ParticipantRole::Guest, agent: None }
     }
 
     #[test]

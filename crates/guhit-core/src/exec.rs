@@ -12,6 +12,7 @@ use crate::geom::*;
 use crate::ids::IdGen;
 use crate::issues::clean_review_target;
 use crate::rooms::{assign_by_seed, face, next_room_name, reconcile};
+use crate::slabs;
 use crate::topo::analyze;
 use crate::validate::*;
 
@@ -85,6 +86,9 @@ fn run(project: &mut Project, command: &Command) -> Result<Outcome, CoreError> {
     let ids = &mut ids;
     let before = project.clone();
     let mut out = leaf(project, command, ids)?;
+    // Slab outlines are kept counter-clockwise without repeated points
+    // (docs/CONTRACT.md, "Slabs and railings").
+    let changed_slabs = normalize_changed_slabs(&before, project);
     post_validate(&before, project)?;
     // Deleted objects leave every `links` list in this same command. This
     // runs after `post_validate` on purpose, like the dimensions below: a
@@ -109,6 +113,11 @@ fn run(project: &mut Project, command: &Command) -> Result<Outcome, CoreError> {
         }
     }
     let rec = reconcile(&before, project, ids);
+    for id in &changed_slabs {
+        if let Some(Element::Slab(slab)) = project.elements.iter().find(|e| e.id() == id) {
+            slabs::check_slab(project, &rec.analysis, slab)?;
+        }
+    }
 
     match command {
         Command::AddRectRoom {
@@ -168,6 +177,23 @@ fn run(project: &mut Project, command: &Command) -> Result<Outcome, CoreError> {
     Ok(out)
 }
 
+/// Normalize the outline of every slab the command added or changed, and
+/// return their ids.
+fn normalize_changed_slabs(before: &Project, project: &mut Project) -> Vec<Id> {
+    let old: BTreeMap<&Id, &Element> = before.elements.iter().map(|e| (e.id(), e)).collect();
+    let mut changed = vec![];
+    for el in project.elements.iter_mut() {
+        if old.get(el.id()).map(|b| *b == &*el).unwrap_or(false) {
+            continue;
+        }
+        if let Element::Slab(s) = el {
+            s.polygon = slabs::normalize(&s.polygon);
+            changed.push(s.id.clone());
+        }
+    }
+    changed
+}
+
 /// The level an element stands on. Openings (on their wall) and cameras
 /// have none of their own.
 fn element_level(el: &Element) -> Option<&Id> {
@@ -183,6 +209,7 @@ fn element_level(el: &Element) -> Option<&Id> {
         Element::Linework(e) => Some(&e.level_id),
         Element::ReferenceModel(e) => Some(&e.level_id),
         Element::Pipe(e) => Some(&e.level_id),
+        Element::Slab(e) => Some(&e.level_id),
         Element::Opening(_) | Element::Camera(_) => None,
     }
 }
@@ -656,6 +683,11 @@ fn translate_element(el: &mut Element, d: Point) {
             }
         }
         Element::ReferenceModel(m) => m.position = add(m.position, d),
+        Element::Slab(s) => {
+            for p in s.polygon.iter_mut() {
+                *p = add(*p, d);
+            }
+        }
         Element::Pipe(p) => {
             for v in p.points.iter_mut() {
                 v.x += d.x;
@@ -1337,6 +1369,11 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                         m.position = rot(m.position);
                         m.rotation_deg = norm_deg(m.rotation_deg + angle_deg);
                     }
+                    Element::Slab(s) => {
+                        for p in s.polygon.iter_mut() {
+                            *p = rot(*p);
+                        }
+                    }
                     Element::Pipe(p) => {
                         for v in p.points.iter_mut() {
                             let r = rot(pt(v.x, v.y));
@@ -1803,14 +1840,18 @@ pub fn diff_noun(el: &Element) -> &'static str {
             "doorbell-chime" => "doorbell chime",
             _ => "object",
         },
+        Element::Slab(s) => slabs::kind_name(s.kind),
         other => kind_noun(other.kind()),
     }
 }
 
 /// "1 switch", "2 switches", "3 lights".
 pub fn count_noun(n: usize, noun: &str) -> String {
+    let consonant_y = noun.ends_with('y') && !["ay", "ey", "oy", "uy"].iter().any(|end| noun.ends_with(end));
     if n == 1 {
         format!("1 {noun}")
+    } else if consonant_y {
+        format!("{n} {}ies", &noun[..noun.len() - 1])
     } else if ["ch", "sh", "s", "x"].iter().any(|end| noun.ends_with(end)) {
         format!("{n} {noun}es")
     } else {
@@ -1833,5 +1874,6 @@ pub fn kind_noun(kind: ElementKind) -> &'static str {
         ElementKind::Linework => "linework",
         ElementKind::ReferenceModel => "reference model",
         ElementKind::Pipe => "pipe",
+        ElementKind::Slab => "slab",
     }
 }

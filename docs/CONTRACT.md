@@ -17,7 +17,7 @@ What every part of the app agrees on. Types live in `crates/guhit-model`
 - Walls join when endpoints are within 1 mm. New ids are seeded per leaf command, so an id does not change when a batch grows.
 - `Derived::footprints` can hold several buildings per level, largest first.
 - Dimension endpoints within 1 mm of a wall joint or outline corner follow it when a command moves the wall (DECISIONS D12).
-- Stairs: the 2D and 3D drawings split `run_mm` into `riser_count` steps, the last one flush with the floor above. The inspector and the IFC give a straight flight `riser_count - 1` treads of `run_mm / (riser_count - 1)`, so treads times tread length is the run. Annotations: `position` is the left end of the first baseline.
+- Stairs: a straight flight has `riser_count - 1` treads of `run_mm / (riser_count - 1)`, so treads times tread length is the run and the top riser lands on the floor above (DECISIONS D44). The inspector, the IFC, the plan and the exports count this way. See "Slabs and railings". Annotations: `position` is the left end of the first baseline.
 - Walls have a `role` (`WallRole`, schema 4): `building` (the default, and every wall of an older file; left out of the JSON) or `site`. See "Site walls".
 - `Diff::also_moved`: walls a command reshaped that it did not name (joined walls that stretched or shifted to follow). Also in `modified`, named in `summary` ("; also moved: Wall 4150 mm, Wall 3000 mm"), left out of the JSON when empty. See "Moving walls".
 
@@ -436,6 +436,149 @@ summary sentence; MCP edit results and copilot steps add `also_moved` with
 each wall's id, label and new ends; the window shows an "Also moved: ..."
 toast.
 
+## Slabs and railings
+
+A `Slab` is a floor, balcony, deck or void on one level (DECISIONS D50),
+added with `AddElement` and edited with `UpdateElement`, on the Slabs layer
+(`LayerKey::Slabs`, label "Slabs", after `site`). Schema 5 added slabs, the
+layer and `Stair::railing`; `migrate` gives older files the layer, and an
+older stair has no railing.
+
+- Outline: the engine stores it counter-clockwise (a clockwise outline is
+  reversed), without points closer than 1 mm to the one before and without a
+  closing duplicate. Fewer than three points, a self-intersecting outline or
+  one under 0.01 m2 is refused with `slab_outline`.
+- Kinds: `floor` adds floor where the level's own floor does not reach (an
+  extension, a mezzanine). `balcony` and `deck` are open floors outside the
+  walls. `void` cuts the floor away so the space below is double height.
+- Height: a slab's top is the level elevation plus `top_offset_mm`, and it is
+  `thickness_mm` deep below that. A void has no thickness: it cuts every
+  floor of its level inside its outline, which is the level's own floor (one
+  slab per footprint), its floor, balcony and deck slabs, and the roof deck of
+  the level below where that deck is under it (D26).
+- Overlaps are refused, never merged: on one level, floor, balcony and deck
+  slabs may not overlap one another, and voids may not overlap voids
+  (`slab_overlap`, naming both slabs and the shared area, `element_ids` the
+  slab being added or changed first). Shared edges and corners are fine; a
+  void over a floor, balcony or deck is what a void is for.
+- A void must lie over floor: inside its level's footprints, its level's
+  floor, balcony and deck slabs, and the footprints of the level below (whose
+  roof deck is the floor there). Otherwise `void_outside_floor`, saying how
+  much hangs outside. A void on the lowest level would open onto the ground
+  and is refused (`void_no_level_below`). Checked when the void is added or
+  changed. The plan's slab tool starts on `floor`.
+- Every area the engine reports uses these numbers: `Derived`, the plan
+  labels, and the `room_list`, `project_summary`, `describe` and
+  `rooms_without_exterior_window` queries (a room's `net_area_m2` less the
+  void, with `void_area_m2` and `floor_area_m2` when slabs change them; a
+  level's `net_floor_area_m2` and `gross_footprint_area_m2` as the totals
+  count them).
+- Areas: `RoomGeometry::area_mm2` is the net room area less the part a void
+  covers. `Totals::floor_area_m2` sums the rooms less the part a balcony or
+  deck covers (an open lanai walled in on a deck is a room, not floor area).
+  `Totals::gross_area_m2` sums the footprints, plus floor slabs where they
+  reach past the footprints, less what voids, balconies and decks cover
+  inside them (a loggia or lanai inside the walls is open floor, not gross
+  area). A stair opening is not taken off: a stair counts on every floor it
+  serves.
+- `top_offset_mm` is from the level's floor and must stay under the level
+  height either way (`slab_top_offset`); a void ignores it.
+
+### Railings (`Derived::railings`)
+
+The engine works out every rail; the plan, the 3D view and the exports draw
+`Derived::railings` (`RailingRun`) and never find open edges themselves.
+
+- Open edge: a stretch of an outline that no wall of the same level runs
+  along. A wall runs along an edge when it is within 2 degrees of parallel
+  and its centerline is within half its thickness plus 50 mm of the edge
+  line; it closes the overlap of the two. Site walls count. Open stretches
+  under 100 mm are dropped, and stretches that meet at a corner are one run.
+  A run all the way round repeats its first point at the end.
+- A floor, balcony or deck edge is also closed where another floor, balcony
+  or deck of the level runs along it (within 50 mm): an L drawn as two
+  rectangles has no rail across its walking surface.
+- A void edge is also closed, for each stair arriving on the level: across
+  the stair's arrival end (within 50 mm, where people step off), across its
+  opening (a rail there would hang over the flight), and along the opening's
+  rim where the opening lies outside the void (two openings side by side).
+  Where the void holds the opening, its edge along the rim keeps its rail.
+- The `slab_no_railing` review measures the same open stretches.
+- `slab_edge`: a slab with a `railing` gets one run per open stretch, its
+  foot at `top_offset_mm` (0 for a void).
+- `stair_side`: a stair with a `railing` gets a run along each open side of
+  its flight (the lines `width_mm / 2` either side of the center), its foot on
+  the nosing line: one riser up at the first nosing (`level height /
+  riser_count`), the level height at the top end.
+- `stair_well`: the level a stair arrives at is the level above whose
+  elevation is within 300 mm of the stair's top (its level's elevation plus
+  height), the closest one, as the 3D view finds it. There the flight's
+  rectangle is the opening; a stair with a `railing` gets a guard along the
+  opening's two sides and its bottom end (over the first riser), open parts
+  only, foot at 0. The end the stair arrives at stays open. Parts inside or
+  within 50 mm of a void on that level go: the void's own rail guards there.
+
+### Stairs on the plan (D44)
+
+A straight flight of `n` risers has `n - 1` treads, each `run_mm / (n - 1)`
+deep: tread lines at `k * run_mm / (n - 1)` for `k = 1 .. n - 2` inside the
+outline, the last tread ending at the top of the flight where the top riser
+lands on the floor above. The UP arrow runs from the first tread to the top.
+On the level the stair arrives at, the flight's outline and tread lines are
+dashed with a DN arrow from the top end down the flight, and the rooms there
+do not paint over the opening. Railings draw over both.
+
+### Plan and exports
+
+- Plan: floor, balcony and deck outlines in a thin line with a light tint
+  (balconies and decks a little stronger); a void as its outline with a cross
+  (the two diagonals of a four-corner outline, otherwise the diagonals of its
+  bounding box clipped to it) and "OPEN TO BELOW". A railing is two thin lines
+  50 mm apart along the run (bars, glass), a solid parapet a 100 mm band.
+- The level below as an underlay (UI only, never exported): its walls in a
+  faint tone under everything on the level, on by default, toggled per
+  project (`guhit.planUnderlay.<project id>` in local storage).
+- SVG groups `slabs` and `railings`; DXF layers `A-FLOR-OTLN` (slab outlines
+  and the void cross) and `A-FLOR-HRAL` (railings), a stair from below on
+  `A-FLOR-STRS` dashed. IFC: `IfcSlab` `.FLOOR.` for a floor slab, balconies
+  and decks `.USERDEFINED.` with ObjectType `'BALCONY'` or `'DECK'`, names
+  numbered across the file ("Floor slab 2", "Balcony 1"). An IFC4 opening
+  voids one element, so a void is one `IfcOpeningElement` per slab of its
+  level it overlaps ("Void 1 in Floor slab 2", each with its own
+  `IfcRelVoidsElement`); a void over nothing the file holds (the roof deck
+  below, which the IFC does not write) is left out. Railings are `IfcRailing`
+  (`.GUARDRAIL.` for slab edges and stair wells, `.HANDRAIL.` for stair
+  sides). The 3D DXF puts slabs on `A-FLOR-SLAB` with voids cut out and
+  railings on `A-FLOR-HRAL`. GLB, OBJ and DAE come from the 3D view, which
+  draws the same slabs and runs.
+
+### Review
+
+| Code | Severity | On | When |
+|---|---|---|---|
+| `slab_no_railing` | warning | slab | a balcony or deck whose top is 750 mm or more above the lowest level's floor, or a void above the lowest level, has open edges and no railing |
+| `stair_top_no_floor` | warning | stair | the floor 300 mm past the top of the flight is missing: no level at the stair's top, or that spot is outside the level's floor (footprints, floor, balcony and deck slabs, the roof deck of the stair's own level) or inside a void |
+| `stair_landing_blocked` | warning | stair, wall | a wall stands in the landing past the top step on the level the stair arrives at (as deep as the stair is wide, 900 mm at the least: the dead-end landing), or within 900 mm in front of the first step; it says how far |
+| `asset_over_opening` | warning | object, void or stair | an object standing on the floor (furniture, bathroom, kitchen, appliance, plant, vehicle) has its center over a void or over the opening of a stair arriving on its level |
+| `door_swing_blocked` | warning | door, object | an object standing on the floor overlaps the quarter circle a swing door's leaf sweeps by more than 0.02 m2 |
+
+Landing depths and clearances are rules of thumb for the designer, never a
+code requirement (D24).
+
+### Engine and queries
+
+- `guhit_core::slabs` holds the rules: `check_slab` (run after every command
+  for the slabs it added or changed, on the analysis after it), `normalize`,
+  `railings`, `review`, `stair_top_level`, `stair_rect`, and exact region
+  areas (`Region`, `union_area`, `covered_area`, `overlap_area`).
+- `describe` gives a stair `tread_count` (`riser_count - 1`), `tread_mm`,
+  `riser_mm`, `arrives_at` (the level name, or null) and `railing`; a slab
+  `slab_kind`, `polygon`, `thickness_mm`, `top_offset_mm`, `area_m2`,
+  `railing_mm` and `railing_style`.
+- Undo labels and summaries name the kind: "Add balcony", "Add void",
+  "2 balconies".
+
+
 ## Sheets
 
 `PlanExportOptions::sheet` (default `plan`) picks the sheet: `lighting`,
@@ -467,7 +610,12 @@ layers).
 - Sun position from SunCalc's formulas (no dependency), north from
   `ProjectSettings::north_angle_deg`.
 - Sky: `clear` (a physical sky that follows the sun), `cloudy`, `photo` (the
-  pack HDRI, turned so its sun sits at the computed azimuth).
+  pack HDRI, turned so its sun sits at the computed azimuth). `photo` is the
+  default: a tropical midday sky, 4K behind the model and 2K for light, with
+  its sun taken out (the directional light is the sun) and its sky light
+  scaled to the clear sky's. The ground is a lawn texture that fades into the
+  photo's own ground.
+- Tone mapping: AgX, for the live view, captures and renders alike.
 - Exposure is automatic in the live view and locked into a saved view,
   a render or a study.
 - Lamps: a fixture gives light when `Asset::light.on` and the lamps are on,
@@ -478,6 +626,12 @@ layers).
   soft sun shadows) and then stops. It follows the frame loop rule: every
   refine frame is scheduled through `ViewerEngine.schedule()`, and a still,
   refined view draws nothing.
+- Ambient occlusion (light/ao.ts): every live frame and capture, inside the
+  frame's one render call, a half resolution pass over the opaque model dims
+  indirect light in corners and under objects (and direct light a little).
+  Off in the X-ray and hidden shells. Refine samples reuse the frame's.
+- Glass: thin panes that let the view through and reflect by Fresnel in the
+  live view; real transmissive glass in the path tracer.
 
 ## Render
 
@@ -779,11 +933,260 @@ characters, or 160 with `at` (cursor chat); `bad_args` otherwise, and for
 an `at` that is not a number or a `level_id` that is not an id. The host
 stamps the id,
 author, color and time, appends the message to `<project>/chat.jsonl` on the
-host (one JSON object per line, best effort) and sends `AppEvent::Chat` to
+host (one JSON object per line, best effort; once the file passes 2 MB it
+is cut to its newest messages, at most 1000 in at most 1 MB) and sends `AppEvent::Chat` to
 every window, the sender's included. `chat_list` returns the last 500 of
 the open project's chat, oldest first: from `chat.jsonl` on the host or
 with no session, from what the host sent on join plus what came since on a
 guest.
+
+## Agents
+
+DECISIONS D42, D47, D50. Types: `crates/guhit-model/src/live.rs`
+(`AgentInfo`, `AgentActivity`, `AgentLimit`, `AgentClaim`, `AgentSummary`).
+Registry and rules: `crates/guhit-app/src/agents.rs`; limits, claims and
+the work area: `guhit_core::scope` (`check_limit`, `claim_reach`,
+`work_area`). Every MCP agent is a participant with a name, color,
+presence and status line, with or without a live session. Its edits apply
+directly, each one undo step with the agent as author.
+
+Identity, per tool call, from the hint the MCP server passes
+(`AgentHint`): the connection (`connection`, a key the server issues: its
+MCP session id, else the labelled URL, else the stdio instance; without one
+the stdio instance `x-guhit-agent-instance`, else the label of
+`/mcp/agent/<label>` or `--agent <label>`, else `clientInfo`), and the
+`agent` tool argument, a handle inside one connection (how subagents are
+told apart).
+- The id is `agent-` and 16 hex digits of a hash of this computer's salt
+  (new each run), the connection key and the handle. It holds while the
+  app runs; two computers never share one.
+- Pause, stop, the limit and the rate limit belong to the connection, not
+  the handle: every handle on it, the ones to come included, shares them,
+  so a new `agent` handle never gets out of them. A new connection with
+  the same client and label as an older one (a stdio proxy started again)
+  starts the way the newest such connection is: paused, stopped or
+  limited.
+- The name is the handle or label as words ("ground-floor" is "Ground
+  floor"), else the client's ("claude-code" is "Claude Code", "codex"
+  "Codex"), else "Unknown agent". A name another agent on the list has
+  gets " 2", " 3". A rename (`agent_update`) is kept in settings.json under
+  `agent_names`, by what the agent was named for (`agent:<handle>`,
+  `label:<label>`, `client:<name>`).
+- Colors are the peer colors from 1 up, the lowest no agent on the list
+  has. `role` is always `guest`, so code finding the host by role never
+  finds an agent.
+- Idle after 60 s without a call; off the list after 10 minutes without
+  one (refused calls count, so a stopped agent that keeps trying stays
+  shown); remembered for the history while the app runs, its connection's
+  pause, stop and limit kept. At most 8 per computer take a place
+  (`too_many_agents`): a stopped agent takes none, so stopping one frees a
+  place at once, and resuming one needs a free place (resuming everyone
+  brings everyone back).
+
+Presence (`AgentSummary::presence`), set by the app, never sent by the
+agent: after an edit, `cursor` at the middle of what it added and changed
+on the level most of it stands on, `level_id` that level, `selection` those
+elements (at most 200), `pointer_3d` 1200 mm above that level's floor,
+`plan_view` the box around them plus 1500 mm, at least 8 x 6 m; after a
+read, the same for what it looked at (`agent_done`). `status` is the line
+it set (held 60 s), else its tool's ("Placing doors"), none once idle.
+`activity`: `working` (its last call edited), `looking` (it read),
+`idle`, `paused`, `stopped`.
+
+Rules, enforced in the app and the engine, not in prompts:
+- Pause (`agent_pause`): its edits, undo and redo fail `agent_paused`
+  ("Axl paused Ground floor. Stop and tell the user; do not retry until
+  they resume you."); reads and chat work. Stop (`agent_stop`): every call
+  fails `agent_stopped`, and its claim ends. `agent_resume` ends either.
+  Each takes `id` (that agent's whole connection), or null for every agent
+  of this computer and every agent that connects until everyone is
+  resumed. A pause never loosens a stop. A pause that lands while a call
+  runs stops its commit. "Allow agents" (D35) stays the switch for all of
+  MCP.
+- One project: a call remembers the project open when it started
+  (`AgentCall::project_id`), and its edit, undo or claim is refused
+  (`project_changed`, nothing applied) once another project is open, even
+  at the same revision; a translation that ran while the project changed
+  is never committed onto the new one. When another project opens, limits
+  and claims keep only its levels and elements (levels are also dropped
+  when one is deleted). A limit left naming no level and no element of the
+  open project would limit the agent to nothing, and dropping it would let
+  the agent work unlimited on a project nobody limited it on, so its
+  connection is paused instead and the level and element parts cleared
+  (kinds kept, they hold in any project): the panel shows it paused until
+  the user resumes it or sets a new limit. A claim left empty ends.
+- Limit (`agent_update { limit }`): levels, elements and kinds, checked on
+  every command of the edit by `scope::check_limit`, step by step through
+  a batch. Levels: every element it targets, and every new element, on
+  those levels. Elements: D30's reach and area. Kinds: every target and
+  new element of those kinds (a room resize needs walls). Under a level or
+  kind limit roof, levels, layers, settings and materials are refused;
+  cameras never are. A refusal is `out_of_scope` naming the element: "The
+  new wall would be on Second Floor, outside what this agent is limited
+  to. Axl limited Ground floor to Ground Floor. Change only those, or ask
+  the user to widen the limit in the Agents panel." "Only the selection"
+  (D30) binds every agent on top of its limit.
+- Claim (`agent_claim`): levels (ids or names) and elements, a lease that
+  ends 10 minutes after the claimer's last call, or on release. Another
+  agent's edit that reaches it (`scope::claim_reach`: anything on a
+  claimed level, a new element landing on one, changing or deleting a
+  claimed level, a claimed element with D30's reach) fails `claimed`:
+  "Second Floor is claimed by Upper floor (Claude Code) until 3:52 PM. Work
+  somewhere else, or ask Upper floor in the chat to release it." A claim
+  that meets another agent's by reach (`scope::claims_overlap`: a level
+  both claim, an element on a level the other claims, either way round, or
+  an element both reach) fails the same way. Claims never block
+  people. A guest's agents see the session's claims and the host checks
+  them again.
+- One lock: `agent_edit` translates the call once on a copy outside the
+  session lock; when the plan moved on before the commit it translates
+  again under the lock, so an agent never fails `stale` because someone
+  else edited. On a guest the host commits it, and a `stale` from the host
+  translates once more.
+- Undo (`agent_undo`): an agent undoes or redoes only its own top step.
+  Another agent's step is `other_author` always; a person's is
+  `other_author` unless `force` (after the user confirms, D29). In a live
+  session your own agent's steps never ask you; another person's agent's
+  ask as D29.
+- At most 5 commits a second per connection, every handle on it together (`rate_limited`).
+- The first agent edit in a project after 10 minutes without one saves an
+  automatic version first, "Before agents, 3:42 PM" (local time), so work
+  past the 200-step history stays restorable. The host does it for guests'
+  agents.
+- History: `HistoryStep::author_id` is the agent; `on_behalf_of` and
+  `on_behalf_name` the person it worked for, always set on an agent's step,
+  with or without a session: this computer's own person is its host
+  participant id (the same for every session while the app runs) and the
+  profile name, or "this computer" before a name is picked. A step with
+  `author_id` None is a person's.
+- Chat (`agent_chat`): posted as the agent (its id, name, color,
+  `via_ai`). Without a live session it goes to the project's `chat.jsonl`
+  and `AppEvent::Chat`, so the Chat panel shows it.
+- Notes (`agent_notes`, r5 3.4), for the MCP server to put in every result
+  so agents learn of each other without polling: `activity` (whether it
+  may edit: a paused agent reads that it is paused), `inbox` (chat that
+  mentions it, "@Ground floor" or "@ground-floor", since its call before,
+  at most 3) and `nearby` (other people's and agents' steps inside its
+  claim since then, at most 5: who, the undo label, when, the ids), each
+  told once. Works with or without a live session.
+
+The window: `AppEvent::Agents { agents }` with the full list, newest call
+first, on every change (each call, an agent going idle or off the list, a
+claim ending; looked for once a second); `agents_list`; `McpStatus::agents`.
+In a live session the list holds this computer's agents and everyone
+else's; only the owner's computer can rename, limit, pause or stop an
+agent (`not_yours` elsewhere).
+
+Live sessions (`PROTOCOL_VERSION` stays 2): the hello and the welcome list
+`features`; "agents" switches on `ToHost::Agents` (a guest's agents, sent
+on every change once the welcome listed it), `ToGuest::Agents` (every
+agent in the session but that guest's own, sent only to a guest whose
+hello listed it), and `agent` on an apply or a chat. Agents are never in
+`participants` and outside `MAX_PARTICIPANTS`. The host takes at most 8
+agents per guest, forces their owner to that guest, keeps only `agent-`
+ids no one else has, and records a guest's agent as the author of its
+apply. An older guest is sent no agents, and its history still names agent
+steps; an older host is sent none, and records a guest's agent's steps as
+the guest's.
+
+## MCP v2
+
+The MCP server (`crates/guhit-mcp`, docs/MCP.md) is the main way agents
+build the model (DECISIONS D42). It is a transport over `AppService`, like
+the Tauri shell and the dev bridge, and adds no model rules of its own.
+
+**Tools.** The core toolset `draft` (22 tools) is always listed; the toolsets
+`services`, `visuals`, `live`, `review` and `interop` (11 more) are listed
+when the request URL says `?toolsets=a,b` (or `all`), else when settings.json
+`mcp_toolsets` names them. Listing only: every tool answers whether listed or
+not. `guhit_mcp::toolsets` holds the lists; `guhit_mcp::tool_list_for` the
+definitions. Every schema takes an optional `agent`; every editing tool takes
+`scope` (AI edit scope above).
+
+**Edits.** Every editing tool, `batch` step and `build` entry is translated by
+`guhit_mcp::translate::plan` into typed `Command`s against the project as
+staged so far (unknown fields refused), staged on one `guhit_core::Staging`
+and committed as ONE `Command::Batch` with `Origin::Ai` and the label
+`MCP: ...` (`guhit_mcp::stage::run`). An agent's call commits through
+`AppService::agent_edit` (its author, limit and claims); an in-process call
+through `commit_staged_if_revision`. `dry_run` stages and commits nothing. v1
+editing tools translate through the copilot (`guhit_app::ai::tools`) as
+before. A step whose result depends on the step before it (naming the room a
+wall outline closed, giving new openings a material) runs a second phase on
+the staged project; it is still the same undo step.
+
+**Refs.** A `build` entry or `batch` step may carry `ref` ("kitchen"). A
+later step's string `"$kitchen"` (or `{"$ref": "kitchen"}`) becomes the id of
+the element of the step's kind it made (the room it named for `add_room`,
+the level for `levels`); `"$kitchen.2"` the third such element. A `"$name"`
+naming no earlier ref is refused (`unknown_ref`). `build` applies its lists
+in the order levels, walls, rooms, columns, slabs, stairs, openings, assets,
+cameras.
+
+**Edit results.** `ok`, `revision`, `base_revision` (the revision the edit
+started from), `summary`, `undo_label`, `created`, `changed`, `deleted` (id,
+kind, label, at most 100 each, then `*_count`), `levels_added`,
+`levels_removed`, `issues_added` (issues whose id the base revision lacked:
+id, code, severity, message, element_ids, location_mm), `issues_resolved`
+(the other way), `also_moved` (`Diff::also_moved`), `totals`; with
+`batch`/`build`: `steps` (per step lists, `ref` and `id`), `refs`; one call:
+`id`; `details` (stair riser and tread, opening wall and offset, slab area);
+`warnings` (storeys whose height runs past the floor above); `scope`; `agent`
+(its name).
+
+**Errors.** `isError` with structured content `{code, message, element_ids,
+location_mm, step, ref, hint}` (`guhit_mcp::fail::ToolFail`). `code` is the
+engine's own code (`CoreError::code`, so `opening_overlap`, not `invalid`),
+an `IpcError` code, `bad_args`, `unknown_tool`, `unknown_ref`,
+`unknown_catalog_key`, `no_room_here` or `unavailable`. `step` is 1-based in
+a `batch` or `build`, absent for one call. The text content keeps the v1
+wording ("step 5 of 6 (`add_door`): invalid: ... Nothing was applied.") and
+adds "Hint: ...". An unknown tool names the nearest v2 tool.
+
+**Check baselines.** The engine keeps no history of derived data, so
+`check since_revision` compares with the review items this server noted at
+the latest revision at or before it: it notes them before and after each of
+its edits and at each `check` (64 revisions per project, in memory).
+
+**Pictures.** `look` mode plan draws `guhit_export::plan::build_items` of a
+level as SVG with agent overlays (wall lengths, short ids with a map to full
+ids, a grid, a scale bar, underlays) and rasterizes it with resvg to PNG, at
+most 1568 px. `px_per_mm` and `bbox_mm` map pixels to plan mm. The resource
+template `guhit://project/levels/{level}/plan.svg` serves the same SVG. 3D
+goes through the window (`WindowTask::CaptureView`).
+
+**Agents** (the interface with the agents registry above). Per call the
+server builds `guhit_app::agents::AgentHint` from the `agent` argument, the
+labelled URL `/mcp/agent/<label>`, the stdio proxy's `x-guhit-agent-instance`
+header and the connection's `clientInfo`, calls `AppService::agent_call`
+(Read for reads, pictures, exports, chat, status and dry runs; Edit for the
+rest), commits through `agent_edit` or `agent_commit`, undoes through
+`agent_undo`, chats through `agent_chat`, and after a read calls
+`agent_done` with the ids it named. `initialize` answers with an
+`Mcp-Session-Id` (`guhit_mcp::new_session_id`: a random part and the client's
+name and version in hex, so it names its client after an app restart too);
+`AgentHint::connection` is `session:<id>`, else `label:<label>`, else
+`instance:<id>`. A request without `clientInfo` takes the client its session
+names, else the one its label, instance or TCP peer named
+(`McpState::saw_client_at`), else none: never the last client seen. A
+multi-step `history` undo checks every step first (the agent's own, or a
+person's with `force`; another agent's never), then undoes them as one
+revision with `expected_revision`. `import_dxf` commits through
+`agent_edit` like every edit; a DWG answers `unavailable`. An agent posts at
+most 6 chat messages a minute (`rate_limited`). Every result of an agent's call carries `activity` and, when they hold
+anything, `inbox` and `nearby` from `AppService::agent_notes`. A `dry_run`
+runs the registry's checks (`AppService::agent_check`). `look` mode 3d and
+`render` pass `visibility` to `WindowTask` (None when the call names none). Each call sets the status line from
+the tool (`guhit_mcp::agent::tool_line`) through `agent_set_status`, unless
+the agent's own `set_status` is less than 60 s old.
+
+**IPC.** `mcp_toolsets` → `{toolsets, available}`; `mcp_set_toolsets`
+`{toolsets: [names]}` → the same, stored in settings.json as `mcp_toolsets`
+(unknown names dropped, `"all"` is every toolset).
+
+**Not in v2.** Overhead (garage) door styles, L and U stairs, section and
+elevation pictures, and GLB export from the server: each answers
+`unavailable` or is not offered, with a hint naming what to use instead.
 
 ## App events and window requests
 
@@ -916,7 +1319,14 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | `chat_list` | | `ChatMessage[]` | the open project's chat, oldest first, last 500 |
 | `window_reply` | `id`, `reply?`, `error?` | `null` | the window's answer to a `WindowRequest` |
 | `mcp_status` | | `McpStatus` | the MCP server for the Connect agent dialog (DECISIONS D35) |
+| `mcp_toolsets` | | `{toolsets, available}` | the extended toolsets every agent gets by default, and every toolset name ("MCP v2") |
+| `mcp_set_toolsets` | `toolsets` | `{toolsets, available}` | sets them, stored in settings.json as `mcp_toolsets`; unknown names are dropped. An agent that names its own (`?toolsets=`, `--toolsets`) gets those instead |
 | `mcp_set_enabled` | `enabled` | `McpStatus` | the "Allow agents" switch, stored in settings.json as `mcp_enabled` (default on). Takes effect at once: while off, every MCP request gets HTTP 503 and a JSON-RPC error (code -32000, `guhit_app::mcp::DISABLED_MESSAGE`), and the stdio entry passes that error on |
+| `agents_list` | | `AgentSummary[]` | every agent working on the project now, this computer's and the session's, newest call first ("Agents") |
+| `agent_update` | `id`, `name?`, `limit?` | `AgentSummary` | rename (kept in settings.json), or set the limit; `limit` null clears it, left out keeps it. Levels and elements must be in the open plan (`bad_args`) |
+| `agent_pause` | `id` or null | `AgentSummary[]` | pause one agent, or with null every agent of this computer |
+| `agent_stop` | `id` or null | `AgentSummary[]` | stop one or every agent; its claim ends |
+| `agent_resume` | `id` or null | `AgentSummary[]` | end a pause or a stop |
 | `mcp_claude_desktop_bundle` | | `{path}` | writes the Claude Desktop extension `<data>/claude-desktop/guhit-studio.mcpb` (MCPB manifest 0.3, a binary server whose command is `stdio_command` with `--mcp-stdio`) and returns its absolute path. `unavailable` when there is no `stdio_command` (the dev bridge) |
 
 `McpStatus { enabled, listening, port, url, stdio_command, last_client, claude_desktop_bundle }`:
@@ -932,7 +1342,7 @@ client that did. In memory only, since the app started. The transports report in
 
 External changes: after every commit, undo, redo, open, create, close, delete and restore, a rename of the open project, and every document a live session guest receives, `AppService::watch_changes()` fires `{revision, project_id, seq}`. The desktop shell forwards it as the Tauri event `doc_changed {revision}`; the dev bridge serves `/mcp` on its port and the UI polls `doc_revision`. The frontend subscribes with `onDocChanged` (`src/contract/ipc.ts`): `App.tsx` switches hub to editor, `EditorShell` refetches state. Full MCP tool list: `docs/MCP.md`.
 
-Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (neither an address nor the relay reached the host; the message says why), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request), `unavailable` (needs the desktop app, such as the Claude Desktop extension). An AI edit outside its scope has no IPC code of its own: the model reads a tool error that starts with `out_of_scope:`, and a proposal that stops fitting its scope before it is applied is `invalid`.
+Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (neither an address nor the relay reached the host; the message says why), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request), `unavailable` (needs the desktop app, such as the Claude Desktop extension), and for agents ("Agents") `agent_paused`, `agent_stopped`, `too_many_agents`, `claimed`, `rate_limited`, `out_of_scope` (outside an agent's limit), `not_yours` (another computer's agent), `project_changed` (another project was opened while the call ran). An AI edit outside its scope has no IPC code of its own: the model reads a tool error that starts with `out_of_scope:`, and a proposal that stops fitting its scope before it is applied is `invalid`.
 
 `hub_open` on the project that is already open returns the current state with its undo history intact.
 

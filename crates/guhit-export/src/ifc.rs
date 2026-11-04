@@ -47,12 +47,25 @@
 //!   system, which serves the building. Bends are where two segments meet;
 //!   elbows and tees are not written as IfcPipeFitting. Sizes are as drawn:
 //!   Guhit coordinates pipes, it does not size them.
+//! - Floor, balcony and deck slabs (`Slab`) are IfcSlab, `.FLOOR.` or
+//!   `.USERDEFINED.` with ObjectType 'BALCONY' or 'DECK', extruded from the
+//!   outline down from their top. Every floor slab in the file, the one per
+//!   footprint included, is named "Floor slab N" with N counted over the
+//!   whole file, so no two share a name.
+//! - A void is an IfcOpeningElement through each floor of its level it
+//!   overlaps, one per floor because an opening voids exactly one element in
+//!   IFC4. A void over no floor the file holds (over the roof deck of the
+//!   level below, which is not written as a slab) is left out.
+//! - Each `Derived::railings` run is one IfcRailing, `.GUARDRAIL.` for slab
+//!   edges and stair wells, `.HANDRAIL.` for stair sides, its solids from
+//!   `model3d::railing_pieces`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use guhit_model::{
-    ColumnShape, Derived, Opening, OpeningStyle, OpeningType, Project, RoofKind, RoomUsage,
+    ColumnShape, Derived, Opening, OpeningStyle, OpeningType, Project, RailingRunKind,
+    RailingStyle, RoofKind, RoomUsage, SlabKind,
 };
 
 use crate::geom::*;
@@ -454,6 +467,7 @@ pub struct Counts {
     pub alarms: usize,
     pub unitary: usize,
     pub cable_segments: usize,
+    pub railings: usize,
 }
 
 impl<'a> Build<'a> {
@@ -525,6 +539,8 @@ pub fn write_with_counts(
             || !l.stairs.is_empty()
             || !l.assets.is_empty()
             || !l.pipes.is_empty()
+            || !l.slabs.is_empty()
+            || !l.railings.is_empty()
     });
     if !has_geometry {
         return Err(ExportError::Empty("the model has nothing to export".into()));
@@ -625,6 +641,10 @@ pub fn write_with_counts(
     let mut wall_refs: HashMap<&str, Ref> = HashMap::new();
     // Pipe segments per system, for the distribution systems.
     let mut system_members: Vec<(guhit_model::PipeSystem, Vec<Ref>)> = Vec::new();
+    // Names are numbered over the whole file, never per level.
+    let mut names = Names::default();
+    // Rails of each host so far: a stair has up to two sides and a well.
+    let mut rails_of: HashMap<&str, usize> = HashMap::new();
 
     for (i, ls) in scene.levels.iter().enumerate() {
         let place_parent = storey_places[i];
@@ -799,6 +819,8 @@ pub fn write_with_counts(
         }
 
         // ------------------------------------------------------- slabs
+        // The floors of this level a void may cut.
+        let mut floors: Vec<Floor> = Vec::new();
         for (n, fp) in ls.footprints.iter().enumerate() {
             let Some(profile) = build.step.profile(fp) else {
                 continue;
@@ -811,14 +833,182 @@ pub fn write_with_counts(
                 let a = build.step.axis_at(0.0, 0.0, 0.0);
                 build.step.placement(Some(place_parent), a)
             };
+            let name = numbered(&mut names.floors, "Floor slab");
             let slab = build.step.add(&format!(
                 "IFCSLAB({},$,{},$,$,{place},{shape},$,.FLOOR.)",
                 s(&guid_for(&format!("slab-{n}"), &ls.level.id)),
-                s(&format!("Floor slab {}", n + 1))
+                s(&name)
             ));
             build.contained[i].push(slab);
             build.counts.slabs += 1;
             build.material_for(None, "Concrete slab", slab);
+            floors.push(Floor {
+                key: format!("slab-{n}"),
+                slab,
+                bottom: -SLAB_THICKNESS_MM,
+                top: 0.0,
+                outline: fp.clone(),
+                name,
+            });
+        }
+
+        // Floor, balcony and deck slabs drawn as elements.
+        for sl in &ls.slabs {
+            let outline = slab_outline(sl);
+            let (bottom, top) = slab_heights(sl);
+            let Some(profile) = build.step.profile(&outline) else {
+                continue;
+            };
+            let pos = build.step.axis_at(0.0, 0.0, bottom);
+            let solid = build.step.extruded(profile, pos, top - bottom);
+            let body = build.step.shape(body_ctx, "Body", "SweptSolid", &[solid]);
+            let shape = build.step.product_shape(&[body]);
+            let place = {
+                let a = build.step.axis_at(0.0, 0.0, 0.0);
+                build.step.placement(Some(place_parent), a)
+            };
+            let (name, object_type, predefined, external) = match sl.kind {
+                SlabKind::Balcony => (
+                    numbered(&mut names.balconies, "Balcony"),
+                    s("BALCONY"),
+                    ".USERDEFINED.",
+                    true,
+                ),
+                SlabKind::Deck => (numbered(&mut names.decks, "Deck"), s("DECK"), ".USERDEFINED.", true),
+                SlabKind::Floor | SlabKind::Void => {
+                    (numbered(&mut names.floors, "Floor slab"), "$".to_string(), ".FLOOR.", false)
+                }
+            };
+            let slab = build.step.add(&format!(
+                "IFCSLAB({},$,{},$,{object_type},{place},{shape},$,{predefined})",
+                s(&guid(&sl.id)),
+                s(&name)
+            ));
+            build.contained[i].push(slab);
+            build.counts.slabs += 1;
+            build.material_for(sl.material_id.as_ref(), "Concrete slab", slab);
+            build.pset(
+                "Pset_SlabCommon",
+                &sl.id,
+                &[
+                    ("Reference", Val::Text(name.clone())),
+                    ("IsExternal", Val::Bool(external)),
+                ],
+                &[slab],
+            );
+            floors.push(Floor {
+                key: sl.id.clone(),
+                slab,
+                bottom,
+                top,
+                outline,
+                name,
+            });
+        }
+
+        // Voids: one opening through each floor they overlap, 10 mm past
+        // both faces so it cuts clean.
+        for vd in &ls.voids {
+            let outline = slab_outline(vd);
+            let cut: Vec<&Floor> = floors
+                .iter()
+                .filter(|f| overlap_area(&outline, &f.outline) > 1.0)
+                .collect();
+            if cut.is_empty() {
+                continue;
+            }
+            let void_name = numbered(&mut names.voids, "Void");
+            for f in cut {
+                let Some(profile) = build.step.profile(&outline) else {
+                    break;
+                };
+                let pos = build.step.axis_at(0.0, 0.0, f.bottom - 10.0);
+                let solid = build.step.extruded(profile, pos, f.top - f.bottom + 20.0);
+                let body = build.step.shape(body_ctx, "Body", "SweptSolid", &[solid]);
+                let shape = build.step.product_shape(&[body]);
+                let place = {
+                    let a = build.step.axis_at(0.0, 0.0, 0.0);
+                    build.step.placement(Some(place_parent), a)
+                };
+                let opening = build.step.add(&format!(
+                    "IFCOPENINGELEMENT({},$,{},$,$,{place},{shape},$,.OPENING.)",
+                    s(&guid_for(&format!("void-of-{}", f.key), &vd.id)),
+                    s(&format!("{void_name} in {}", f.name))
+                ));
+                build.step.add(&format!(
+                    "IFCRELVOIDSELEMENT({},$,$,$,{},{opening})",
+                    s(&guid_for(&format!("voids-{}", f.key), &vd.id)),
+                    f.slab
+                ));
+                build.counts.openings += 1;
+            }
+        }
+
+        // ---------------------------------------------------- railings
+        for run in &ls.railings {
+            let mut solids: Vec<Ref> = Vec::new();
+            for p in railing_pieces(run) {
+                let Some(profile) = build.step.profile(&p.profile) else {
+                    continue;
+                };
+                // x along the piece, z across it to the right, so y is up
+                // and the profile (u, w) stands upright.
+                let (x, z) = (p.along, p.across());
+                let o = p.origin - z * (p.thickness / 2.0);
+                let pos = build
+                    .step
+                    .axis_rotated((o.x, o.y, 0.0), (z.x, z.y, 0.0), (x.x, x.y, 0.0));
+                solids.push(build.step.extruded(profile, pos, p.thickness));
+            }
+            if solids.is_empty() {
+                continue;
+            }
+            let body = build.step.shape(body_ctx, "Body", "SweptSolid", &solids);
+            let shape = build.step.product_shape(&[body]);
+            let place = {
+                let a = build.step.axis_at(0.0, 0.0, 0.0);
+                build.step.placement(Some(place_parent), a)
+            };
+            let (name, predefined) = match run.kind {
+                RailingRunKind::StairSide => (numbered(&mut names.handrails, "Handrail"), ".HANDRAIL."),
+                RailingRunKind::SlabEdge | RailingRunKind::StairWell => {
+                    (numbered(&mut names.guards, "Guard rail"), ".GUARDRAIL.")
+                }
+            };
+            let k = rails_of.entry(run.host_id.as_str()).or_insert(0);
+            let owner = format!("{}:{k}", run.host_id);
+            *k += 1;
+            let rail = build.step.add(&format!(
+                "IFCRAILING({},$,{},$,$,{place},{shape},$,{predefined})",
+                s(&guid_for("railing", &owner)),
+                s(&name)
+            ));
+            build.contained[i].push(rail);
+            build.counts.railings += 1;
+            let (style, material) = match run.style {
+                RailingStyle::Bars => ("bars", "Steel railing"),
+                RailingStyle::Glass => ("glass", "Glass railing"),
+                RailingStyle::Solid => ("solid", "Concrete parapet"),
+            };
+            build.material_named(material, &[rail]);
+            build.pset(
+                "Pset_RailingCommon",
+                &owner,
+                &[
+                    ("Reference", Val::Text(name.clone())),
+                    ("Height", Val::PositiveLength(run.height_mm.max(1.0))),
+                ],
+                &[rail],
+            );
+            build.pset(
+                "Guhit_Pset_Railing",
+                &owner,
+                &[
+                    ("Style", Val::Text(style.to_string())),
+                    ("HostId", Val::Text(run.host_id.clone())),
+                ],
+                &[rail],
+            );
         }
 
         // ------------------------------------------------------ spaces
@@ -1302,6 +1492,35 @@ pub fn write_with_counts(
     Ok((out, build.counts))
 }
 
+/// Running numbers for element names, over the whole file.
+#[derive(Default)]
+struct Names {
+    floors: usize,
+    balconies: usize,
+    decks: usize,
+    voids: usize,
+    guards: usize,
+    handrails: usize,
+}
+
+/// The next name of a numbered kind: "Balcony 2".
+fn numbered(counter: &mut usize, label: &str) -> String {
+    *counter += 1;
+    format!("{label} {counter}")
+}
+
+/// A floor of one level that a void may cut: the slab entity, its bottom
+/// and top above the level floor, its outline and name. `key` makes the ids
+/// of the openings through it.
+struct Floor {
+    key: String,
+    slab: Ref,
+    bottom: f64,
+    top: f64,
+    outline: Vec<V>,
+    name: String,
+}
+
 /// What an IfcDistributionSystem says about itself: sizes as drawn, not a
 /// design, for the trade of its system.
 fn system_note(system: guhit_model::PipeSystem) -> &'static str {
@@ -1430,6 +1649,7 @@ pub fn count_entities(ifc: &str) -> Counts {
         alarms: n("IFCALARM"),
         unitary: n("IFCUNITARYEQUIPMENT"),
         cable_segments: n("IFCCABLECARRIERSEGMENT"),
+        railings: n("IFCRAILING"),
     }
 }
 

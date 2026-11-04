@@ -35,7 +35,19 @@ use tokio::sync::{mpsc, watch};
 /// `steps` in undo and redo (DECISIONS D38) have serde defaults. An older
 /// host's frames have no history; a newer guest then shows its top steps
 /// only and never asks it for more than one step at a time.
+///
+/// Features both sides name in `Hello::features` and `Welcome::features`
+/// switch on messages an older build would not know, so the version stays:
+/// "agents" (DECISIONS D47) carries `ToHost::Agents`, `ToGuest::Agents` and
+/// the `agent` of an apply or a chat. An older build lists none, so it is
+/// sent none of them, and an unknown message would close its connection.
 pub const PROTOCOL_VERSION: u32 = 2;
+/// The feature for AI agents working through MCP.
+pub const FEATURE_AGENTS: &str = "agents";
+/// Every feature this build knows, for its hello and its welcomes.
+pub fn features() -> Vec<String> {
+    vec![FEATURE_AGENTS.to_string()]
+}
 /// Largest frame before the guest is authenticated: its hello.
 pub const MAX_HELLO_BYTES: usize = 64 * 1024;
 /// Largest frame after that.
@@ -79,11 +91,18 @@ pub enum ToHost {
         /// connection dropped.
         #[serde(default)]
         rejoin: Option<Rejoin>,
+        /// What this guest knows beyond the version: "agents". Empty from an
+        /// older guest.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        features: Vec<String>,
     },
     /// Answered with `ToGuest::Reply` carrying the same id.
     Request { id: u64, request: Request },
     /// The guest's pointer, selection, level and cursor chat. No reply.
     Presence { presence: Presence },
+    /// The AI agents working from the guest's computer, whenever they
+    /// change. Only to a host whose welcome listed "agents". No reply.
+    Agents { agents: Vec<AgentSummary> },
     /// Keeps a quiet connection open. No reply.
     Ping,
     /// The guest leaves the session.
@@ -102,6 +121,10 @@ pub enum Request {
         origin: Origin,
         #[serde(default)]
         expected_revision: Option<u32>,
+        /// The guest's agent that made it, which the host records as the
+        /// author. An older host ignores it: the step is the guest's.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent: Option<Id>,
     },
     /// Take back the `steps` newest steps as one revision. An older guest
     /// sends no `steps`: one. `expected_revision` makes it fail with `stale`
@@ -130,6 +153,9 @@ pub enum Request {
         level_id: Option<Id>,
         #[serde(default)]
         via_ai: bool,
+        /// Posted as this agent of the guest. An older host ignores it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent: Option<Id>,
     },
     /// Up to `FILE_CHUNK` bytes of a stored file from `offset`. Answered with
     /// `FileChunk`.
@@ -191,6 +217,10 @@ pub enum ToGuest {
     Presence { entries: Vec<PresenceUpdate> },
     /// Someone joined or left.
     Participants { participants: Vec<Participant> },
+    /// Every AI agent in the session but the guest's own, whenever they
+    /// change: the host's and other guests'. Only to a guest whose hello
+    /// listed "agents"; agents are never in `Participants`.
+    Agents { agents: Vec<AgentSummary> },
     Chat { message: ChatMessage },
     Ping,
     /// The session is over for this guest, and why.
@@ -209,6 +239,10 @@ pub struct Welcome {
     pub chat: Vec<ChatMessage>,
     /// Everyone else's latest presence.
     pub presence: Vec<PresenceEntry>,
+    /// What the host knows beyond the version: "agents". Empty from an
+    /// older host.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
 }
 
 /// The host's document as a guest copies it. `Derived` is left out: the
@@ -480,7 +514,7 @@ mod tests {
 
     #[tokio::test]
     async fn frames_round_trip() {
-        let msg = ToHost::Hello { v: PROTOCOL_VERSION, secret: "s".into(), name: "Ana".into(), rejoin: None };
+        let msg = ToHost::Hello { v: PROTOCOL_VERSION, secret: "s".into(), name: "Ana".into(), rejoin: None, features: vec![] };
         let bytes = encode(&msg, MAX_HELLO_BYTES).unwrap();
         assert_eq!(u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize, bytes.len() - 4);
         let mut r = &bytes[..];
@@ -709,6 +743,8 @@ mod tests {
             at: "2026-10-07T01:02:03Z".into(),
             ids: vec!["w1".into()],
             removed: vec![],
+            on_behalf_of: None,
+            on_behalf_name: None,
         };
         let newer = serde_json::to_string(&frame(Some(HistoryList { undo: vec![step], redo: vec![] }))).unwrap();
         assert!(newer.contains(r#""history":{"undo":[{"label":"Move wall""#), "{newer}");

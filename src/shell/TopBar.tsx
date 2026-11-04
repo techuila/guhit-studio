@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useAgents } from "../live/agentsStore";
 import { useLive } from "../live/liveStore";
 import { ChatButton } from "../live/ChatButton";
 import { LiveAvatars, ShareButton, useStepAuthor } from "../live/TopBarLive";
@@ -62,7 +63,8 @@ function ImportMenu() {
 /**
  * Folds the right group's words away one step at a time, only when they do
  * not fit (chrome.module.css, data-fold): first the palette button, then
- * Versions and Import. Measured again on resize and when people come or go.
+ * Versions and Import. Measured again on resize and when people or agents
+ * come or go.
  */
 function useFoldToFit(ref: RefObject<HTMLDivElement | null>, key: string): void {
   useLayoutEffect(() => {
@@ -104,7 +106,9 @@ export function TopBar() {
   const open = useShell((st) => st.open);
   const rightRef = useRef<HTMLDivElement>(null);
   const liveKey = useLive((st) => `${st.status.mode}:${st.status.participants.length}`);
-  useFoldToFit(rightRef, liveKey);
+  // Agents take room in the bar too (DECISIONS D47): measure again when they come or go.
+  const agentCount = useAgents((st) => st.views.length);
+  useFoldToFit(rightRef, `${liveKey}:${agentCount}`);
 
   return (
     <header className={s.topbar}>

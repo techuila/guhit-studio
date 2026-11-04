@@ -5,6 +5,8 @@
 //   ?pack=0     start with the CC0 GLB furniture and PBR maps off
 //   ?hdri=0     start with the HDRI sky off
 //   ?template=plumbing-demo   open (or create) a project from another template
+//   ?scene=slabs  two levels with a void, a balcony and a sunk deck, and their
+//                 rail runs (walk/testModel.ts, slabDoc), local, no bridge
 
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
@@ -19,6 +21,7 @@ import { RenderPanel } from "../RenderPanel";
 import { liveEngineCount, type ViewerEngine } from "../engine/ViewerEngine";
 import { KNOWN_ASSET_KEYS } from "../scene/assets";
 import fixture from "../../../fixtures/sample-bungalow.docstate.json";
+import { slabDoc } from "../walk/testModel";
 
 const params = new URLSearchParams(location.search);
 type Source = "loading" | "bridge" | "fixture";
@@ -42,6 +45,10 @@ const template = params.get("template") ?? "sample-bungalow";
 const projectName = template === "sample-bungalow" ? "3D dev" : `3D dev ${template}`;
 
 async function boot(): Promise<Source> {
+  if (params.get("scene") === "slabs") {
+    useApp.getState().setDoc(slabDoc());
+    return "fixture";
+  }
   if (!params.has("fixture")) {
     try {
       let doc: DocState | null = null;
@@ -103,8 +110,8 @@ function testContent(levelId: string): Element[] {
   out.push({ kind: "asset", id: "", level_id: levelId, catalog_key: "dining-4", name: "Dining", category: "furniture", position: { x: 3300, y: 1500 }, rotation_deg: 90, width_mm: 1200, depth_mm: 800, height_mm: 750, elevation_mm: 0, light: null, links: [], circuit: "" });
   out.push({ kind: "column", id: "", level_id: levelId, center: { x: 11000, y: 5000 }, shape: "rect", width_mm: 300, depth_mm: 400, rotation_deg: 0, material_id: null });
   out.push({ kind: "column", id: "", level_id: levelId, center: { x: 12500, y: 5000 }, shape: "round", width_mm: 350, depth_mm: 350, rotation_deg: 0, material_id: null });
-  out.push({ kind: "stair", id: "", level_id: levelId, origin: { x: 11000, y: -2500 }, rotation_deg: 0, width_mm: 1000, run_mm: 3900, riser_count: 16 });
-  out.push({ kind: "stair", id: "", level_id: levelId, origin: { x: 14000, y: -2500 }, rotation_deg: -90, width_mm: 900, run_mm: 3000, riser_count: 12 });
+  out.push({ kind: "stair", id: "", level_id: levelId, origin: { x: 11000, y: -2500 }, rotation_deg: 0, width_mm: 1000, run_mm: 3900, riser_count: 16, railing: { height_mm: 900, style: "bars" } });
+  out.push({ kind: "stair", id: "", level_id: levelId, origin: { x: 14000, y: -2500 }, rotation_deg: -90, width_mm: 900, run_mm: 3000, riser_count: 12, railing: null });
   return out;
 }
 

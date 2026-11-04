@@ -15,12 +15,12 @@ Every asset in this pack is CC0 1.0 (public domain dedication): no attribution r
 
 | Field | Value |
 |---|---|
-| Asset | Alps Field (`alps_field`) |
-| Source | https://polyhaven.com/a/alps_field |
+| Asset | Pretoria Gardens (`pretoria_gardens`) |
+| Source | https://polyhaven.com/a/pretoria_gardens |
 | License | CC0 1.0 |
-| File | `hdri/sky.hdr` (1.54 MB) |
-| Preview | `hdri/sky-preview.jpg` (25.5 KB, 512x256 JPG) |
-| Sun direction | unknown (Poly Haven's API does not publish sun azimuth/altitude; tags: sun, high-contrast, partly-cloudy) |
+| File | `hdri/sky.hdr` (6.46 MB) |
+| Background | `hdri/sky.jpg` (1.71 MB, 4096x2048 JPG) |
+| Sun direction | found from the pixels at load time (scanHdri in src/viewer3d/engine/environment.ts); midday, high sun |
 
 ## Materials
 
@@ -48,6 +48,7 @@ later agent can swap in these textures without re-deriving tiling scale.
 | `mat-wood-door` | none (flat color) | - | - | 0 |
 | `mat-roof-concrete-deck` | none (flat color) | - | - | 0 |
 | `mat-glass-clear` | none (flat color) | - | - | 0 |
+| `mat-ground-grass` | [Grass004](https://ambientcg.com/a/Grass004) | 1400x1400 | color, normal, roughness | 1.01 MB |
 
 Presets with no texture (flat `MeshStandardMaterial` color, matching `pattern: none`
 in `crates/guhit-model/src/defaults.rs`): `mat-paint-warm-white`, `mat-paint-sage`, `mat-aluminum-frame`, `mat-steel`, `mat-wood-door`, `mat-roof-concrete-deck`, `mat-glass-clear`.

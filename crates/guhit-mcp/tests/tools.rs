@@ -2,7 +2,7 @@
 //! These are the same calls an MCP client makes, minus the JSON-RPC framing.
 
 use guhit_app::AppService;
-use guhit_mcp::tools::{self, Output, ToolFail};
+use guhit_mcp::tools::{self, Output};
 use serde_json::{json, Value};
 
 fn app() -> (AppService, tempfile::TempDir) {
@@ -15,13 +15,13 @@ async fn ok(app: &AppService, name: &str, args: Value) -> Value {
         Ok(Output::Json(v)) => v,
         Ok(Output::Rich { json, .. }) => json,
         Ok(Output::Text(_)) => panic!("`{name}` returned text, expected JSON"),
-        Err(ToolFail(m)) => panic!("`{name}` failed: {m}"),
+        Err(f) => panic!("`{name}` failed: {}", f.display()),
     }
 }
 
 async fn fail(app: &AppService, name: &str, args: Value) -> String {
     match tools::call(app, name, args).await {
-        Err(ToolFail(m)) => m,
+        Err(f) => f.text(),
         Ok(_) => panic!("`{name}` was expected to fail"),
     }
 }

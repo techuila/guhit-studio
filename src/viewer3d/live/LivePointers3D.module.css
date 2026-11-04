@@ -140,8 +140,92 @@
   border-radius: 9px 9px 3px 9px;
 }
 
+/* ------------------------------------------------------------ agents */
+
+/* An agent's point moves once per call, seconds apart: it eases over
+   --dur-scene instead of the short linear glide. */
+.agentMarker {
+  transition: transform var(--dur-scene) var(--ease-in-out);
+}
+
+/* A rounded diamond with the AI mark, so an agent never reads as a person. */
+.agentDot {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(20, 40, 63, 0.4));
+}
+
+.agentDot::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border: 1.5px solid #fff;
+  border-radius: 3px;
+  background: var(--peer);
+  transform: rotate(45deg);
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out);
+}
+
+.agentDot svg {
+  position: relative;
+}
+
+.marker[data-hidden="true"] .agentDot::before {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1.5px dashed var(--peer);
+}
+
+.marker[data-hidden="true"] .agentDot {
+  color: var(--peer);
+}
+
+.marker[data-activity="idle"] .body:not(.leave),
+.marker[data-activity="paused"] .body:not(.leave),
+.marker[data-activity="stopped"] .body:not(.leave) {
+  opacity: 0.55;
+}
+
+.agentLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  top: 10px;
+  left: 11px;
+  max-width: 240px;
+  border-radius: 4px 10px 10px 10px;
+}
+
+.agentName {
+  font-weight: 650;
+}
+
+/* A new status line fades in over the old one. */
+.agentStatus {
+  overflow: hidden;
+  font-weight: 500;
+  opacity: 0.9;
+  text-overflow: ellipsis;
+  animation: fade-in var(--dur-hover) var(--ease-out);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .enter {
+  .enter,
+  .agentStatus {
     animation: none;
   }
 

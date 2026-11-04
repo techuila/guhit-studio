@@ -26,7 +26,7 @@
 
 import * as THREE from "three";
 import { FullScreenQuad } from "three/examples/jsm/postprocessing/Pass.js";
-import { TONE_EXPOSURE } from "../engine/environment";
+import { TONE_EXPOSURE, TONE_MAPPING } from "../engine/environment";
 import { renderExposureShift } from "../light/model";
 import { Accumulator, discPoint, meterTarget, meterTexture } from "../light/refine";
 import type { TraceQuality } from "../../contract/bindings";
@@ -192,7 +192,7 @@ export class RenderJob {
     r.setPixelRatio(1);
     r.setSize(this.input.width, this.input.height, false);
     r.outputColorSpace = THREE.SRGBColorSpace;
-    r.toneMapping = THREE.ACESFilmicToneMapping;
+    r.toneMapping = TONE_MAPPING;
     r.toneMappingExposure = TONE_EXPOSURE;
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFShadowMap;

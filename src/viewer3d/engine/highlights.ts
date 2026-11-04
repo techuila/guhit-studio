@@ -17,6 +17,7 @@ import * as THREE from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import type { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
+import { cloneMaterial } from "../scene/materials";
 
 export type HighlightState = "selected" | "selected-soft" | "hover" | "preview" | "preview-selected" | "flash" | "tint" | "tint-soft";
 
@@ -132,8 +133,8 @@ export class Highlight {
     for (const mesh of meshes) {
       const base = mesh.material as THREE.MeshStandardMaterial;
       if (Array.isArray(mesh.material) || !base?.isMeshStandardMaterial) continue;
-      const clone = base.clone();
-      clone.userData = { ...base.userData };
+      // Hooks kept: glass stays glass, a wall keeps its occlusion.
+      const clone = cloneMaterial(base);
       this.members.push({ mesh, base, clone });
       mesh.material = clone;
     }

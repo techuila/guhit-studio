@@ -326,6 +326,207 @@ pub fn offset_polygon(poly_in: &[V], dist: f64) -> Vec<V> {
     out
 }
 
+/// A polyline moved `d` to its left (negative: to its right), mitred at the
+/// bends. A closed path mitres at its first point too. Very sharp bends are
+/// limited like `offset_polygon`.
+pub fn offset_path(pts: &[V], d: f64, closed: bool) -> Vec<V> {
+    let n = pts.len();
+    let seg = |i: usize| (pts[(i + 1) % n] - pts[i]).unit();
+    (0..n)
+        .map(|i| {
+            let into = if i > 0 {
+                seg(i - 1)
+            } else if closed {
+                seg(n - 1)
+            } else {
+                None
+            };
+            let from = if i + 1 < n || closed { seg(i) } else { None };
+            let normal = match (into, from) {
+                (Some(a), Some(b)) => {
+                    let bis = (a.left() + b.left()).unit().unwrap_or(b.left());
+                    bis * (1.0 / bis.dot(b.left()).max(0.35))
+                }
+                (Some(a), None) => a.left(),
+                (None, Some(b)) => b.left(),
+                (None, None) => v(0.0, 0.0),
+            };
+            pts[i] + normal * d
+        })
+        .collect()
+}
+
+/// True when `p` is inside the polygon (even-odd). A point on an edge may
+/// go either way.
+pub fn point_in_polygon(p: V, poly: &[V]) -> bool {
+    let mut inside = false;
+    for i in 0..poly.len() {
+        let a = poly[i];
+        let b = poly[(i + 1) % poly.len()];
+        if (a.y > p.y) != (b.y > p.y) && p.x < a.x + (b.x - a.x) * (p.y - a.y) / (b.y - a.y) {
+            inside = !inside;
+        }
+    }
+    inside
+}
+
+/// Area centroid of a polygon, or the mean of its points when it has no area.
+pub fn centroid(poly: &[V]) -> V {
+    let a = signed_area(poly);
+    if poly.is_empty() {
+        return v(0.0, 0.0);
+    }
+    if a.abs() < 1e-9 {
+        let s = poly.iter().fold(v(0.0, 0.0), |s, p| s + *p);
+        return s * (1.0 / poly.len() as f64);
+    }
+    let (mut cx, mut cy) = (0.0, 0.0);
+    for i in 0..poly.len() {
+        let p = poly[i];
+        let q = poly[(i + 1) % poly.len()];
+        let k = p.x * q.y - q.x * p.y;
+        cx += (p.x + q.x) * k;
+        cy += (p.y + q.y) * k;
+    }
+    v(cx / (6.0 * a), cy / (6.0 * a))
+}
+
+/// `subject` clipped to the inside of the convex counter-clockwise polygon
+/// `clip`. Exact when the subject is convex too.
+pub fn clip_convex(subject: &[V], clip: &[V]) -> Vec<V> {
+    let mut out = subject.to_vec();
+    for i in 0..clip.len() {
+        if out.len() < 3 {
+            return Vec::new();
+        }
+        let a = clip[i];
+        let Some(u) = (clip[(i + 1) % clip.len()] - a).unit() else {
+            continue;
+        };
+        out = clip_half_plane(&out, a, u.left(), 0.0, true);
+    }
+    out
+}
+
+/// The triangles of a simple polygon, each counter-clockwise.
+pub fn triangles(poly: &[V]) -> Vec<Vec<V>> {
+    let p = ensure_ccw(poly);
+    triangulate(&p)
+        .iter()
+        .map(|t| vec![p[t[0]], p[t[1]], p[t[2]]])
+        .collect()
+}
+
+/// Area two simple polygons share, any winding: every pair of their
+/// triangles is intersected. Shared edges and corners give 0.
+pub fn overlap_area(a: &[V], b: &[V]) -> f64 {
+    if !bounds_of(a).intersects(&bounds_of(b)) {
+        return 0.0;
+    }
+    let tb = triangles(b);
+    triangles(a)
+        .iter()
+        .map(|x| tb.iter().map(|y| polygon_area(&clip_convex(x, y))).sum::<f64>())
+        .sum()
+}
+
+/// A convex polygon less a convex counter-clockwise hole: the convex pieces
+/// left, one outside each edge of the hole. A piece clear of the hole comes
+/// back whole, one inside it not at all.
+pub fn subtract_convex(piece: &[V], hole: &[V]) -> Vec<Vec<V>> {
+    let mut rest = piece.to_vec();
+    let mut out = Vec::new();
+    for i in 0..hole.len() {
+        if rest.len() < 3 {
+            break;
+        }
+        let a = hole[i];
+        let Some(u) = (hole[(i + 1) % hole.len()] - a).unit() else {
+            continue;
+        };
+        let outside = clean_polygon(&clip_half_plane(&rest, a, u.left(), 0.0, false));
+        if outside.len() >= 3 && polygon_area(&outside) > 1.0 {
+            out.push(outside);
+        }
+        rest = clip_half_plane(&rest, a, u.left(), 0.0, true);
+    }
+    out
+}
+
+/// The parts of the segment a to b that lie inside the polygon, in order.
+pub fn clip_segment(a: V, b: V, poly: &[V]) -> Vec<(V, V)> {
+    let d = b - a;
+    let cross = |p: V, q: V| p.x * q.y - p.y * q.x;
+    let mut ts = vec![0.0, 1.0];
+    for i in 0..poly.len() {
+        let p = poly[i];
+        let e = poly[(i + 1) % poly.len()] - p;
+        let den = cross(d, e);
+        if den.abs() < 1e-12 {
+            continue;
+        }
+        let w = p - a;
+        let t = cross(w, e) / den;
+        let s = cross(w, d) / den;
+        if t > 0.0 && t < 1.0 && (0.0..=1.0).contains(&s) {
+            ts.push(t);
+        }
+    }
+    ts.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+    let mut out: Vec<(V, V)> = Vec::new();
+    for w in ts.windows(2) {
+        if w[1] - w[0] < 1e-9 || !point_in_polygon(a + d * ((w[0] + w[1]) / 2.0), poly) {
+            continue;
+        }
+        let (p, q) = (a + d * w[0], a + d * w[1]);
+        match out.last_mut() {
+            Some(last) if (last.1 - p).len() < 1e-6 => last.1 = q,
+            _ => out.push((p, q)),
+        }
+    }
+    out
+}
+
+/// The parts of the segment a to b outside the box, in order.
+pub fn outside_bounds(a: V, b: V, bx: &Bounds) -> Vec<(V, V)> {
+    if bx.is_empty() {
+        return vec![(a, b)];
+    }
+    // Liang-Barsky: the stretch t0..t1 of the segment inside the box.
+    let d = b - a;
+    let (mut t0, mut t1) = (0.0_f64, 1.0_f64);
+    for (p, q) in [
+        (-d.x, a.x - bx.min.x),
+        (d.x, bx.max.x - a.x),
+        (-d.y, a.y - bx.min.y),
+        (d.y, bx.max.y - a.y),
+    ] {
+        if p.abs() < 1e-12 {
+            if q < 0.0 {
+                return vec![(a, b)];
+            }
+            continue;
+        }
+        let r = q / p;
+        if p < 0.0 {
+            t0 = t0.max(r);
+        } else {
+            t1 = t1.min(r);
+        }
+    }
+    if t0 >= t1 {
+        return vec![(a, b)];
+    }
+    let mut out = Vec::new();
+    if t0 > 1e-9 {
+        out.push((a, a + d * t0));
+    }
+    if t1 < 1.0 - 1e-9 {
+        out.push((a + d * t1, b));
+    }
+    out
+}
+
 /// Triangle index triples for a simple polygon of any winding. Ear clipping,
 /// O(n^2), which is plenty for footprints and wall sections.
 pub fn triangulate(poly: &[V]) -> Vec<[usize; 3]> {
@@ -456,6 +657,41 @@ mod tests {
         let cw = [v(0.0, 0.0), v(0.0, 5.0), v(10.0, 5.0), v(10.0, 0.0)];
         assert!(signed_area(&ensure_ccw(&cw)) > 0.0);
         assert!(ensure_ccw(&[v(0.0, 0.0), v(1.0, 0.0), v(2.0, 0.0)]).is_empty());
+    }
+
+    #[test]
+    fn overlaps_holes_and_clipped_segments() {
+        let sq = [v(0.0, 0.0), v(100.0, 0.0), v(100.0, 100.0), v(0.0, 100.0)];
+        let hole = [v(25.0, 25.0), v(75.0, 25.0), v(75.0, 75.0), v(25.0, 75.0)];
+        assert!((overlap_area(&sq, &hole) - 2500.0).abs() < 1e-6);
+        // Sharing an edge is no overlap.
+        let next = [v(100.0, 0.0), v(200.0, 0.0), v(200.0, 100.0), v(100.0, 100.0)];
+        assert!(overlap_area(&sq, &next).abs() < 1e-6);
+        // The pieces left round a hole add up to the rest of the square.
+        let mut pieces = triangles(&sq);
+        for t in triangles(&hole) {
+            pieces = pieces.iter().flat_map(|p| subtract_convex(p, &t)).collect();
+        }
+        let left: f64 = pieces.iter().map(|p| polygon_area(p)).sum();
+        assert!((left - 7500.0).abs() < 1e-6, "{left}");
+        assert!(pieces.iter().all(|p| !point_in_polygon(centroid(p), &hole)));
+        // A diagonal of an L stops at its inner corner.
+        let l = [v(0.0, 0.0), v(20.0, 0.0), v(20.0, 10.0), v(10.0, 10.0), v(10.0, 20.0), v(0.0, 20.0)];
+        let parts = clip_segment(v(0.0, 0.0), v(20.0, 20.0), &l);
+        assert_eq!(parts.len(), 1);
+        assert!((parts[0].1 - v(10.0, 10.0)).len() < 1e-9);
+        // A box in the middle of a segment cuts it in two.
+        let mut b = Bounds::empty();
+        b.add(v(4.0, -1.0));
+        b.add(v(6.0, 1.0));
+        let out = outside_bounds(v(0.0, 0.0), v(10.0, 0.0), &b);
+        assert_eq!(out.len(), 2);
+        assert!((out[0].1.x - 4.0).abs() < 1e-9 && (out[1].0.x - 6.0).abs() < 1e-9);
+        // Offsets of an open path are mitred at the bend.
+        let path = offset_path(&[v(0.0, 0.0), v(10.0, 0.0), v(10.0, 10.0)], 1.0, false);
+        assert!((path[0] - v(0.0, 1.0)).len() < 1e-9);
+        assert!((path[1] - v(9.0, 1.0)).len() < 1e-9);
+        assert!((path[2] - v(9.0, 10.0)).len() < 1e-9);
     }
 
     #[test]

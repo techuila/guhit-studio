@@ -211,3 +211,98 @@
   transition-duration: calc(var(--dur-base) * 0.7);
   transition-timing-function: var(--ease-in);
 }
+
+/* The level below switch: a pill in the bottom left corner. It rises in
+   when the level has one below and leaves the same way; the knob slides
+   with a spring (docs/MOTION.md, toggles). */
+.underlay {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px 4px 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  box-shadow: var(--shadow-1);
+  cursor: default;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out),
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
+}
+
+.underlay:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.underlay:active {
+  transform: scale(var(--press-scale));
+  transition-duration: var(--dur-press);
+}
+
+.underlay:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.underlay[data-stage="enter"] {
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+}
+
+.underlay[data-stage="exit"] {
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+  pointer-events: none;
+}
+
+.underlayTrack {
+  position: relative;
+  width: 24px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--line-strong);
+  transition: background var(--dur-base) var(--ease-out);
+}
+
+.underlay[data-on="true"] .underlayTrack {
+  background: var(--accent);
+}
+
+.underlayKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 1px rgba(20, 40, 63, 0.3);
+  transition: transform var(--dur-base) var(--ease-spring);
+}
+
+.underlay[data-on="true"] .underlayKnob {
+  transform: translateX(10px);
+}
+
+.underlayLabel {
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+
+.underlay[data-on="false"] .underlayLabel {
+  opacity: 0.7;
+}

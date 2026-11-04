@@ -8,11 +8,14 @@ import type {
   LayerKey,
   Opening,
   Project,
+  RailingRun,
   RoomGeometry,
   Wall,
   WallGeometry,
 } from "../contract/bindings";
 import { PIPE_LAYER } from "../contract/pipes";
+import type { StairEl } from "./slab";
+import { railingsOn, stairsArrivingAt, underlayWalls } from "./slab";
 import { assetSymbolOutline, symbolSizeMm } from "./symbols";
 import type { P, Rect } from "./geom";
 import {
@@ -74,6 +77,8 @@ export function layerOf(el: Element): LayerKey {
       return "underlays";
     case "pipe":
       return PIPE_LAYER[el.system];
+    case "slab":
+      return "slabs";
   }
 }
 
@@ -87,6 +92,14 @@ export interface DocIndex {
   visible: Element[];
   visibleIds: Set<string>;
   lockedLayers: Set<LayerKey>;
+  /** Stairs of the level below that arrive here, drawn dashed with DN (D44). Empty when stairs are hidden. */
+  arriving: StairEl[];
+  /** Rails standing on this level, from `Derived::railings`, on visible layers. */
+  railings: RailingRun[];
+  /** Wall outlines of the level below, for the underlay. Empty when walls are hidden. */
+  below: P[][];
+  /** Net outlines of this level's visible rooms: a click on a room's floor picks the room, not a slab. */
+  roomPolygons: P[][];
 }
 
 export function levelOf(el: Element, byId: Map<string, Element>): string | null {
@@ -124,6 +137,11 @@ export function buildIndex(doc: DocState, activeLevelId: string | null): DocInde
     }
     visible.push(e);
   }
+  const roomPolygons: P[][] = [];
+  for (const e of visible) {
+    const g = e.kind === "room" ? roomGeo.get(e.id) : undefined;
+    if (g && g.polygon.length >= 3) roomPolygons.push(g.polygon);
+  }
   return {
     doc,
     levelId,
@@ -133,6 +151,10 @@ export function buildIndex(doc: DocState, activeLevelId: string | null): DocInde
     visible,
     visibleIds: new Set(visible.map((e) => e.id)),
     lockedLayers,
+    arriving: hidden.has("stairs") ? [] : stairsArrivingAt(doc, levelId),
+    railings: railingsOn(doc, levelId, hidden),
+    below: hidden.has("walls") ? [] : underlayWalls(doc, levelId),
+    roomPolygons,
   };
 }
 
@@ -311,6 +333,8 @@ export function elementShape(el: Element, index: DocIndex, opt: ShapeOptions): S
     }
     case "pipe":
       return { points: el.points.map((v) => ({ x: v.x, y: v.y })), closed: false };
+    case "slab":
+      return { points: el.polygon, closed: true };
   }
 }
 
@@ -355,6 +379,8 @@ export function keyPoints(el: Element, index: DocIndex): P[] {
       return [el.position];
     case "pipe":
       return el.points.map((v) => ({ x: v.x, y: v.y }));
+    case "slab":
+      return el.polygon;
     case "opening":
       return [];
   }

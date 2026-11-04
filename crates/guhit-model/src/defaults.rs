@@ -89,6 +89,7 @@ pub fn default_layers() -> Vec<Layer> {
         Electrical,
         Aircon,
         Site,
+        Slabs,
     ]
     .into_iter()
     .map(|key| Layer {

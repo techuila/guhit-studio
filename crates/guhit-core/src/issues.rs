@@ -27,6 +27,12 @@ pub const REVIEW_CODES: &[&str] = &[
     "wall_dangling_start",
     "wall_dangling_end",
     "wall_overlap",
+    // Slabs and stairs.
+    "slab_no_railing",
+    "stair_top_no_floor",
+    "stair_landing_blocked",
+    "asset_over_opening",
+    "door_swing_blocked",
     // Pipes and service runs.
     "pipe_through_column",
     "pipe_across_opening",
@@ -271,7 +277,8 @@ pub fn review(
         })
         .collect();
 
-    // Rooms.
+    // Rooms. Their area is the one the plan shows: less what a void covers.
+    let slab_areas = crate::slabs::SlabAreas::new(project);
     for el in &project.elements {
         let Element::Room(r) = el else { continue };
         let Some(fref) = assigned.get(&r.id) else {
@@ -279,7 +286,7 @@ pub fn review(
         };
         let f = face(analysis, *fref);
         let openings = openings_of_face(project, f);
-        let area_m2 = f.area_mm2 / 1.0e6;
+        let area_m2 = slab_areas.room_area(f) / 1.0e6;
 
         if is_habitable(r.usage)
             && !openings

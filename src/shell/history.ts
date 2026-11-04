@@ -1,6 +1,7 @@
 // Pure helpers for the History panel (DECISIONS D38): rows from the undo
-// and redo stacks, who made them, the people to filter by, what a step
-// changed and relative times. No DOM, no store. Tested in history.test.ts.
+// and redo stacks, who made them (a person or an agent, DECISIONS D47), the
+// people and agents to filter by, what a step changed and relative times.
+// No DOM, no store. Tested in history.test.ts.
 
 import type { Element, HistoryList, HistoryStep, LiveStatus } from "../contract/bindings";
 
@@ -20,6 +21,8 @@ export interface HistoryRow {
   color: number | null;
   /** Filter key: "you", or the author's participant id. */
   person: string;
+  /** An AI agent made it (DECISIONS D47): by a known agent, or for someone (`on_behalf_*`). */
+  agent: boolean;
 }
 
 /** The filter chip for everyone. */
@@ -30,7 +33,15 @@ export interface HistoryPerson {
   name: string;
   color: number | null;
   mine: boolean;
+  /** An agent's chip: it wears the AI mark. */
+  agent: boolean;
   count: number;
+}
+
+/** A step an agent made: by one of `agentIds`, or on someone's behalf. */
+function byAgent(step: HistoryStep, agentIds: ReadonlySet<string>): boolean {
+  if (step.author_id !== null && agentIds.has(step.author_id)) return true;
+  return step.on_behalf_of != null || step.on_behalf_name != null;
 }
 
 function nameOf(step: HistoryStep, status: LiveStatus | null): string {
@@ -58,8 +69,11 @@ function stepKeys(list: HistoryList): { undo: string[]; redo: string[] } {
   return { undo, redo: list.redo.map(key) };
 }
 
-/** The undo stack newest first, then the redo stack in the order redo brings it back. */
-export function historyRows(list: HistoryList, status: LiveStatus | null = null): HistoryRow[] {
+/**
+ * The undo stack newest first, then the redo stack in the order redo brings
+ * it back. `agentIds`: the agents known in this window (`useAgents.known`).
+ */
+export function historyRows(list: HistoryList, status: LiveStatus | null = null, agentIds: ReadonlySet<string> = new Set()): HistoryRow[] {
   const keys = stepKeys(list);
   const row = (step: HistoryStep, stack: "undo" | "redo", i: number): HistoryRow => {
     const mine = step.author_id === null;
@@ -72,20 +86,22 @@ export function historyRows(list: HistoryList, status: LiveStatus | null = null)
       name: nameOf(step, status),
       color: mine ? null : (step.color ?? status?.participants.find((p) => p.id === step.author_id)?.color ?? null),
       person: mine ? "you" : (step.author_id ?? "you"),
+      agent: !mine && byAgent(step, agentIds),
     };
   };
   return [...list.undo.map((s, i) => row(s, "undo", i)), ...list.redo.map((s, i) => row(s, "redo", i))];
 }
 
-/** Everyone who made a step, you first, then in the order they first appear. */
+/** Everyone who made a step: you first, then people, then agents, each in the order they first appear. */
 export function historyPeople(rows: readonly HistoryRow[]): HistoryPerson[] {
   const out: HistoryPerson[] = [];
   for (const r of rows) {
     const known = out.find((p) => p.key === r.person);
     if (known) known.count++;
-    else out.push({ key: r.person, name: r.name, color: r.color, mine: r.mine, count: 1 });
+    else out.push({ key: r.person, name: r.name, color: r.color, mine: r.mine, agent: r.agent, count: 1 });
   }
-  return out.sort((a, b) => Number(b.mine) - Number(a.mine));
+  const rank = (p: HistoryPerson) => (p.mine ? 0 : p.agent ? 2 : 1);
+  return out.sort((a, b) => rank(a) - rank(b));
 }
 
 export function filterRows(rows: readonly HistoryRow[], person: string): HistoryRow[] {

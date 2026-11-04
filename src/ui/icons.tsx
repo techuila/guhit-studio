@@ -10,6 +10,8 @@ const PATHS = {
   window: "M2 10h3M15 10h3M5 7h10v6H5zM5 10h10",
   column: "M5 5h10v10H5zM5 5l10 10M15 5L5 15",
   stair: "M3 16.5h3.5V13H10V9.5h3.5V6H17",
+  /** A floor plate with its thickness and a rail post along the open edge. */
+  slab: "M2.5 11.5L7.5 8h10l-5 3.5zM2.5 11.5V14h10l5-3.5V8M12.5 11.5V14M7.5 8V4.5h10V8",
   asset: "M5 9V6.5A1.5 1.5 0 0 1 6.5 5h7A1.5 1.5 0 0 1 15 6.5V9M3 9.5h14v5H3zM5 14.5v2M15 14.5v2",
   dimension: "M3.5 5v10M16.5 5v10M3.5 10h13M2.3 11.2l2.4-2.4M15.3 11.2l2.4-2.4",
   text: "M4.5 6V4.5h11V6M10 4.5v11M8 15.5h4",

@@ -1,6 +1,6 @@
 {
   "project": {
-    "schema_version": 4,
+    "schema_version": 5,
     "id": "00000000-0000-4000-8000-000000000002",
     "name": "Bungalow with services",
     "created_at": "2026-09-23T00:00:00Z",
@@ -108,6 +108,11 @@
       },
       {
         "key": "site",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "slabs",
         "visible": true,
         "locked": false
       }
@@ -3441,7 +3446,8 @@
         "count": 1
       }
     ],
-    "review_resolved": []
+    "review_resolved": [],
+    "railings": []
   },
   "revision": 0,
   "can_undo": false,

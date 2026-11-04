@@ -1365,6 +1365,12 @@ pub fn element_label(el: &Element) -> String {
         Element::Underlay(u) => format!("Underlay {}", u.file_name),
         Element::Linework(l) => format!("Linework {}", l.name),
         Element::ReferenceModel(m) => format!("Reference model {}", m.name),
+        Element::Slab(s) => match s.kind {
+            SlabKind::Floor => "Floor slab".into(),
+            SlabKind::Balcony => "Balcony".into(),
+            SlabKind::Deck => "Deck".into(),
+            SlabKind::Void => "Floor void".into(),
+        },
         // "Heater feed (cold water, 20 mm)", "Bedroom line set (aircon line
         // set, 9.52 mm)", or "Cold water pipe 20 mm".
         Element::Pipe(p) => {

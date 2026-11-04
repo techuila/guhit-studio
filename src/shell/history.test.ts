@@ -12,6 +12,8 @@ const step = (label: string, author: [string, string, number] | null, extra: Par
   at: "2026-10-07T01:00:00Z",
   ids: [`${label}-id`],
   removed: [],
+  on_behalf_of: null,
+  on_behalf_name: null,
   ...extra,
 });
 
@@ -114,5 +116,44 @@ describe("relative time", () => {
   it("is empty without a time", () => {
     expect(relativeTime("", now)).toBe("");
     expect(relativeTime("not a time", now)).toBe("");
+  });
+});
+
+describe("agents in the history (DECISIONS D47)", () => {
+  const AGENT: [string, string, number] = ["a-ground", "Ground floor", 3];
+  const list: HistoryList = {
+    undo: [
+      step("Add door", AGENT, { origin: "ai", on_behalf_of: null, on_behalf_name: "Axl" }),
+      step("Move wall", null),
+      step("Add wall", ANA),
+      step("Add window", AGENT, { origin: "ai" }),
+    ],
+    redo: [],
+  };
+
+  it("marks the agents' steps, by a known agent or for someone", () => {
+    const rows = historyRows(list, null, new Set(["a-ground"]));
+    expect(rows.map((r) => [r.step.label, r.name, r.agent, r.person])).toEqual([
+      ["Add door", "Ground floor", true, "a-ground"],
+      ["Move wall", "You", false, "you"],
+      ["Add wall", "Ana", false, "p-ana"],
+      ["Add window", "Ground floor", true, "a-ground"],
+    ]);
+    // Not known in this window, but the step says whom it worked for.
+    expect(historyRows(list)[0].agent).toBe(true);
+    expect(historyRows(list)[3].agent).toBe(false);
+  });
+
+  it("offers a chip per agent after the people, and filters to it", () => {
+    const rows = historyRows(list, null, new Set(["a-ground"]));
+    expect(historyPeople(rows).map((p) => [p.key, p.agent, p.count])).toEqual([
+      ["you", false, 1],
+      ["p-ana", false, 1],
+      ["a-ground", true, 2],
+    ]);
+    expect(filterRows(rows, "a-ground").map((r) => [r.step.label, r.steps])).toEqual([
+      ["Add door", 1],
+      ["Add window", 4],
+    ]);
   });
 });

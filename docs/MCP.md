@@ -364,7 +364,7 @@ Settings, Agents, MCP servers, then paste:
 { "mcpServers": { "guhit": { "url": "http://127.0.0.1:1450/mcp" } } }
 ```
 
-Known LM Studio bug: images returned by tools (`get_plan_image`) do not reach
+Known LM Studio bug: images returned by tools (`look`) do not reach
 the model. The tool list fills a small model's context, so prefer a model with
 a 32k or larger context.
 
@@ -434,10 +434,13 @@ deliberate choice, not a missing setting.
   setting: Claude Code permissions, Codex `default_tools_approval_mode`,
   Gemini CLI trust, Kiro `autoApprove`, Cline `autoApprove`, Copilot CLI
   `--allow-tool`.
-- Guhit has 52 tools. Cursor warns above about 40 tools in total and
-  Windsurf (Devin Desktop) allows 100 across all servers, so turn off servers
-  you are not using. Small local models get confused by that many, so use a
-  capable model.
+- Guhit lists 22 core tools, 33 with every toolset on (see "Toolsets"
+  under "The tools"). Cursor warns above about 40 tools in total and Windsurf
+  (Devin Desktop) allows 100 across all servers, so add only the toolsets you
+  need. Small local models do best with the core list and a 32k context.
+- Running several agents at once: give each its own labelled URL,
+  `http://127.0.0.1:1450/mcp/agent/<label>`, so each gets its own name,
+  color and cursor in the app.
 - Restart the agent after editing its config.
 
 ### Changing the port
@@ -473,244 +476,216 @@ cargo run -p guhit-mcp --bin guhit-mcp-stdio -- --port 1631
 
 ## The tools
 
-Every length in every argument and every result is millimeters. Areas come
-back in square metres. The plan is +x east, +y north.
+MCP v2 (DECISIONS D42): a core toolset of 22 workflow tools that drafts and
+checks a whole house, plus five opt-in toolsets. Every length in every
+argument and every result is millimeters. Areas come back in square metres.
+The plan is +x east, +y north; angles are degrees, counter-clockwise.
+
+### Core toolset `draft` (always listed)
 
 | Tool | What it does |
 |---|---|
-| `list_projects` | Every project on this machine, newest first |
-| `open_project` | Open one by id; it becomes the document every tool acts on. In a live session, `force` after the user confirms |
-| `create_project` | Create and open one: `blank`, `sample-bungalow` or `plumbing-demo` (the bungalow with services). In a live session, `force` after the user confirms |
-| `close_project` | Close it; the window goes back to the hub. In a live session, `force` after the user confirms |
-| `get_project_summary` | Totals: areas, wall length, counts |
-| `list_rooms` | Rooms with areas, perimeters and bounding wall ids |
-| `list_elements` | All elements of one kind, with ids |
-| `describe_elements` | Full data plus derived geometry, by id |
-| `find_rooms_without_exterior_window` | Rooms with no daylight |
-| `list_review_items` | Design review suggestions with their status (open, or ignored with a note), located items with a `location_mm`, and the set-aside findings that are resolved |
-| `get_pipe_takeoff` | Run lengths for every system by material and size, elbows, tees, sleeves, every penetration and the aircon core holes |
-| `get_schedule` | Lights, outlets, switches, fixtures and aircon units per level and room, in the rows of the PH electrical inspection form, with totals per level |
-| `get_selection` | What the user has selected in the window, with full data, and whether "Only the selection" is on |
-| `get_plan_image` | A picture of the plan: drawn fresh by the open window (any level), else the last thumbnail it saved |
-| `list_renders` | Saved 3D visuals |
-| `get_render_image` | A saved visual as a picture, fitted to 1568 px, with its record |
-| `get_session` | The live session: who is in, what they have selected, the latest chat |
-| `get_guide` | The conventions, the workflows or the PH defaults (`topic`: `conventions`, `workflows` or `ph_defaults`), the same text as the three doc resources, for agents that do not read resources |
-| `add_wall`, `add_wall_chain` | Walls. `role: "site"` draws a lot fence or boundary wall: 1800 mm high, on the site layer (`L-SITE` in DXF), never part of a room, the outside walls or the floor area |
-| `add_rect_room` | Four walls plus a named room |
-| `add_level`, `delete_level` | Add a storey on top of the highest level, or delete a level with everything on it |
-| `add_door`, `add_window` | Openings hosted on a wall |
-| `resize_room`, `set_wall_length`, `move_elements` | Reshape. Joined walls stay straight; a move that would turn a square wall is refused with `stretch_turns_wall` and the wall named |
-| `move_pipe_points`, `set_pipe_segment_length`, `set_pipe_slope`, `insert_pipe_point`, `remove_pipe_point` | Edit pipe runs in 3D: move points, a segment or whole runs, set a segment's length or a slope with the end that holds, add or remove a bend. Joined runs follow with `keep_joins` |
-| `rename_room`, `set_room_usage` | Room data |
-| `set_opening_size`, `delete_elements` | Edit and remove |
-| `set_material`, `set_roof` | Finishes |
-| `add_asset` | Furniture, fixtures, lights, outlets, switches, panelboards, detectors and aircon units from the built-in library; wall items snap to the nearest wall face |
-| `set_review_mark` | Set a review item, a whole check or a check on one element aside with a note, or reopen it |
-| `add_camera` | Save a view (position, target, field of view) to render later |
-| `capture_view` | Capture the 3D view in the window, or a saved view, into Visuals |
-| `render_view` | Path trace the view on screen or saved views in the window, into Visuals; a job id when it takes longer than it waits |
-| `get_render_job` | Wait for a render `render_view` handed back as a job |
-| `visualize_render` | An AI visualization of a saved model view, with the user's own image provider key |
-| `send_chat_message` | Post to the live session chat as the user, marked as sent by AI |
-| `undo`, `redo` | History, whoever made the change. In a live session someone else's step needs `force` |
-| `save_version` | A named version the user can restore in the app |
-| `export_plan` | PDF, SVG or DXF into the exports folder: the plan or a service sheet (`sheet`), pipes included unless `show_pipes` is false, and a page of review items in a PDF (`review_page`) |
-| `batch` | Several edits atomically, as one undo step. Each step runs once on one staged copy, outside the session lock: 200 steps take about 0.6 s in a debug build |
+| `project` | `action` list, open (`id`), create (`name`, `template` blank, sample-bungalow or plumbing-demo), close, save_version (`label`). In a live session open, create and close need `force` after the user confirms |
+| `get_guide` | `topic` conventions, workflows (drafting and the verify loop), ph_defaults or catalog, the same text as the doc resources |
+| `query` | `what` summary, levels, rooms, elements (`kind`, `level`, `ids`), describe (`ids`), selection, schedule, takeoff, catalog (`search`), materials, history. Compact rows by default; `format` full or `fields` for more; `page`, `page_size` |
+| `look` | `mode` plan: the level drawn by the engine with no window, `show` dims (wall lengths), ids (short ids mapped to full ids in the result), grid, scale_bar, labels, furniture; `bbox` crops; `overlay` underlay; the result maps pixels to mm. `source` window uses the app's canvas. `mode` 3d: the 3D view or a saved `view`, through the window (D31). section and elevation answer `unavailable` |
+| `measure` | `kind` distance (points or ids), clear_width (two parallel walls face to face, a room, a door), height (levels, walls, openings, stairs with riser and tread), area (rooms, slabs, a polygon), clearance (the gap between two outlines) |
+| `check` | The review items with code, element_ids, location_mm and status; `since_revision` lists what was added and resolved since then; `ids`, `codes`, `level` filter; rooms with no outside window; storeys that overlap |
+| `build` | A declarative spec of `levels`, `walls`, `rooms`, `columns`, `slabs`, `stairs`, `openings`, `assets` and `cameras`, applied in that order as ONE undo step, each entry with the arguments of its tool and an optional `ref`; `dry_run`; `replace_level`. Returns every ref's id |
+| `batch` | Steps `{tool, args, ref}` of any editing tool, v2 or v1, as one undo step; `"$ref"` names an earlier step's element (`"$ref.2"` its third); `dry_run` |
+| `add_walls` | Walls through `points` (`closed`), `thickness_mm`, `height_mm` (a double-height room), `role` building or site, `material_id`, `level` |
+| `add_room` | A named room from `rect` (south-west corner, centerlines) or `polygon`, `usage`, `floor_material_id`; draws its walls unless `walls` is false, sharing any side an existing wall covers |
+| `add_opening` | A door or window by `at` {x, y} (the engine finds the wall and offset) or `wall_id` and `offset_mm`; `style` swing_single, swing_double, sliding, fixed, casement, jalousie; `swing_into` a room |
+| `add_stair` | A straight flight from `start` up `direction_deg`, rising its level's height to `to_level`; risers about 175 mm and treads 250 mm by default; a 900 mm handrail unless `railing` is false. The result gives riser height and tread depth |
+| `add_column` | Columns at `at` or `points`, rect or round, `to_level` repeats them up the storeys |
+| `add_slab` | `slab_kind` floor, balcony (1000 mm bars by default), deck or void (the space below is double height) from `polygon` or `rect`, with `railing` (D50) |
+| `place_asset` | A library item by `catalog_key` at `at`; an unknown key answers with the nearest keys; wall items snap to a wall face unless `snap` is false |
+| `modify` | `move` {dx_mm, dy_mm} with `stretch_connected`, `rotate_deg` about `pivot`, `set` fields per kind (room name and usage, opening size and style, wall height and thickness, stair, slab and object fields, materials) |
+| `reshape` | `op` resize_room, set_wall_length, set_wall_endpoints, split_wall |
+| `delete` | Elements by id; a wall takes its openings with it |
+| `levels` | `action` list, add, update (the ground floor's height too), delete; warns when a storey's height runs past the floor above |
+| `set_project` | `roof`, `site` (latitude, longitude, time zone), `north_angle_deg`, `settings` (client, designer, location, default wall thickness, scale, paper, grid) |
+| `history` | `action` list (who made each step, when), undo, redo (`steps`), undo_to (`index`); someone else's step needs `force` after the user confirms |
+| `export` | `format` pdf, svg or dxf of a `level` or `level` "all" (empty levels are skipped and named), dxf3d and ifc of the whole model, guhit (the bundle); glb answers `unavailable` (the window's exporter) |
 
-Every editing tool (the ones above that change the plan, `batch`,
-`set_review_mark` and `add_camera`) takes an optional `scope`; see "The
-selection and `scope`" below.
+Every editing tool takes `scope` (see "The selection and `scope`"); every
+tool takes `agent` (see "Agents").
 
-Pipes and service runs (cold and hot water, drainage, vent, storm drains,
-electrical conduit, aircon line sets and condensate) are drawn in the app, not
-through these tools. An MCP client can read them (`list_elements` with kind
-`pipe`, `describe_elements`), edit them with the five pipe tools (point and
-segment numbers follow `points_mm`: segment n runs from point n to point
-n + 1), move or delete them like any element, and answer quantity questions
-with `get_pipe_takeoff`, which covers every system. The pipe tools set
-geometry only; nothing sizes a pipe or decides what fall is enough.
+### Toolsets
 
-Lights, outlets, switches, the panelboard, detectors and aircon units are
-library objects: `add_asset` places them, and a wall item lands with its back
-on the nearest wall face within 1000 mm of the point given. `describe_elements`
-shows an object's device kind, mount, light, circuit tag and links (what a
-switch controls, what feeds an aircon unit). Linking is done in the app with
-the link tool (L). `get_schedule` counts the objects per room in the rows of
-the PH electrical inspection form.
+The extended toolsets are opt in:
 
-Guhit coordinates services and never sizes them, plans circuits or calculates
-loads: plumbing plans are signed by a registered Master Plumber, electrical
-plans by a Professional Electrical Engineer, aircon by a Professional
-Mechanical Engineer (DECISIONS D19, D21).
+| Toolset | Tools |
+|---|---|
+| `services` | `edit_pipe` (`op` move_points, segment_length, slope, insert_point, remove_point), `add_pipe` (coordination only, D19), `link_devices` (a switch to its lights) |
+| `visuals` | `render` (`action` start, status, image, list; each saved view from its own camera; a window still rendering answers `window_busy` with when to try again), `visualize_render` (AI visualization, costs the user money) |
+| `live` | `get_session` (the agents and the project chat, with or without a live session), `send_chat_message` (as the agent, at most 6 a minute), `set_status` (a status line, `claim` {levels, ids} and `release`) |
+| `review` | `set_review_mark` (set a review item aside with a note, never approve it) |
+| `interop` | `import_underlay` (the user's plan image under a level at a scale from a known dimension), `import_dxf` (`action` inspect, commit) |
 
-The `plumbing-demo` template is the bungalow with services: the 16 plumbing
-runs of the concept, two storm downspouts, a light in every room, a pendant
-and an outdoor light, switches by the doors (a 3-way in the bedroom), outlets,
-the range and washer outlets, a panelboard, a smoke detector, and a split
-aircon for the bedroom with its outlet, line set and condensate drain. Its
-review items: the four plumbing findings (the penetration summary names the
-aircon core hole), the T&B light with no switch, and the meters of line set
-beyond a standard installation.
+With every toolset on the list is 33 tools, under Cursor's warning at 40. The
+core list is about 36 KB of definitions; every description is under 1 KB.
+
+How a client turns them on, the first that applies:
+
+1. The URL: `http://127.0.0.1:1450/mcp?toolsets=services,visuals` (or
+   `?toolsets=all`).
+2. The stdio proxy: `--toolsets services,visuals` (the dev binary
+   `guhit-mcp-stdio` now; the desktop's `--mcp-stdio` once src-tauri passes it
+   through).
+3. The setting `mcp_toolsets` in settings.json, which the Connect agent dialog
+   sets through `mcp_set_toolsets` (`mcp_toolsets` reads it).
+
+Toolsets only decide what `tools/list` shows. A call to a tool that is not
+listed still works, so a guide that names `render` never strands an agent.
+
+### Results and errors
+
+Every edit result has `ok`, `revision`, `base_revision`, `summary`,
+`undo_label`, `created`, `changed` and `deleted` (id, kind, label; lists past
+100 are counted), `issues_added` and `issues_resolved` since the base
+revision, `also_moved` (walls it reshaped that the call did not name),
+`totals`, and where they apply `id` (what one call made), `refs`, `steps`,
+`details` (a stair's riser and tread, an opening's wall and offset),
+`warnings` (storeys that overlap), `scope` and `agent`.
+
+Every failure is a tool error (`isError`) whose structured content is
+`{code, message, element_ids, location_mm, step, ref, hint}`. `code` is the
+engine's own (`opening_overlap`, `stretch_turns_wall`) or an IPC code
+(`not_found`, `stale`, `out_of_scope`, `live_session`, `agent_paused`);
+`hint` names the tool and argument that fixes it. A failing `build` or
+`batch` step names its step, its list entry (`openings[2]`) and its ref, and
+nothing is applied. An unknown tool answers with the nearest name.
+
+### The verify loop
+
+What the workflows guide and the `verify_model` prompt teach, per level:
+`build` (with `dry_run` first), read `issues_added`, `look` the plan with
+`show` dims and ids, `measure` the key dimensions against the brief, `look`
+mode 3d from a saved view, then `check` with `since_revision` set to the
+first `base_revision`. Numbers come from `query` and `measure`, never the
+model's eye (D8).
+
+### Agents
+
+Every MCP client working on the project is an agent with its own name,
+color, cursor and status line (D42, D47, `guhit_app::agents`). The server
+tells agents apart by, most specific first:
+
+1. the `agent` argument every tool takes, a short handle such as "kitchen",
+   the only way to tell subagents of one connection apart;
+2. a labelled URL, `http://127.0.0.1:1450/mcp/agent/<label>` (the stdio
+   proxy's `--agent <label>` posts there);
+3. the stdio proxy's instance header `x-guhit-agent-instance`, one per proxy;
+4. `clientInfo`. `initialize` answers with an `Mcp-Session-Id` that names
+   the client; the client sends it back on every call, so its calls stay its
+   own even when it opens new sockets or the app restarts. A call that names
+   no client and carries no session, label or instance is an "Unknown
+   agent", never the last client seen.
+
+The registry keeps pause, stop, the limit and the rate per connection (the
+session, else the label, else the stdio instance), for every handle on it.
+
+Working together: claim your level first (`set_status` with `claim`); other
+agents' edits there are refused `claimed`, and a `dry_run` of `build` or
+`batch` runs the same pause, limit and claim checks, so it says so before
+the commit. Write "@Name" (or "@name-with-hyphens") in `send_chat_message`. Every
+result an agent gets carries `activity` (working, looking, idle, paused or
+stopped), an `inbox` of at most three chat messages naming it and `nearby`,
+at most five steps others made inside its claim, each told once
+(`AppService::agent_notes`); `get_session` reads the whole recent chat with
+or without a live session.
+
+Pictures: `look` mode 3d and `render` take `visibility` {roof, cutaway}
+(a field left out keeps roof on, no cutaway) and pass it to the window
+(`WindowTask` `visibility`). Without it the window draws the model as drawn.
+Each result says what the picture shows.
+
+Each call sets the agent's status line from the tool ("Drawing walls",
+"Placing doors", "Looking at the plan", "Checking the model") unless the agent
+wrote its own with `set_status` in the last minute. The user pauses, stops or
+limits agents in the Agents panel: a paused agent's reads still work and its
+edits answer `agent_paused`; a stopped agent's every call answers
+`agent_stopped`. An agent undoes only its own steps (`history`), and its
+edits are checked against its limit and other agents' claims. In-process
+callers (tests) pass no hint and commit as before.
+
+### Resources and prompts
+
+| Resource | What |
+|---|---|
+| `guhit://project/current` | The open project in brief: levels, totals, rooms, review items |
+| `guhit://docs/conventions`, `guhit://docs/workflows`, `guhit://docs/ph-defaults` | The guides |
+| `guhit://catalog`, `guhit://materials`, `guhit://review`, `guhit://history` | The library, the project's materials, the review items, the undo history |
+| `guhit://project/levels/{level}/plan.svg` (template) | A level drawn by the engine as SVG, with wall lengths, short ids, a grid and a scale bar |
+
+Prompts: `draft_from_brief` (`brief`, `lot`), `model_from_plan_image`
+(`image_path`, `known_dimension`, `level`), `verify_model` (`level`, `brief`)
+and `client_render_pack` (`views`). Each spells out the verify loop.
+
+### v1 tool names
+
+The v1 names keep working for one release as hidden aliases: never listed,
+answered as before, with the v2 result fields added. Each maps to its v2
+tool:
+
+| v1 | v2 |
+|---|---|
+| `list_projects`, `open_project`, `create_project`, `close_project`, `save_version` | `project` |
+| `get_project_summary`, `list_rooms`, `list_elements`, `describe_elements`, `get_selection`, `get_schedule`, `get_pipe_takeoff` | `query` |
+| `find_rooms_without_exterior_window`, `list_review_items` | `check` |
+| `get_plan_image`, `capture_view` | `look` |
+| `add_wall`, `add_wall_chain` | `add_walls` |
+| `add_rect_room` | `add_room` |
+| `add_door`, `add_window` | `add_opening` |
+| `resize_room`, `set_wall_length` | `reshape` |
+| `move_elements`, `rename_room`, `set_room_usage`, `set_opening_size`, `set_material` | `modify` |
+| `delete_elements` | `delete` |
+| `set_roof` | `set_project` |
+| `add_asset` | `place_asset` |
+| `add_level`, `delete_level` | `levels` |
+| `undo`, `redo` | `history` |
+| `export_plan` | `export` |
+| `add_camera` | `build` cameras |
+| `move_pipe_points`, `set_pipe_segment_length`, `set_pipe_slope`, `insert_pipe_point`, `remove_pipe_point` | `edit_pipe` |
+| `render_view`, `get_render_job`, `get_render_image`, `list_renders` | `render` |
 
 ### Levels
 
-New elements go on the first level. `add_wall`, `add_wall_chain`,
-`add_rect_room` and `add_asset` take an optional `level`: a level id, or its
-name (case does not matter). `add_level` adds a storey: "Level N", its floor on
-top of the highest level (that level's elevation plus its height) and 3000 mm
-floor to floor unless you say otherwise. Names are 1 to 60 characters, heights
-2000 to 10000 mm, and no two levels share a floor elevation. The result lists
-it under `levels_added` with its id, so one `batch` can add the level and draw
-on it by name:
-
-```json
-{"steps": [
-  {"tool": "add_level", "args": {"name": "Second Floor"}},
-  {"tool": "add_rect_room", "args": {"origin": {"x": 0, "y": 0}, "width_mm": 4000,
-    "depth_mm": 3000, "name": "Bedroom", "level": "Second Floor"}}
-]}
-```
-
-`delete_level` removes a level with its walls, doors, windows, rooms, columns,
-stairs, objects, notes, dimensions and pipes, and removes links from other
-objects to the deleted ones, as one undo step. The last level cannot be
-deleted, and elements on a locked layer keep their level until the layer is
-unlocked. The roof sits on the top level.
-
-### `export_plan` sheets
-
-`sheet` picks the drawing, `plan` when it is left out:
-
-| `sheet` | Drawing |
-|---|---|
-| `plan` | The architectural plan |
-| `lighting` | Lights, switches and their links, a legend and counts |
-| `power` | Outlets, special purpose outlets, the panelboard and conduit, a legend, counts and a schedule of loads with blank ratings for the Professional Electrical Engineer |
-| `plumbing` | Water, drainage, vent and storm runs, a legend and a fixture table |
-| `plumbing_isometric` | Water and sanitary isometric diagrams, not to scale, with a legend and a blank Master Plumber block |
-| `aircon` | Aircon units, line sets, condensate drains and core holes, with a legend |
-
-Every sheet works in PDF, SVG and DXF. `review_page: true` adds a page of
-review items, open and set aside, with their notes; it is PDF only, and the
-tool refuses it with another format. An unknown sheet name is refused before
-anything is drawn. The signing professional's fields stay blank on every
-sheet.
-
-### `set_review_mark`
-
-`{"action": "set_aside" | "reopen", "issue_id"?, "code"?, "element_id"?, "note"?}`
-
-The target is one finding (`issue_id` from `list_review_items`), a whole check
-(`code`, for example `light_no_switch`) or a check on one element (`code` and
-`element_id`). `set_aside` needs a note. A set-aside item stays in
-`list_review_items` with status `ignored` and its note; it is never approved
-(DECISIONS D24). A set-aside finding that the checks stop producing is listed
-under `resolved`. One call is one undo step, like every edit.
-
-Resources:
-
-- `guhit://project/current` - compact JSON of the open project, with review
-  items and their status.
-- `guhit://docs/conventions` - units, coordinates, joins, flip conventions,
-  pipe and service run systems, devices and links, review marks.
-- `guhit://docs/ph-defaults` - 150 mm CHB walls, 900 x 2100 doors,
-  1200 x 1200 windows with a 900 sill, 3000 mm levels, material ids.
-- `guhit://docs/workflows` - the full working rules the server instructions
-  summarize: drawing a house, site walls, moving walls, pipes and devices, the
-  selection scope, views and renders, live sessions, honesty.
-
-The server instructions stay under 3500 characters, because Claude Code keeps
-only the first 4096 and other clients cut sooner. The honesty rules come first,
-then what needs the user's consent (live session `force`, paid AI
-visualization, deleting a level, chat); everything else is in the guides. A
-test fails when the instructions pass 4000 characters or the honesty rules
-leave the first 1500.
+New elements go on the first level unless a call passes `level`: an id or a
+name (case does not matter), or a `build` ref to a level ("$upper"). `levels`
+action add stacks a storey on the highest level ("Level N", 3000 mm floor to
+floor unless given); update changes a level's name, elevation or height, the
+ground floor included; delete removes a level with everything on it, only
+when the user names it. A stair rises its level's height, so set that first.
 
 ### The selection and `scope`
 
-DECISIONS D30. The user selects parts of the plan in the window and asks
-Claude Code to change only those:
-
-> make the selected room 600 wider to the east and put a window on its new wall
-
-`get_selection` returns what is selected: ids, kinds, readable labels, the
-level on screen and the full data of each element. An editing tool called
-with `"scope": "selection"` (or a list of element ids) is held to it by the
-engine, not by the model: a command that reaches outside is refused with
-`out_of_scope`, naming the element, and nothing is applied.
-
-- A selected room reaches its bounding walls, their doors and windows, and
-  what stands inside it. A selected wall reaches its doors and windows.
-  Anything else reaches itself.
-- New elements must land inside the selection's area on its level (a room's
-  centerline outline, or 500 mm around other elements). In a `batch`, what an
-  earlier step created joins the scope, so a later step can build on it.
-- Roof, levels, layers and settings are outside every scope. What the engine
-  changes as a consequence (connected walls stretching, dimensions following)
-  is allowed.
-- When the user switches on **Only the selection** (the copilot dock, the
-  status bar, or the palette), every MCP edit is limited to their selection,
-  whatever the call says; `get_selection` reports it as
-  `limited_to_selection`. With nothing selected there is no limit.
+The user can select parts of the plan in the window and ask the agent to
+change only those. `query` what "selection" shows what is selected; every
+editing tool, `build` and `batch` take `scope`: "selection" or element ids.
+The engine refuses anything outside it with `out_of_scope`, naming the
+element. When the user switches on "Only the selection" in the app, their
+selection binds every edit whatever the call says (D30). Project-wide tools
+(`levels`, `set_project`) are outside every scope.
 
 ### Views and renders
 
-DECISIONS D31. The path tracer and the plan canvas run in the desktop window,
-so these tools ask the window to do the work and wait for it; with no window
-open (the dev bridge with no browser) they answer `no_window`.
-
-- `add_camera` saves a view: `position` and `target` in mm, heights above the
-  floor of `level`. The view shows in the app and renders by name.
-- `capture_view` saves a capture of the 3D view as it is on screen, or from a
-  saved view, in a second or two.
-- `render_view` renders like the Render button: the view on screen or saved
-  views, `quick` (about a minute at HD) or `final`, at `hd`, `qhd`, `4k` or
-  `square`. It waits `wait_seconds` (45 by default) and hands back the records
-  and a preview, or a `job_id` for `get_render_job`.
-- `get_render_image` returns any saved visual, fitted to 1568 px.
-- `visualize_render` sends a saved model view to the image provider the user
-  set up in the Visuals panel (Gemini, DECISIONS D17), with the user's own key
-  and at the user's cost. The result is labelled "AI visualization", keeps the
-  view it came from, and never changes the model.
-- `get_plan_image` asks the open window to draw the plan (any `level`), and
-  falls back to the last saved thumbnail when no window answers.
+Views and renders run in the window (D31). Save views as `build` cameras
+(name, position, target {x, y, z}, z above the level floor). `look` mode 3d
+captures one into Visuals; `render` action start path traces views and hands
+back a job id when it takes longer than `wait_seconds`; `visualize_render`
+makes an AI visualization from a saved view with the user's own key, only
+when they ask, labelled "AI visualization", never changing the model.
 
 ### Live sessions
 
-DECISIONS D29 and D32. When the window is in a live session, several people
-edit the same plan from their own computers, on the same network or VPN or
-over the internet through the relay, and every MCP edit shows up for all of
-them. An MCP client on a guest's computer works too: its edits go to the host
-like the guest's own.
-
-- `get_session` lists the participants, what each has selected, the level they
-  are on, and the latest chat messages.
-- `send_chat_message` posts to the session chat as the user of this computer,
-  marked as sent by AI.
-- Undo is one shared history. `undo` and `redo` refuse a step someone else made
-  (`other_author`, naming them); pass `force` only after the user confirms.
-- Opening, creating or closing a project ends a session this computer hosts,
-  for everyone, and closing leaves a session it joined. The window asks first;
-  `open_project`, `create_project` and `close_project` refuse with
-  `live_session` (naming who is in) until the call passes `force`, which a
-  client does only after the user confirms. Opening the shared project itself
-  changes nothing and is not refused.
-
-### `batch` and element ids
-
-`batch` takes a list of `{"tool": ..., "args": ...}` steps, applies them in
-order and commits them as one `Command::Batch`: either all of them land or
-none do, and one undo reverts the lot.
-
-Each step sees the result of the steps before it, so a later step can name an
-element an earlier step created. Ids are stable: the core seeds new ids per
-leaf command from the project state right before that command runs, so an id
-does not move when more steps are appended to the batch. The result lists what
-every step created under `steps`, which makes the normal recipe two calls:
-
-1. `batch` the rooms, read the wall ids it reports per step,
-2. `batch` the doors and windows on those walls.
+In a live session every edit shows up for everyone, and undo is one shared
+history: `history` refuses a step someone else made (`other_author`) until
+the user confirms and the agent passes `force`. `project` open, create and
+close end a session this computer hosts, for everyone, and refuse with
+`live_session` until `force`. `send_chat_message` posts as the agent, marked
+as sent by AI.
 
 ## Safety
 
@@ -721,7 +696,8 @@ every step created under `steps`, which makes the normal recipe two calls:
   correct itself: `The door (900 mm wide, centered 9000 mm from the wall
   start) does not fit on its wall, which is 4000 mm long.`
 - **One tool call is one undo step**, labelled `MCP: ...` in the app, with
-  `Origin::Ai`. Anything an MCP client does can be undone in the app, and
+  `Origin::Ai` and the agent as its author. A `build` of a whole house is one
+  step too. Anything an MCP client does can be undone in the app, and
   anything done in the app can be undone from the client.
 - **The commit is revision guarded.** If the window or the copilot changes the
   plan between the tool reading it and committing, nothing is applied and the
@@ -735,10 +711,10 @@ every step created under `steps`, which makes the normal recipe two calls:
   web page. There is no authentication, so anything that can already run code
   on your machine can drive the app; that is the same trust level as the dev
   bridge.
-- **Two tools reach beyond this machine**, and say so with `openWorldHint`:
-  `visualize_render` (the image provider, at the user's cost) and
-  `send_chat_message` (the other people in a live session). Everything else
-  stays on this computer. `get_session` never returns the session's invite.
+- **Three tools reach beyond this machine**, and say so with `openWorldHint`:
+  `visualize_render` (the image provider, at the user's cost),
+  `send_chat_message` and `set_status` (the other people in a live session).
+  Everything else stays on this computer. `get_session` never returns the session's invite.
 - **"Only the selection" is enforced by the engine.** The model cannot talk its
   way past it; the user switches it off in the app.
 - **Review items are suggestions.** Nothing here is permit approval,
@@ -765,5 +741,5 @@ hub picks up the MCP client's work correctly. Moving the effect up to
 ## One document
 
 There is one open document per app, shared by the window, the copilot and
-every MCP client. `open_project` switches it, saving the previous one first.
+every MCP client. `project` action open switches it, saving the previous one first.
 An MCP client and the window are always looking at the same plan.

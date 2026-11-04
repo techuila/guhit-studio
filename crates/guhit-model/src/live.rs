@@ -50,6 +50,81 @@ pub struct Participant {
     /// colors last.
     pub color: u8,
     pub role: ParticipantRole,
+    /// Set when this participant is an AI agent working through MCP
+    /// (DECISIONS D42, D47), not a person. An agent's `role` is always
+    /// `Guest`, so code looking for the host by role never finds one.
+    #[serde(default)]
+    pub agent: Option<AgentInfo>,
+}
+
+/// Who an agent is and whom it works for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentInfo {
+    /// The person whose computer runs the agent. None on that computer
+    /// outside a live session.
+    pub owner_id: Option<Id>,
+    pub owner_name: String,
+    /// The MCP client as it named itself (`clientInfo`): "claude-code".
+    pub client: String,
+    pub client_version: String,
+}
+
+/// What an agent is doing right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum AgentActivity {
+    /// Its last call changed the model.
+    Working,
+    /// Its last call read the model or took a picture.
+    Looking,
+    /// No call for a while.
+    Idle,
+    /// The user paused it: edits are refused, reads work.
+    Paused,
+    /// The user stopped it: every call is refused until resumed.
+    Stopped,
+}
+
+/// Where a person limits an agent (DECISIONS D47), enforced by the engine
+/// like "Only the selection" (D30). Empty lists limit nothing.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentLimit {
+    /// Only these levels: their elements and new elements on them.
+    pub level_ids: Vec<Id>,
+    /// Only these elements, with the reach of D30.
+    pub ids: Vec<Id>,
+    /// Only these kinds of element.
+    pub kinds: Vec<ElementKind>,
+}
+
+/// What an agent has claimed for itself, so other agents keep out. A lease:
+/// it ends at `expires_at` (RFC 3339) unless the agent keeps working. Claims
+/// never block people.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentClaim {
+    pub level_ids: Vec<Id>,
+    pub ids: Vec<Id>,
+    pub expires_at: String,
+}
+
+/// One agent as the window shows it: in the top bar, on the plan, in 3D and
+/// in the Agents panel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentSummary {
+    pub participant: Participant,
+    pub presence: Presence,
+    pub activity: AgentActivity,
+    pub limit: Option<AgentLimit>,
+    pub claim: Option<AgentClaim>,
+    /// Undo steps it has made since the app started.
+    pub steps: u32,
+    /// RFC 3339 UTC of its latest call.
+    pub last_call_at: String,
 }
 
 /// Where a participant is and what they are doing. Sent many times a second,
@@ -90,6 +165,10 @@ pub struct Presence {
     /// project zero (like `Camera`). None while the pointer is off the model.
     #[serde(default)]
     pub pointer_3d: Option<Vec3>,
+    /// A short line saying what they are doing: "Placing doors". Agents set
+    /// it; people leave it None.
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 /// Which views a window shows. The same names as the frontend's view modes.

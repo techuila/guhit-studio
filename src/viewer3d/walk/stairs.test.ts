@@ -36,7 +36,9 @@ describe("stairsOf", () => {
     expect(s.id).toBe(STAIR);
     expect(s.levelId).toBe(L1);
     expect(s.topLevelId).toBe(L2);
-    expect(s.going).toBeCloseTo(243.75, 6);
+    // 16 risers make 15 treads (DECISIONS D44): 3900 / 15.
+    expect(s.treads).toBe(15);
+    expect(s.going).toBeCloseTo(260, 6);
     expect(s.rise).toBe(3000);
     expect(s.bottomZ).toBe(0);
     // Climbs north: the head is 3900 mm north of the first riser.
@@ -73,8 +75,10 @@ describe("rampHeight", () => {
     expect(rampHeight(s, -s.going / 2)).toBe(0);
     expect(rampHeight(s, -1000)).toBe(0);
     expect(rampHeight(s, 0)).toBeCloseTo(riser / 2, 6);
-    expect(rampHeight(s, s.run - s.going / 2)).toBeCloseTo(s.rise, 6);
-    expect(rampHeight(s, s.run)).toBe(s.rise);
+    // The top riser lands on the floor above: half a riser short at the
+    // head, the level height half a going past it.
+    expect(rampHeight(s, s.run)).toBeCloseTo(s.rise - riser / 2, 6);
+    expect(rampHeight(s, s.run + s.going / 2)).toBeCloseTo(s.rise, 6);
     expect(rampHeight(s, s.run + 5000)).toBe(s.rise);
   });
 
@@ -227,8 +231,10 @@ describe("walking a stair", () => {
     expect(w.levelId).toBe(L1);
     expect(w.stair?.id).toBe(STAIR);
     expect(w.y).toBeLessThanOrEqual(5100 - R + 0.5);
+    // On the last tread (2812.5 mm, D44: the top riser would land on a floor
+    // that is not there), a radius short of the head.
     expect(w.floorZ).toBeLessThanOrEqual(3000);
-    expect(w.floorZ).toBeGreaterThan(2800);
+    expect(w.floorZ).toBeGreaterThan(2650);
   });
 
   it("flies over a stair without climbing it", () => {

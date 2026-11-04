@@ -10,10 +10,15 @@
 //! - `flip_side == false`: the leaf swings to the left of the wall direction
 //!   (start to end), that is toward the counter-clockwise normal.
 //! - `flip_hinge == false`: the hinge is on the jamb nearer to the wall start.
+//!
+//! Slabs, railings and stairs follow docs/CONTRACT.md "Slabs and railings":
+//! slab outlines with a light tint, voids crossed and marked OPEN TO BELOW,
+//! railings drawn from `Derived::railings`, and a flight of n risers as n - 1
+//! treads (DECISIONS D44), dashed with a DN arrow on the level it arrives at.
 
 use guhit_model::{
     ColumnShape, Derived, DisplayUnit, Element, Id, LayerKey, Level, Opening, OpeningStyle,
-    OpeningType, Project, Wall,
+    OpeningType, Project, RailingRun, RailingRunKind, RailingStyle, Slab, SlabKind, Stair, Wall,
 };
 
 use crate::geom::*;
@@ -23,10 +28,17 @@ use crate::ExportError;
 /// Drawing category. Maps to an SVG group and a DXF layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Cat {
+    /// Floor, balcony, deck and void outlines, the void cross and its label.
+    Slab,
     Furn,
     /// Site walls: the lot fence and boundary walls (`WallRole::Site`).
     Site,
+    /// A stair seen from the level it arrives at: its outline and treads,
+    /// dashed. Shares the stairs layer in DXF.
+    StrsBelow,
     Strs,
+    /// Guard rails and handrails (`Derived::railings`).
+    Rail,
     Wall,
     Cols,
     Door,
@@ -37,11 +49,14 @@ pub enum Cat {
 }
 
 impl Cat {
-    /// Back to front draw order.
-    pub const ALL: [Cat; 10] = [
+    /// Back to front draw order. Railings draw over both stair drawings.
+    pub const ALL: [Cat; 13] = [
+        Cat::Slab,
         Cat::Furn,
         Cat::Site,
+        Cat::StrsBelow,
         Cat::Strs,
+        Cat::Rail,
         Cat::Wall,
         Cat::Cols,
         Cat::Door,
@@ -58,7 +73,9 @@ impl Cat {
             Cat::Door => "A-DOOR",
             Cat::Glaz => "A-GLAZ",
             Cat::Cols => "A-COLS",
-            Cat::Strs => "A-FLOR-STRS",
+            Cat::Strs | Cat::StrsBelow => "A-FLOR-STRS",
+            Cat::Slab => "A-FLOR-OTLN",
+            Cat::Rail => "A-FLOR-HRAL",
             Cat::Furn => "A-FURN",
             Cat::Area => "A-AREA",
             Cat::Dims => "A-ANNO-DIMS",
@@ -74,6 +91,9 @@ impl Cat {
             Cat::Glaz => "windows",
             Cat::Cols => "columns",
             Cat::Strs => "stairs",
+            Cat::StrsBelow => "stairs-below",
+            Cat::Slab => "slabs",
+            Cat::Rail => "railings",
             Cat::Furn => "assets",
             Cat::Area => "room-labels",
             Cat::Dims => "dimensions",
@@ -96,6 +116,8 @@ pub enum Fill {
     None,
     /// Solid ink, used for wall poche, columns and arrow heads.
     Ink,
+    /// A light wash of ink, its opacity in percent: slabs and parapets.
+    Tint(u8),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +181,10 @@ pub mod paper {
     pub const ASSET_LABEL: f64 = 1.7;
     pub const STAIR_LABEL: f64 = 2.0;
     pub const STAIR_ARROW: f64 = 2.2;
+    pub const VOID_LABEL: f64 = 2.0;
+    /// Dash and gap of a hidden line (a stair from below), the pattern of
+    /// the DXF `GUHIT_DASHED` linetype.
+    pub const HIDDEN_DASH: [f64; 2] = [2.2, 1.1];
 }
 
 pub struct PlanOptions {
@@ -322,13 +348,36 @@ pub fn build_items(
         }
     }
 
+    if on(LayerKey::Slabs) {
+        for e in &project.elements {
+            if let Element::Slab(s) = e {
+                if s.level_id == level.id {
+                    slab_items(s, n, &mut out);
+                }
+            }
+        }
+    }
+
     if on(LayerKey::Stairs) {
         for e in &project.elements {
             if let Element::Stair(s) = e {
                 if s.level_id == level.id {
                     stair_items(s, n, &mut out);
+                } else if stair_arrival(project, s).is_some_and(|l| l.id == level.id) {
+                    stair_from_below_items(s, n, &mut out);
                 }
             }
+        }
+    }
+
+    // Slab rails follow the slabs layer, stair rails the stairs layer.
+    for run in derived.railings.iter().filter(|r| r.level_id == level.id) {
+        let key = match run.kind {
+            RailingRunKind::SlabEdge => LayerKey::Slabs,
+            RailingRunKind::StairSide | RailingRunKind::StairWell => LayerKey::Stairs,
+        };
+        if on(key) {
+            railing_items(run, &mut out);
         }
     }
 
@@ -514,18 +563,6 @@ fn fallback_outline(wall: &Wall) -> Vec<V> {
         }
         None => vec![],
     }
-}
-
-fn point_in_polygon(p: V, poly: &[V]) -> bool {
-    let mut inside = false;
-    for i in 0..poly.len() {
-        let a = poly[i];
-        let b = poly[(i + 1) % poly.len()];
-        if (a.y > p.y) != (b.y > p.y) && p.x < a.x + (b.x - a.x) * (p.y - a.y) / (b.y - a.y) {
-            inside = !inside;
-        }
-    }
-    inside
 }
 
 /// Where two walls meet end to end at an angle and their outlines are not
@@ -766,17 +803,47 @@ fn door_leaf(hinge: V, along: V, nrm: V, w: f64, wall_t: f64, out: &mut Vec<Item
 
 // --------------------------------------------------------------------- stairs
 
-fn stair_items(s: &guhit_model::Stair, n: f64, out: &mut Vec<Item>) {
-    let o = V::from(s.origin);
-    let f = dir(s.rotation_deg + 90.0);
-    let r = dir(s.rotation_deg);
+/// A level counts as the top of a flight when its floor is this close to it.
+pub const STAIR_TOP_MATCH_MM: f64 = 300.0;
+
+/// The level a stair arrives at: of the levels above the stair's own, the
+/// one whose elevation is closest to the stair's top (its level's elevation
+/// plus height), within 300 mm. The 3D view finds it the same way
+/// (`src/viewer3d/walk/stairs.ts`).
+pub fn stair_arrival<'a>(project: &'a Project, s: &Stair) -> Option<&'a Level> {
+    let own = project.levels.iter().find(|l| l.id == s.level_id)?;
+    let top = own.elevation_mm + own.height_mm;
+    let mut best: Option<(&Level, f64)> = None;
+    for l in &project.levels {
+        if l.id == own.id || l.elevation_mm <= own.elevation_mm {
+            continue;
+        }
+        let d = (l.elevation_mm - top).abs();
+        if d <= STAIR_TOP_MATCH_MM && best.is_none_or(|(_, b)| d < b) {
+            best = Some((l, d));
+        }
+    }
+    best.map(|(l, _)| l)
+}
+
+/// A flight's plan frame: first riser center, unit vector up the flight,
+/// unit vector across it, half width and run. None for a degenerate flight.
+fn stair_frame(s: &Stair) -> Option<(V, V, V, f64, f64)> {
     let hw = s.width_mm.abs() / 2.0;
     let run = s.run_mm.abs();
-    if hw < 1.0 || run < 1.0 {
-        return;
+    if !(hw >= 1.0 && run >= 1.0) {
+        return None;
     }
+    Some((V::from(s.origin), dir(s.rotation_deg + 90.0), dir(s.rotation_deg), hw, run))
+}
+
+/// The flight outline and its tread lines (DECISIONS D44): n risers make
+/// n - 1 treads of run / (n - 1), so the lines sit at k * run / (n - 1) for
+/// k = 1 .. n - 2 and the last tread ends at the top of the flight.
+fn flight_items(s: &Stair, cat: Cat, out: &mut Vec<Item>) {
+    let Some((o, f, r, hw, run)) = stair_frame(s) else { return };
     out.push(Item {
-        cat: Cat::Strs,
+        cat,
         pen: Pen::Medium,
         prim: Prim::Poly {
             pts: vec![o - r * hw, o + r * hw, o + r * hw + f * run, o - r * hw + f * run],
@@ -784,40 +851,43 @@ fn stair_items(s: &guhit_model::Stair, n: f64, out: &mut Vec<Item>) {
             fill: Fill::None,
         },
     });
-    let count = s.riser_count.clamp(1, 200);
-    for i in 1..count {
-        let d = f * (run * i as f64 / count as f64);
-        out.push(line(Cat::Strs, Pen::Light, o - r * hw + d, o + r * hw + d));
+    let treads = crate::model3d::tread_count(s.riser_count);
+    for k in 1..treads {
+        let d = f * (run * k as f64 / treads as f64);
+        out.push(line(cat, Pen::Light, o - r * hw + d, o + r * hw + d));
     }
-    // Direction of travel: dot at the first riser, arrow toward the top.
-    let going = run / count as f64;
-    let a0 = o + f * (going * 0.5).min(run * 0.2);
-    let head = paper::STAIR_ARROW * n;
-    let a1 = o + f * (run - (going * 0.5).min(run * 0.2));
-    out.push(line(Cat::Strs, Pen::Light, a0, a1));
+}
+
+/// Direction of travel from `from` to `to`: a dot where it starts, a shaft
+/// and a head. Always solid, on the stairs layer.
+fn travel_arrow(from: V, to: V, n: f64, out: &mut Vec<Item>) {
+    let Some(u) = (to - from).unit() else { return };
+    let across = u.left();
+    out.push(line(Cat::Strs, Pen::Light, from, to));
     out.push(Item {
         cat: Cat::Strs,
         pen: Pen::Light,
         prim: Prim::Circle {
-            c: a0,
+            c: from,
             r: 0.45 * n,
             fill: Fill::Ink,
         },
     });
-    let hl = head.min(run * 0.4);
+    let hl = (paper::STAIR_ARROW * n).min((to - from).len() * 0.45);
     out.push(Item {
         cat: Cat::Strs,
         pen: Pen::Light,
         prim: Prim::Poly {
-            pts: vec![a1, a1 - f * hl + r * (hl * 0.32), a1 - f * hl - r * (hl * 0.32)],
+            pts: vec![to, to - u * hl + across * (hl * 0.32), to - u * hl - across * (hl * 0.32)],
             closed: true,
             fill: Fill::Ink,
         },
     });
-    // "UP" just before the first riser.
-    let th = paper::STAIR_LABEL * n;
+}
+
+/// "UP" or "DN" centered on `center`, readable along the flight.
+fn stair_label(s: &Stair, center: V, th: f64, text: &str, out: &mut Vec<Item>) {
     let rot = readable_deg(s.rotation_deg);
-    let center = o - f * (th * 1.1);
     let up = dir(rot + 90.0);
     out.push(Item {
         cat: Cat::Strs,
@@ -827,10 +897,162 @@ fn stair_items(s: &guhit_model::Stair, n: f64, out: &mut Vec<Item>) {
             height: th,
             rot_deg: rot,
             align: HAlign::Middle,
-            text: "UP".into(),
+            text: text.into(),
             bold: false,
         },
     });
+}
+
+/// Where a travel arrow starts or ends inside the flight: half a tread in,
+/// at most a fifth of the run.
+fn arrow_inset(s: &Stair, run: f64) -> f64 {
+    let going = run / crate::model3d::tread_count(s.riser_count) as f64;
+    (going * 0.5).min(run * 0.2)
+}
+
+/// A stair on its own level: the flight, an arrow from the first tread to
+/// the top, "UP" just before the first riser.
+fn stair_items(s: &Stair, n: f64, out: &mut Vec<Item>) {
+    let Some((o, f, _, _, run)) = stair_frame(s) else { return };
+    flight_items(s, Cat::Strs, out);
+    let inset = arrow_inset(s, run);
+    travel_arrow(o + f * inset, o + f * (run - inset), n, out);
+    let th = paper::STAIR_LABEL * n;
+    stair_label(s, o - f * (th * 1.1), th, "UP", out);
+}
+
+/// A stair seen from the level it arrives at: the flight dashed, an arrow
+/// from the top end down the flight, "DN" just past the top.
+fn stair_from_below_items(s: &Stair, n: f64, out: &mut Vec<Item>) {
+    let Some((o, f, _, _, run)) = stair_frame(s) else { return };
+    flight_items(s, Cat::StrsBelow, out);
+    let inset = arrow_inset(s, run);
+    travel_arrow(o + f * (run - inset), o + f * inset, n, out);
+    let th = paper::STAIR_LABEL * n;
+    stair_label(s, o + f * (run + th * 1.1), th, "DN", out);
+}
+
+// ---------------------------------------------------------------------- slabs
+
+/// Tints in percent of ink: a floor slab, a balcony or deck a little
+/// stronger, a solid parapet stronger still.
+const FLOOR_TINT: u8 = 5;
+const OPEN_TINT: u8 = 10;
+const PARAPET_TINT: u8 = 22;
+
+/// A slab's outline, tinted by kind. A void is its outline, a cross and
+/// "OPEN TO BELOW".
+fn slab_items(s: &Slab, n: f64, out: &mut Vec<Item>) {
+    let poly = crate::model3d::slab_outline(s);
+    if poly.len() < 3 {
+        return;
+    }
+    let fill = match s.kind {
+        SlabKind::Floor => Fill::Tint(FLOOR_TINT),
+        SlabKind::Balcony | SlabKind::Deck => Fill::Tint(OPEN_TINT),
+        SlabKind::Void => Fill::None,
+    };
+    out.push(Item {
+        cat: Cat::Slab,
+        pen: Pen::Light,
+        prim: Prim::Poly {
+            pts: poly.clone(),
+            closed: true,
+            fill,
+        },
+    });
+    if s.kind == SlabKind::Void {
+        void_marks(&poly, n, out);
+    }
+}
+
+/// The cross of a void: the two diagonals of a four-corner outline,
+/// otherwise the diagonals of its bounding box, clipped to the outline and
+/// kept clear of the label in the middle.
+fn void_marks(poly: &[V], n: f64, out: &mut Vec<Item>) {
+    let b = bounds_of(poly);
+    let diagonals = if poly.len() == 4 {
+        [(poly[0], poly[2]), (poly[1], poly[3])]
+    } else {
+        [(b.min, b.max), (v(b.min.x, b.max.y), v(b.max.x, b.min.y))]
+    };
+    let c = centroid(poly);
+    let at = if point_in_polygon(c, poly) { c } else { b.center() };
+    let text = "OPEN TO BELOW";
+    let mut th = paper::VOID_LABEL * n;
+    let w = est_width(text, th, false);
+    let avail = b.width() * 0.85;
+    if w > avail {
+        th *= (avail / w).max(paper::ROOM_MIN / paper::VOID_LABEL);
+    }
+    let label = Item {
+        cat: Cat::Slab,
+        pen: Pen::Light,
+        prim: Prim::Text {
+            pos: at - v(0.0, th * 0.36),
+            height: th,
+            rot_deg: 0.0,
+            align: HAlign::Middle,
+            text: text.into(),
+            bold: false,
+        },
+    };
+    let mut clear = items_bounds(std::slice::from_ref(&label));
+    let pad = 0.8 * n;
+    clear.min = clear.min - v(pad, pad);
+    clear.max = clear.max + v(pad, pad);
+    for (a, z) in diagonals {
+        for (p, q) in clip_segment(a, z, poly) {
+            for (p, q) in outside_bounds(p, q, &clear) {
+                out.push(line(Cat::Slab, Pen::Fine, p, q));
+            }
+        }
+    }
+    out.push(label);
+}
+
+// ------------------------------------------------------------------ railings
+
+/// Half the gap between the two lines of a bars or glass rail, and half the
+/// band of a solid parapet, mm.
+const RAIL_HALF_MM: f64 = 25.0;
+const PARAPET_HALF_MM: f64 = 50.0;
+
+/// One rail along its run: two thin lines 50 mm apart for bars and glass, a
+/// 100 mm tinted band for a solid parapet. A run all the way round gives
+/// closed rings; a parapet ring is one outline with the inner ring as a hole.
+fn railing_items(run: &RailingRun, out: &mut Vec<Item>) {
+    let (pts, _, closed) = crate::model3d::railing_path(run);
+    if pts.len() < 2 {
+        return;
+    }
+    let poly = |pts: Vec<V>, closed: bool, fill: Fill| Item {
+        cat: Cat::Rail,
+        pen: Pen::Light,
+        prim: Prim::Poly { pts, closed, fill },
+    };
+    match run.style {
+        RailingStyle::Bars | RailingStyle::Glass => {
+            for d in [RAIL_HALF_MM, -RAIL_HALF_MM] {
+                out.push(poly(offset_path(&pts, d, closed), closed, Fill::None));
+            }
+        }
+        RailingStyle::Solid => {
+            let left = offset_path(&pts, PARAPET_HALF_MM, closed);
+            let right = offset_path(&pts, -PARAPET_HALF_MM, closed);
+            let band: Vec<V> = if closed {
+                let mut b = left.clone();
+                b.push(left[0]);
+                b.push(right[0]);
+                b.extend(right.iter().skip(1).rev());
+                b.push(right[0]);
+                b
+            } else {
+                left.into_iter().chain(right.into_iter().rev()).collect()
+            };
+            out.push(poly(band, true, Fill::Tint(PARAPET_TINT)));
+        }
+    }
 }
 
 // --------------------------------------------------------------------- assets

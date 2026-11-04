@@ -20,7 +20,7 @@ const base: PresenceInput = {
 const area: PlanView = { center: { x: 4200.4, y: -1800.6 }, width_mm: 9000.2, height_mm: 6000.7 };
 const cam: LiveCamera = { position: { x: 100.4, y: 200.6, z: 9000.5 }, target: { x: 4500, y: 3500, z: 1200 }, fov_deg: 45.04, nav: "orbit" };
 
-const off = { following: null, view_mode: null, plan_view: null, camera: null, pointer_3d: null };
+const off = { following: null, view_mode: null, plan_view: null, camera: null, pointer_3d: null, status: null };
 
 /** A throttle on a hand-driven clock and timer queue. */
 function harness(intervalMs = 50) {

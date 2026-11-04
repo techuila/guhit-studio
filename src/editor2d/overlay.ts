@@ -22,6 +22,7 @@ import type { SnapResult, SnapType } from "./snap";
 import { polar } from "./snap";
 import type { Box, TagCandidate } from "./tags";
 import { TAG_PRIORITY, layoutTags, pointSpots, segmentSpots } from "./tags";
+import { SLAB_KIND_LABEL, slabAreaMm2 } from "./slab";
 import { formatAngle, formatArea, formatLength } from "./typed";
 import { toScreen } from "./view";
 
@@ -409,6 +410,32 @@ function drawGrips(rc: RenderContext, c: PlanController, op: PlanController["op"
       ctx.lineTo(s.x + 3, s.y);
       ctx.moveTo(s.x, s.y - 3);
       ctx.lineTo(s.x, s.y + 3);
+      ctx.stroke();
+    } else if (g.kind === "slab_mid") {
+      // A small ring in the middle of each edge: dragging it adds a corner there.
+      ctx.arc(s.x, s.y, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else if (g.kind === "slab_vertex") {
+      // The picked corner fills with the selection color; Delete removes it.
+      const pick = c.slabVertexPick;
+      const last = c.lastSlabVertexPick;
+      const picked =
+        pick && pick.slabId === g.elementId && pick.index === g.index
+          ? 1 - c.anim.value(K.slabVertex, 0)
+          : last && last.slabId === g.elementId && last.index === g.index
+            ? c.anim.value(K.slabVertexOut, 0)
+            : 0;
+      const r = 4.5 + 1 * picked;
+      ctx.rect(s.x - r, s.y - r, r * 2, r * 2);
+      ctx.fill();
+      if (picked > 0.002) {
+        ctx.save();
+        ctx.globalAlpha *= picked;
+        ctx.fillStyle = palette.selection;
+        ctx.fill();
+        ctx.restore();
+      }
       ctx.stroke();
     } else if (g.kind === "wall_mid" || g.kind === "dim_offset" || g.kind === "pipe_mid") {
       ctx.moveTo(s.x, s.y - 6);
@@ -928,7 +955,17 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
         if (me) tempDimension(rc, me.start, me.end, 26);
       } else {
         const next = c.gripResult(op);
-        if (next) {
+        if (next && next.kind === "slab") {
+          drawElement(rc, next, { ...ghost, hollow: false, alpha: 0.75 * fade });
+          if (!returning) {
+            const n = next.polygon.length;
+            const i = op.grip.kind === "slab_mid" ? (op.grip.index ?? 0) + 1 : (op.grip.index ?? 0);
+            const at = next.polygon[i];
+            tempDimension(rc, next.polygon[(i - 1 + n) % n], at, 26);
+            tempDimension(rc, at, next.polygon[(i + 1) % n], 26);
+            if (cursorScreen) pill(rc, { x: cursorScreen.x + 16, y: cursorScreen.y + 22 }, formatArea(slabAreaMm2(next.polygon)));
+          }
+        } else if (next) {
           drawElement(rc, next, el.kind === "dimension" || el.kind === "camera" ? { color: palette.selection, alpha: fade } : ghost);
           if ("rotation_deg" in next && cursorScreen && !returning) {
             pill(rc, { x: cursorScreen.x + 16, y: cursorScreen.y + 22 }, formatAngle(next.rotation_deg));
@@ -1083,6 +1120,10 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
       if (band.length > 1 && planDist(start, end) > 1) tempDimension(rc, planOf(start), planOf(end), 30);
       break;
     }
+    case "slab": {
+      drawSlabDraft(rc, c, op);
+      break;
+    }
     case "rect": {
       const corner = c.rectCommitCorner ?? c.rectCorner(op);
       if (corner && dist(corner, op.origin) > 1) {
@@ -1210,6 +1251,26 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
     if (cursorScreen && c.pointerInside) placeParts = placementPills(rc, c, pg);
   }
 
+  // Slab tool: the room outline a click takes, a refused outline fading out, and why.
+  const room = c.slabRoom ?? c.lastSlabRoom;
+  const ra = c.anim.value(K.slabRoom, 0);
+  if (room && ra > 0.002 && s.tool === "slab" && op.kind !== "slab") {
+    drawOutline(rc, room.polygon, palette.selection, ra, { fill: 0.12, dashed: room.below });
+    if (cursorScreen && c.pointerInside && c.slabRoom) {
+      const kind = SLAB_KIND_LABEL[s.toolOptions.slabKind];
+      placeParts.push({ text: `${kind}: ${room.name || "Room"}${room.below ? ", level below" : ""}`, bg: palette.selection });
+      placeParts.push({ text: formatArea(slabAreaMm2(room.polygon)) });
+    }
+  }
+  const refused = c.slabRefused;
+  const fa = c.anim.value(K.slabRefused, 0);
+  if (refused && fa > 0.002) drawOutline(rc, refused, palette.danger, fa, { fill: 0.14 });
+  const notice = c.slabNotice;
+  const na = c.anim.value(K.slabNoticeHold, 0);
+  if (notice && na > 0.002 && s.tool === "slab" && cursorScreen) {
+    placeParts.push({ text: notice, bg: palette.danger, scale: 1 + 0.12 * c.anim.value(K.placeRefused, 0) });
+  }
+
   // The marquee keeps its last rectangle while it fades out after the release.
   if (op.kind !== "marquee") {
     const mf = c.marqueeFade;
@@ -1231,8 +1292,98 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
   drawTags(rc, c, tags);
 
   if (cursorAt && cursorParts.length > 0) pillRow(rc, cursorAt, cursorParts);
-  if (placeAt && placeParts.length > 0) pillRow(rc, placeAt, placeParts, pa);
+  if (placeAt && placeParts.length > 0) pillRow(rc, placeAt, placeParts, s.tool === "slab" ? Math.max(ra, na) : pa);
   if (showSnap && snapped) drawSnap(rc, snapped, sa, c.anim.value(K.snapPop, 1));
+}
+
+function tracePath(rc: RenderContext, pts: readonly P[], close: boolean): void {
+  const { ctx, view } = rc;
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const q = toScreen(view, p);
+    if (i === 0) ctx.moveTo(q.x, q.y);
+    else ctx.lineTo(q.x, q.y);
+  });
+  if (close) ctx.closePath();
+}
+
+/** A closed outline in one color: a tint inside and a line round it. */
+function drawOutline(rc: RenderContext, pts: readonly P[], color: string, alpha: number, o: { fill: number; dashed?: boolean }): void {
+  if (pts.length < 3) return;
+  const { ctx } = rc;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineJoin = "round";
+  tracePath(rc, pts, true);
+  ctx.globalAlpha = o.fill * alpha;
+  ctx.fill();
+  ctx.globalAlpha = 0.9 * alpha;
+  ctx.lineWidth = 1.5;
+  if (o.dashed) ctx.setLineDash([6, 4]);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * The slab tool's outline so far: the corners placed, the edge the next
+ * click adds, a faint closing edge back to the first corner, the edge
+ * length and angle, and the area once there are three corners.
+ */
+function drawSlabDraft(rc: RenderContext, c: PlanController, op: Extract<PlanController["op"], { kind: "slab" }>): void {
+  const { ctx, palette, view } = rc;
+  if (op.closed) {
+    drawOutline(rc, op.closed, palette.selection, 1, { fill: 0.18 });
+    return;
+  }
+  const pts = op.points;
+  if (pts.length === 0) return;
+  const last = pts[pts.length - 1];
+  const typedEnd = op.typed ? c.typedSlabPoint(op) : null;
+  const end = op.committing ? null : (typedEnd ?? c.snapResult?.point ?? c.cursorWorld);
+  const ring = end && dist(end, last) > 1 ? [...pts, end] : pts.slice();
+  const closing = pts.length >= 3 && !!end && dist(end, pts[0]) < 1;
+  ctx.save();
+  ctx.strokeStyle = palette.selection;
+  ctx.fillStyle = palette.selection;
+  ctx.lineJoin = "round";
+  if (ring.length >= 3) {
+    tracePath(rc, ring, true);
+    ctx.globalAlpha = closing ? 0.16 : 0.08;
+    ctx.fill();
+  }
+  ctx.globalAlpha = 0.95;
+  ctx.lineWidth = 1.5;
+  tracePath(rc, ring, false);
+  ctx.stroke();
+  if (ring.length >= 3 && !closing) {
+    // The edge that closes the outline, faint until the pointer reaches the first corner.
+    ctx.globalAlpha = 0.45;
+    ctx.setLineDash([4, 4]);
+    tracePath(rc, [ring[ring.length - 1], ring[0]], false);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = palette.surface;
+  for (let i = 0; i < pts.length; i++) {
+    const q = toScreen(view, pts[i]);
+    ctx.beginPath();
+    // The first corner is larger: a click there closes the outline.
+    ctx.arc(q.x, q.y, i === 0 && pts.length >= 3 ? 5 : 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+  if (end && dist(end, last) > 1) {
+    tempDimension(rc, last, end, 30);
+    const cursorScreen = c.cursorScreen;
+    if (cursorScreen && !op.typed) {
+      const pr = polar(last, end);
+      const area = ring.length >= 3 ? `  ${formatArea(slabAreaMm2(ring))}` : "";
+      pill(rc, { x: cursorScreen.x + 18, y: cursorScreen.y + 24 }, `${formatLength(pr.length, rc.unit, true)}  ${formatAngle(pr.angle)}${area}${closing ? "  close" : ""}`);
+    }
+  }
 }
 
 function drawMarquee(rc: RenderContext, start: P, current: P, alpha: number): void {

@@ -44,7 +44,10 @@ function todayAt(minutes: number): LiveLight {
   // Philippine time (UTC+8) is the default site's; the 3D view corrects the
   // clock for other sites when it computes the sun.
   const ph = new Date(Date.now() + 8 * 3600e3);
-  return { month: ph.getUTCMonth() + 1, day: ph.getUTCDate(), minutes, sky: "clear", exposureEv: null, lamps: "auto" };
+  // The photo sky (a 4K tropical midday sky, assets/ASSETS.md) is the
+  // default: it reads as a real place where the physical sky reads as haze.
+  // It falls back to the physical sky until it loads and after sunset.
+  return { month: ph.getUTCMonth() + 1, day: ph.getUTCDate(), minutes, sky: "photo", exposureEv: null, lamps: "auto" };
 }
 
 /** Walk settings, remembered on this computer (localStorage), not in projects. */

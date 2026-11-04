@@ -9,9 +9,11 @@
 //!   and every app event (live session, presence, chat, window requests)
 //!   into the Tauri event `app_event`.
 //!
-//! `guhit-studio --mcp-stdio [--port N]` is a second mode for MCP clients that
-//! only launch a command: no window, just the stdio proxy to the running
-//! app's MCP endpoint, which starts the app on the first tool call.
+//! `guhit-studio --mcp-stdio [--port N] [--agent NAME] [--toolsets LIST]` is a
+//! second mode for MCP clients that only launch a command: no window, just
+//! the stdio proxy to the running app's MCP endpoint, which starts the app on
+//! the first tool call. `--agent` names this process's agent (DECISIONS D47);
+//! `--toolsets` adds extended toolsets to the core one.
 
 use guhit_app::AppService;
 use guhit_model::IpcError;
@@ -80,26 +82,37 @@ fn start_mcp(service: AppService, data_dir: std::path::PathBuf) {
     });
 }
 
-/// The arguments of `--mcp-stdio` mode: `None` when it was not asked for,
-/// else the `--port` given, if any.
-fn mcp_stdio_args() -> Result<Option<Option<u16>>, String> {
+/// The arguments of `--mcp-stdio` mode.
+#[derive(Default)]
+struct StdioArgs {
+    port: Option<u16>,
+    /// `--agent <label>`: this process is one named agent (DECISIONS D47).
+    agent: Option<String>,
+    /// `--toolsets services,visuals`: extended toolsets on top of the core one.
+    toolsets: Option<String>,
+}
+
+/// The arguments of `--mcp-stdio` mode, `None` when it was not asked for.
+fn mcp_stdio_args() -> Result<Option<StdioArgs>, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if !args.iter().any(|a| a == "--mcp-stdio") {
         return Ok(None);
     }
-    let mut port = None;
+    let mut out = StdioArgs::default();
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--mcp-stdio" => {}
             "--port" => {
                 let v = it.next().ok_or("--port needs a value")?;
-                port = Some(v.parse::<u16>().ok().filter(|p| *p > 0).ok_or(format!("bad port `{v}`"))?);
+                out.port = Some(v.parse::<u16>().ok().filter(|p| *p > 0).ok_or(format!("bad port `{v}`"))?);
             }
+            "--agent" => out.agent = Some(it.next().ok_or("--agent needs a name")?.clone()),
+            "--toolsets" => out.toolsets = Some(it.next().ok_or("--toolsets needs a list")?.clone()),
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
-    Ok(Some(port))
+    Ok(Some(out))
 }
 
 /// The folder Tauri's `app_data_dir()` resolves to: the platform data dir
@@ -150,12 +163,18 @@ fn launch_detached() {
 }
 
 /// `--mcp-stdio` mode. Never opens a window; exits when stdin closes.
-fn run_mcp_stdio(port: Option<u16>) -> ! {
-    let port = port
+fn run_mcp_stdio(args: StdioArgs) -> ! {
+    let port = args
+        .port
         .or_else(|| app_data_dir_without_tauri().map(|d| guhit_mcp::port_from_settings(&d)))
         .unwrap_or(guhit_mcp::DEFAULT_PORT);
     let launch: guhit_mcp::stdio::Launch = Box::new(launch_detached);
-    let result = tauri::async_runtime::block_on(guhit_mcp::stdio::run_stdio_proxy(port, Some(launch)));
+    let result = tauri::async_runtime::block_on(guhit_mcp::stdio::run_stdio_proxy_as(
+        port,
+        Some(launch),
+        args.agent,
+        args.toolsets,
+    ));
     match result {
         Ok(()) => std::process::exit(0),
         Err(e) => {
@@ -169,10 +188,10 @@ fn run_mcp_stdio(port: Option<u16>) -> ! {
 pub fn run() {
     match mcp_stdio_args() {
         Ok(None) => {}
-        Ok(Some(port)) => run_mcp_stdio(port),
+        Ok(Some(args)) => run_mcp_stdio(args),
         Err(e) => {
             eprintln!("guhit-studio: {e}");
-            eprintln!("usage: guhit-studio --mcp-stdio [--port 1450]");
+            eprintln!("usage: guhit-studio --mcp-stdio [--port 1450] [--agent <name>] [--toolsets services,visuals]");
             std::process::exit(2);
         }
     }

@@ -21,6 +21,10 @@
 //!   the client as it is and nothing is launched.
 //! - The client's `clientInfo` from `initialize` goes with every forwarded
 //!   message as headers, so the app's Connect agent dialog can name it.
+//! - Every message carries this proxy's instance id
+//!   (`x-guhit-agent-instance`), so two stdio agents of one client are two
+//!   agents. `--agent <label>` posts to `/mcp/agent/<label>` and
+//!   `--toolsets a,b` adds `?toolsets=a,b` (MCP v2).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -52,16 +56,33 @@ pub struct ProxyConfig {
     pub launch: Option<Launch>,
     /// How long a call waits for the port after `launch`.
     pub launch_wait: Duration,
+    /// The agent's label: the proxy posts to `/mcp/agent/<label>`.
+    pub agent: Option<String>,
+    /// Extended toolsets, "services,visuals": `?toolsets=` on every post,
+    /// and what the tool list shows while the app is closed.
+    pub toolsets: Option<String>,
+}
+
+impl ProxyConfig {
+    pub fn new(port: u16, launch: Option<Launch>, launch_wait: Duration) -> Self {
+        Self { port, launch, launch_wait, agent: None, toolsets: None }
+    }
 }
 
 /// Run the proxy on this process's stdin and stdout until stdin closes.
 pub async fn run_stdio_proxy(port: u16, launch: Option<Launch>) -> std::io::Result<()> {
-    eprintln!("guhit-mcp: stdio proxy for http://127.0.0.1:{port}/mcp");
-    let config = ProxyConfig {
-        port,
-        launch,
-        launch_wait: DEFAULT_LAUNCH_WAIT,
-    };
+    run_stdio_proxy_as(port, launch, None, None).await
+}
+
+/// `run_stdio_proxy` for an agent with a label and toolsets of its own.
+pub async fn run_stdio_proxy_as(
+    port: u16,
+    launch: Option<Launch>,
+    agent: Option<String>,
+    toolsets: Option<String>,
+) -> std::io::Result<()> {
+    let config = ProxyConfig { agent, toolsets, ..ProxyConfig::new(port, launch, DEFAULT_LAUNCH_WAIT) };
+    eprintln!("guhit-mcp: stdio proxy for {}", proxy_url(&config));
     run_proxy(
         config,
         tokio::io::BufReader::new(tokio::io::stdin()),
@@ -138,9 +159,25 @@ enum ForwardError {
     Failed(String),
 }
 
+/// The URL the proxy posts to.
+fn proxy_url(config: &ProxyConfig) -> String {
+    let mut url = format!("http://127.0.0.1:{}/mcp", config.port);
+    if let Some(label) = config.agent.as_deref().and_then(crate::agent::clean_label) {
+        url.push_str(&format!("/agent/{}", crate::agent::encode_label(&label)));
+    }
+    if let Some(t) = config.toolsets.as_deref().filter(|t| !t.trim().is_empty()) {
+        let list = crate::toolsets::Toolsets::parse(t);
+        url.push_str(&format!("?toolsets={}", list.enabled().join(",")));
+    }
+    url
+}
+
 struct Proxy {
     port: u16,
     url: String,
+    /// One random id per proxy process.
+    instance: String,
+    toolsets: crate::toolsets::Toolsets,
     client: reqwest::Client,
     launch: Option<Launch>,
     launched: AtomicBool,
@@ -163,7 +200,9 @@ impl Proxy {
             .map_err(std::io::Error::other)?;
         Ok(Self {
             port: config.port,
-            url: format!("http://127.0.0.1:{}/mcp", config.port),
+            url: proxy_url(&config),
+            instance: guhit_model::defaults::new_id(),
+            toolsets: crate::toolsets::Toolsets::parse(config.toolsets.as_deref().unwrap_or("")),
             client,
             launch: config.launch,
             launched: AtomicBool::new(false),
@@ -232,10 +271,18 @@ impl Proxy {
         let local = match method {
             "initialize" => Some(to_value(&initialize_result(message))),
             "ping" => Some(json!({})),
-            "tools/list" => Some(to_value(&crate::list_tools_result())),
+            "tools/list" => Some(to_value(&crate::list_tools_result_for(&self.toolsets))),
             "resources/list" => Some(to_value(&crate::list_resources_result())),
-            "resources/templates/list" => Some(json!({ "resourceTemplates": [] })),
-            "prompts/list" => Some(json!({ "prompts": [] })),
+            "resources/templates/list" => Some(to_value(&crate::list_resource_templates_result())),
+            "prompts/list" => Some(to_value(&crate::list_prompts_result())),
+            "prompts/get" => {
+                let name = message.pointer("/params/name").and_then(Value::as_str).unwrap_or("");
+                let args = message.pointer("/params/arguments").and_then(Value::as_object).cloned().unwrap_or_default();
+                match crate::get_prompt(name, &args) {
+                    Ok(p) => Some(to_value(&p)),
+                    Err(e) => return vec![error(id, -32602, &e.message)],
+                }
+            }
             "server/discover" => Some(to_value(&DiscoverResult::from_server_info(
                 ProtocolVersion::KNOWN_VERSIONS.to_vec(),
                 crate::server_config(),
@@ -303,7 +350,8 @@ impl Proxy {
             .client
             .post(&self.url)
             .header("Content-Type", "application/json")
-            .header("Accept", ACCEPT_BOTH);
+            .header("Accept", ACCEPT_BOTH)
+            .header(crate::agent::INSTANCE_HEADER, self.instance.as_str());
         for (name, value) in protocol_headers(message) {
             request = request.header(name, value);
         }
@@ -463,6 +511,15 @@ fn sse_messages(body: &str) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_url_carries_the_label_and_the_toolsets() {
+        let mut c = ProxyConfig::new(1450, None, DEFAULT_LAUNCH_WAIT);
+        assert_eq!(proxy_url(&c), "http://127.0.0.1:1450/mcp");
+        c.agent = Some("Upper floor".into());
+        c.toolsets = Some("visuals, live".into());
+        assert_eq!(proxy_url(&c), "http://127.0.0.1:1450/mcp/agent/Upper%20floor?toolsets=visuals,live");
+    }
 
     #[test]
     fn sse_bodies_yield_their_messages() {

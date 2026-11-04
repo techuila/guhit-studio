@@ -67,9 +67,13 @@ export function participant(status: LiveStatus, id: string | null | undefined): 
   return status.participants.find((p) => p.id === id) ?? null;
 }
 
-/** Everyone in the session but this computer, in the host's order. */
+/**
+ * Everyone in the session but this computer, in the host's order. People
+ * only: agents (`Participant::agent`, DECISIONS D47) show apart, from
+ * agents.ts, and never count as people.
+ */
 export function others(status: LiveStatus): Participant[] {
-  return status.participants.filter((p) => p.id !== status.self_id);
+  return status.participants.filter((p) => p.id !== status.self_id && !p.agent);
 }
 
 export function host(status: LiveStatus): Participant | null {
@@ -112,14 +116,15 @@ export interface PeerPresence {
 export type Peers = Readonly<Record<string, PeerPresence>>;
 
 /**
- * Participants whose pointer is on the plan of `levelId`, in the host's
- * order. Someone on another level or off the plan shows no cursor.
+ * People whose pointer is on the plan of `levelId`, in the host's order.
+ * Someone on another level or off the plan shows no cursor. Agents have
+ * their own cursors (`agentCursorIds`).
  */
 export function cursorIds(status: LiveStatus, peers: Peers, levelId: string | null): string[] {
   if (status.mode === "off" || !levelId) return [];
   const out: string[] = [];
   for (const p of status.participants) {
-    if (p.id === status.self_id) continue;
+    if (p.id === status.self_id || p.agent) continue;
     const pr = peers[p.id]?.presence;
     if (pr?.cursor && pr.level_id === levelId) out.push(p.id);
   }
@@ -132,12 +137,12 @@ export interface PeerSelection {
   ids: string[];
 }
 
-/** What each other participant has selected, for the plan's outlines. */
+/** What each other person has selected, for the plan's outlines. Agents' focus comes from agents.ts, in a session or not. */
 export function peerSelections(status: LiveStatus, peers: Peers): PeerSelection[] {
   if (status.mode === "off") return [];
   const out: PeerSelection[] = [];
   for (const p of status.participants) {
-    if (p.id === status.self_id) continue;
+    if (p.id === status.self_id || p.agent) continue;
     const ids = peers[p.id]?.presence.selection ?? [];
     if (ids.length > 0) out.push({ id: p.id, color: p.color, ids });
   }

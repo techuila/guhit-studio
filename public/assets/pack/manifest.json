@@ -1,18 +1,22 @@
 {
   "version": 1,
-  "generated_at": "2026-09-22T08:19:42.341Z",
+  "generated_at": "2026-11-03T21:13:53.323Z",
   "hdri": {
-    "id": "alps_field",
-    "name": "Alps Field",
+    "id": "pretoria_gardens",
+    "name": "Pretoria Gardens",
     "license": "CC0 1.0",
-    "sourceUrl": "https://polyhaven.com/a/alps_field",
-    "sun_direction": "unknown (Poly Haven's API does not publish sun azimuth/altitude; tags: sun, high-contrast, partly-cloudy)",
+    "sourceUrl": "https://polyhaven.com/a/pretoria_gardens",
+    "sun_direction": "found from the pixels at load time (scanHdri in src/viewer3d/engine/environment.ts); midday, high sun",
     "file": "hdri/sky.hdr",
-    "preview_file": "hdri/sky-preview.jpg",
-    "resolution": "1k",
-    "source_download_url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/alps_field_1k.hdr",
-    "bytes": 1614313,
-    "preview_bytes": 26155
+    "background_file": "hdri/sky.jpg",
+    "resolution": "2k",
+    "background_px": [
+      4096,
+      2048
+    ],
+    "source_download_url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/pretoria_gardens_2k.hdr",
+    "bytes": 6778011,
+    "background_bytes": 1792529
   },
   "materials": {
     "mat-chb-painted": {
@@ -276,6 +280,24 @@
       "maps": [],
       "bytes": 0,
       "note": "No texture: flat MeshStandardMaterial color #bfe3ee (pattern \"none\" in crates/guhit-model/src/defaults.rs). Glass has no texture map: transparency + roughness only."
+    },
+    "mat-ground-grass": {
+      "id": "mat-ground-grass",
+      "name": "Lawn (the 3D view's ground)",
+      "source_url": "https://ambientcg.com/a/Grass004",
+      "source_asset_id": "Grass004",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        1400,
+        1400
+      ],
+      "maps": [
+        "materials/mat-ground-grass/color.jpg",
+        "materials/mat-ground-grass/normal.jpg",
+        "materials/mat-ground-grass/roughness.jpg"
+      ],
+      "bytes": 1061388,
+      "note": "Not a project material: the 3D view draws its ground with it (src/viewer3d/engine/environment.ts), sampled at two scales so the tile does not repeat visibly."
     }
   },
   "models": {

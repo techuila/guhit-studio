@@ -36,4 +36,9 @@ ids: Array<string>,
 /**
  * Elements the step removed.
  */
-removed: Array<string>, };
+removed: Array<string>, 
+/**
+ * For an agent's step: the person it worked for, and their name at the
+ * time. None for steps people made themselves.
+ */
+on_behalf_of: string | null, on_behalf_name: string | null, };

@@ -1,74 +1,29 @@
-//! The MCP tool set.
+//! The MCP tool set: the v2 tools (`draft`, `extended`) and the v1 names,
+//! kept for one release as hidden aliases.
 //!
-//! Every editing tool reuses the copilot's argument-to-`Command` translation
-//! in `guhit_app::ai::tools`, so an MCP client and the in-app copilot behave
-//! identically: same argument names, same validation, same engine errors. The
-//! JSON schemas for those tools are taken from the copilot's own definitions
-//! for the same reason; only the descriptions are rewritten, because an MCP
-//! edit is applied at once while a copilot edit is staged for approval.
+//! Every edit, v1 or v2, runs through `stage`: translated, staged on one
+//! working copy, checked against the scope (DECISIONS D30) and committed as
+//! exactly one `Command::Batch` with `Origin::Ai` and an undo label prefixed
+//! "MCP: ", so one undo reverts one tool call. The v1 editing tools
+//! translate through the copilot (`guhit_app::ai::tools`), as before, so an
+//! MCP client and the in-app copilot behave the same.
 //!
-//! Every editing tool commits exactly one `Command::Batch` with `Origin::Ai`
-//! and an undo label prefixed "MCP: ", so one undo reverts one tool call.
-//!
-//! Every editing tool takes an optional `scope` (DECISIONS D30): the engine
-//! refuses a command that reaches outside it. When the user switched on "Only
-//! the selection" in the window, the window's selection is the scope of every
-//! edit, whatever the call says.
-
-use std::collections::BTreeMap;
+//! Every editing tool takes an optional `scope`: the engine refuses a
+//! command that reaches outside it. When the user switched on "Only the
+//! selection" in the window, the window's selection is the scope of every
+//! edit, whatever the call says. Every tool takes an optional `agent`: the
+//! name the user sees for the caller (crate::agent).
 
 use guhit_app::ai::tools as copilot;
 use guhit_app::AppService;
-use guhit_core::CoreError;
 use guhit_model::*;
 use serde_json::{json, Map, Value};
 
+use crate::agent::{self, CallContext};
 use crate::session;
+use crate::stage::{self, Options, StepIn};
 
-/// A tool call that did not work. The message goes back to the model as a
-/// tool error, word for word, so it can correct itself and try again.
-#[derive(Debug)]
-pub struct ToolFail(pub String);
-
-impl From<copilot::ToolError> for ToolFail {
-    fn from(e: copilot::ToolError) -> Self {
-        Self(e.0)
-    }
-}
-
-impl From<IpcError> for ToolFail {
-    fn from(e: IpcError) -> Self {
-        let ids = if e.element_ids.is_empty() {
-            String::new()
-        } else {
-            format!(" (elements: {})", e.element_ids.join(", "))
-        };
-        Self(format!("{}: {}{}", e.code, strip_step_prefix(&e.message), ids))
-    }
-}
-
-/// Drop the engine's own "Step 2 of 5: " prefix. This server always commits a
-/// `Command::Batch`, even for one tool call, so that prefix counts internal
-/// leaf commands the caller never wrote. `step_fail` puts the caller's own
-/// step number back when the call really was a batch.
-fn strip_step_prefix(message: &str) -> String {
-    let Some(rest) = message.strip_prefix("Step ") else {
-        return message.to_string();
-    };
-    let Some((head, tail)) = rest.split_once(": ") else {
-        return message.to_string();
-    };
-    let counts: Vec<&str> = head.split(" of ").collect();
-    let numeric = counts.len() == 2
-        && counts
-            .iter()
-            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
-    if numeric {
-        tail.to_string()
-    } else {
-        message.to_string()
-    }
-}
+pub use crate::fail::ToolFail;
 
 /// A picture for the model: base64 bytes and their media type.
 #[derive(Debug, Clone, PartialEq)]
@@ -104,15 +59,9 @@ pub struct ToolDef {
     pub open_world: bool,
 }
 
-/// Editing tools whose arguments and translation come from the copilot.
-/// Order is the order a client sees them in `tools/list`.
-pub const EDIT_TOOLS: [&str; 22] = copilot::EDIT_TOOLS;
+pub(crate) const MM: &str = "All lengths are MILLIMETERS.";
 
-pub(crate) const MM: &str = "All lengths in the arguments and the result are MILLIMETERS.";
-/// Hub tools in a live session (DECISIONS D29).
-const LEAVES: &str = "In a live session this ends the session for everyone when this computer hosts it (closing on a computer that joined leaves it), so it refuses with live_session unless force is true; pass force only after the user confirms.";
-
-/// `export_plan` sheet names, as `SheetKind` spells them.
+/// `export` sheet names, as `SheetKind` spells them.
 const SHEETS: [&str; 6] = ["plan", "lighting", "power", "plumbing", "plumbing_isometric", "aircon"];
 
 fn sheet_kind(name: &str) -> Option<SheetKind> {
@@ -136,258 +85,20 @@ pub(crate) fn obj(properties: Value, required: &[&str]) -> Value {
     })
 }
 
-/// Input schemas of the copilot tools, by name. The copilot is the one place
-/// that defines what `add_door` takes, so this server does not restate it.
-fn copilot_schemas() -> BTreeMap<String, Value> {
-    copilot::definitions()
-        .into_iter()
-        .filter_map(|t| {
-            let name = t.get("name")?.as_str()?.to_string();
-            Some((name, t.get("input_schema")?.clone()))
-        })
-        .collect()
-}
-
-/// MCP wording for a reused copilot tool. Every entry says millimeters,
-/// because a model reads one tool description, not the whole set.
-fn reused_descriptions() -> BTreeMap<&'static str, String> {
-    let d = |s: &str| format!("{s} {MM}");
-    [
-        // read
-        ("get_project_summary", d("Totals of the open project: net floor area and gross area in square metres, total wall length, and counts of rooms, doors, windows and levels. Call this for any question about totals or counts instead of adding numbers up yourself.")),
-        ("list_rooms", d("Every room in the open project with its id, name, usage, net floor area in square metres, perimeter and the ids of the walls that bound it. This is how you find a room the user names, and how you find the wall id to put a door or window on.")),
-        ("describe_elements", d("Full stored data of specific elements by id, plus derived geometry such as wall length and wall joins. Call this before editing an element whose current dimensions or position you need.")),
-        ("list_elements", d("Every element of one kind in the open project, with ids. Use it to find the walls, doors, windows, assets or pipes the user is talking about. Pipe points are x, y in plan and z above the level floor.")),
-        ("find_rooms_without_exterior_window", d("Rooms with no window on a wall that faces the outside. Call this when the user asks about natural light, ventilation or dark rooms.")),
-        ("list_review_items", d("Current design review items for the open project: narrow doors, rooms without windows, unclosed walls, pipes through columns or door openings, crossing runs, flat drains and condensate, penetrations and aircon core holes, lights without a switch, switches behind doors, aircon units without an outlet, line sets past the unit's limits and unit clearances. Each item has a status: open, or ignored with the designer's note (see set_review_mark); `resolved` lists set-aside findings that no longer appear. These are suggestions to check, never code compliance or permit findings. Items that point at one place carry a location_mm. Call this after a run of edits and tell the user what it says.")),
-        ("get_pipe_takeoff", d("Run quantities of the open project from the engine, for every system: cold and hot water, drainage, vent, storm drains, electrical conduit, aircon line sets and condensate. Centerline length in metres per system, material and size, elbow, tee and sleeve counts, and every slab, wall and roof penetration with its position; an aircon run through a wall has its core hole size. Conduit needs no sleeves. Call this for any question about run lengths, fittings or sleeves instead of adding them up yourself. Guhit counts runs; it never sizes them: plumbing is for a registered Master Plumber, electrical for a Professional Electrical Engineer, aircon for a Professional Mechanical Engineer.")),
-        ("get_schedule", d("Device and fixture counts of the open project from the engine, per level and room: lights, outlets, switches, the panelboard, detectors, aircon units, sanitary and utility fixtures. Each row has the catalog name and the row of the PH electrical inspection form it counts under; each level has totals by group and by form row. Call this for any question about how many lights, outlets, switches or fixtures there are instead of counting yourself. Circuits, loads and ratings are for the Professional Electrical Engineer.")),
-        // edit
-        ("add_wall", d("Add one straight wall between two points and commit it as one undo step. Omit thickness_mm to use the project default of 150 mm CHB. level (a level id or name) puts it on another level than the first. role \"site\" makes a lot fence or boundary wall: 1800 mm high, on the site layer (L-SITE in DXF), never part of a room, the building's outside walls or the floor area.")),
-        ("add_wall_chain", d("Add connected walls running through a list of points, as one undo step. closed joins the last point back to the first. Omit thickness_mm to use the project default of 150 mm. level (a level id or name) puts them on another level than the first. For the fence round a lot pass role \"site\" with closed true: site walls are 1800 mm high, sit on the site layer and never make the yard a room or the house walls interior.")),
-        ("add_rect_room", d("Add a rectangular room: four walls plus a named room, as one undo step. origin is the SOUTH-WEST corner, width_mm runs east and depth_mm runs north, both measured on wall CENTERLINES. With the default 150 mm walls a 4000 x 3000 room has a net floor of 3850 x 2850. To share a wall with a room you already drew, put this origin exactly on that room's centerline. level (a level id or name) puts it on another level than the first, for example the \"Second Floor\" add_level made.")),
-        ("add_door", d("Add a door on an existing wall, as one undo step. Get wall_id from list_rooms or list_elements. Defaults are 900 wide by 2100 high. A door between two rooms goes on the wall they share.")),
-        ("add_window", d("Add a window on an existing wall, as one undo step. Get wall_id from list_rooms or list_elements. Defaults are 1200 wide by 1200 high with a 900 sill. Windows belong on exterior walls.")),
-        ("resize_room", d("Move the wall or walls on one side of a room outward by delta_mm, as one undo step. A negative delta_mm moves them inward. Connected walls stretch to stay joined. Use this for \"make the bedroom 300 wider to the east\".")),
-        ("set_wall_length", d("Set an exact centerline length for one wall, as one undo step. anchor says what stays put: \"start\" keeps the start point, \"end\" keeps the end point, \"center\" keeps the midpoint.")),
-        ("move_elements", d("Move elements by a distance, as one undo step. dx_mm is east, dy_mm is north. With stretch_connected true, walls attached to a moved wall stay joined and stretch instead of breaking.")),
-        ("move_pipe_points", d("Move points of pipe runs in 3D by one distance, as one undo step: one point, a segment (its two points), a whole run (empty indices) or several runs. dx_mm is east, dy_mm is north, dz_mm is up, so \"lower the sink waste 300 mm\" is dz_mm -300 with empty indices. Point indices are positions in points_mm from describe_elements, from 0; segment n runs from point n to point n + 1. With keep_joins true, the ends of joined runs (the same system, or drainage and vent) that meet a moved point, or rest on a moved segment as a tee, follow so the joints stay closed; false breaks those joins.")),
-        ("set_pipe_segment_length", d("Set the exact 3D length of one segment of a pipe run, as one undo step. Segment n runs from point n to point n + 1 of points_mm. hold \"start\" keeps point n and slides point n + 1 and the rest of the run beyond it along the segment; \"end\" keeps point n + 1 and slides the start side. The rest of the run keeps its shape and slopes. At least 10 mm. keep_joins works as in move_pipe_points.")),
-        ("set_pipe_slope", d("Set the slope of segments from_segment to to_segment of a pipe run, as one undo step: each falls slope_pct percent of its plan length from its first point toward its last, between -100 and 100 (negative rises). Vertical risers keep their own drop. hold is the end that keeps its height (\"start\": point from_segment, \"end\": point to_segment + 1); the part of the run past the other end moves up or down with it. keep_joins works as in move_pipe_points. This sets geometry only: Guhit never sizes a pipe or decides what fall is enough, which is for a registered Master Plumber.")),
-        ("insert_pipe_point", d("Add a bend to a pipe run, as one undo step: a point at `at` (x, y in plan, z above the level floor) between the two points of segment n, so it becomes point n + 1. A riser is two bends on one plan point at two heights, for example two calls in one batch.")),
-        ("remove_pipe_point", d("Remove one point of a pipe run, as one undo step: removing a bend straightens the run there, removing an end shortens it. A run keeps at least two points; delete_elements removes a whole run.")),
-        ("rename_room", d("Give a room a new name, as one undo step. The name survives later wall edits.")),
-        ("set_room_usage", d("Set the usage type of a room, as one undo step. Usage drives the review checks, so a bathroom is checked differently from a bedroom.")),
-        ("set_opening_size", d("Change the size of one door or window, as one undo step. Give only the values that change.")),
-        ("delete_elements", d("Delete elements, as one undo step. Deleting a wall also deletes the doors and windows hosted on it.")),
-        ("set_material", d("Assign a material to elements, as one undo step. Walls, columns and openings take a surface material, rooms take a floor material. The material ids are in get_guide with topic \"ph_defaults\".")),
-        ("set_roof", d("Change the roof of the open project, as one undo step. Give only the values that change. The Philippine default is a gable roof at 25 degrees with a 600 mm overhang in long-span pre-painted metal.")),
-        ("add_asset", d("Place one item from the built-in library, as one undo step: furniture, fixtures, lights, outlets, switches, a panelboard, detectors or aircon units. position is the CENTER of its footprint and the item's local +y is its back (bed head, sofa back, water closet tank). Wall items (outlets, switches, wall lights, panelboards, split aircon indoor units) snap to the nearest wall face within 1000 mm of position, back to the wall; give a point just inside the room near that wall. Ceiling items hang from the ceiling. level (a level id or name) puts it on another level than the first. Linking a switch to its lights is done in the app with the link tool (L).")),
-        ("add_level", d("Add a level (storey), as one undo step. By default it is named \"Level N\", its floor sits on top of the highest level (that level's elevation plus its floor-to-floor height) and it is 3000 mm floor to floor. Names are 1 to 60 characters, heights 2000 to 10000 mm, and no two levels share a floor elevation. The result lists the new level under levels_added. Draw on it by passing its name or id as level to add_wall, add_wall_chain, add_rect_room or add_asset, in the same batch or later.")),
-        ("delete_level", d("Delete a level and everything on it, as one undo step: its walls with their doors and windows, rooms, columns, stairs, objects, notes, dimensions and pipes. Links from other objects to deleted ones are removed. The last level cannot be deleted. level is the level's id or name. Only do this when the user names the level to delete.")),
-    ]
-    .into_iter()
-    .collect()
-}
-
-/// The full tool list, in the order a client sees it.
+/// Every v2 tool, every toolset, in list order, each schema with the
+/// optional `agent` argument.
 pub fn definitions() -> Vec<ToolDef> {
-    let schemas = copilot_schemas();
-    let described = reused_descriptions();
-    let mut out: Vec<ToolDef> = vec![];
-
-    let reuse = |name: &'static str, read_only: bool, out: &mut Vec<ToolDef>| {
-        // Both maps are built from constant tables, so a missing entry is a
-        // programming error, not a runtime condition. The unit test below
-        // catches it before it ships.
-        let (Some(schema), Some(description)) = (schemas.get(name), described.get(name)) else {
-            panic!("guhit-mcp: no copilot schema or description for tool `{name}`");
-        };
-        let mut schema = schema.clone();
-        if !read_only {
-            schema["properties"]["scope"] = scope_schema();
-        }
-        out.push(ToolDef {
-            name,
-            description: description.clone(),
-            schema,
-            read_only,
-            open_world: false,
-        });
-    };
-
-    // ------------------------------------------------------------------ hub
-    out.push(ToolDef {
-        name: "list_projects",
-        description: format!("List every Guhit Studio project stored on this machine, newest first: id, name, floor area in square metres, room count and dates. Use an id from here with open_project. {MM}"),
-        schema: obj(json!({}), &[]),
-        read_only: true,
-        open_world: false,
-    });
-    out.push(ToolDef {
-        name: "open_project",
-        description: format!("Open a project by id and make it the document every other tool acts on. The desktop window switches to it. The project that was open is saved first. {LEAVES} {MM}"),
-        schema: obj(
-            json!({"id": {"type": "string", "description": "Project id from list_projects."}, "force": session::switch_force_schema()}),
-            &["id"],
-        ),
-        read_only: false,
-        open_world: false,
-    });
-    out.push(ToolDef {
-        name: "create_project",
-        description: format!("Create a project and open it. template \"blank\" starts with nothing drawn, which is what you want before drawing a house. template \"sample-bungalow\" starts from a small two-room house. template \"plumbing-demo\" starts from the bungalow with services: a T&B, columns, water, drainage and vent pipes, storm downspouts, lights, switches, outlets, a panelboard, a smoke detector and a split aircon with its line set and condensate drain, with review items to look at. {LEAVES} {MM}"),
-        schema: obj(
-            json!({
-                "name": {"type": "string", "description": "Project name shown in the hub."},
-                "template": {"type": "string", "enum": ["blank", "sample-bungalow", "plumbing-demo"], "description": "Defaults to \"blank\"."},
-                "force": session::switch_force_schema(),
-            }),
-            &["name"],
-        ),
-        read_only: false,
-        open_world: false,
-    });
-    out.push(ToolDef {
-        name: "close_project",
-        description: format!("Close the open project and send the desktop window back to the project hub. Saves first. {LEAVES} {MM}"),
-        schema: obj(json!({"force": session::switch_force_schema()}), &[]),
-        read_only: false,
-        open_world: false,
-    });
-
-    // ----------------------------------------------------------------- read
-    for name in ["get_project_summary", "list_rooms", "list_elements", "describe_elements", "find_rooms_without_exterior_window", "list_review_items", "get_pipe_takeoff", "get_schedule"] {
-        reuse(name, true, &mut out);
+    let mut out = crate::draft::definitions();
+    for d in &mut out {
+        d.schema["properties"]["agent"] = agent::argument_schema();
     }
-    out.push(ToolDef {
-        name: "get_plan_image",
-        description: format!("A picture of the plan. With the Guhit Studio window open on the project it is drawn fresh, of the level on screen or of `level`; without a window it is the last thumbnail the window saved, which can be older than the current revision, and this tool says so. When there is neither, use export_plan with format \"svg\" to get a drawing from the engine. {MM}"),
-        schema: obj(json!({"level": {"type": "string", "description": "A level id or name. Omit for the level on screen."}}), &[]),
-        read_only: true,
-        open_world: false,
-    });
-    out.push(ToolDef {
-        name: "get_guide",
-        description: format!("Read one of this server's guides as markdown. topic \"conventions\": units, plan coordinates, wall joins, the door and window flip conventions, service run systems, devices and links, review marks. topic \"workflows\": the full working rules the server instructions summarize (drawing a house, site walls, moving walls, pipes and devices, the selection scope, views and renders, live sessions, honesty). topic \"ph_defaults\": default wall thickness, door and window sizes, level height, the built-in material ids and sensible room sizes for Philippine residential work. The same text as the resources guhit://docs/conventions, guhit://docs/workflows and guhit://docs/ph-defaults, for clients that do not read resources. Read \"conventions\" before drawing. {MM}"),
-        schema: obj(json!({"topic": {"type": "string", "enum": ["conventions", "workflows", "ph_defaults"], "description": "Which guide."}}), &["topic"]),
-        read_only: true,
-        open_world: false,
-    });
-    out.push(ToolDef {
-        name: "list_renders",
-        description: format!("Saved 3D visuals of the open project, newest first, each tied to the model revision and camera it was captured from. {MM}"),
-        schema: obj(json!({}), &[]),
-        read_only: true,
-        open_world: false,
-    });
-
-    // ----------------------------------------------------------------- edit
-    for name in EDIT_TOOLS {
-        reuse(name, false, &mut out);
-    }
-    out.push(ToolDef {
-        name: "set_review_mark",
-        description: format!("Set a review item aside with a note, or reopen it, as one undo step. The target is one finding (issue_id from list_review_items), a whole check (code, for example light_no_switch), or a check on one element (code plus element_id). A set-aside item stays in list_review_items with status \"ignored\" and the note; it is never approved, and a set-aside finding that stops appearing is listed as resolved. Only set an item aside when the user asks and gives the reason. {MM}"),
-        schema: obj(
-            json!({
-                "action": {"type": "string", "enum": ["set_aside", "reopen"]},
-                "issue_id": {"type": "string", "description": "One finding, by its id from list_review_items."},
-                "code": {"type": "string", "description": "A whole check, by its code. With element_id, that check on one element."},
-                "element_id": {"type": "string", "description": "With code: only the findings of that check that involve this element."},
-                "note": {"type": "string", "description": "Why the item is set aside, in the user's words. Needed for set_aside."},
-                "scope": scope_schema(),
-            }),
-            &["action"],
-        ),
-        read_only: false,
-        open_world: false,
-    });
-    out.push(ToolDef {
-        name: "undo",
-        description: format!("Undo the last change to the open project, whoever made it: this server, the desktop window or the in-app copilot. One call reverts one step. In a live session the history is shared: when the last step is someone else's this refuses with other_author and names them; pass force true only after the user confirms. {MM}"),
-        schema: obj(json!({"force": force_schema()}), &[]),
-        read_only: false,
-        open_world: false,
-    });
-    out.push(ToolDef {
-        name: "redo",
-        description: format!("Redo the change that was last undone in the open project. In a live session, a step that is someone else's needs force true, only after the user confirms. {MM}"),
-        schema: obj(json!({"force": force_schema()}), &[]),
-        read_only: false,
-        open_world: false,
-    });
-    out.push(ToolDef {
-        name: "save_version",
-        description: format!("Save a named version of the open project that the user can restore later from the desktop app. This is a checkpoint, not an export, and it is not an undo step. {MM}"),
-        schema: obj(json!({"label": {"type": "string", "description": "What this version is, for example \"Before moving the kitchen\"."}}), &["label"]),
-        read_only: false,
-        open_world: false,
-    });
-    out.push(ToolDef {
-        name: "export_plan",
-        description: format!("Draw the open project to a file in the app's exports folder and return the absolute path. format \"pdf\" and \"svg\" are sheets with a title block; \"dxf\" is CAD geometry. sheet picks the drawing: the architectural plan (the default), a lighting, power, plumbing or aircon layout, or the plumbing isometric diagrams; the signing engineer's fields stay blank. review_page adds a page of review items and their notes to a PDF. The sheet scale is picked to fit the paper unless you give scale_denominator. {MM}"),
-        schema: obj(
-            json!({
-                "format": {"type": "string", "enum": ["pdf", "svg", "dxf"]},
-                "paper": {"type": "string", "enum": ["a4", "a3", "a2", "a1"], "description": "Sheet size. Defaults to the project setting."},
-                "orientation": {"type": "string", "enum": ["landscape", "portrait"], "description": "Defaults to landscape."},
-                "scale_denominator": {"type": "integer", "description": "Drawing scale 1:N, for example 100. Omit to fit the sheet."},
-                "show_dimensions": {"type": "boolean", "description": "Defaults to true."},
-                "show_room_labels": {"type": "boolean", "description": "Defaults to true."},
-                "show_assets": {"type": "boolean", "description": "Defaults to true."},
-                "title_block": {"type": "boolean", "description": "Defaults to true."},
-                "show_pipes": {"type": "boolean", "description": "Draw pipes on visible pipe layers, with a legend. Defaults to true."},
-                "sheet": {"type": "string", "enum": SHEETS, "description": "Which drawing. Defaults to \"plan\". The service sheets draw their devices and runs with a legend and counts; \"power\" adds a schedule of loads with blank ratings for the Professional Electrical Engineer."},
-                "review_page": {"type": "boolean", "description": "Add a page listing the review items, open and set aside, with their notes. PDF only. Defaults to false."},
-            }),
-            &["format"],
-        ),
-        read_only: false,
-        open_world: false,
-    });
-
-    // ---------------------------------------------------------------- batch
-    out.push(ToolDef {
-        name: "batch",
-        description: format!(
-            "Apply several editing steps to the open project atomically, as ONE undo step: either every step lands or nothing does. This is the tool for \"draw the whole house\". Each step is {{\"tool\": <one of the editing tools>, \"args\": <that tool's arguments>}} and the steps run in order, each one seeing the result of the ones before it, so a later step can name an element an earlier step created. Ids are stable: the id an element gets does not change when more steps are appended, and the result lists what every step created under `steps`, so the normal way to build a house is one batch that lays out the rooms, then read the wall ids it returns and a second batch that hangs the doors and windows on them. If any step fails, NOTHING is applied and the error names the step that failed. {MM}"
-        ),
-        schema: obj(
-            json!({
-                "label": {"type": "string", "description": "Short undo label, for example \"3-bedroom bungalow\"."},
-                "steps": {
-                    "type": "array",
-                    "description": "At least one step, applied in order.",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "tool": {"type": "string", "enum": EDIT_TOOLS},
-                            "args": {"type": "object", "description": "Arguments for that tool, exactly as the tool takes them."},
-                        },
-                        "required": ["tool", "args"],
-                        "additionalProperties": false,
-                    },
-                },
-                "scope": scope_schema(),
-            }),
-            &["steps"],
-        ),
-        read_only: false,
-        open_world: false,
-    });
-
-    // ------------------------------------------ selection, session, visuals
-    out.extend(crate::session::definitions());
-    out.extend(crate::visuals::definitions());
-
     out
 }
 
 /// The `scope` argument every editing tool takes (DECISIONS D30).
 pub(crate) fn scope_schema() -> Value {
     json!({
-        "description": "Limit this edit to part of the plan: \"selection\" is what the user has selected in the Guhit Studio window right now (get_selection shows it), or give element ids. The engine refuses anything that reaches outside with out_of_scope: other elements, new elements outside the selection's area, project-wide changes such as the roof or levels. What the engine changes as a consequence, such as connected walls stretching, is allowed. When the user switched on \"Only the selection\" in the app, every edit is limited to their selection whatever this says.",
+        "description": "Limit this edit to part of the plan: \"selection\" (what the user selected in the window; query what \"selection\" shows it) or element ids. Anything that reaches outside is refused with out_of_scope. When the user switched on \"Only the selection\", their selection binds every edit whatever this says.",
         "anyOf": [
             {"type": "string", "enum": ["selection"]},
             {"type": "array", "items": {"type": "string"}, "minItems": 1},
@@ -395,36 +106,31 @@ pub(crate) fn scope_schema() -> Value {
     })
 }
 
-fn force_schema() -> Value {
-    json!({"type": "boolean", "description": "Take back (or bring back) someone else's step in a live session. Only after the user confirms. Defaults to false."})
-}
-
 // ------------------------------------------------------------------- dispatch
 
 fn args_object(args: &Value) -> Result<&Map<String, Value>, ToolFail> {
-    args.as_object()
-        .ok_or_else(|| ToolFail("invalid arguments: expected a JSON object".into()))
+    args.as_object().ok_or_else(|| ToolFail::msg("invalid arguments: expected a JSON object"))
 }
 
 pub(crate) fn opt_str(args: &Value, name: &str) -> Result<Option<String>, ToolFail> {
     match args.get(name) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(s)) => Ok(Some(s.clone())),
-        Some(_) => Err(ToolFail(format!("invalid arguments: `{name}` must be a string"))),
+        Some(_) => Err(ToolFail::msg(format!("invalid arguments: `{name}` must be a string"))),
     }
 }
 
 pub(crate) fn req_str(args: &Value, name: &str) -> Result<String, ToolFail> {
     opt_str(args, name)?
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| ToolFail(format!("invalid arguments: `{name}` is required")))
+        .ok_or_else(|| ToolFail::msg(format!("invalid arguments: `{name}` is required")))
 }
 
 pub(crate) fn opt_bool(args: &Value, name: &str) -> Result<Option<bool>, ToolFail> {
     match args.get(name) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Bool(b)) => Ok(Some(*b)),
-        Some(_) => Err(ToolFail(format!("invalid arguments: `{name}` must be true or false"))),
+        Some(_) => Err(ToolFail::msg(format!("invalid arguments: `{name}` must be true or false"))),
     }
 }
 
@@ -435,21 +141,104 @@ pub(crate) fn opt_f64(args: &Value, name: &str) -> Result<Option<f64>, ToolFail>
             .as_f64()
             .filter(|n| n.is_finite())
             .map(Some)
-            .ok_or_else(|| ToolFail(format!("invalid arguments: `{name}` must be a number"))),
+            .ok_or_else(|| ToolFail::msg(format!("invalid arguments: `{name}` must be a number"))),
     }
 }
 
-/// Run one tool. `args` is whatever the client sent; every tool validates it.
+/// Run one tool for an in-process caller: every toolset on, nobody named.
 pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, ToolFail> {
-    args_object(&args)?;
-    if let Some(done) = crate::session::call(app, name, &args).await {
-        return done;
-    }
-    if let Some(done) = crate::visuals::call(app, name, &args).await {
-        return done;
-    }
+    call_with(app, name, args, &CallContext::local()).await
+}
+
+/// True for a call that leaves the model as it is: reads, pictures, renders,
+/// exports, chat and status. The agents registry lets a paused agent make
+/// these and refuses its edits.
+pub fn reads_only(name: &str, args: &Value) -> bool {
+    let action = args.get("action").and_then(Value::as_str);
+    let dry_run = args.get("dry_run").and_then(Value::as_bool) == Some(true);
     match name {
-        // ------------------------------------------------------------- hub
+        "get_guide" | "query" | "look" | "measure" | "check" | "get_session" | "export" | "render"
+        | "visualize_render" | "send_chat_message" | "set_status" => true,
+        "project" => matches!(action, Some("list" | "save_version")),
+        "levels" | "history" => action == Some("list"),
+        "import_dxf" => action == Some("inspect"),
+        "build" | "batch" => dry_run,
+        "export_plan" | "save_version" | "capture_view" | "render_view" => true,
+        n => definitions_read_only(n),
+    }
+}
+
+fn definitions_read_only(name: &str) -> bool {
+    matches!(
+        name,
+        "list_projects"
+            | "get_project_summary"
+            | "list_rooms"
+            | "list_elements"
+            | "describe_elements"
+            | "find_rooms_without_exterior_window"
+            | "list_review_items"
+            | "get_pipe_takeoff"
+            | "get_schedule"
+            | "get_plan_image"
+            | "list_renders"
+            | "get_selection"
+            | "get_render_job"
+            | "get_render_image"
+    )
+}
+
+/// Run one tool. `args` is whatever the client sent; every tool validates it.
+pub async fn call_with(app: &AppService, name: &str, mut args: Value, ctx: &CallContext) -> Result<Output, ToolFail> {
+    args_object(&args)?;
+    let mut ctx = ctx.clone();
+    let named = agent::take_argument(&mut args);
+    if let (Some(hint), Some(named)) = (ctx.hint.as_mut(), named) {
+        hint.agent = Some(named);
+    }
+    agent::admit(app, &mut ctx, name, &args, reads_only(name, &args))?;
+    let mut result = dispatch(app, name, &args, &ctx).await;
+    agent::after(app, &ctx, &args, &result).await;
+    // What the agent should hear, on every answer it gets: the registry's
+    // notes (DECISIONS D47, research r5 3.4), each told once. `activity`
+    // says whether it may edit; `inbox` is chat naming it, `nearby` other
+    // people's and agents' steps inside its claim.
+    if let Some(call) = &ctx.call {
+        let notes = app.agent_notes(call).await;
+        if let Ok(Output::Json(v) | Output::Rich { json: v, .. }) = &mut result {
+            if v.is_object() {
+                v["activity"] = json!(notes.activity);
+                if !notes.inbox.is_empty() {
+                    v["inbox"] = json!(notes.inbox);
+                }
+                if !notes.nearby.is_empty() {
+                    v["nearby"] = json!(notes.nearby);
+                }
+            }
+        }
+    }
+    result
+}
+
+/// Run a tool for a call that was admitted already: v2 tools use it for the
+/// v1 code they share, with the same caller.
+pub(crate) async fn dispatch(app: &AppService, name: &str, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
+    // Boxed: v2 tools run v1 code through `dispatch`.
+    if let Some(done) = Box::pin(crate::draft::call(app, name, args, ctx)).await {
+        return done;
+    }
+    if let Some(done) = Box::pin(crate::extended::call(app, name, args, ctx)).await {
+        return done;
+    }
+    if let Some(done) = session::call(app, name, args, ctx).await {
+        return done;
+    }
+    if let Some(done) = crate::visuals::call(app, name, args, ctx).await {
+        return done;
+    }
+    let args = args.clone();
+    match name {
+        // ---------------------------------------------------------- v1 hub
         "list_projects" => ok(app.handle("hub_list", json!({})).await?),
         "open_project" => {
             let id = req_str(&args, "id")?;
@@ -461,9 +250,7 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
             let name = req_str(&args, "name")?;
             let template = opt_str(&args, "template")?.unwrap_or_else(|| "blank".into());
             session::guard_switch(app, &args, session::Switch::Create).await?;
-            let state: Value = app
-                .handle("hub_create", json!({ "name": name, "template": template }))
-                .await?;
+            let state: Value = app.handle("hub_create", json!({ "name": name, "template": template })).await?;
             ok(opened(&state))
         }
         "close_project" => {
@@ -472,198 +259,148 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
             ok(json!({"ok": true, "open": false, "note": "the desktop window is back on the project hub"}))
         }
 
-        // ------------------------------------------------------------ read
+        // --------------------------------------------------------- v1 read
         n if copilot::is_read(n) => {
             let query = copilot::to_query(n, &args)?;
             ok(app.handle("doc_query", json!({ "query": query })).await?)
         }
         "list_renders" => ok(app.handle("render_list", json!({})).await?),
-        "get_guide" => match req_str(&args, "topic")?.as_str() {
-            "conventions" => Ok(Output::Text(crate::text::CONVENTIONS.to_string())),
-            "ph_defaults" => Ok(Output::Text(crate::text::PH_DEFAULTS.to_string())),
-            "workflows" => Ok(Output::Text(crate::text::WORKFLOWS.to_string())),
-            other => Err(ToolFail(format!(
-                "invalid arguments: unknown topic `{other}`. Use \"conventions\", \"workflows\" or \"ph_defaults\"."
-            ))),
-        },
         "get_plan_image" => crate::visuals::plan_image(app, &args).await,
 
-        // ------------------------------------------------------------ edit
+        // --------------------------------------------------------- v1 edit
         n if copilot::is_edit(n) => {
             let mut args = args;
-            let scope = take_scope(&mut args)?;
+            let scope = stage::take_scope(&mut args)?;
             let label = format!("MCP: {}", n.replace('_', " "));
-            edit(app, &label, &[(n.to_string(), args)], scope.as_ref()).await
+            stage::run(app, vec![StepIn::new(n, args)], scope.as_ref(), Options { label, dry_run: false, per_step: false }, ctx).await
         }
-        "batch" => {
-            let mut args = args;
-            let scope = take_scope(&mut args)?;
-            let steps = args
-                .get("steps")
-                .and_then(Value::as_array)
-                .ok_or_else(|| ToolFail("invalid arguments: `steps` must be an array".into()))?;
-            if steps.is_empty() {
-                return Err(ToolFail("invalid arguments: `steps` is empty, nothing would change".into()));
-            }
-            let mut parsed: Vec<(String, Value)> = vec![];
-            for (i, step) in steps.iter().enumerate() {
-                let tool = step
-                    .get("tool")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| ToolFail(format!("invalid arguments: steps[{i}] has no `tool`")))?;
-                if !copilot::is_edit(tool) {
-                    return Err(ToolFail(format!(
-                        "invalid arguments: steps[{i}].tool is `{tool}`, which is not an editing tool. Editing tools: {}",
-                        EDIT_TOOLS.join(", ")
-                    )));
-                }
-                let step_args = step.get("args").cloned().unwrap_or_else(|| json!({}));
-                args_object(&step_args).map_err(|_| {
-                    ToolFail(format!("invalid arguments: steps[{i}].args must be a JSON object"))
-                })?;
-                if step_args.get("scope").is_some() {
-                    return Err(ToolFail(format!(
-                        "invalid arguments: steps[{i}].args has a `scope`. Give scope once, on the batch itself"
-                    )));
-                }
-                parsed.push((tool.to_string(), step_args));
-            }
-            let label = match opt_str(&args, "label")? {
-                Some(l) if !l.trim().is_empty() => format!("MCP: {}", l.trim()),
-                _ => format!("MCP: batch of {} steps", parsed.len()),
-            };
-            edit(app, &label, &parsed, scope.as_ref()).await
-        }
+        "set_review_mark" => set_review_mark(app, &args, ctx).await,
 
-        "set_review_mark" => set_review_mark(app, &args).await,
-
-        // --------------------------------------------------- history, files
+        // ------------------------------------------------ v1 history, files
         "undo" | "redo" => {
             let force = opt_bool(&args, "force")?.unwrap_or(false);
             let cmd = if name == "undo" { "doc_undo" } else { "doc_redo" };
-            let state: Value = app.handle(cmd, json!({ "force": force })).await?;
+            let state: Value = match &ctx.call {
+                Some(call) => serde_json::to_value(app.agent_undo(call, name == "redo", force).await?)
+                    .map_err(|e| ToolFail::new("io", e.to_string()))?,
+                None => app.handle(cmd, json!({ "force": force })).await?,
+            };
             ok(history(&state, if name == "undo" { "undone" } else { "redone" }))
         }
         "save_version" => {
             let label = req_str(&args, "label")?;
             ok(app.handle("snapshot_create", json!({ "label": label })).await?)
         }
-        "export_plan" => {
-            let format = req_str(&args, "format")?;
-            let settings_paper = {
-                let s = app.session.lock().await;
-                s.doc
-                    .as_ref()
-                    .map(|d| d.project().settings.paper)
-                    .ok_or_else(|| IpcError::new("no_document", "no project is open"))?
-            };
-            let paper = match opt_str(&args, "paper")?.as_deref() {
-                None => settings_paper,
-                Some("a4") => PaperSize::A4,
-                Some("a3") => PaperSize::A3,
-                Some("a2") => PaperSize::A2,
-                Some("a1") => PaperSize::A1,
-                Some(other) => {
-                    return Err(ToolFail(format!(
-                        "invalid arguments: unknown paper `{other}`. Use a4, a3, a2 or a1"
-                    )))
-                }
-            };
-            let orientation = match opt_str(&args, "orientation")?.as_deref() {
-                None | Some("landscape") => Orientation::Landscape,
-                Some("portrait") => Orientation::Portrait,
-                Some(other) => {
-                    return Err(ToolFail(format!(
-                        "invalid arguments: unknown orientation `{other}`. Use landscape or portrait"
-                    )))
-                }
-            };
-            let sheet = match opt_str(&args, "sheet")?.as_deref() {
-                None => SheetKind::Plan,
-                Some(name) => sheet_kind(name).ok_or_else(|| {
-                    ToolFail(format!(
-                        "invalid arguments: unknown sheet `{name}`. Use {}",
-                        SHEETS.join(", ")
-                    ))
-                })?,
-            };
-            let review_page = opt_bool(&args, "review_page")?.unwrap_or(false);
-            if review_page && format != "pdf" {
-                return Err(ToolFail(
-                    "invalid arguments: review_page adds a page to a PDF. Use format \"pdf\", or leave review_page out"
-                        .into(),
-                ));
-            }
-            let scale_denominator = match args.get("scale_denominator") {
-                None | Some(Value::Null) => None,
-                Some(v) => Some(v.as_u64().filter(|n| *n > 0 && *n <= u32::MAX as u64).ok_or_else(|| {
-                    ToolFail("invalid arguments: scale_denominator must be a positive whole number".into())
-                })? as u32),
-            };
-            let options = PlanExportOptions {
-                level_id: None,
-                paper,
-                orientation,
-                scale_denominator,
-                show_dimensions: opt_bool(&args, "show_dimensions")?.unwrap_or(true),
-                show_room_labels: opt_bool(&args, "show_room_labels")?.unwrap_or(true),
-                show_assets: opt_bool(&args, "show_assets")?.unwrap_or(true),
-                title_block: opt_bool(&args, "title_block")?.unwrap_or(true),
-                show_pipes: opt_bool(&args, "show_pipes")?.unwrap_or(true),
-                sheet,
-                review_page,
-                date: None,
-            };
-            ok(app
-                .handle(
-                    "export_plan",
-                    json!({ "format": format, "options": options, "path": Value::Null }),
-                )
-                .await?)
-        }
+        "export_plan" => ok(export_plan(app, &args, None).await?),
 
-        other => Err(ToolFail(format!("unknown tool `{other}`"))),
+        other => {
+            let mut f = ToolFail::new("unknown_tool", format!("unknown tool `{other}`"));
+            if let Some(n) = crate::toolsets::nearest(other) {
+                f = f.with_hint(format!("Did you mean `{n}`? tools/list shows every tool."));
+                f.message = format!("unknown tool `{other}`. Did you mean `{n}`?");
+            }
+            Err(f)
+        }
     }
+}
+
+/// A plan sheet: `export_plan` in v1, `export` pdf, svg and dxf in v2, of
+/// `level_id` (None: the first level).
+pub(crate) async fn export_plan(app: &AppService, args: &Value, level_id: Option<Id>) -> Result<Value, ToolFail> {
+    let format = req_str(args, "format")?;
+    let settings_paper = {
+        let s = app.session.lock().await;
+        s.doc
+            .as_ref()
+            .map(|d| d.project().settings.paper)
+            .ok_or_else(|| IpcError::new("no_document", "no project is open"))?
+    };
+    let paper = match opt_str(args, "paper")?.as_deref() {
+        None => settings_paper,
+        Some("a4") => PaperSize::A4,
+        Some("a3") => PaperSize::A3,
+        Some("a2") => PaperSize::A2,
+        Some("a1") => PaperSize::A1,
+        Some(other) => return Err(ToolFail::msg(format!("invalid arguments: unknown paper `{other}`. Use a4, a3, a2 or a1"))),
+    };
+    let orientation = match opt_str(args, "orientation")?.as_deref() {
+        None | Some("landscape") => Orientation::Landscape,
+        Some("portrait") => Orientation::Portrait,
+        Some(other) => {
+            return Err(ToolFail::msg(format!("invalid arguments: unknown orientation `{other}`. Use landscape or portrait")))
+        }
+    };
+    let sheet = match opt_str(args, "sheet")?.as_deref() {
+        None => SheetKind::Plan,
+        Some(name) => sheet_kind(name)
+            .ok_or_else(|| ToolFail::msg(format!("invalid arguments: unknown sheet `{name}`. Use {}", SHEETS.join(", "))))?,
+    };
+    let review_page = opt_bool(args, "review_page")?.unwrap_or(false);
+    if review_page && format != "pdf" {
+        return Err(ToolFail::msg(
+            "invalid arguments: review_page adds a page to a PDF. Use format \"pdf\", or leave review_page out",
+        ));
+    }
+    let scale_denominator = match args.get("scale_denominator") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(
+            v.as_u64()
+                .filter(|n| *n > 0 && *n <= u32::MAX as u64)
+                .ok_or_else(|| ToolFail::msg("invalid arguments: scale_denominator must be a positive whole number"))?
+                as u32,
+        ),
+    };
+    let options = PlanExportOptions {
+        level_id,
+        paper,
+        orientation,
+        scale_denominator,
+        show_dimensions: opt_bool(args, "show_dimensions")?.unwrap_or(true),
+        show_room_labels: opt_bool(args, "show_room_labels")?.unwrap_or(true),
+        show_assets: opt_bool(args, "show_assets")?.unwrap_or(true),
+        title_block: opt_bool(args, "title_block")?.unwrap_or(true),
+        show_pipes: opt_bool(args, "show_pipes")?.unwrap_or(true),
+        sheet,
+        review_page,
+        date: None,
+    };
+    Ok(app
+        .handle("export_plan", json!({ "format": format, "options": options, "path": Value::Null }))
+        .await?)
 }
 
 /// `set_review_mark`: one `Command::SetReviewMark`, committed as one undo
 /// step like every edit here. The engine checks the target.
-async fn set_review_mark(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
-    let action = req_str(args, "action")?;
-    let issue_id = opt_str(args, "issue_id")?.filter(|s| !s.trim().is_empty());
-    let code = opt_str(args, "code")?.filter(|s| !s.trim().is_empty());
-    let element_id = opt_str(args, "element_id")?.filter(|s| !s.trim().is_empty());
-    let note = opt_str(args, "note")?.map(|n| n.trim().to_string());
+async fn set_review_mark(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
+    let mut args = args.clone();
+    let asked = stage::take_scope(&mut args)?;
+    let action = req_str(&args, "action")?;
+    let issue_id = opt_str(&args, "issue_id")?.filter(|s| !s.trim().is_empty());
+    let code = opt_str(&args, "code")?.filter(|s| !s.trim().is_empty());
+    let element_id = opt_str(&args, "element_id")?.filter(|s| !s.trim().is_empty());
+    let note = opt_str(&args, "note")?.map(|n| n.trim().to_string());
     let target = match (issue_id, code, element_id) {
         (Some(id), None, None) => ReviewTarget::Issue { id },
         (None, Some(code), None) => ReviewTarget::Check { code },
         (None, Some(code), Some(element_id)) => ReviewTarget::Element { code, element_id },
         (Some(_), _, _) => {
-            return Err(ToolFail(
-                "invalid arguments: give either issue_id, or code with an optional element_id, not both".into(),
+            return Err(ToolFail::msg(
+                "invalid arguments: give either issue_id, or code with an optional element_id, not both",
             ))
         }
         (None, None, _) => {
-            return Err(ToolFail(
-                "invalid arguments: say what to set aside: issue_id, or code with an optional element_id".into(),
+            return Err(ToolFail::msg(
+                "invalid arguments: say what to set aside: issue_id, or code with an optional element_id",
             ))
         }
     };
     let note = match action.as_str() {
         "set_aside" => match note {
             Some(n) if !n.is_empty() => Some(n),
-            _ => {
-                return Err(ToolFail(
-                    "invalid arguments: set_aside needs a note saying why, in the user's words".into(),
-                ))
-            }
+            _ => return Err(ToolFail::msg("invalid arguments: set_aside needs a note saying why, in the user's words")),
         },
         "reopen" => None,
-        other => {
-            return Err(ToolFail(format!(
-                "invalid arguments: unknown action `{other}`. Use set_aside or reopen"
-            )))
-        }
+        other => return Err(ToolFail::msg(format!("invalid arguments: unknown action `{other}`. Use set_aside or reopen"))),
     };
     let label = match note {
         Some(_) => "MCP: set a review item aside",
@@ -671,29 +408,25 @@ async fn set_review_mark(app: &AppService, args: &Value) -> Result<Output, ToolF
     };
     let command = Command::Batch {
         label: label.to_string(),
-        commands: vec![Command::SetReviewMark {
-            target: target.clone(),
-            note,
-        }],
+        commands: vec![Command::SetReviewMark { target: target.clone(), note }],
     };
-    let mut scoped = args.clone();
-    let asked = take_scope(&mut scoped)?;
     let revision = {
         let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(|| IpcError::new("no_document", "no project is open"))?;
-        if let Some(scope) = resolve_scope(app, doc.project(), asked.as_ref())? {
+        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+        if let Some(scope) = stage::resolve_scope(app, doc.project(), asked.as_ref())? {
             guhit_core::scope::check(doc.project(), doc.derived(), &scope.ids, &command)
-                .map_err(|e| scope_fail(e, doc.project(), doc.derived(), &scope))?;
+                .map_err(|e| stage::scope_fail(e, doc.project(), doc.derived(), &scope))?;
         }
         doc.revision()
     };
-    let result = app.commit_if_revision(command, Origin::Ai, revision).await?;
+    let result = match &ctx.call {
+        Some(call) => app.agent_commit(call, command).await?,
+        None => app.commit_if_revision(command, Origin::Ai, revision).await?,
+    };
     let matches = |i: &Issue| match &target {
         ReviewTarget::Issue { id } => i.id == id.trim(),
         ReviewTarget::Check { code } => i.code == code.trim(),
-        ReviewTarget::Element { code, element_id } => {
-            i.code == code.trim() && i.element_ids.iter().any(|e| e == element_id.trim())
-        }
+        ReviewTarget::Element { code, element_id } => i.code == code.trim() && i.element_ids.iter().any(|e| e == element_id.trim()),
     };
     let items: Vec<Value> = result
         .state
@@ -713,9 +446,7 @@ async fn set_review_mark(app: &AppService, args: &Value) -> Result<Output, ToolF
     }))
 }
 
-/// Compact answer after opening or creating a project. The full state is
-/// large and the model does not need it; `list_rooms` and
-/// `get_project_summary` give the details.
+/// Compact answer after opening or creating a project.
 fn opened(state: &Value) -> Value {
     let project = &state["project"];
     json!({
@@ -741,269 +472,19 @@ fn history(state: &Value, what: &str) -> Value {
     })
 }
 
-// ----------------------------------------------------------------- committing
-
-/// Translate the steps, stage each one on one working copy of the project
-/// (`guhit_core::Staging`), then commit the staged batch as one undo step.
-///
-/// Translation runs against the staged view: the open project with the earlier
-/// steps of this call already applied, so step 2 can name an element step 1
-/// made. The core seeds new ids per leaf command, so an id from step 1 does
-/// not move when step 2 is appended.
-///
-/// Each step runs once, so a batch of N steps costs N steps (re-previewing the
-/// whole staged batch per step cost N squared: 45 steps took 15.7 s). Staging
-/// runs on a copy, outside the session lock, so the window and other agents
-/// are not held up while it works; the lock is taken again only to swap the
-/// result in. The commit is guarded by the revision the staging started from,
-/// so if the desktop window or the copilot changes the plan in between,
-/// nothing is applied and the caller is told to read the plan again.
-async fn edit(
-    app: &AppService,
-    label: &str,
-    steps: &[(String, Value)],
-    asked: Option<&ScopeArg>,
-) -> Result<Output, ToolFail> {
-    let (before, before_derived, level_id, revision, scope) = {
-        let s = app.session.lock().await;
-        let doc = s
-            .doc
-            .as_ref()
-            .ok_or_else(|| IpcError::new("no_document", "no project is open. Call create_project or open_project first"))?;
-        let level_id = first_level(doc.project())?;
-        let scope = resolve_scope(app, doc.project(), asked)?;
-        if let Some(sc) = &scope {
-            guhit_core::scope::validate(doc.project(), &sc.ids)
-                .map_err(|e| scope_fail(e, doc.project(), doc.derived(), sc))?;
-        }
-        // Derived data is only read by the scope check.
-        let derived = scope.as_ref().map(|_| doc.derived().clone());
-        (doc.project().clone(), derived, level_id, doc.revision(), scope)
-    };
-
-    let mut staging = guhit_core::Staging::new(&before, label);
-    // What earlier steps made is in reach, so a later step can build on it (a
-    // door on a wall the batch just drew inside the room), but it never
-    // widens the area where new elements may go.
-    let mut made_ids: Vec<Id> = vec![];
-    let mut per_step: Vec<Value> = vec![];
-    for (i, (name, args)) in steps.iter().enumerate() {
-        let next = copilot::to_commands(staging.project(), name, args, &level_id)
-            .map_err(|e| step_fail(e.into(), i, name, steps.len()))?;
-        if let (Some(sc), Some(base_derived)) = (&scope, &before_derived) {
-            let staged_derived;
-            let view_derived = if i == 0 {
-                base_derived
-            } else {
-                staged_derived = staging.derived();
-                &staged_derived
-            };
-            let view = staging.project();
-            for command in &next {
-                guhit_core::scope::check_staged(view, view_derived, &sc.ids, &made_ids, command)
-                    .map_err(|e| step_fail(scope_fail(e, view, view_derived, sc), i, name, steps.len()))?;
-            }
-        }
-        // A refusal here is the engine refusing the whole batch, which is
-        // what a commit would do.
-        let view = staging.push(&next).map_err(|e| {
-            let ipc: IpcError = e.into();
-            step_fail(ipc.into(), i, name, steps.len())
-        })?;
-        if steps.len() > 1 {
-            let diff = copilot::step_diff(&view, staging.project());
-            let mut one = json!({
-                "step": i + 1,
-                "tool": name,
-                "created": diff["added"],
-                "changed": diff["modified"],
-                "deleted": diff["removed"],
-            });
-            for key in ["levels_added", "levels_removed"] {
-                if let Some(v) = diff.get(key) {
-                    one[key] = v.clone();
-                }
-            }
-            per_step.push(one);
-        }
-        if scope.is_some() {
-            made_ids = staging.diff().added;
-        }
-    }
-
-    let result = app.commit_staged_if_revision(staging, Origin::Ai, revision).await?;
-    let mut out = edit_result(&before, &result);
-    if !per_step.is_empty() {
-        out["steps"] = Value::Array(per_step);
-    }
-    if let Some(sc) = scope {
-        out["scope"] = json!({"ids": sc.ids, "set_by": if sc.locked { "the user (Only the selection)" } else { "this call" }});
-    }
-    ok(out)
-}
-
-/// One command a tool built itself (not through the copilot translation),
-/// checked against the scope and committed as one undo step like every edit.
-pub(crate) async fn commit_one(app: &AppService, label: &str, command: Command, args: &Value) -> Result<Output, ToolFail> {
+/// One command a tool built itself (not through a translation), checked
+/// against the scope and committed as one undo step like every edit.
+pub(crate) async fn commit_one(app: &AppService, label: &str, command: Command, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let mut scoped = args.clone();
-    let asked = take_scope(&mut scoped)?;
-    let command = Command::Batch { label: label.to_string(), commands: vec![command] };
-    let (before, revision) = {
-        let s = app.session.lock().await;
-        let doc = s
-            .doc
-            .as_ref()
-            .ok_or_else(|| IpcError::new("no_document", "no project is open. Call create_project or open_project first"))?;
-        if let Some(scope) = resolve_scope(app, doc.project(), asked.as_ref())? {
-            guhit_core::scope::check(doc.project(), doc.derived(), &scope.ids, &command)
-                .map_err(|e| scope_fail(e, doc.project(), doc.derived(), &scope))?;
-        }
-        doc.preview(&command).map_err(|e| ToolFail::from(IpcError::from(e)))?;
-        (doc.project().clone(), doc.revision())
-    };
-    let result = app.commit_if_revision(command, Origin::Ai, revision).await?;
-    ok(edit_result(&before, &result))
-}
-
-// ----------------------------------------------------------------- AI scope
-
-/// The `scope` a call asked for (DECISIONS D30).
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ScopeArg {
-    /// What the user has selected in the window.
-    Selection,
-    Ids(Vec<Id>),
-}
-
-/// The scope an edit is held to, and who set it.
-struct Scope {
-    ids: Vec<Id>,
-    /// The user switched on "Only the selection": it binds every edit.
-    locked: bool,
-}
-
-/// Take `scope` out of a tool's arguments: the copilot translation refuses
-/// arguments it does not know.
-fn take_scope(args: &mut Value) -> Result<Option<ScopeArg>, ToolFail> {
-    let Some(map) = args.as_object_mut() else {
-        return Ok(None);
-    };
-    let bad = || ToolFail("invalid arguments: `scope` is \"selection\" or a list of element ids".into());
-    match map.remove("scope") {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(s)) if s == "selection" => Ok(Some(ScopeArg::Selection)),
-        Some(Value::Array(items)) => {
-            let ids: Vec<Id> = items
-                .iter()
-                .map(|v| v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
-                .collect::<Option<Vec<_>>>()
-                .ok_or_else(bad)?;
-            if ids.is_empty() {
-                return Err(ToolFail("invalid arguments: `scope` is an empty list; name at least one element".into()));
-            }
-            Ok(Some(ScopeArg::Ids(ids)))
-        }
-        Some(_) => Err(bad()),
-    }
-}
-
-/// The scope an edit is held to: the window's selection while the user has
-/// "Only the selection" on (it binds every edit, whatever the call asked
-/// for), else what the call asked for. Selection ids no longer in the plan
-/// are dropped.
-fn resolve_scope(app: &AppService, project: &Project, asked: Option<&ScopeArg>) -> Result<Option<Scope>, ToolFail> {
-    let window = app.local_presence();
-    let selected: Vec<Id> = window
-        .selection
-        .iter()
-        .filter(|id| project.elements.iter().any(|e| e.id() == *id))
-        .cloned()
-        .collect();
-    if window.ai_scope && !selected.is_empty() {
-        return Ok(Some(Scope { ids: selected, locked: true }));
-    }
-    match asked {
-        None => Ok(None),
-        Some(ScopeArg::Selection) if selected.is_empty() => Err(ToolFail(
-            "invalid arguments: scope is \"selection\", but nothing is selected in the Guhit Studio window. Ask the user to select the parts to change, or name them by id"
-                .into(),
-        )),
-        Some(ScopeArg::Selection) => Ok(Some(Scope { ids: selected, locked: false })),
-        Some(ScopeArg::Ids(ids)) => Ok(Some(Scope { ids: ids.clone(), locked: false })),
-    }
-}
-
-/// An engine refusal of the scope, as the model should read it.
-fn scope_fail(e: CoreError, project: &Project, derived: &Derived, scope: &Scope) -> ToolFail {
-    if let CoreError::NotFound(id) = &e {
-        return ToolFail(format!("not_found: the scope names an element that is not in the plan: {id}"));
-    }
-    let message = IpcError::from(e).message;
-    let what = guhit_core::scope::describe(project, derived, &scope.ids);
-    if scope.locked {
-        ToolFail(format!(
-            "out_of_scope: {message} The user switched on \"Only the selection\" in Guhit Studio, so every edit is limited to: {what}. Change only those elements and what stands in a selected room, or ask the user to widen the selection or switch it off."
-        ))
-    } else {
-        ToolFail(format!(
-            "out_of_scope: {message} This edit is limited by its scope to: {what}. Change only those elements and what stands in a selected room, or ask the user before widening it."
-        ))
-    }
-}
-
-fn step_fail(f: ToolFail, index: usize, tool: &str, total: usize) -> ToolFail {
-    if total == 1 {
-        f
-    } else {
-        ToolFail(format!(
-            "step {} of {total} (`{tool}`): {} Nothing was applied.",
-            index + 1,
-            f.0
-        ))
-    }
-}
-
-/// New elements go on the first level unless a call names another with
-/// `level`. A bungalow has exactly one.
-fn first_level(project: &Project) -> Result<Id, IpcError> {
-    project
-        .levels
-        .first()
-        .map(|l| l.id.clone())
-        .ok_or_else(|| IpcError::new("invalid", "the project has no level"))
-}
-
-/// What one editing call did: the engine's own diff summary, plus the ids and
-/// readable labels of everything created, so the next call can refer to them.
-fn edit_result(before: &Project, result: &ApplyResult) -> Value {
-    let step = copilot::step_diff(before, &result.state.project);
-    let mut out = json!({
-        "ok": true,
-        "revision": result.state.revision,
-        "summary": result.diff.summary,
-        "undo_label": result.state.undo_label,
-        "created": step["added"],
-        "changed": step["modified"],
-        "deleted": step["removed"],
-        "totals": result.state.derived.totals,
-    });
-    for key in ["levels_added", "levels_removed"] {
-        if let Some(v) = step.get(key) {
-            out[key] = v.clone();
-        }
-    }
-    if !result.diff.also_moved.is_empty() {
-        out["also_moved"] = copilot::also_moved_list(&result.state.project, &result.diff.also_moved);
-        out["note"] = json!(
-            "also_moved lists walls this edit reshaped that the call did not name: walls joined to what moved. Tell the user which ones."
-        );
-    }
-    out
+    let asked = stage::take_scope(&mut scoped)?;
+    let step = StepIn::new("__command", serde_json::to_value(&command).map_err(|e| ToolFail::new("io", e.to_string()))?);
+    stage::run(app, vec![step], asked.as_ref(), Options { label: label.to_string(), dry_run: false, per_step: false }, ctx).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::toolsets::{self, Toolsets};
 
     #[test]
     fn every_tool_has_a_unique_name_and_an_object_schema() {
@@ -1016,43 +497,30 @@ mod tests {
         for d in &defs {
             assert_eq!(d.schema["type"], "object", "{} has no object schema", d.name);
             assert!(d.schema.get("properties").is_some(), "{} has no properties", d.name);
-            assert!(
-                d.description.contains("MILLIMETERS"),
-                "{} does not say what unit it works in",
-                d.name
-            );
+            assert!(d.schema["properties"].get("agent").is_some(), "{} takes no agent", d.name);
+            assert!(d.description.contains("MILLIMETERS"), "{} does not say what unit it works in", d.name);
+            assert!(d.description.len() <= 1024, "{} has a {} byte description; keep it under 1 KB", d.name, d.description.len());
         }
     }
 
     #[test]
-    fn the_whole_advertised_set_is_present() {
-        let defs = definitions();
-        let names: Vec<&str> = defs.iter().map(|d| d.name).collect();
-        for expected in [
-            "list_projects", "open_project", "create_project", "close_project",
-            "get_project_summary", "list_rooms", "list_elements", "describe_elements",
-            "find_rooms_without_exterior_window", "list_review_items", "get_pipe_takeoff", "get_schedule",
-            "get_plan_image", "get_guide", "list_renders",
-            "add_wall", "add_wall_chain", "add_rect_room", "add_door", "add_window", "resize_room",
-            "set_wall_length", "move_elements", "rename_room", "set_room_usage", "set_opening_size",
-            "move_pipe_points", "set_pipe_segment_length", "set_pipe_slope", "insert_pipe_point", "remove_pipe_point",
-            "delete_elements", "set_material", "set_roof", "add_asset", "add_level", "delete_level",
-            "set_review_mark", "undo", "redo", "save_version", "export_plan", "batch",
-            "get_selection", "get_session", "send_chat_message", "add_camera", "capture_view",
-            "render_view", "get_render_job", "get_render_image", "visualize_render",
-        ] {
-            assert!(names.contains(&expected), "tool `{expected}` is missing");
-        }
-        assert_eq!(names.len(), 52, "the tool list changed: update docs/MCP.md");
+    fn the_list_is_the_v2_toolsets() {
+        let names: Vec<&str> = definitions().iter().map(|d| d.name).collect();
+        assert_eq!(names, toolsets::all_v2(), "definitions and toolsets disagree");
+        assert_eq!(Toolsets::core().tools().len(), 22);
+        assert_eq!(names.len(), 33);
     }
 
     #[test]
     fn every_editing_tool_takes_a_scope() {
         for d in definitions() {
-            let edits = copilot::is_edit(d.name) || matches!(d.name, "batch" | "set_review_mark" | "add_camera");
+            let edits = crate::translate::EDIT_TOOLS.contains(&d.name)
+                || matches!(d.name, "build" | "batch" | "import_underlay")
+                || d.name == "set_review_mark";
+            let project_wide = matches!(d.name, "levels" | "set_project");
             assert_eq!(
                 d.schema["properties"].get("scope").is_some(),
-                edits,
+                edits && !project_wide && d.name != "add_camera",
                 "scope on `{}` is wrong",
                 d.name
             );
@@ -1060,11 +528,11 @@ mod tests {
     }
 
     #[test]
-    fn only_the_provider_and_the_session_chat_reach_outside() {
+    fn only_the_provider_and_the_session_reach_outside() {
         for d in definitions() {
             assert_eq!(
                 d.open_world,
-                matches!(d.name, "visualize_render" | "send_chat_message"),
+                matches!(d.name, "visualize_render" | "send_chat_message" | "set_status"),
                 "openWorldHint is wrong for {}",
                 d.name
             );
@@ -1072,51 +540,12 @@ mod tests {
     }
 
     #[test]
-    fn the_engines_internal_step_prefix_is_removed() {
-        assert_eq!(
-            strip_step_prefix("Step 1 of 1: The door does not fit."),
-            "The door does not fit."
-        );
-        assert_eq!(
-            strip_step_prefix("Step 12 of 40: Walls overlap."),
-            "Walls overlap."
-        );
-        // Not the engine's prefix: leave it alone.
-        assert_eq!(strip_step_prefix("Stepping stone: no"), "Stepping stone: no");
-        assert_eq!(strip_step_prefix("Step one of two: no"), "Step one of two: no");
-        assert_eq!(strip_step_prefix("The door does not fit."), "The door does not fit.");
-    }
-
-    #[test]
     fn read_and_edit_tools_are_marked_correctly() {
         for d in definitions() {
-            let expected = matches!(
-                d.name,
-                "list_projects"
-                    | "get_project_summary"
-                    | "list_rooms"
-                    | "list_elements"
-                    | "describe_elements"
-                    | "find_rooms_without_exterior_window"
-                    | "list_review_items"
-                    | "get_pipe_takeoff"
-                    | "get_schedule"
-                    | "get_plan_image"
-                    | "get_guide"
-                    | "list_renders"
-                    | "get_selection"
-                    | "get_session"
-                    | "get_render_job"
-                    | "get_render_image"
-            );
+            let expected = matches!(d.name, "get_guide" | "query" | "look" | "measure" | "check" | "get_session");
             assert_eq!(d.read_only, expected, "readOnlyHint is wrong for {}", d.name);
         }
     }
-}
-
-#[cfg(test)]
-mod sheet_tests {
-    use super::*;
 
     #[test]
     fn every_sheet_name_is_a_sheet_kind_spelled_the_same_way() {
@@ -1125,8 +554,5 @@ mod sheet_tests {
             assert_eq!(serde_json::to_value(kind).unwrap(), json!(name));
         }
         assert_eq!(sheet_kind("elevation"), None);
-        let export = definitions().into_iter().find(|d| d.name == "export_plan").unwrap();
-        assert_eq!(export.schema["properties"]["sheet"]["enum"], json!(SHEETS));
-        assert_eq!(export.schema["properties"]["review_page"]["type"], "boolean");
     }
 }

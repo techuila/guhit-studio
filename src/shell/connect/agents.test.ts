@@ -1,22 +1,88 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENTS,
+  CORE_TOOLS,
+  CURSOR_TOOL_WARNING,
   MAC_BINARY,
+  TOOLSETS,
+  sameToolsets,
+  stdioArgsFor,
+  stdioLine,
+  toolCount,
   agentForClient,
+  agentSlug,
   clientLabel,
   clineConfig,
   codexCommand,
   claudeCodeCommand,
   cursorLink,
   gooseLink,
+  labelledUrl,
   lmstudioLink,
   otherCode,
+  serverNameFor,
   setupFor,
   vscodeLink,
   windsurfConfig,
   zedConfig,
   type SetupContext,
 } from "./agents";
+
+describe("several agents (DECISIONS D47)", () => {
+  it("makes a label safe for a URL", () => {
+    expect(agentSlug("Upper floor")).toBe("upper-floor");
+    expect(agentSlug("  Ñino's  Kitchen!! ")).toBe("nino-s-kitchen");
+    expect(agentSlug("***")).toBe("");
+    expect(agentSlug("a".repeat(50))).toHaveLength(32);
+  });
+
+  it("gives each agent its own address; toolsets of its own override the defaults", () => {
+    const base = "http://127.0.0.1:1450/mcp";
+    // No list: it gets the defaults, and later changes to them.
+    expect(labelledUrl(base, "Upper floor")).toBe("http://127.0.0.1:1450/mcp/agent/upper-floor");
+    expect(labelledUrl(`${base}/`, "Services", ["visuals", "services"])).toBe("http://127.0.0.1:1450/mcp/agent/services?toolsets=services,visuals");
+    expect(labelledUrl(base, "", ["live"])).toBe("http://127.0.0.1:1450/mcp?toolsets=live");
+    // An empty list of its own: the core tools only, whatever the defaults.
+    expect(labelledUrl(base, "Upper floor", [])).toBe("http://127.0.0.1:1450/mcp/agent/upper-floor?toolsets=none");
+    expect(TOOLSETS.map((t) => t.id)).toEqual(["services", "visuals", "live", "review", "interop"]);
+  });
+
+  it("counts the tools an agent lists: 22 core, 33 with every toolset", () => {
+    expect(toolCount([])).toBe(CORE_TOOLS);
+    expect(toolCount(["services", "review"])).toBe(26);
+    expect(toolCount(TOOLSETS.map((t) => t.id))).toBe(33);
+    expect(toolCount(TOOLSETS.map((t) => t.id))).toBeLessThan(CURSOR_TOOL_WARNING);
+    expect(sameToolsets(["visuals", "services"], ["services", "visuals"])).toBe(true);
+    expect(sameToolsets(["visuals"], [])).toBe(false);
+  });
+
+  it("names the agent and its toolsets for clients that launch a command", () => {
+    expect(stdioArgsFor("Ground floor")).toEqual(["--agent", "Ground floor"]);
+    expect(stdioArgsFor(" Upper  floor ", ["live", "services"])).toEqual(["--agent", "Upper floor", "--toolsets", "services,live"]);
+    expect(stdioLine("/opt/guhit", stdioArgsFor("Ground floor", []))).toBe(`"/opt/guhit" --mcp-stdio --agent "Ground floor" --toolsets none`);
+    const desktop = setupFor("claude-desktop", { url, stdioCommand: "/opt/guhit", claudeDesktopBundle: true, name: "guhit-ground-floor", stdioArgs: stdioArgsFor("Ground floor") });
+    // The extension takes no flags: another agent gets the config file.
+    expect(desktop.kind).toBe("snippet");
+    expect(desktop.kind === "snippet" && JSON.parse(desktop.code).mcpServers["guhit-ground-floor"].args).toEqual(["--mcp-stdio", "--agent", "Ground floor"]);
+    expect(setupFor("claude-desktop", ctx).kind).toBe("bundle");
+  });
+
+  it("names its server apart, so a second entry in one client keeps the first", () => {
+    const u = "http://127.0.0.1:1450/mcp/agent/upper-floor";
+    expect(serverNameFor("Upper floor")).toBe("guhit-upper-floor");
+    expect(serverNameFor("")).toBe("guhit");
+    expect(claudeCodeCommand(u, "guhit-upper-floor")).toBe(`claude mcp add --transport http guhit-upper-floor ${u} --scope user`);
+    expect(codexCommand(u, "guhit-upper-floor")).toBe(`codex mcp add guhit-upper-floor --url ${u}`);
+    expect(JSON.parse(clineConfig(u, "guhit-upper-floor")).mcpServers["guhit-upper-floor"].url).toBe(u);
+    expect(cursorLink(u, "guhit-upper-floor")).toContain("name=guhit-upper-floor&");
+    // The setups pass the name through; without one they keep "guhit".
+    const c = { url: u, stdioCommand: null, claudeDesktopBundle: false };
+    const named = setupFor("claude-code", { ...c, name: "guhit-upper-floor" });
+    expect(named.kind === "snippet" && named.code).toContain("guhit-upper-floor");
+    const plain = setupFor("codex", c);
+    expect(plain.kind === "snippet" && plain.code).toBe(`codex mcp add guhit --url ${u}`);
+  });
+});
 
 const url = "http://127.0.0.1:1450/mcp";
 const ctx: SetupContext = { url, stdioCommand: "/opt/guhit/guhit-studio", claudeDesktopBundle: true };

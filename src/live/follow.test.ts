@@ -7,6 +7,8 @@ import { DUR } from "../ui/motion";
 import type { ViewerEngine } from "../viewer3d/engine/ViewerEngine";
 import { useLiveView } from "../viewer3d/render/liveView";
 import { useViewer } from "../viewer3d/viewerStore";
+import type { AgentView } from "./agents";
+import { useAgents } from "./agentsStore";
 import { attachPlan, follow, glideMs, isFollowed, localView, startFollow, toggleFollow, unfollow } from "./follow";
 import { breaksFollowLoop, followLoops, followerIds, type Peers } from "./format";
 import { LIVE_OFF, useLive } from "./liveStore";
@@ -16,9 +18,9 @@ const hosting: LiveStatus = {
   mode: "hosting",
   self_id: "me",
   participants: [
-    { id: "me", name: "Mara", color: 0, role: "host" },
-    { id: "ana", name: "Ana Reyes", color: 1, role: "guest" },
-    { id: "ben", name: "Ben", color: 2, role: "guest" },
+    { id: "me", name: "Mara", color: 0, role: "host", agent: null },
+    { id: "ana", name: "Ana Reyes", color: 1, role: "guest", agent: null },
+    { id: "ben", name: "Ben", color: 2, role: "guest", agent: null },
   ],
   project_id: "p",
 };
@@ -36,7 +38,7 @@ const pr = (over: Partial<Presence> = {}): Presence => ({
   view_mode: "2d",
   plan_view: null,
   camera: null,
-  pointer_3d: null,
+  pointer_3d: null, status: null,
   ...over,
 });
 
@@ -341,5 +343,75 @@ describe("follow chains", () => {
     expect(breaksFollowLoop(status, peers({ ana: "me" }), "ana")).toBe(false);
     expect(breaksFollowLoop({ ...status, self_id: "aa" }, peers({ ana: "ben", ben: "aa" }), "ana")).toBe(true);
     expect(breaksFollowLoop(status, peers({ ana: null }), "ana")).toBe(false);
+  });
+});
+
+describe("following an agent (DECISIONS D47)", () => {
+  const agent = (over: Partial<AgentView> = {}): AgentView => ({
+    id: "agent-ground",
+    name: "Ground floor",
+    color: 3,
+    client: "claude-code",
+    clientVersion: "2",
+    ownerId: null,
+    ownerName: "Mara",
+    presence: pr({ level_id: "L2", view_mode: null, cursor: { x: 4000, y: 3000 }, plan_view: area, pointer_3d: { x: 4000, y: 3000, z: 1200 } }),
+    activity: "working",
+    limit: null,
+    claim: null,
+    steps: 3,
+    lastCallAt: new Date().toISOString(),
+    local: true,
+    ...over,
+  });
+
+  beforeEach(() => {
+    // No live session: agents are followed all the same.
+    useLive.setState({ status: LIVE_OFF, peers: {}, following: null });
+    useAgents.setState({ views: [agent()] });
+  });
+
+  afterEach(() => {
+    useAgents.setState({ views: [], trails: {} });
+  });
+
+  it("follows without a session: takes its level and keeps this window's view mode", () => {
+    useApp.setState({ viewMode: "split" });
+    follow("agent-ground");
+    expect(useLive.getState().following).toBe("agent-ground");
+    expect(useApp.getState().activeLevelId).toBe("L2");
+    expect(useApp.getState().viewMode).toBe("split");
+  });
+
+  it("eases the plan to each new work area over --dur-scene, never the short linear glide", () => {
+    const f = fakeController();
+    const detach = attachPlan(f.controller);
+    follow("agent-ground");
+    expect(f.followView).toHaveBeenLastCalledWith(area, DUR.scene, false);
+    const next = { center: { x: 9000, y: 3000 }, width_mm: 9000, height_mm: 6000 };
+    useAgents.setState({ views: [agent({ presence: pr({ level_id: "L2", view_mode: null, plan_view: next }) })] });
+    expect(f.followView).toHaveBeenLastCalledWith(next, DUR.scene, false);
+    detach();
+  });
+
+  it("pans the 3D target to its point, keeping this camera's direction", () => {
+    const e = fakeEngine();
+    useLiveView.setState({ engine: e.engine });
+    follow("agent-ground");
+    // The fake camera looks from (1, 2, 3) at (4, 5, 6): the same offset, now at the agent's point.
+    expect(e.follow).toHaveBeenLastCalledWith({ position: { x: 3997, y: 2997, z: 1197 }, target: { x: 4000, y: 3000, z: 1200 }, fov_deg: 50, nav: "orbit" }, DUR.scene, false);
+    useAgents.setState({ views: [agent({ presence: pr({ level_id: "L2", pointer_3d: { x: 5000, y: 3000, z: 1200 } }) })] });
+    expect(e.follow).toHaveBeenLastCalledWith(expect.objectContaining({ target: { x: 5000, y: 3000, z: 1200 }, position: { x: 4997, y: 2997, z: 1197 } }), DUR.scene, false);
+  });
+
+  it("stops on this user's own view input, and when the agent is gone", () => {
+    follow("agent-ground");
+    bus.emit("user_view", { view: "plan" });
+    expect(useLive.getState().following).toBeNull();
+    follow("agent-ground");
+    useAgents.setState({ views: [] });
+    expect(useLive.getState().following).toBeNull();
+    const all = toasts();
+    expect(all[all.length - 1]).toBe("Ground floor is no longer working here. Following stopped.");
   });
 });

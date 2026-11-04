@@ -58,6 +58,17 @@ pub const MAX_PRESENCE_SELECTION: usize = 2000;
 /// Longest id a presence or a chat message may carry. Ids are UUIDs and
 /// slugs, far shorter.
 const MAX_ID_CHARS: usize = 64;
+/// `chat.jsonl` past this size is cut to its newest messages: at most
+/// `CHAT_KEEP`, in at most half this size, so it is not cut again soon.
+pub const CHAT_MAX_BYTES: u64 = 2 * 1024 * 1024;
+/// Most messages `chat.jsonl` keeps when it is cut.
+pub const CHAT_KEEP: usize = 1000;
+/// Whom an agent's step worked for when this computer's person has no
+/// name yet.
+const OWN_PERSON: &str = "this computer";
+/// One chat file write at a time in this process, so cutting the file never
+/// loses a message appended meanwhile.
+static CHAT_WRITE: Mutex<()> = Mutex::new(());
 
 /// What this computer is in a live session.
 #[derive(Clone, Default)]
@@ -78,6 +89,10 @@ pub struct LiveState {
     /// participant id, so an undo and the history can name who made a step
     /// after they left (DECISIONS D38), as chat messages keep theirs.
     people: Mutex<HashMap<Id, (String, u8)>>,
+    /// Every agent this computer met (DECISIONS D47), by participant id:
+    /// whom it works for, for `on_behalf_of` in the history. An owner id of
+    /// None is this computer's own person.
+    agent_owners: Mutex<HashMap<Id, (Option<Id>, String)>>,
     /// Numbers the joins, so a late message of an old session is ignored.
     epochs: AtomicU64,
     /// This computer's participant id whenever it hosts, the same for every
@@ -92,6 +107,7 @@ impl Default for LiveState {
             status: Mutex::new(LiveStatus::off()),
             role: Mutex::new(Role::Off),
             people: Mutex::new(HashMap::new()),
+            agent_owners: Mutex::new(HashMap::new()),
             epochs: AtomicU64::new(0),
             host_id: OnceLock::new(),
         }
@@ -139,11 +155,28 @@ impl LiveState {
         status.clone()
     }
 
-    fn remember(&self, p: &Participant) {
+    pub(crate) fn remember(&self, p: &Participant) {
         lock(&self.people).insert(p.id.clone(), (p.name.clone(), p.color));
     }
 
-    fn name_of(&self, id: &str) -> Option<String> {
+    /// An agent's name and color, and whom it works for: `owner_id` None
+    /// is this computer's own person.
+    pub(crate) fn remember_agent(&self, p: &Participant, owner_id: Option<Id>, owner_name: &str) {
+        self.remember(p);
+        lock(&self.agent_owners).insert(p.id.clone(), (owner_id, owner_name.to_string()));
+    }
+
+    /// Whom the agent `id` works for (None: this computer's own person).
+    /// None when `id` is no agent this computer met.
+    pub(crate) fn agent_owner(&self, id: &str) -> Option<Option<Id>> {
+        lock(&self.agent_owners).get(id).map(|(owner, _)| owner.clone())
+    }
+
+    pub(crate) fn is_agent(&self, id: &str) -> bool {
+        lock(&self.agent_owners).contains_key(id)
+    }
+
+    pub(crate) fn name_of(&self, id: &str) -> Option<String> {
         lock(&self.people).get(id).map(|(name, _)| name.clone())
     }
 
@@ -153,10 +186,23 @@ impl LiveState {
     /// no author means this computer's own, in and out of a session. Someone
     /// this computer never met keeps the name and color the step came with:
     /// a guest who joined late still sees who left before it came.
-    fn name_steps(&self, list: &mut HistoryList, own: Option<&Id>, unowned: Option<&Id>) {
+    ///
+    /// An agent's step names the person it worked for (`on_behalf_of`,
+    /// DECISIONS D47): `this` is this computer's person, for its own
+    /// agents, and `own` loses it the same way.
+    fn name_steps(&self, list: &mut HistoryList, own: Option<&Id>, unowned: Option<&Id>, this: Option<&Id>) {
         let people = lock(&self.people);
+        let owners = lock(&self.agent_owners);
         for step in list.undo.iter_mut().chain(list.redo.iter_mut()) {
             let author = step.author_id.take().or_else(|| unowned.cloned());
+            // An agent's step is always marked as one, in and out of a
+            // session: the person it worked for by id and name, this
+            // computer's own included, so it never reads as a person's.
+            if let Some((owner_id, owner_name)) = author.as_ref().and_then(|a| owners.get(a)) {
+                step.on_behalf_of = owner_id.clone().or_else(|| this.cloned());
+                let name = if owner_name.is_empty() { OWN_PERSON } else { owner_name.as_str() };
+                step.on_behalf_name = Some(name.to_string());
+            }
             step.author_id = author.filter(|id| Some(id) != own);
             let Some(id) = step.author_id.as_ref() else {
                 step.author_name = None;
@@ -176,7 +222,9 @@ impl LiveState {
     pub(crate) fn history(&self, doc: &Document, copy: Option<&CopyMeta>) -> HistoryList {
         let Some(copy) = copy else {
             let mut list = doc.history();
-            self.name_steps(&mut list, self.host_id.get(), None);
+            // This computer's person has the id it hosts with, session or not.
+            let me = self.host_id.get_or_init(defaults::new_id).clone();
+            self.name_steps(&mut list, Some(&me), None, Some(&me));
             return list;
         };
         let mut list = match &copy.history {
@@ -185,7 +233,7 @@ impl LiveState {
         };
         let status = self.status();
         let host = status.participants.iter().find(|p| p.role == ParticipantRole::Host).map(|p| &p.id);
-        self.name_steps(&mut list, status.self_id.as_ref(), host);
+        self.name_steps(&mut list, status.self_id.as_ref(), host, status.self_id.as_ref());
         list
     }
 
@@ -193,7 +241,7 @@ impl LiveState {
     /// filled in, the host's steps from before the session named as its.
     pub(crate) fn shared_history(&self, doc: &Document, host: &Id) -> HistoryList {
         let mut list = doc.history();
-        self.name_steps(&mut list, None, Some(host));
+        self.name_steps(&mut list, None, Some(host), Some(host));
         list
     }
 
@@ -243,6 +291,11 @@ impl LiveState {
         for step in &stack[..steps] {
             let owner = step.author_id.as_ref().unwrap_or(&host.me.id);
             if owner == requester {
+                continue;
+            }
+            // A step by the requester's own agent is the requester's: your
+            // own agent's steps never ask you (DECISIONS D47).
+            if self.agent_owner(owner).is_some_and(|o| o.as_ref().unwrap_or(&host.me.id) == requester) {
                 continue;
             }
             match theirs.iter_mut().find(|(id, _)| id == owner) {
@@ -302,6 +355,8 @@ fn top_steps(undo: &wire::UndoMeta) -> HistoryList {
         at: String::new(),
         ids: vec![],
         removed: vec![],
+        on_behalf_of: None,
+        on_behalf_name: None,
     };
     HistoryList {
         undo: undo.can_undo.then(|| step(&undo.undo_label, &undo.undo_by)).into_iter().collect(),
@@ -457,17 +512,43 @@ pub fn read_chat(dir: &Path) -> Vec<ChatMessage> {
 
 /// Append one message to `chat.jsonl` in `dir`. Best effort: a chat line that
 /// cannot be written never fails the session. The line goes out in one write,
-/// so two messages never interleave.
+/// so two messages never interleave. Once the file passes `CHAT_MAX_BYTES` it
+/// is rewritten with its newest `CHAT_KEEP` messages, so agents chatting all
+/// day cannot fill the disk.
 pub fn append_chat(dir: &Path, message: &ChatMessage) {
     use std::io::Write;
     let Ok(line) = serde_json::to_string(message) else { return };
+    let _one = lock(&CHAT_WRITE);
+    let path = dir.join(CHAT_FILE);
     let result = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(dir.join(CHAT_FILE))
+        .open(&path)
         .and_then(|mut f| f.write_all(format!("{line}\n").as_bytes()));
     if let Err(e) = result {
         eprintln!("guhit-app: chat message not saved: {e}");
+        return;
+    }
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > CHAT_MAX_BYTES) {
+        cut_chat(&path);
+    }
+}
+
+/// Keep the newest lines of a chat file: at most `CHAT_KEEP`, in at most
+/// half of `CHAT_MAX_BYTES`. Best effort.
+fn cut_chat(path: &Path) {
+    let Ok(text) = std::fs::read_to_string(path) else { return };
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let budget = (CHAT_MAX_BYTES / 2) as usize;
+    let (mut start, mut bytes) = (lines.len(), 0usize);
+    while start > 0 && lines.len() - start < CHAT_KEEP && bytes + lines[start - 1].len() < budget {
+        start -= 1;
+        bytes += lines[start].len() + 1;
+    }
+    let mut out = lines[start..].join("\n");
+    out.push('\n');
+    if let Err(e) = files::write_atomic(path, out.as_bytes()) {
+        eprintln!("guhit-app: the chat could not be cut to its newest messages: {}", e.message);
     }
 }
 
@@ -508,6 +589,134 @@ pub(crate) async fn guest_apply(
     expected_revision: Option<u32>,
 ) -> Result<ApplyResult, IpcError> {
     guest::apply(app, command, origin, expected_revision).await
+}
+
+/// `guest_apply` for an agent of this computer: the host records `agent` as
+/// the author when it knows agents (the "agents" feature); an older host
+/// records the guest.
+pub(crate) async fn guest_apply_as(
+    app: &AppService,
+    command: Command,
+    origin: Origin,
+    expected_revision: Option<u32>,
+    agent: Option<Id>,
+) -> Result<ApplyResult, IpcError> {
+    guest::apply_as(app, command, origin, expected_revision, agent).await
+}
+
+/// `guest_step` for an agent of this computer, which checked that the step
+/// is its own.
+pub(crate) async fn guest_step_as(
+    app: &AppService,
+    redo: bool,
+    force: bool,
+    steps: u32,
+    expected_revision: Option<u32>,
+) -> Result<DocState, IpcError> {
+    guest::step(app, redo, force, steps, expected_revision).await
+}
+
+/// True on a guest whose host knows agents (its welcome listed "agents").
+pub(crate) fn host_knows_agents(app: &AppService) -> bool {
+    match app.live.role() {
+        Role::Guest(guest) => guest.host_knows_agents(),
+        _ => false,
+    }
+}
+
+/// An agent's chat message, posted as the agent (`author`): in a live
+/// session to everyone, without one to the project's `chat.jsonl` and this
+/// window (DECISIONS D47). `text` is checked already.
+pub(crate) async fn agent_chat(
+    app: &AppService,
+    author: Participant,
+    text: &str,
+    at: Option<Point>,
+    level_id: Option<Id>,
+) -> Result<ChatMessage, IpcError> {
+    match app.live.role() {
+        Role::Off => {
+            let dir = app.project_dir().await.ok_or_else(crate::no_document)?;
+            let message = ChatMessage {
+                id: defaults::new_id(),
+                author_id: author.id,
+                author_name: author.name,
+                color: author.color,
+                text: text.to_string(),
+                sent_at: defaults::now_rfc3339(),
+                at,
+                level_id,
+                via_ai: true,
+            };
+            append_chat(&dir, &message);
+            app.emit(AppEvent::Chat { message: message.clone() });
+            Ok(message)
+        }
+        Role::Host(host) => host::chat_by(app, &host, author, text, at, level_id, true),
+        Role::Guest(guest) => guest.chat_as(text, at, level_id, author.id).await,
+    }
+}
+
+/// The agents list changed: the host sends each guest that knows agents
+/// everyone's but that guest's own; a guest sends the host its own.
+pub(crate) fn send_agents(
+    live: &LiveState,
+    local: &[AgentSummary],
+    remote: &std::collections::BTreeMap<Id, Vec<AgentSummary>>,
+) {
+    match live.role() {
+        Role::Off => {}
+        Role::Host(host) => host.send_agents(local, remote),
+        Role::Guest(guest) => guest.send_agents(local),
+    }
+}
+
+/// Agents as another computer shows them, cut to what may travel: agent
+/// ids only, clean names and presence, at most `max`. With `owner` (on the
+/// host, the guest that sent them) every one is that guest's.
+pub(crate) fn clean_agents(list: Vec<AgentSummary>, owner: Option<&Participant>, max: usize) -> Vec<AgentSummary> {
+    let cut = |s: &str, n: usize| s.chars().filter(|c| !c.is_control()).take(n).collect::<String>();
+    let mut out: Vec<AgentSummary> = vec![];
+    for mut a in list {
+        let id = a.participant.id.clone();
+        let fine = id.starts_with("agent-") && files::check_id(&id, "agent").is_ok();
+        if !fine || out.iter().any(|o| o.participant.id == id) {
+            continue;
+        }
+        let Some(info) = a.participant.agent.as_mut() else { continue };
+        if let Some(owner) = owner {
+            info.owner_id = Some(owner.id.clone());
+            info.owner_name = owner.name.clone();
+        }
+        info.owner_name = clean_name(&info.owner_name);
+        info.client = cut(&info.client, 100);
+        info.client_version = cut(&info.client_version, 100);
+        a.participant.name = clean_name(&a.participant.name);
+        if a.participant.name.is_empty() {
+            continue;
+        }
+        a.participant.color %= PEER_COLOR_COUNT;
+        a.participant.role = ParticipantRole::Guest;
+        a.presence = clean_presence(a.presence);
+        a.presence.status = a.presence.status.map(|t| cut(&t, 80));
+        a.presence.typing = None;
+        if let Some(limit) = a.limit.as_mut() {
+            limit.level_ids.truncate(64);
+            limit.ids.truncate(MAX_PRESENCE_SELECTION);
+            limit.kinds.truncate(32);
+        }
+        if let Some(claim) = a.claim.as_mut() {
+            claim.level_ids.truncate(64);
+            claim.ids.truncate(MAX_PRESENCE_SELECTION);
+            claim.expires_at = cut(&claim.expires_at, 40);
+        }
+        a.last_call_at = cut(&a.last_call_at, 40);
+        out.push(a);
+        if out.len() >= max {
+            break;
+        }
+    }
+    out
 }
 
 /// A live session guest's undo or redo of `steps` steps, on the host's
@@ -795,6 +1004,35 @@ mod tests {
         assert_eq!(chat.len(), CHAT_HISTORY);
         assert_eq!(chat[0].id, "m3");
         assert_eq!(chat.last().unwrap().id, format!("m{}", CHAT_HISTORY + 2));
+    }
+
+    #[test]
+    fn the_chat_file_keeps_its_newest_messages_once_it_grows_past_its_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let message = |i: usize| ChatMessage {
+            id: format!("m{i}"),
+            author_id: "agent-1".into(),
+            author_name: "Ground floor".into(),
+            color: 1,
+            text: "x".repeat(MAX_CHAT_CHARS),
+            sent_at: "2026-11-04T00:00:00Z".into(),
+            at: None,
+            level_id: None,
+            via_ai: true,
+        };
+        // About 2 KB a message: well past the limit.
+        let total = CHAT_MAX_BYTES as usize / 2000 + 50;
+        for i in 0..total {
+            append_chat(dir.path(), &message(i));
+        }
+        let size = std::fs::metadata(dir.path().join(CHAT_FILE)).unwrap().len();
+        assert!(size <= CHAT_MAX_BYTES, "{size}");
+        let text = std::fs::read_to_string(dir.path().join(CHAT_FILE)).unwrap();
+        let ids: Vec<String> = text.lines().map(|l| serde_json::from_str::<ChatMessage>(l).unwrap().id).collect();
+        assert!(ids.len() <= CHAT_KEEP && !ids.is_empty());
+        assert_eq!(ids.last().unwrap(), &format!("m{}", total - 1), "the newest is kept");
+        let first: usize = ids[0][1..].parse().unwrap();
+        assert_eq!(first + ids.len(), total, "a run of the newest, none lost in between");
     }
 
     #[tokio::test]

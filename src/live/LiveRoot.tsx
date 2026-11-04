@@ -1,10 +1,13 @@
 // Mounted once by App.tsx, for the hub and the editor alike: starts the live
 // session wiring and shows the live session's dialogs, the question before
 // taking back someone else's step, and the one before leaving a hosted
-// session.
+// session. Also starts the agents wiring and shows the Agents panel
+// (DECISIONS D47), which work with or without a live session.
 import { useEffect } from "react";
 import { leaveEditor } from "../shell/actions";
 import { useApp } from "../state/store";
+import { AgentsPanelRoot } from "./AgentsPanel";
+import { startAgents } from "./agentsWiring";
 import { ChatPeek } from "./ChatPeek";
 import { ConfirmDialog } from "../ui/Dialog";
 import { Presence, useLastTruthy } from "../ui/motionDom";
@@ -17,6 +20,7 @@ import { startLive } from "./wiring";
 export function LiveRoot() {
   // After boot, never at module load: the dev harness installs first.
   useEffect(() => startLive(), []);
+  useEffect(() => startAgents(), []);
   const dialog = useLive((st) => st.dialog);
   const lastDialog = useLastTruthy(dialog);
   return (
@@ -27,6 +31,7 @@ export function LiveRoot() {
       <UndoConfirm />
       <LeaveConfirm />
       <ChatPeek />
+      <AgentsPanelRoot />
     </>
   );
 }

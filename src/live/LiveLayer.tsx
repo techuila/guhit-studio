@@ -12,6 +12,11 @@
 // own draw pass), so a pan or zoom moves every cursor at once with no
 // transition. Nothing here runs a frame loop. Only a changed selection
 // redraws the canvas.
+//
+// Agents (DECISIONS D47) show here with or without a live session: their
+// cursors and claims (AgentCursors.tsx), and outlines in their color for
+// what they work on, what they just changed (fading) and what they claimed
+// (faint).
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -27,6 +32,9 @@ import { useLastTruthy } from "../ui/motionDom";
 import { play } from "../ui/motionWaapi";
 import { useListPresence } from "../ui/useListPresence";
 import { useViewer } from "../viewer3d/viewerStore";
+import { AgentCursors } from "./AgentCursors";
+import { withAlpha } from "./agents";
+import { useAgents } from "./agentsStore";
 import { attachPlan } from "./follow";
 import { CURSOR_CHAT_MAX, canChat, cursorIds, participant, peerIndex, peerSelections, peerVar } from "./format";
 import { SENT_MS, useLive } from "./liveStore";
@@ -63,7 +71,7 @@ function registerGlide(): void {
 }
 
 /** Where every cursor is, so a view change can flip labels at the canvas edge. */
-class CursorBoard {
+export class CursorBoard {
   view: View | null = null;
   width = 0;
   height = 0;
@@ -133,6 +141,7 @@ export function LiveLayer({ controller, rootRef }: { controller: PlanController;
 
   return (
     <div ref={layerRef} className={s.layer} data-stale={stale || undefined}>
+      {board ? <AgentCursors board={board} /> : null}
       {board ? <RemoteCursors board={board} /> : null}
       {board ? <CursorChat controller={controller} board={board} rootRef={rootRef} /> : null}
     </div>
@@ -165,6 +174,16 @@ function usePeerSelections(controller: PlanController, rootRef: RefObject<HTMLDi
     const push = () => {
       const st = useLive.getState();
       const list = peerSelections(st.status, st.peers).map((p) => ({ id: p.id, color: colorOf(p.color), ids: p.ids }));
+      // Agents: what each claimed (faint), what it just changed (fading), what it works on.
+      const agents = useAgents.getState();
+      for (const a of agents.views) {
+        if (a.activity === "stopped") continue;
+        const color = colorOf(a.color);
+        if (a.claim && a.claim.ids.length > 0) list.push({ id: `agent-claim:${a.id}`, color: withAlpha(color, 0.35), ids: a.claim.ids });
+        const trail = agents.trails[a.id];
+        if (trail && trail.ids.length > 0) list.push({ id: `agent-trail:${a.id}`, color: withAlpha(color, trail.strength), ids: trail.ids });
+        if (a.presence.selection.length > 0) list.push({ id: `agent:${a.id}`, color, ids: a.presence.selection });
+      }
       const tint = useApp.getState().historyTint;
       if (tint && tint.ids.length > 0) list.push({ id: HISTORY_TINT, color: tint.color === null ? resolve("--accent", "#0e8a8f") : colorOf(tint.color), ids: tint.ids });
       controller.setPeerSelections(list);
@@ -174,11 +193,15 @@ function usePeerSelections(controller: PlanController, rootRef: RefObject<HTMLDi
     const offLive = useLive.subscribe((st, prev) => {
       if (st.peers !== prev.peers || st.status !== prev.status) push();
     });
+    const offAgents = useAgents.subscribe((st, prev) => {
+      if (st.views !== prev.views || st.trails !== prev.trails) push();
+    });
     const offApp = useApp.subscribe((st, prev) => {
       if (st.historyTint !== prev.historyTint) push();
     });
     return () => {
       offLive();
+      offAgents();
       offApp();
     };
   }, [controller, rootRef]);

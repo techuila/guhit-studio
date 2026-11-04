@@ -45,12 +45,42 @@ export function setLeafOpen(obj: THREE.Object3D, tag: DoorLeafTag, open: number)
   else obj.position.x = tag.closedX + open * (tag.openX - tag.closedX);
 }
 
+/** Door casings (architraves): 70 mm wide, 18 mm proud of the wall face. */
+const CASING_W = 0.07;
+const CASING_T = 0.018;
+/** Window surround on the outside face: 70 mm wide, 20 mm proud. */
+const SURROUND_W = 0.07;
+const SURROUND_T = 0.02;
+/** Outside sill: 35 mm thick, 50 mm past the wall face, 60 mm past each jamb. */
+const SILL_T = 0.035;
+const SILL_OUT = 0.05;
+const SILL_EAR = 0.06;
+/** Inside stool: 25 mm thick, 30 mm into the room. */
+const STOOL_T = 0.025;
+const STOOL_OUT = 0.03;
+
+export interface OpeningTrim {
+  /**
+   * Which side of the wall is outdoors, in the opening's frame: 1 the right
+   * of the wall direction (+z), -1 the left, 0 neither or not known (both
+   * faces are treated as inside). Windows get their sill and surround there.
+   */
+  exteriorSide: -1 | 0 | 1;
+}
+
+/**
+ * Everything but the leaves and sashes, which stay their own groups. With
+ * `trim`, the trim of a finished opening goes on too: casings on both faces
+ * of a door; a projecting sill and a plaster surround outside a window and
+ * a stool inside it. Ghosts and other quick forms leave it out.
+ */
 export function buildOpening(
   kit: Kit,
   lib: MaterialLibrary,
   o: Opening,
   wall: Wall,
   elevationMm: number,
+  trim: OpeningTrim | null = null,
 ): THREE.Group | null {
   const dx = wall.end.x - wall.start.x;
   const dy = wall.end.y - wall.start.y;
@@ -94,6 +124,36 @@ export function buildOpening(
   box(group, frameMat, FRAME, h, depth, x1 - FRAME / 2, sill, 0);
   box(group, frameMat, w - 2 * FRAME, FRAME, depth, u0, sill + h - FRAME, 0);
   if (!isDoor) box(group, frameMat, w - 2 * FRAME, FRAME, depth + 0.04, u0, sill, 0);
+
+  if (trim) {
+    if (isDoor) {
+      for (const s of [-1, 1]) {
+        const z = s * (t / 2 + CASING_T / 2);
+        box(group, frameMat, CASING_W, h + CASING_W, CASING_T, x0 - CASING_W / 2, sill, z);
+        box(group, frameMat, CASING_W, h + CASING_W, CASING_T, x1 + CASING_W / 2, sill, z);
+        box(group, frameMat, w, CASING_W, CASING_T, u0, sill + h, z);
+      }
+    } else {
+      const plaster = lib.plain("#efece5", 0.85);
+      const stone = lib.get("mat-tile-granite", undefined, false);
+      const outside = trim.exteriorSide === 0 ? [] : [trim.exteriorSide];
+      const inside = trim.exteriorSide === 0 ? [-1, 1] : [-trim.exteriorSide];
+      for (const s of outside) {
+        const reach = t / 2 + SILL_OUT;
+        if (sill > SILL_T + 0.01) box(group, plaster, w + 2 * SILL_EAR, SILL_T, reach, u0, sill - SILL_T, (s * reach) / 2);
+        const z = s * (t / 2 + SURROUND_T / 2);
+        box(group, plaster, SURROUND_W, h + SURROUND_W, SURROUND_T, x0 - SURROUND_W / 2, sill, z);
+        box(group, plaster, SURROUND_W, h + SURROUND_W, SURROUND_T, x1 + SURROUND_W / 2, sill, z);
+        box(group, plaster, w, SURROUND_W, SURROUND_T, u0, sill + h, z);
+      }
+      if (sill > STOOL_T + 0.01) {
+        for (const s of inside) {
+          const reach = t / 2 + STOOL_OUT;
+          box(group, stone, w + 2 * STOOL_OUT, STOOL_T, reach, u0, sill - STOOL_T, (s * reach) / 2);
+        }
+      }
+    }
+  }
 
   const clearW = w - 2 * FRAME;
   const clearH = isDoor ? h - FRAME : h - 2 * FRAME;

@@ -35,9 +35,9 @@ const status: LiveStatus = {
   mode: "hosting",
   self_id: "me",
   participants: [
-    { id: "me", name: "Mara", color: 0, role: "host" },
-    { id: "ana", name: "Ana Reyes", color: 1, role: "guest" },
-    { id: "ben", name: "Ben Cruz", color: 2, role: "guest" },
+    { id: "me", name: "Mara", color: 0, role: "host", agent: null },
+    { id: "ana", name: "Ana Reyes", color: 1, role: "guest", agent: null },
+    { id: "ben", name: "Ben Cruz", color: 2, role: "guest", agent: null },
   ],
   project_id: "p",
 };

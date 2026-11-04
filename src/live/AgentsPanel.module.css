@@ -1,0 +1,908 @@
+/* The Agents panel and its review tab (DECISIONS D47). Tokens only; motion
+   per docs/MOTION.md, "Agents". --peer is a row's agent color, --who a
+   review group's. No colored side borders: state shows as a tint, a pill or
+   a dot. */
+
+.panel {
+  position: fixed;
+  z-index: 300;
+  top: calc(var(--topbar-h) + 8px);
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  width: 412px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - var(--topbar-h) - 56px);
+  border: 1px solid rgba(20, 40, 63, 0.16);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  color: var(--ink);
+  font-size: var(--text-md);
+  transform-origin: top right;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.panel:focus,
+.panel:focus-visible {
+  outline: none;
+}
+
+/* Grows from the top right, under the agents button. */
+.panel[data-stage="enter"] {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.96);
+}
+
+.panel[data-stage="exit"] {
+  opacity: 0;
+  transform: translateY(-2px) scale(0.97);
+  pointer-events: none;
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.headMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--ai-soft);
+  color: var(--ai);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.tabs {
+  margin-left: auto;
+}
+
+.close {
+  width: 24px;
+  height: 24px;
+}
+
+/* A tab's content cross-fades in with a small rise. */
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: tab-in var(--dur-base) var(--ease-out);
+}
+
+@keyframes tab-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 8px;
+}
+
+.toolbar > :last-child {
+  margin-left: auto;
+}
+
+.glyph {
+  flex: none;
+}
+
+/* The Button component wraps its words in a span: keep the glyph beside them. */
+.toolbar button > span,
+.actions button > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-strong);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition:
+    color var(--dur-hover) var(--ease-out),
+    text-decoration-color var(--dur-hover) var(--ease-out);
+}
+
+.linkButton:hover {
+  color: var(--accent);
+  text-decoration-color: currentColor;
+}
+
+.linkButton:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ------------------------------------------------------------ agent rows */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 12px 8px;
+  list-style: none;
+}
+
+/* Rows rise in once when the panel opens (staggered by --i, at most 8), a
+   new agent rises alone, an agent that goes folds away. */
+.row {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: row-in var(--dur-base) var(--ease-out) backwards;
+  animation-delay: calc(var(--i, 0) * 30ms);
+  transition:
+    grid-template-rows calc(var(--dur-base) * 0.7) var(--ease-in),
+    opacity calc(var(--dur-base) * 0.7) var(--ease-in);
+}
+
+.rowEnter {
+  animation-delay: 0ms;
+}
+
+.rowLeave {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* A hairline card; paused and stopped agents get a warm or grey tint. */
+.rowInner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 10px 10px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  transition:
+    background var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out);
+}
+
+.row:hover .rowInner {
+  border-color: var(--line-strong);
+}
+
+.row[data-activity="paused"] .rowInner {
+  background: color-mix(in srgb, var(--warn) 6%, var(--surface));
+}
+
+.row[data-activity="stopped"] .rowInner {
+  background: var(--surface-2);
+}
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rowAvatar {
+  --avatar-ring: var(--surface);
+}
+
+.who {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nameButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin: -2px -4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: text;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.nameButton:hover {
+  background: var(--surface-2);
+}
+
+.nameButton:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.namePencil {
+  flex: none;
+  color: var(--ink-3);
+  opacity: 0;
+  transform: translateX(-2px);
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-out);
+}
+
+.nameButton:hover .namePencil,
+.nameButton:focus-visible .namePencil {
+  opacity: 1;
+  transform: none;
+}
+
+.nameInput {
+  width: 100%;
+  margin: -3px -5px;
+  padding: 2px 5px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  animation: name-in var(--dur-hover) var(--ease-out);
+}
+
+@keyframes name-in {
+  from {
+    box-shadow: 0 0 0 0 var(--accent-soft);
+  }
+}
+
+.whoMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.client {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-weight: 550;
+  line-height: 16px;
+}
+
+.follow {
+  flex: none;
+  width: 28px;
+  height: 28px;
+}
+
+.statusLine {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--peer) 8%, var(--surface));
+  font-size: var(--text-sm);
+}
+
+.statusText {
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: fade-in var(--dur-hover) var(--ease-out);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.statusMeta {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------ limits */
+
+.limits {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.limitChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border: 1px solid color-mix(in srgb, var(--ai) 30%, var(--line));
+  border-radius: 999px;
+  background: var(--ai-soft);
+  color: var(--ai);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  animation: chip-in var(--dur-base) var(--ease-spring);
+}
+
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+.limitChip:not(:has(button)) {
+  padding-right: 8px;
+}
+
+.limitRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.limitRemove:hover {
+  background: rgba(107, 79, 187, 0.16);
+}
+
+.limitRemove:active {
+  transform: scale(0.88);
+}
+
+.limitAdd {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.limitAdd:hover,
+.limitAddOn {
+  border-style: solid;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.limitAdd:active {
+  transform: scale(var(--press-scale));
+}
+
+.noLimit {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+/* The limit editor opens by height (grid rows 0fr to 1fr, MOTION.md rule 5). */
+.reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: -8px;
+  transition:
+    grid-template-rows var(--dur-base) var(--ease-out),
+    margin-top var(--dur-base) var(--ease-out);
+}
+
+.revealOpen {
+  grid-template-rows: 1fr;
+  margin-top: 0;
+}
+
+.revealClip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.limitEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.limitGroup {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: start;
+  gap: 6px;
+}
+
+.limitLabel {
+  padding-top: 4px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.toggle:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.toggle:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+
+.toggle:disabled {
+  opacity: 0.55;
+}
+
+.toggleOn,
+.toggleOn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ai) 40%, var(--line));
+  background: var(--ai-soft);
+  color: var(--ai);
+}
+
+.limitHint {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.limitHint .linkButton {
+  font-size: inherit;
+}
+
+/* ------------------------------------------------------------ actions */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.actionsEnd {
+  display: inline-flex;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.remote {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+/* ------------------------------------------------------------ empty and foot */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 26px 24px 22px;
+  text-align: center;
+  animation: tab-in var(--dur-base) var(--ease-out);
+}
+
+.emptyMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  border-radius: 12px;
+  background: var(--ai-soft);
+  color: var(--ai);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.emptyText {
+  max-width: 320px;
+  margin: 0 0 8px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.foot {
+  margin: 0;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.foot .linkButton {
+  font-size: inherit;
+}
+
+/* ------------------------------------------------------------ review */
+
+.review {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.reviewHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 6px;
+}
+
+.reviewHead > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.reviewCount {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 12px 10px;
+}
+
+.group {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  animation: row-in var(--dur-base) var(--ease-out) backwards;
+  animation-delay: calc(var(--i, 0) * 30ms);
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--who) 8%, var(--surface));
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.groupHead:hover {
+  background: color-mix(in srgb, var(--who) 14%, var(--surface));
+}
+
+.groupAvatar {
+  --avatar-ring: var(--surface);
+}
+
+.groupText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.groupName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.aiTag {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--ai-soft);
+  color: var(--ai);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 15px;
+}
+
+.groupMeta {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.groupShow {
+  flex: none;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.groupShow:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.groupShow:active {
+  transform: scale(var(--press-scale));
+}
+
+.steps {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+
+.step {
+  animation: row-in var(--dur-base) var(--ease-out) backwards;
+}
+
+.stepInner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.stepInner:hover,
+.stepInner:has(:focus-visible) {
+  background: var(--surface-2);
+}
+
+.stepMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  transition: transform var(--dur-press) var(--ease-out);
+}
+
+.stepMain:active {
+  transform: scale(0.99);
+}
+
+.stepMain:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.stepLabel {
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stepMeta {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.stepDetail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stepMeta > span + span::before {
+  content: "\00b7";
+  margin-right: 6px;
+  color: var(--line-strong);
+}
+
+/* "Undo to here" slides in on hover or keyboard focus, as in History. */
+.undoTo.undoTo {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  translate: 0 -50%;
+  box-shadow: -14px 0 10px -2px var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  cursor: default;
+  opacity: 0;
+  transform: translateX(4px);
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-out),
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out);
+}
+
+.stepInner:hover .undoTo,
+.stepInner:has(:focus-visible) .undoTo {
+  opacity: 1;
+  transform: none;
+}
+
+.undoTo:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.undoTo:active {
+  transform: scale(var(--press-scale));
+}
+
+.undoTo:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.more {
+  margin: 0 0 8px 12px;
+  font-size: var(--text-xs);
+}
+
+/* "Undo to here" asks first: one line per author whose steps go. */
+.askLead {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.askLine {
+  display: block;
+  padding: 3px 0 3px 10px;
+  font-weight: 550;
+}
+
+.askLine::before {
+  content: "\00b7";
+  margin-right: 8px;
+  color: var(--ink-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row,
+  .group,
+  .step,
+  .body,
+  .empty,
+  .limitChip,
+  .statusText,
+  .nameInput {
+    animation: none;
+  }
+}

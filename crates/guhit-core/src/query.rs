@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use guhit_model::*;
 use serde_json::{json, Value};
 
+use crate::slabs;
 use crate::derive::derived_from;
 use crate::error::CoreError;
 use crate::exec::kind_noun;
@@ -39,9 +40,24 @@ struct Ctx<'a> {
     project: &'a Project,
     analysis: Analysis,
     assigned: BTreeMap<Id, FaceRef>,
+    /// What voids, balconies and decks do to areas, so every area here is
+    /// the one the plan and `Derived` show (docs/CONTRACT.md, "Slabs and
+    /// railings").
+    slab_areas: slabs::SlabAreas,
 }
 
 impl<'a> Ctx<'a> {
+    /// A room's net area less what a void covers, as `RoomGeometry::area_mm2`.
+    fn room_area(&self, r: &Room) -> Option<f64> {
+        self.assigned.get(&r.id).map(|f| self.slab_areas.room_area(face(&self.analysis, *f)))
+    }
+
+    /// The part of a room that counts as floor area: less voids, balconies
+    /// and decks, as `Totals::floor_area_m2` sums it.
+    fn room_floor_area(&self, r: &Room) -> Option<f64> {
+        self.assigned.get(&r.id).map(|f| self.slab_areas.room_floor_area(face(&self.analysis, *f)))
+    }
+
     fn level_name(&self, id: &str) -> String {
         self.project
             .levels
@@ -135,7 +151,17 @@ impl<'a> Ctx<'a> {
             })
             .collect();
         v["enclosed"] = json!(true);
-        v["net_area_m2"] = json!(m2(f.area_mm2));
+        let net = self.slab_areas.room_area(f);
+        v["net_area_m2"] = json!(m2(net));
+        // Only when slabs change it: the part a void takes away, and what
+        // counts as floor area once balconies and decks are left out.
+        if (f.area_mm2 - net).abs() > 0.5 {
+            v["void_area_m2"] = json!(m2(f.area_mm2 - net));
+        }
+        let floor = self.slab_areas.room_floor_area(f);
+        if (floor - net).abs() > 0.5 {
+            v["floor_area_m2"] = json!(m2(floor));
+        }
         v["centerline_area_m2"] = json!(m2(f.centerline_area_mm2));
         v["perimeter_mm"] = json!(mm(f.perimeter_mm));
         v["clear_width_x_mm"] = json!(mm(hi.x - lo.x));
@@ -228,10 +254,30 @@ impl<'a> Ctx<'a> {
                 "width_mm": mm(c.width_mm), "depth_mm": mm(c.depth_mm),
                 "rotation_deg": r2(c.rotation_deg), "material": self.material_name(&c.material_id),
             }),
-            Element::Stair(s) => json!({
-                "id": s.id, "kind": "stair", "level": self.level_name(&s.level_id),
-                "origin": point(s.origin), "rotation_deg": r2(s.rotation_deg),
-                "width_mm": mm(s.width_mm), "run_mm": mm(s.run_mm), "riser_count": s.riser_count,
+            Element::Stair(s) => {
+                // D44: n risers make n - 1 treads; the top riser lands on the
+                // floor above.
+                let rise = self.project.levels.iter().find(|l| l.id == s.level_id).map(|l| l.height_mm).unwrap_or(0.0);
+                let treads = s.riser_count.saturating_sub(1);
+                json!({
+                    "id": s.id, "kind": "stair", "level": self.level_name(&s.level_id),
+                    "origin": point(s.origin), "rotation_deg": r2(s.rotation_deg),
+                    "width_mm": mm(s.width_mm), "run_mm": mm(s.run_mm), "riser_count": s.riser_count,
+                    "tread_count": treads,
+                    "tread_mm": if treads > 0 { Value::from(mm(s.run_mm / treads as f64)) } else { Value::Null },
+                    "riser_mm": mm(rise / s.riser_count.max(1) as f64),
+                    "arrives_at": slabs::stair_top_level(self.project, s).map(|l| l.name.clone()),
+                    "railing": s.railing.map(|r| json!({ "height_mm": mm(r.height_mm), "style": enum_str(&r.style) })),
+                })
+            }
+            Element::Slab(s) => json!({
+                "id": s.id, "kind": "slab", "slab_kind": enum_str(&s.kind), "level": self.level_name(&s.level_id),
+                "polygon": s.polygon.iter().map(|p| point(*p)).collect::<Vec<_>>(),
+                "thickness_mm": mm(s.thickness_mm), "top_offset_mm": mm(s.top_offset_mm),
+                "material": self.material_name(&s.material_id),
+                "area_m2": r2(crate::geom::signed_area(&s.polygon).abs() / 1.0e6),
+                "railing_mm": s.railing.map(|r| mm(r.height_mm)),
+                "railing_style": s.railing.map(|r| enum_str(&r.style)),
             }),
             Element::Asset(a) => {
                 let room = self
@@ -494,6 +540,7 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
         project,
         analysis,
         assigned,
+        slab_areas: slabs::SlabAreas::new(project),
     };
     let rooms = || {
         project.elements.iter().filter_map(|e| match e {
@@ -511,17 +558,20 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
                 .levels
                 .iter()
                 .map(|l| {
+                    // As the totals count them: voids, balconies and decks
+                    // come off (docs/CONTRACT.md, "Slabs and railings").
                     let room_area: f64 = rooms()
                         .filter(|r| r.level_id == l.id)
-                        .filter_map(|r| ctx.assigned.get(&r.id))
-                        .map(|f| face(&ctx.analysis, *f).area_mm2)
+                        .filter_map(|r| ctx.room_floor_area(r))
                         .sum();
-                    let gross: f64 = derived
-                        .footprints
-                        .iter()
-                        .filter(|f| f.level_id == l.id)
-                        .map(|f| f.area_mm2)
-                        .sum();
+                    let gross: f64 = ctx.slab_areas.gross_area(&ctx.analysis, &l.id).unwrap_or_else(|| {
+                        derived
+                            .footprints
+                            .iter()
+                            .filter(|f| f.level_id == l.id)
+                            .map(|f| f.area_mm2)
+                            .sum()
+                    });
                     json!({
                         "id": l.id,
                         "name": l.name,
@@ -553,7 +603,7 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
                 "rooms": rooms().map(|r| json!({
                     "id": r.id,
                     "name": r.name,
-                    "net_area_m2": ctx.assigned.get(&r.id).map(|f| m2(face(&ctx.analysis, *f).area_mm2)),
+                    "net_area_m2": ctx.room_area(r).map(m2),
                 })).collect::<Vec<_>>(),
                 "roof": { "kind": enum_str(&project.roof.kind), "pitch_deg": r2(project.roof.pitch_deg), "overhang_mm": mm(project.roof.overhang_mm) },
                 "default_wall_thickness_mm": mm(project.settings.default_wall_thickness_mm),
@@ -591,7 +641,7 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
                     "name": r.name,
                     "usage": enum_str(&r.usage),
                     "usage_label": usage_label(r.usage),
-                    "net_area_m2": m2(f.area_mm2),
+                    "net_area_m2": m2(ctx.slab_areas.room_area(f)),
                     "outside_wall_ids": outside,
                     "can_get_a_window": !outside.is_empty(),
                 }));

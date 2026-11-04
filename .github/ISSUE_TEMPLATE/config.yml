@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/techuila/guhit-studio/security/advisories/new
+    about: Private report. Please do not open a public issue for a vulnerability.
+  - name: Read the docs first
+    url: https://github.com/techuila/guhit-studio/tree/main/docs
+    about: Shortcuts, MCP setup, file formats, live sessions.

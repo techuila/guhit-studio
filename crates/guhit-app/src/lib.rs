@@ -8,6 +8,7 @@
 //! The backend agent owns this crate except `src/ai/` (the copilot) and
 //! `src/render_ai/` (Tier 2 image generation), which the AI agents own.
 
+pub mod agents;
 pub mod ai;
 pub mod files;
 pub mod interop;
@@ -101,6 +102,9 @@ pub struct AppService {
     /// transports in `guhit-mcp`, the dev bridge and the desktop shell report
     /// into it.
     pub mcp: Arc<mcp::McpState>,
+    /// The agents working through MCP, with or without a live session
+    /// (DECISIONS D47, `agents`).
+    pub agents: Arc<agents::AgentsState>,
 }
 
 /// Deserialize one named argument out of the args object.
@@ -304,6 +308,8 @@ impl AppService {
     fn build(data_dir: PathBuf, external_paths: bool) -> Self {
         let (changes, _) = watch::channel(DocChange { revision: 0, project_id: None, seq: 0 });
         let (events, _) = broadcast::channel(EVENT_BUFFER);
+        let live = Arc::new(live::LiveState::default());
+        let agents = Arc::new(agents::AgentsState::new(data_dir.clone(), events.clone(), &live));
         Self {
             ai: Arc::new(ai::AiState::for_data_dir(&data_dir)),
             render_ai: Arc::new(render_ai::RenderAiState::for_data_dir(&data_dir)),
@@ -321,8 +327,9 @@ impl AppService {
             change_seq: Arc::new(AtomicU64::new(0)),
             events,
             window: Arc::new(window::WindowState::default()),
-            live: Arc::new(live::LiveState::default()),
+            live,
             lan: external_paths,
+            agents,
         }
     }
 
@@ -361,6 +368,10 @@ impl AppService {
         let seq = self.change_seq.fetch_add(1, Ordering::Relaxed) + 1;
         self.changes.send_replace(DocChange { revision, project_id: project_id.clone(), seq });
         live::after_doc_change(self, project_id.as_deref());
+        // Agents' limits and claims name one project's levels and elements.
+        if let Some(doc) = s.doc.as_ref() {
+            self.agents.project_opened(doc.project());
+        }
     }
 
     /// The `seq` of the last change notification. Read under the session
@@ -551,7 +562,11 @@ impl AppService {
             return window::handle(self, cmd, args).await;
         }
         if mcp::OWNS.contains(&cmd) {
-            return mcp::handle(self, cmd, args).await;
+            let out = mcp::handle(self, cmd, args).await?;
+            return Ok(agents::with_agents(self, cmd, out));
+        }
+        if agents::OWNS.contains(&cmd) {
+            return agents::handle(self, cmd, args).await;
         }
         match cmd {
             // ------------------------------------------------------ library

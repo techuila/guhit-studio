@@ -13,8 +13,10 @@ import type {
   Linework,
   Opening,
   PipeSystem,
+  RailingRun,
   ReferenceModel,
   Room,
+  Slab,
   Stair,
   Underlay,
   Wall,
@@ -26,6 +28,7 @@ import type { DocIndex } from "./model";
 import { ANNOTATION_LINE, dimensionGeometry, elementShape, openingFrame, openingRect, stairOutline, symbolMmOf, wallOutline } from "./model";
 import type { PipePlan, PipeShape } from "./pipe";
 import { lineSetPx, pipeBandHalfPx, pipePlan, pipeRiserRadiusPx, pipeWidthPx } from "./pipe";
+import { labelPoint, railingPlan, stairTreadOffsets, voidCross } from "./slab";
 import { drawAssetSymbol } from "./symbols";
 import type { Box } from "./tags";
 import { boxAround } from "./tags";
@@ -428,9 +431,27 @@ export function drawRoomFill(rc: RenderContext, room: Room, style: ElementStyle 
     ctx.globalAlpha = a;
     ctx.fillStyle = palette.roomFill;
   }
+  // A stair arriving from below is an opening: the fill leaves it clear (D44).
+  if (rc.index.arriving.length > 0) clipOutWells(rc);
   path(rc, g.polygon);
   ctx.fill();
   ctx.restore();
+}
+
+/** Clips to everything but the openings of the stairs that arrive on this level. */
+function clipOutWells(rc: RenderContext): void {
+  const { ctx, view } = rc;
+  ctx.beginPath();
+  ctx.rect(-1, -1, rc.width + 2, rc.height + 2);
+  for (const st of rc.index.arriving) {
+    stairOutline(st.origin, st.rotation_deg, st.width_mm, st.run_mm).forEach((p, i) => {
+      const q = toScreen(view, p);
+      if (i === 0) ctx.moveTo(q.x, q.y);
+      else ctx.lineTo(q.x, q.y);
+    });
+    ctx.closePath();
+  }
+  ctx.clip("evenodd");
 }
 
 export function drawRoomLabel(rc: RenderContext, room: Room, style: ElementStyle | null): void {
@@ -506,11 +527,10 @@ export function drawStair(rc: RenderContext, s: Stair, style: ElementStyle | nul
     ctx.restore();
   }
   ctx.stroke();
-  // Contract: going depth = run_mm / riser_count.
-  const goings = Math.max(1, s.riser_count);
+  // n - 1 treads of run / (n - 1): the top riser lands on the floor above (D44).
   ctx.lineWidth = 0.8 * rc.uiScale;
-  for (let i = 1; i < goings; i++) {
-    const a = add(outline[0], mul(run, (s.run_mm * i) / goings));
+  for (const d of stairTreadOffsets(s.run_mm, s.riser_count)) {
+    const a = add(outline[0], mul(run, d));
     seg(rc, a, add(a, mul(across, s.width_mm)));
   }
   // walking line with an arrow pointing up the flight
@@ -532,6 +552,163 @@ export function drawStair(rc: RenderContext, s: Stair, style: ElementStyle | nul
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("UP", lp.x, lp.y);
+  }
+  ctx.restore();
+}
+
+/**
+ * A stair of the level below seen from the level it arrives at (D44): its
+ * outline and treads dashed, with a DN arrow from the top end down the flight.
+ */
+export function drawStairFromBelow(rc: RenderContext, s: Stair, style: ElementStyle | null = null): void {
+  const { ctx, palette } = rc;
+  const outline = stairOutline(s.origin, s.rotation_deg, s.width_mm, s.run_mm);
+  const run = unit(sub(outline[3], outline[0]));
+  const across = unit(sub(outline[1], outline[0]));
+  const color = style?.color ?? palette.ink2;
+  ctx.save();
+  ctx.globalAlpha = style?.alpha ?? 1;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.setLineDash([6 * rc.uiScale, 4 * rc.uiScale]);
+  ctx.lineWidth = 1.1 * rc.uiScale;
+  path(rc, outline);
+  ctx.stroke();
+  ctx.lineWidth = 0.7 * rc.uiScale;
+  for (const d of stairTreadOffsets(s.run_mm, s.riser_count)) {
+    const a = add(outline[0], mul(run, d));
+    seg(rc, a, add(a, mul(across, s.width_mm)));
+  }
+  ctx.setLineDash([]);
+  // DN: from the top end down the flight, the arrow head at the bottom.
+  const start = add(s.origin, mul(run, s.run_mm * 0.96));
+  const end = add(s.origin, mul(run, s.run_mm * 0.08));
+  ctx.lineWidth = 1.1 * rc.uiScale;
+  seg(rc, start, end);
+  const head = Math.min(s.width_mm * 0.22, 260);
+  seg(rc, end, add(end, add(mul(run, head), mul(across, head * 0.6))));
+  seg(rc, end, add(end, add(mul(run, head), mul(across, -head * 0.6))));
+  const sp = toScreen(rc.view, start);
+  ctx.beginPath();
+  ctx.arc(sp.x, sp.y, 2.5 * rc.uiScale, 0, Math.PI * 2);
+  ctx.fill();
+  if (s.width_mm * rc.view.scale > 40 * rc.uiScale) {
+    const lp = toScreen(rc.view, add(start, mul(across, s.width_mm * 0.28)));
+    ctx.font = `${9 * rc.uiScale}px ${palette.fontMono}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("DN", lp.x, lp.y);
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- slabs, railings, the level below
+
+/**
+ * A slab (docs/CONTRACT.md "Slabs and railings"): floor, balcony and deck
+ * as a thin outline with a light tint, balconies and decks a little
+ * stronger; a void as its outline with a cross and "OPEN TO BELOW".
+ */
+export function drawSlab(rc: RenderContext, sl: Slab, style: ElementStyle | null): void {
+  const { ctx, palette, view } = rc;
+  if (sl.polygon.length < 3) return;
+  const color = style?.color ?? palette.ink2;
+  ctx.save();
+  ctx.globalAlpha = style?.alpha ?? 1;
+  ctx.strokeStyle = color;
+  ctx.lineJoin = "round";
+  if (style?.dashed) ctx.setLineDash([6, 4]);
+  if (sl.slab_kind !== "void" && !style?.hollow) {
+    ctx.save();
+    ctx.globalAlpha *= sl.slab_kind === "floor" ? 0.07 : 0.13;
+    ctx.fillStyle = style?.color ?? palette.ink3;
+    path(rc, sl.polygon);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.lineWidth = 1 * rc.uiScale;
+  path(rc, sl.polygon);
+  ctx.stroke();
+  if (sl.slab_kind === "void") {
+    ctx.lineWidth = 0.8 * rc.uiScale;
+    for (const [a, b] of voidCross(sl.polygon)) seg(rc, a, b);
+    const at = labelPoint(sl.polygon);
+    const px = 9.5 * rc.uiScale;
+    const text = "OPEN TO BELOW";
+    ctx.font = `600 ${px}px ${palette.fontMono}`;
+    const w = ctx.measureText(text).width;
+    // Only where it fits: a small void at far zoom shows its cross alone.
+    let minX = Infinity;
+    let maxX = -Infinity;
+    for (const p of sl.polygon) {
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x);
+    }
+    if ((maxX - minX) * view.scale > w + 16 * rc.uiScale) {
+      const q = toScreen(view, at);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      // Knock the cross out behind the words so they read.
+      ctx.save();
+      ctx.globalAlpha *= 0.92;
+      ctx.fillStyle = palette.paper;
+      ctx.fillRect(q.x - w / 2 - 4 * rc.uiScale, q.y - px * 0.75, w + 8 * rc.uiScale, px * 1.5);
+      ctx.restore();
+      ctx.fillStyle = color;
+      ctx.fillText(text, q.x, q.y);
+    }
+  }
+  ctx.restore();
+}
+
+/** Rails: bars and glass two thin lines 50 mm apart, a solid parapet a 100 mm band. */
+export function drawRailings(rc: RenderContext, runs: readonly RailingRun[], styleOf: (hostId: string) => ElementStyle | null = () => null): void {
+  const { ctx, palette } = rc;
+  for (const run of runs) {
+    const st = styleOf(run.host_id);
+    const plan = railingPlan(run);
+    const color = st?.color ?? palette.ink;
+    ctx.save();
+    ctx.globalAlpha = st?.alpha ?? 1;
+    ctx.strokeStyle = color;
+    ctx.lineJoin = "miter";
+    ctx.lineCap = "butt";
+    if (plan.band && !st?.hollow) {
+      ctx.save();
+      ctx.globalAlpha *= 0.28;
+      ctx.fillStyle = color;
+      path(rc, plan.band);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.lineWidth = (run.style === "solid" ? 1 : 0.8) * rc.uiScale;
+    for (const line of plan.lines) {
+      path(rc, line, false);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+/** The level below as a faint underlay: its walls, under everything on this level. UI only. */
+export function drawLevelBelow(rc: RenderContext): void {
+  const { ctx, palette } = rc;
+  const outlines = rc.index.below;
+  if (outlines.length === 0) return;
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = palette.ink3;
+  ctx.fillStyle = palette.ink3;
+  ctx.globalAlpha = 0.1;
+  for (const o of outlines) {
+    path(rc, o);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 0.42;
+  ctx.lineWidth = 0.9 * rc.uiScale;
+  for (const o of outlines) {
+    path(rc, o);
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -1153,6 +1330,9 @@ export function drawElement(rc: RenderContext, el: Element, style: ElementStyle 
     case "pipe":
       drawPipe(local, el, style);
       break;
+    case "slab":
+      drawSlab(local, el, style);
+      break;
   }
 }
 
@@ -1162,6 +1342,8 @@ export interface SceneOptions {
   hidden: Set<string>;
   activeCameraId: string | null;
   showCameras: boolean;
+  /** Draw the level below's walls under this level (UI only, never in an export). */
+  underlay?: boolean;
 }
 
 /** Draws every visible element in plan order. */
@@ -1170,9 +1352,12 @@ export function drawModel(rc: RenderContext, opt: SceneOptions): void {
   const of = <K extends Element["kind"]>(kind: K): Extract<Element, { kind: K }>[] =>
     els.filter((e): e is Extract<Element, { kind: K }> => e.kind === kind);
 
+  if (opt.underlay && !rc.forExport) drawLevelBelow(rc);
   for (const u of of("underlay")) drawUnderlay(rc, u, opt.styleOf(u.id));
   for (const l of of("linework")) drawLinework(rc, l, opt.styleOf(l.id));
   for (const r of of("room")) drawRoomFill(rc, r, opt.styleOf(r.id));
+  for (const sl of of("slab")) drawSlab(rc, sl, opt.styleOf(sl.id));
+  for (const s of rc.index.arriving) drawStairFromBelow(rc, s);
   for (const s of of("stair")) drawStair(rc, s, opt.styleOf(s.id));
   for (const a of of("asset")) drawAsset(rc, a, opt.styleOf(a.id));
   drawWalls(rc, of("wall"), opt.styleOf);
@@ -1181,6 +1366,8 @@ export function drawModel(rc: RenderContext, opt: SceneOptions): void {
     if (host && host.kind === "wall") drawOpening(rc, o, host, opt.styleOf(o.id));
   }
   for (const c of of("column")) drawColumn(rc, c, opt.styleOf(c.id));
+  // Rails over the slabs and stairs they guard (a host being placed or previewed tints its rails too).
+  drawRailings(rc, opt.hidden.size > 0 ? rc.index.railings.filter((r) => !opt.hidden.has(r.host_id)) : rc.index.railings, opt.styleOf);
   // Pipes over the building so runs in walls and under slabs still read.
   // Higher runs draw last: seen from above they cross over the lower ones.
   const pipes = of("pipe").sort((a, b) => meanZ(a.points) - meanZ(b.points));

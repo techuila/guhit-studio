@@ -214,6 +214,7 @@ pub fn rich() -> DocState {
             width_mm: 1000.0,
             run_mm: 2750.0,
             riser_count: 11,
+            railing: None,
         }),
         Element::Annotation(Annotation {
             id: "a-porch".into(),
@@ -624,5 +625,104 @@ pub fn services_with_review() -> DocState {
         target: ReviewTarget::Issue { id: "pipe_through_column:p-dr-wc-2".into() },
         note: "Column moved to clear the drain.".into(),
     }];
+    s
+}
+
+// ---------------------------------------------------------------- slabs
+
+pub const SECOND: &str = "level-2";
+
+fn v3(x: f64, y: f64, z: f64) -> Vec3 {
+    Vec3 { x, y, z }
+}
+
+pub fn slab(id: &str, level: &str, kind: SlabKind, pts: &[(f64, f64)], railing: Option<Railing>) -> Slab {
+    Slab {
+        id: id.into(),
+        level_id: level.into(),
+        kind,
+        polygon: pts.iter().map(|q| p(q.0, q.1)).collect(),
+        thickness_mm: if kind == SlabKind::Void { 0.0 } else { 150.0 },
+        top_offset_mm: 0.0,
+        material_id: None,
+        railing,
+    }
+}
+
+pub fn rail_run(host: &str, level: &str, kind: RailingRunKind, pts: &[(f64, f64, f64)], railing: Railing) -> RailingRun {
+    RailingRun {
+        host_id: host.into(),
+        level_id: level.into(),
+        kind,
+        points: pts.iter().map(|q| v3(q.0, q.1, q.2)).collect(),
+        height_mm: railing.height_mm,
+        style: railing.style,
+    }
+}
+
+/// The fixture's bungalow with a second floor on the same box, and on it a
+/// balcony with a glass rail out front, a floor slab reaching past the rear
+/// wall with a solid parapet, a four-corner void with a bars rail over the
+/// living room and an L-shaped void over the bedroom. A stair on the ground
+/// floor climbs to the second floor with handrails both sides and a guard
+/// round its well upstairs. `Derived::railings` is written by hand, as the
+/// engine would derive it.
+pub fn slabs() -> DocState {
+    let mut s = fixture();
+    let ground = level_id(&s);
+    s.project.name = "Reyes Residence, Two Storey".into();
+    s.project.levels.push(Level {
+        id: SECOND.into(),
+        name: "Second Floor".into(),
+        elevation_mm: 3000.0,
+        height_mm: 3000.0,
+    });
+    // The second floor walls copy the ground floor box.
+    let upper: Vec<Element> = s
+        .project
+        .elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Wall(w) if w.thickness_mm >= 150.0 => Some(Element::Wall(Wall {
+                id: format!("{}-2", w.id),
+                level_id: SECOND.into(),
+                ..w.clone()
+            })),
+            _ => None,
+        })
+        .collect();
+    s.project.elements.extend(upper);
+    let fp = s.derived.footprints[0].clone();
+    s.derived.footprints.push(Footprint { level_id: SECOND.into(), ..fp });
+
+    let glass = Railing { height_mm: 1100.0, style: RailingStyle::Glass };
+    let solid = Railing { height_mm: 1000.0, style: RailingStyle::Solid };
+    let bars = Railing { height_mm: 1000.0, style: RailingStyle::Bars };
+    let hand = Railing { height_mm: 900.0, style: RailingStyle::Bars };
+    s.project.elements.extend([
+        Element::Slab(slab("sl-balcony", SECOND, SlabKind::Balcony, &[(1000.0, -1575.0), (4000.0, -1575.0), (4000.0, -75.0), (1000.0, -75.0)], Some(glass))),
+        Element::Slab(slab("sl-rear", SECOND, SlabKind::Floor, &[(0.0, 6075.0), (3000.0, 6075.0), (3000.0, 7575.0), (0.0, 7575.0)], Some(solid))),
+        Element::Slab(slab("sl-void", SECOND, SlabKind::Void, &[(500.0, 3500.0), (2500.0, 3500.0), (2500.0, 5500.0), (500.0, 5500.0)], Some(bars))),
+        Element::Slab(slab("sl-void-l", SECOND, SlabKind::Void, &[(5500.0, 1000.0), (7500.0, 1000.0), (7500.0, 2000.0), (6500.0, 2000.0), (6500.0, 3000.0), (5500.0, 3000.0)], None)),
+        Element::Stair(Stair {
+            id: "s-up".into(),
+            level_id: ground.clone(),
+            origin: p(3500.0, 500.0),
+            rotation_deg: 0.0,
+            width_mm: 1000.0,
+            run_mm: 2750.0,
+            riser_count: 11,
+            railing: Some(hand),
+        }),
+    ]);
+    let riser = 3000.0 / 11.0;
+    s.derived.railings = vec![
+        rail_run("sl-balcony", SECOND, RailingRunKind::SlabEdge, &[(1000.0, -75.0, 0.0), (1000.0, -1575.0, 0.0), (4000.0, -1575.0, 0.0), (4000.0, -75.0, 0.0)], glass),
+        rail_run("sl-rear", SECOND, RailingRunKind::SlabEdge, &[(0.0, 6075.0, 0.0), (0.0, 7575.0, 0.0), (3000.0, 7575.0, 0.0), (3000.0, 6075.0, 0.0)], solid),
+        rail_run("sl-void", SECOND, RailingRunKind::SlabEdge, &[(500.0, 3500.0, 0.0), (2500.0, 3500.0, 0.0), (2500.0, 5500.0, 0.0), (500.0, 5500.0, 0.0), (500.0, 3500.0, 0.0)], bars),
+        rail_run("s-up", &ground, RailingRunKind::StairSide, &[(3000.0, 500.0, riser), (3000.0, 3250.0, 3000.0)], hand),
+        rail_run("s-up", &ground, RailingRunKind::StairSide, &[(4000.0, 500.0, riser), (4000.0, 3250.0, 3000.0)], hand),
+        rail_run("s-up", SECOND, RailingRunKind::StairWell, &[(4000.0, 3250.0, 0.0), (4000.0, 500.0, 0.0), (3000.0, 500.0, 0.0), (3000.0, 3250.0, 0.0)], hand),
+    ];
     s
 }

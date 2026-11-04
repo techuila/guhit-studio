@@ -9,10 +9,11 @@
 // are built the first time they are asked for and kept until the document or
 // the eye height changes, when the engine makes a new `WalkWorlds`.
 
-import type { DocState, Level } from "../../contract/bindings";
-import { groupFootprints } from "../scene/buildScene";
+import type { DocState, Level, Slab } from "../../contract/bindings";
+import { groupFootprints, subtractWells } from "../scene/buildScene";
+import { docSlabs } from "../scene/slabs";
 import { pipeLayer } from "../scene/pipes";
-import { buildCollisionWorld, EMPTY_WORLD, levelResolver, type CollisionWorld } from "../geom/collision";
+import { buildCollisionWorld, EMPTY_WORLD, levelResolver, polyCollider, railingColliders, type Collider, type CollisionWorld } from "../geom/collision";
 import type { Pt } from "../geom/coords";
 import { boundsOf, pointInPolygon } from "../geom/polygon";
 import { roomsOn } from "../geom/walkStart";
@@ -54,6 +55,8 @@ export class WalkWorlds implements WalkNav {
   private readonly flights = new Map<string, CollisionWorld>();
   private readonly areas = new Map<string, Pt[][]>();
   private readonly open = new Map<string, StairOpen>();
+  /** Slabs on a shown Slabs layer (DECISIONS D50): walkable ones and voids. */
+  private readonly slabs: Slab[];
 
   constructor(
     readonly doc: DocState,
@@ -63,6 +66,8 @@ export class WalkWorlds implements WalkNav {
     this.levels = new Map((doc.project.levels ?? []).map((l) => [l.id, l]));
     this.sorted = [...this.levels.values()].sort((a, b) => a.elevation_mm - b.elevation_mm);
     this.resolveLevel = levelResolver(doc);
+    const layerOn = (key: string) => doc.project.layers?.find((l) => l.key === key)?.visible !== false;
+    this.slabs = layerOn("slabs") ? docSlabs(doc) : [];
   }
 
   /** A level id the document has: unknown ids fall back to the lowest level. */
@@ -86,7 +91,8 @@ export class WalkWorlds implements WalkNav {
       const strips = this.stairs.flatMap((s) =>
         s.levelId === id ? stairColliders(s, "lower", this.openSides(s)) : s.topLevelId === id ? stairColliders(s, "upper", this.openSides(s)) : [],
       );
-      world = strips.length > 0 ? { ...base, colliders: [...base.colliders, ...strips] } : base;
+      const guards = this.slabColliders(id);
+      world = strips.length + guards.length > 0 ? { ...base, colliders: [...base.colliders, ...strips, ...guards] } : base;
       this.worlds.set(id, world);
     }
     return world;
@@ -104,7 +110,9 @@ export class WalkWorlds implements WalkNav {
     let world = this.flights.get(key);
     if (!world) {
       const base = this.levelWorld(levelId);
-      world = { ...base, colliders: base.colliders.filter((c) => c.id !== s.id && !onFootprint(s, c)) };
+      // Rails stay: the walker meets exactly the runs the engine gives (a rail
+      // the engine draws across the head stops it; a head left open does not).
+      world = { ...base, colliders: base.colliders.filter((c) => c.source === "railing" || (c.id !== s.id && !onFootprint(s, c))) };
       this.flights.set(key, world);
     }
     return world;
@@ -142,13 +150,47 @@ export class WalkWorlds implements WalkNav {
     return null;
   }
 
+  /**
+   * Height above the level floor under `p`: the start of a flight's walking
+   * line near its foot, else the top of a floor, balcony or deck slab the
+   * walker stands on (`top_offset_mm`: a sunken deck is below the floor).
+   */
   approach(levelId: string, p: Pt): number {
     for (const s of this.stairs) {
       if (s.levelId !== levelId) continue;
       const h = approachHeight(s, p);
       if (h !== null) return h;
     }
+    for (const s of this.slabs) {
+      if (s.slab_kind === "void" || this.levelId(s.level_id) !== levelId) continue;
+      if (pointInPolygon(p, s.polygon)) return s.top_offset_mm;
+    }
     return 0;
+  }
+
+  /**
+   * What the slabs of a level add to its collision world: every guard rail
+   * standing on it (slab edges, stairwell guards; a flight's own sides are
+   * held by `holdOnFlight`), and its voids, less any flight that arrives in
+   * one, so a walker never steps into a double height space.
+   */
+  private slabColliders(levelId: string): Collider[] {
+    const out: Collider[] = [];
+    const layerOn = (key: string) => this.doc.project.layers?.find((l) => l.key === key)?.visible !== false;
+    for (const run of this.doc.derived?.railings ?? []) {
+      if (run.kind === "stair_side" || this.levelId(run.level_id) !== levelId) continue;
+      if (!layerOn(run.kind === "slab_edge" ? "slabs" : "stairs")) continue;
+      out.push(...railingColliders(run.points, run.host_id));
+    }
+    const flights = this.stairs.filter((s) => s.levelId === levelId || s.topLevelId === levelId).map((s) => stairOutline(s).outline);
+    for (const s of this.slabs) {
+      if (s.slab_kind !== "void" || this.levelId(s.level_id) !== levelId) continue;
+      for (const piece of subtractWells(s.polygon, flights)) {
+        const c = polyCollider(piece, "void", s.id);
+        if (c) out.push(c);
+      }
+    }
+    return out;
   }
 
   /** The level a floor at height `z` (mm) belongs to: the highest one at or below it, else the lowest. */
@@ -180,11 +222,20 @@ export class WalkWorlds implements WalkNav {
     return low ? { levelId: low.id, stair: null } : null;
   }
 
-  /** True when `p` is over the floor of a level: inside one of its buildings or rooms, or its walls' extent. */
+  /**
+   * True when `p` is over the floor of a level: inside one of its buildings,
+   * rooms or walkable slabs, or its walls' extent, and not over one of its voids.
+   */
   inside(levelId: string, p: Pt): boolean {
+    const onLevel = (s: Slab) => this.levelId(s.level_id) === levelId;
+    if (this.slabs.some((s) => s.slab_kind === "void" && onLevel(s) && pointInPolygon(p, s.polygon))) return false;
     let polys = this.areas.get(levelId);
     if (!polys) {
-      polys = [...groupFootprints(this.doc.derived?.footprints, levelId), ...roomsOn(this.doc, levelId).map((r) => r.polygon)];
+      polys = [
+        ...groupFootprints(this.doc.derived?.footprints, levelId),
+        ...roomsOn(this.doc, levelId).map((r) => r.polygon),
+        ...this.slabs.filter((s) => s.slab_kind !== "void" && onLevel(s)).map((s) => s.polygon),
+      ];
       if (polys.length === 0) {
         // The level's own walls, without the stair strips (those ask this very question).
         const b = boundsOf(buildCollisionWorld(this.doc, levelId, { eyeMm: this.eyeMm }).wallPieces.flat());

@@ -7,23 +7,41 @@
 //! never sees a key. See docs/MCP.md.
 //!
 //! - Transport: streamable HTTP at `/mcp`, mounted on an axum router.
+//!   `/mcp/agent/<label>` names the agent; `?toolsets=services,visuals`
+//!   lists the extended toolsets (MCP v2, docs/CONTRACT.md "MCP v2").
 //! - Binds 127.0.0.1, and [::1] when the machine has it, and the transport
 //!   rejects a non-loopback `Host`.
 //! - Clients that only launch a command get `stdio`: a proxy that speaks
 //!   newline-delimited JSON-RPC and forwards to the running app over HTTP.
-//! - Every edit goes through `AppService::commit_if_revision`, so it is
-//!   validated by the engine, autosaved, and one undo step with `Origin::Ai`.
+//! - Every edit is staged and committed as one undo step with `Origin::Ai`
+//!   (`stage`), through the agents registry for calls from an agent, so it
+//!   is validated by the engine, autosaved and authored by that agent.
 //! - Every change wakes `AppService::watch_changes`, which the desktop shell
 //!   forwards to the window as the Tauri event `doc_changed`.
 
+// A failed tool call carries its whole structured error (`fail::ToolFail`).
+// Failures are rare and go straight back to the client, so their size on
+// the stack does not matter.
+#![allow(clippy::result_large_err)]
+
+pub mod agent;
+mod draft;
+mod extended;
+pub mod fail;
+mod geo;
+mod look;
 mod session;
+mod stage;
 pub mod stdio;
 mod text;
 pub mod tools;
+pub mod toolsets;
+mod translate;
 pub mod visuals;
 
 use std::sync::Arc;
 
+use guhit_app::agents::AgentHint;
 use guhit_app::AppService;
 use guhit_model::Element;
 use rmcp::model::*;
@@ -32,6 +50,9 @@ use rmcp::transport::streamable_http_server::session::local::LocalSessionManager
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler};
 use serde_json::{json, Value};
+
+use crate::agent::CallContext;
+use crate::toolsets::Toolsets;
 
 /// Port the desktop app serves MCP on unless `settings.json` says otherwise.
 pub const DEFAULT_PORT: u16 = 1450;
@@ -42,6 +63,11 @@ const RESOURCE_CURRENT: &str = "guhit://project/current";
 const RESOURCE_CONVENTIONS: &str = "guhit://docs/conventions";
 const RESOURCE_PH_DEFAULTS: &str = "guhit://docs/ph-defaults";
 const RESOURCE_WORKFLOWS: &str = "guhit://docs/workflows";
+const RESOURCE_CATALOG: &str = "guhit://catalog";
+const RESOURCE_MATERIALS: &str = "guhit://materials";
+const RESOURCE_REVIEW: &str = "guhit://review";
+const RESOURCE_HISTORY: &str = "guhit://history";
+const TEMPLATE_PLAN: &str = "guhit://project/levels/{level}/plan.svg";
 
 /// The MCP server. One per transport; they all share the one `AppService`,
 /// so they all act on the single open document.
@@ -73,20 +99,22 @@ fn to_schema(schema: &Value) -> Arc<JsonObject> {
 /// instructions. Shared with the stdio proxy, which answers `initialize`
 /// itself while the app is not running.
 pub fn server_config() -> ServerConfig {
-    ServerConfig::new(
-        ServerCapabilities::builder()
-            .enable_tools()
-            .enable_resources()
-            .build(),
-    )
-    .with_server_info(Implementation::new("guhit-studio", env!("CARGO_PKG_VERSION")))
-    .with_instructions(text::INSTRUCTIONS)
+    ServerConfig::new(ServerCapabilities::builder().enable_prompts().enable_resources().enable_tools().build())
+        .with_server_info(Implementation::new("guhit-studio", env!("CARGO_PKG_VERSION")))
+        .with_instructions(text::INSTRUCTIONS)
 }
 
-/// Every tool with its schema and annotations, as `tools/list` lists them.
+/// The tools of the core toolset, as `tools/list` lists them by default.
 pub fn tool_list() -> Vec<Tool> {
+    tool_list_for(&Toolsets::core())
+}
+
+/// The tools `toolsets` list, with their schemas and annotations.
+pub fn tool_list_for(toolsets: &Toolsets) -> Vec<Tool> {
+    let listed = toolsets.tools();
     tools::definitions()
         .into_iter()
+        .filter(|d| listed.contains(&d.name))
         .map(|d| {
             let mut tool = Tool::default();
             tool.name = d.name.into();
@@ -95,13 +123,12 @@ pub fn tool_list() -> Vec<Tool> {
             let mut annotations = ToolAnnotations::new();
             annotations.read_only_hint = Some(d.read_only);
             // Only AI visualization (the image provider) and the live
-            // session chat reach beyond this machine.
+            // session (chat, status) reach beyond this machine.
             annotations.open_world_hint = Some(d.open_world);
             if !d.read_only {
-                // Every edit is one undo step, and `delete_elements` and
-                // `delete_level` do remove work the user may want back.
-                annotations.destructive_hint =
-                    Some(matches!(d.name, "delete_elements" | "delete_level"));
+                // Every edit is one undo step; `delete` and `levels` (its
+                // delete action) remove work the user may want back.
+                annotations.destructive_hint = Some(matches!(d.name, "delete" | "levels"));
             }
             tool.annotations = Some(annotations);
             tool
@@ -109,40 +136,128 @@ pub fn tool_list() -> Vec<Tool> {
         .collect()
 }
 
-/// The `tools/list` result.
+/// The `tools/list` result for the core toolset.
 pub fn list_tools_result() -> ListToolsResult {
-    no_cache!(ListToolsResult::with_all_items(tool_list()))
+    list_tools_result_for(&Toolsets::core())
+}
+
+pub fn list_tools_result_for(toolsets: &Toolsets) -> ListToolsResult {
+    no_cache!(ListToolsResult::with_all_items(tool_list_for(toolsets)))
 }
 
 /// The fixed resources, as `resources/list` lists them.
 pub fn resource_list() -> Vec<Resource> {
+    let json = "application/json";
+    let md = "text/markdown";
     vec![
         Resource::new(RESOURCE_CURRENT, "Current project")
-            .with_description(
-                "Compact JSON summary of the project open in Guhit Studio right now: id, name, revision, totals, rooms with their areas, and review items with their status. Empty when no project is open.",
-            )
-            .with_mime_type("application/json"),
+            .with_description("Compact JSON summary of the open project: id, name, revision, levels, totals, rooms with their areas, and review items with their status.")
+            .with_mime_type(json),
         Resource::new(RESOURCE_CONVENTIONS, "Guhit conventions")
-            .with_description(
-                "Units, plan coordinates, wall joins, and the door and window flip conventions this server uses. Read this before drawing.",
-            )
-            .with_mime_type("text/markdown"),
+            .with_description("Units, plan coordinates, wall joins, openings, levels, stairs and slabs. Read this before drawing.")
+            .with_mime_type(md),
         Resource::new(RESOURCE_PH_DEFAULTS, "Philippine defaults")
-            .with_description(
-                "Default wall thickness, door and window sizes, level height, the built-in material ids and sensible room sizes for Philippine residential work.",
-            )
-            .with_mime_type("text/markdown"),
+            .with_description("Default wall thickness, door and window sizes, level height, the built-in material ids and sensible room sizes for Philippine residential work.")
+            .with_mime_type(md),
         Resource::new(RESOURCE_WORKFLOWS, "Guhit workflows")
-            .with_description(
-                "The full working rules the server instructions summarize: drawing a house, site walls, moving walls, pipes and devices, the selection scope, views and renders, live sessions, honesty.",
-            )
-            .with_mime_type("text/markdown"),
+            .with_description("How to draft a house with build, the verify loop (look, measure, check), plans from an image, services, the selection scope, renders, live sessions and agents.")
+            .with_mime_type(md),
+        Resource::new(RESOURCE_CATALOG, "Library").with_description("Every library item key with its name, size and mount.").with_mime_type(md),
+        Resource::new(RESOURCE_MATERIALS, "Materials").with_description("The open project's material ids and names.").with_mime_type(json),
+        Resource::new(RESOURCE_REVIEW, "Review items")
+            .with_description("The open project's review items: suggestions to check, never compliance findings.")
+            .with_mime_type(json),
+        Resource::new(RESOURCE_HISTORY, "History").with_description("The shared undo history: who made each step and when.").with_mime_type(json),
     ]
 }
 
-/// The `resources/list` result.
 pub fn list_resources_result() -> ListResourcesResult {
     no_cache!(ListResourcesResult::with_all_items(resource_list()))
+}
+
+pub fn resource_templates() -> Vec<ResourceTemplate> {
+    vec![ResourceTemplate::new(TEMPLATE_PLAN, "Plan of a level")
+        .with_description("The plan of one level (its id or name) drawn by the engine as SVG, with dimensions, short element ids, a grid and a scale bar. Needs no window.")
+        .with_mime_type("image/svg+xml")]
+}
+
+pub fn list_resource_templates_result() -> ListResourceTemplatesResult {
+    no_cache!(ListResourceTemplatesResult::with_all_items(resource_templates()))
+}
+
+pub fn prompt_list() -> Vec<Prompt> {
+    text::PROMPTS
+        .iter()
+        .map(|p| {
+            let args = p
+                .args
+                .iter()
+                .map(|(name, desc, required)| PromptArgument::new(*name).with_description(*desc).with_required(*required))
+                .collect();
+            Prompt::new(p.name, Some(p.description), Some(args)).with_title(p.title)
+        })
+        .collect()
+}
+
+pub fn list_prompts_result() -> ListPromptsResult {
+    no_cache!(ListPromptsResult::with_all_items(prompt_list()))
+}
+
+/// A prompt's messages, with its arguments filled in.
+pub fn get_prompt(name: &str, args: &serde_json::Map<String, Value>) -> Result<GetPromptResult, McpError> {
+    let p = text::PROMPTS
+        .iter()
+        .find(|p| p.name == name)
+        .ok_or_else(|| McpError::invalid_params(format!("unknown prompt `{name}`"), None))?;
+    let mut body = p.body.to_string();
+    for (arg, _, required) in p.args {
+        let v = args.get(*arg).and_then(Value::as_str).map(str::trim).unwrap_or("");
+        if *required && v.is_empty() {
+            return Err(McpError::invalid_params(format!("prompt `{name}` needs `{arg}`"), None));
+        }
+        body = body.replace(&format!("{{{arg}}}"), if v.is_empty() { "(not given)" } else { v });
+    }
+    let mut result = GetPromptResult::new(vec![PromptMessage::new_text(Role::User, body)]);
+    result.description = Some(p.description.to_string());
+    Ok(result)
+}
+
+/// What the HTTP request says about the caller and the toolsets it wants.
+fn request_context(app: &AppService, context: &RequestContext<RoleServer>) -> CallContext {
+    let parts = context.extensions.get::<axum::http::request::Parts>();
+    let toolsets = parts
+        .and_then(|p| p.uri.query())
+        .and_then(Toolsets::from_query)
+        .unwrap_or_else(|| Toolsets::parse(&app.mcp.toolsets().join(",")));
+    let header = |name: &str| {
+        parts
+            .and_then(|p| p.headers.get(name))
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+            .filter(|v| !v.trim().is_empty())
+    };
+    // The client this request named, else the one its session or its
+    // connection named. Never another connection's: a request whose
+    // connection named no client has none.
+    let session = parts.and_then(|p| p.extensions.get::<McpSession>()).cloned();
+    let seen = parts.and_then(|p| p.extensions.get::<SeenClient>()).cloned().or_else(|| {
+        if let Some(client) = session.as_ref().and_then(|s| session_client(&s.0)) {
+            return Some(client);
+        }
+        let keys = parts.map(connection_keys).unwrap_or_default();
+        keys.iter().find_map(|k| app.mcp.client_at(k)).map(|c| SeenClient { name: c.name, version: c.version })
+    });
+    let label = parts.and_then(|p| agent::label_from_path(p.uri.path()));
+    let instance = header(agent::INSTANCE_HEADER);
+    let hint = AgentHint {
+        connection: hint_connection(session.as_ref(), label.as_deref(), instance.as_deref()),
+        agent: None,
+        label,
+        instance,
+        client_name: seen.as_ref().map(|s| s.name.clone()),
+        client_version: seen.as_ref().map(|s| s.version.clone()),
+    };
+    CallContext { toolsets, hint: Some(hint), call: None }
 }
 
 impl ServerHandler for GuhitMcp {
@@ -153,23 +268,21 @@ impl ServerHandler for GuhitMcp {
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        Ok(list_tools_result())
+        Ok(list_tools_result_for(&request_context(&self.app, &context).toolsets))
     }
 
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, McpError> {
-        let args = request
-            .arguments
-            .map(Value::Object)
-            .unwrap_or_else(|| json!({}));
+        let args = request.arguments.map(Value::Object).unwrap_or_else(|| json!({}));
+        let ctx = request_context(&self.app, &context);
         // A tool that did not work is a tool-level error, not a protocol
-        // error: the model has to read the message to correct itself.
-        let result = match tools::call(&self.app, &request.name, args).await {
+        // error: the model has to read it to correct itself.
+        let result = match tools::call_with(&self.app, &request.name, args, &ctx).await {
             Ok(tools::Output::Json(v)) => CallToolResult::structured(v),
             Ok(tools::Output::Text(text)) => CallToolResult::success(vec![ContentBlock::text(text)]),
             // The JSON as structured content and text, then the pictures.
@@ -180,8 +293,10 @@ impl ServerHandler for GuhitMcp {
                 }
                 result
             }
-            Err(tools::ToolFail(message)) => {
-                CallToolResult::error(vec![ContentBlock::text(message)])
+            Err(fail) => {
+                let mut result = CallToolResult::structured_error(fail.structured());
+                result.content = vec![ContentBlock::text(fail.display())];
+                result
             }
         };
         Ok(result.into())
@@ -195,33 +310,62 @@ impl ServerHandler for GuhitMcp {
         Ok(list_resources_result())
     }
 
+    async fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, McpError> {
+        Ok(list_resource_templates_result())
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, McpError> {
+        Ok(list_prompts_result())
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResponse, McpError> {
+        Ok(get_prompt(&request.name, &request.arguments.unwrap_or_default())?.into())
+    }
+
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, McpError> {
         let uri = request.uri.as_str();
+        let text = |t: String, mime: &str| ResourceContents::text(t, uri).with_mime_type(mime);
+        let as_json = |v: Value| text(serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".into()), "application/json");
+        let tool_json = |out: Result<tools::Output, fail::ToolFail>| -> Result<ResourceContents, McpError> {
+            match out {
+                Ok(tools::Output::Json(v)) | Ok(tools::Output::Rich { json: v, .. }) => Ok(as_json(v)),
+                Ok(tools::Output::Text(t)) => Ok(text(t, "text/markdown")),
+                Err(e) => Err(McpError::resource_not_found(e.display(), None)),
+            }
+        };
         let contents = match uri {
-            RESOURCE_CONVENTIONS => ResourceContents::text(text::CONVENTIONS, uri)
-                .with_mime_type("text/markdown"),
-            RESOURCE_PH_DEFAULTS => ResourceContents::text(text::PH_DEFAULTS, uri)
-                .with_mime_type("text/markdown"),
-            RESOURCE_WORKFLOWS => ResourceContents::text(text::WORKFLOWS, uri)
-                .with_mime_type("text/markdown"),
-            RESOURCE_CURRENT => {
-                let summary = current_project(&self.app).await;
-                ResourceContents::text(
-                    serde_json::to_string_pretty(&summary).unwrap_or_else(|_| "{}".into()),
-                    uri,
-                )
-                .with_mime_type("application/json")
-            }
-            other => {
-                return Err(McpError::resource_not_found(
-                    format!("unknown resource `{other}`"),
-                    None,
-                ))
-            }
+            RESOURCE_CONVENTIONS => text(text::CONVENTIONS.to_string(), "text/markdown"),
+            RESOURCE_PH_DEFAULTS => text(text::PH_DEFAULTS.to_string(), "text/markdown"),
+            RESOURCE_WORKFLOWS => text(text::WORKFLOWS.to_string(), "text/markdown"),
+            RESOURCE_CATALOG => text(draft::catalog_text(), "text/markdown"),
+            RESOURCE_CURRENT => as_json(current_project(&self.app).await),
+            RESOURCE_MATERIALS => tool_json(tools::call(&self.app, "query", json!({"what": "materials"})).await)?,
+            RESOURCE_REVIEW => tool_json(tools::call(&self.app, "check", json!({})).await)?,
+            RESOURCE_HISTORY => tool_json(tools::call(&self.app, "history", json!({"action": "list", "limit": 200})).await)?,
+            other => match other.strip_prefix("guhit://project/levels/").and_then(|r| r.strip_suffix("/plan.svg")) {
+                Some(level) => {
+                    let level = agent::label_from_path(&format!("/agent/{level}")).unwrap_or_else(|| level.to_string());
+                    let svg = look::plan_svg(&self.app, &level).await.map_err(|e| McpError::resource_not_found(e.display(), None))?;
+                    text(svg, "image/svg+xml")
+                }
+                None => return Err(McpError::resource_not_found(format!("unknown resource `{other}`"), None)),
+            },
         };
         Ok(no_cache!(ReadResourceResult::new(vec![contents])).into())
     }
@@ -233,7 +377,7 @@ async fn current_project(app: &AppService) -> Value {
     let Some(doc) = s.doc.as_ref() else {
         return json!({
             "open": false,
-            "note": "no project is open. Call create_project or open_project.",
+            "note": "no project is open. Call project with action \"create\" or \"open\".",
         });
     };
     let project = doc.project();
@@ -265,7 +409,7 @@ async fn current_project(app: &AppService) -> Value {
         "name": project.name,
         "revision": doc.revision(),
         "units": "every length is millimeters; areas are square metres",
-        "levels": project.levels.iter().map(|l| json!({"id": l.id, "name": l.name})).collect::<Vec<_>>(),
+        "levels": project.levels.iter().map(|l| json!({"id": l.id, "name": l.name, "elevation_mm": l.elevation_mm, "height_mm": l.height_mm})).collect::<Vec<_>>(),
         "default_wall_thickness_mm": project.settings.default_wall_thickness_mm,
         "totals": derived.totals,
         "rooms": rooms,
@@ -336,6 +480,86 @@ pub async fn normalize_accept(
 pub const CLIENT_NAME_HEADER: &str = "x-guhit-client-name";
 pub const CLIENT_VERSION_HEADER: &str = "x-guhit-client-version";
 
+/// What tells one MCP connection from another, most precise first: the
+/// session the server issued, the label of a labelled URL, the stdio
+/// proxy's instance, the TCP peer when the server knows it.
+fn connection_keys(parts: &axum::http::request::Parts) -> Vec<String> {
+    let mut keys = vec![];
+    if let Some(s) = parts.extensions.get::<McpSession>() {
+        keys.push(format!("s:{}", session_key(&s.0)));
+    }
+    if let Some(l) = agent::label_from_path(parts.uri.path()) {
+        keys.push(format!("l:{}", l.to_lowercase()));
+    }
+    let instance = parts.headers.get(agent::INSTANCE_HEADER).and_then(|v| v.to_str().ok());
+    if let Some(i) = instance.filter(|v| !v.trim().is_empty()) {
+        keys.push(format!("i:{i}"));
+    }
+    if let Some(c) = parts.extensions.get::<axum::extract::ConnectInfo<std::net::SocketAddr>>() {
+        keys.push(format!("p:{}", c.0));
+    }
+    keys
+}
+
+/// The session header: issued on `initialize`, sent back by the client on
+/// every later request (Streamable HTTP). The transport stays stateless; the
+/// id only tells connections apart.
+pub const SESSION_HEADER: &str = "mcp-session-id";
+/// Longest session id read back.
+const MAX_SESSION_CHARS: usize = 300;
+
+/// The session a request belongs to, put on the request.
+#[derive(Debug, Clone)]
+struct McpSession(String);
+
+/// A new session id for a client: a random part and the client's name and
+/// version in hex, so the id names its client even after the app restarted
+/// (the client keeps sending it). Visible ASCII only, as the spec asks.
+pub fn new_session_id(name: &str, version: &str) -> String {
+    let random = guhit_model::defaults::new_id().replace('-', "");
+    let client: String = format!("{}\n{}", name.chars().take(100).collect::<String>(), version.chars().take(40).collect::<String>())
+        .bytes()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("{random}.{client}")
+}
+
+/// The connection the registry keys an agent by (its pause, stop, limit
+/// and rate): chosen by the server, never by tool arguments. The session it
+/// issued, else the labelled URL, else the stdio instance.
+fn hint_connection(session: Option<&McpSession>, label: Option<&str>, instance: Option<&str>) -> Option<String> {
+    match (session, label, instance) {
+        (Some(s), _, _) => Some(format!("session:{}", session_key(&s.0))),
+        (None, Some(l), _) => Some(format!("label:{}", l.to_lowercase())),
+        (None, None, Some(i)) => Some(format!("instance:{i}")),
+        _ => None,
+    }
+}
+
+/// The random part of a session id: what keys the connection.
+fn session_key(id: &str) -> &str {
+    id.split('.').next().unwrap_or(id)
+}
+
+/// The client a session id names.
+fn session_client(id: &str) -> Option<SeenClient> {
+    let hex = id.split_once('.')?.1;
+    if hex.len() % 2 != 0 {
+        return None;
+    }
+    let bytes: Option<Vec<u8>> = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok()).collect();
+    let text = String::from_utf8(bytes?).ok()?;
+    let (name, version) = text.split_once('\n')?;
+    (!name.trim().is_empty()).then(|| SeenClient { name: name.to_string(), version: version.to_string() })
+}
+
+/// The client a request named, put on the request for the tool call.
+#[derive(Debug, Clone)]
+struct SeenClient {
+    name: String,
+    version: String,
+}
+
 /// Largest request body [`gate`] reads. Tool arguments are small; this only
 /// stops a runaway client from filling memory.
 const MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
@@ -360,9 +584,10 @@ fn client_info(message: &Value) -> Option<(String, String)> {
 ///   JSON-RPC error with `AppService`'s message, its id echoed when the
 ///   body has one. The switch is read on every request, so turning it back
 ///   on works at once.
-/// - On: notes the client that called, for the Connect agent dialog. Only
-///   after the service accepted the request, so a request the `Host` guard
-///   refuses never shows up. The body goes on to the service unchanged.
+/// - On: notes the client that called, for the Connect agent dialog and the
+///   agents registry. Only after the service accepted the request, so a
+///   request the `Host` guard refuses never shows up. The body goes on to
+///   the service unchanged.
 pub async fn gate(
     axum::extract::State(app): axum::extract::State<AppService>,
     req: axum::extract::Request,
@@ -377,7 +602,7 @@ pub async fn gate(
         }
         return next.run(req).await;
     }
-    let (parts, body) = req.into_parts();
+    let (mut parts, body) = req.into_parts();
     let Ok(bytes) = axum::body::to_bytes(body, MAX_REQUEST_BYTES).await else {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     };
@@ -407,12 +632,42 @@ pub async fn gate(
     };
     let named = messages.iter().find_map(|m| client_info(m)).or(from_proxy);
     let is_message = messages.iter().any(|m| m.get("method").is_some());
+    if let Some((name, version)) = &named {
+        parts.extensions.insert(SeenClient { name: name.clone(), version: version.clone() });
+    }
+    // `initialize` starts a session; every later request carries its id.
+    let initialize = messages.iter().any(|m| m.get("method").and_then(Value::as_str) == Some("initialize"));
+    let issued = initialize.then(|| {
+        let (name, version) = named.clone().unwrap_or_default();
+        new_session_id(&name, &version)
+    });
+    let session = issued.clone().or_else(|| {
+        header(SESSION_HEADER)
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty() && v.len() <= MAX_SESSION_CHARS && v.bytes().all(|b| (0x21..=0x7e).contains(&b)))
+    });
+    if let Some(id) = &session {
+        parts.extensions.insert(McpSession(id.clone()));
+    }
+    let keys = connection_keys(&parts);
 
-    let res = next
+    let mut res = next
         .run(axum::extract::Request::from_parts(parts, axum::body::Body::from(bytes)))
         .await;
+    if let (Some(id), true) = (&issued, res.status().is_success()) {
+        if let Ok(value) = axum::http::HeaderValue::from_str(id) {
+            res.headers_mut().insert(SESSION_HEADER, value);
+        }
+    }
     if res.status().is_success() {
         match named {
+            // Under every key the request has: a later request may carry
+            // only its label, or only its session.
+            Some((name, version)) if !keys.is_empty() => {
+                for key in &keys {
+                    app.mcp.saw_client_at(Some(key), &name, &version);
+                }
+            }
             Some((name, version)) => app.mcp.saw_client(&name, &version),
             None if is_message => app.mcp.touch_client(),
             None => {}
@@ -475,7 +730,8 @@ pub async fn serve(app: AppService, port: u16) -> std::io::Result<()> {
         Ok(listener6) => {
             let router6 = router.clone();
             tokio::spawn(async move {
-                if let Err(e) = axum::serve(listener6, router6).await {
+                let by_peer = router6.into_make_service_with_connect_info::<std::net::SocketAddr>();
+                if let Err(e) = axum::serve(listener6, by_peer).await {
                     eprintln!("guhit-mcp: the IPv6 listener on {v6} stopped: {e}");
                 }
             });
@@ -486,7 +742,9 @@ pub async fn serve(app: AppService, port: u16) -> std::io::Result<()> {
             println!("guhit-mcp listening on http://{addr}/mcp");
         }
     }
-    let result = axum::serve(listener, router).await;
+    // The peer address keys each connection's client (`connection_keys`).
+    let by_peer = router.into_make_service_with_connect_info::<std::net::SocketAddr>();
+    let result = axum::serve(listener, by_peer).await;
     status.set_listening(false);
     result
 }
@@ -516,11 +774,12 @@ mod tests {
         let instructions = info.instructions.unwrap_or_default();
         assert!(instructions.contains("MILLIMETERS"));
         assert!(instructions.contains("+x east"));
-        assert!(instructions.contains("add_rect_room"));
-        assert!(instructions.contains("list_review_items"));
+        assert!(instructions.contains("build"));
+        assert!(instructions.contains("check"));
         assert!(instructions.to_lowercase().contains("code compliance"));
         assert!(info.capabilities.tools.is_some());
         assert!(info.capabilities.resources.is_some());
+        assert!(info.capabilities.prompts.is_some());
     }
 
     /// Claude Code keeps the first 4096 characters of the instructions and
@@ -568,5 +827,29 @@ mod tests {
         assert_eq!(port_from_settings(dir.path()), 1460);
         std::fs::write(dir.path().join("settings.json"), r#"{"mcp_port": "nope"}"#).unwrap();
         assert_eq!(port_from_settings(dir.path()), DEFAULT_PORT);
+    }
+
+    #[test]
+    fn the_list_follows_the_toolsets() {
+        assert_eq!(tool_list().len(), 22);
+        assert_eq!(tool_list_for(&Toolsets::all()).len(), 33);
+        assert_eq!(tool_list_for(&Toolsets::parse("live")).len(), 25);
+        let names: Vec<String> = tool_list().iter().map(|t| t.name.to_string()).collect();
+        assert!(!names.iter().any(|n| n == "add_rect_room"), "v1 names are never listed");
+        let bytes = serde_json::to_string(&tool_list()).unwrap().len();
+        assert!(bytes < 40_000, "the core tool list is {bytes} bytes");
+    }
+
+    #[test]
+    fn prompts_fill_their_arguments() {
+        assert_eq!(prompt_list().len(), 4);
+        let mut args = serde_json::Map::new();
+        args.insert("brief".into(), json!("a two storey house for a family of five"));
+        let p = get_prompt("draft_from_brief", &args).unwrap();
+        let text = serde_json::to_string(&p.messages).unwrap();
+        assert!(text.contains("family of five"));
+        assert!(text.contains("check"));
+        assert!(get_prompt("draft_from_brief", &serde_json::Map::new()).is_err());
+        assert!(get_prompt("nope", &args).is_err());
     }
 }

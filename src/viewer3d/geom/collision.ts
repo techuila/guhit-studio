@@ -23,7 +23,38 @@ export const OBJECT_BLOCK_MIN_HEIGHT_MM = 300;
 const MAX_STEP_OF_RADIUS = 0.4;
 const PUSH_ITERATIONS = 4;
 
-export type ColliderSource = "wall" | "column" | "object" | "stair";
+export type ColliderSource = "wall" | "column" | "object" | "stair" | "railing" | "void";
+
+/** Thickness of the strip a railing run blocks with, mm: a rail, a glass panel or a parapet. */
+export const RAILING_STRIP_MM = 60;
+
+/**
+ * Strips along a railing run, one per segment: a walker cannot step through
+ * a guard rail. The run's points are its foot, plan mm.
+ */
+export function railingColliders(points: Pt[], id: string, thick = RAILING_STRIP_MM): Collider[] {
+  const out: Collider[] = [];
+  for (let i = 0; i + 1 < points.length; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < 1) continue;
+    const nx = (-(b.y - a.y) / len) * (thick / 2);
+    const ny = ((b.x - a.x) / len) * (thick / 2);
+    const c = polyCollider(
+      [
+        { x: a.x - nx, y: a.y - ny },
+        { x: b.x - nx, y: b.y - ny },
+        { x: b.x + nx, y: b.y + ny },
+        { x: a.x + nx, y: a.y + ny },
+      ],
+      "railing",
+      id,
+    );
+    if (c) out.push(c);
+  }
+  return out;
+}
 
 interface Box {
   minX: number;

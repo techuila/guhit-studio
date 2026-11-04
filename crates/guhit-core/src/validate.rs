@@ -27,6 +27,7 @@ pub fn layer_of(kind: ElementKind) -> Option<LayerKey> {
         ElementKind::Asset => LayerKey::Assets,
         ElementKind::Annotation => LayerKey::Annotations,
         ElementKind::Dimension => LayerKey::Dimensions,
+        ElementKind::Slab => LayerKey::Slabs,
         ElementKind::Underlay | ElementKind::Linework | ElementKind::ReferenceModel => LayerKey::Underlays,
         ElementKind::Camera => return None,
         // Pipes live on one layer per system: see `element_layer`.
@@ -75,6 +76,7 @@ pub fn layer_name(key: LayerKey) -> &'static str {
         LayerKey::Electrical => "Electrical",
         LayerKey::Aircon => "Aircon",
         LayerKey::Site => "Site",
+        LayerKey::Slabs => "Slabs",
     }
 }
 
@@ -504,6 +506,49 @@ pub fn validate_element(project: &Project, el: &Element) -> Result<(), CoreError
                     "A room needs a name.",
                     ids.to_vec(),
                 ));
+            }
+            Ok(())
+        }
+        // Slabs (DECISIONS D50): only what one slab can check on its own.
+        // Overlaps and the floor area rules belong to the slab lane.
+        Element::Slab(s) => {
+            require_level(project, &s.level_id)?;
+            require_material(project, &s.material_id)?;
+            if s.polygon.len() < 3 {
+                return Err(CoreError::invalid_for(
+                    "slab_outline",
+                    "A slab needs an outline of at least three points.",
+                    ids.to_vec(),
+                ));
+            }
+            for p in &s.polygon {
+                finite_point("Slab outline point", *p, &ids)?;
+            }
+            finite("Slab top offset", s.top_offset_mm, &ids)?;
+            // The offset is from the level's floor. An elevation passed by
+            // mistake (3000 on a 3000 mm storey) would put the slab a storey
+            // up, so it stays inside one storey either way.
+            let storey = project
+                .levels
+                .iter()
+                .find(|l| l.id == s.level_id)
+                .map(|l| l.height_mm)
+                .unwrap_or(defaults::DEFAULT_LEVEL_HEIGHT_MM);
+            if s.kind != SlabKind::Void && s.top_offset_mm.abs() >= storey {
+                return Err(CoreError::invalid_for(
+                    "slab_top_offset",
+                    format!(
+                        "Slab top offset is {:.0} mm. It is measured from the level's floor, not from the ground, so it must stay under the level height ({storey:.0} mm) up or down. Use 0 for a slab flush with the floor, or put the slab on the level it belongs to.",
+                        s.top_offset_mm
+                    ),
+                    ids.to_vec(),
+                ));
+            }
+            if s.kind != SlabKind::Void {
+                in_range("slab_thickness", "Slab thickness", s.thickness_mm, 50.0, 1000.0, "mm", &ids)?;
+            }
+            if let Some(r) = &s.railing {
+                in_range("railing_height", "Railing height", r.height_mm, 300.0, 2000.0, "mm", &ids)?;
             }
             Ok(())
         }

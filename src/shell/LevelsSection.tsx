@@ -1,9 +1,16 @@
 // Levels in the project inspector: pick the level to work on, rename a level
 // in place, add a level above, delete a level after an inline confirmation
 // that says what goes with it (never window.confirm), and edit the active
-// level's height and elevation. Every change is one undo step.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+// level's height and elevation. Every change is one undo step. Agents
+// working on a level show as dots in their colors after its name
+// (DECISIONS D47).
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { DocState, Level } from "../contract/bindings";
+import { agentsByLevel } from "../live/agents";
+import { useAgents } from "../live/agentsStore";
+import { peerVar } from "../live/format";
+import a from "../live/agents.module.css";
 import { useApp } from "../state/store";
 import { Button, Field, IconButton, NumberField, Section, cx } from "../ui/controls";
 import { useSlidingIndicator } from "../ui/motionDom";
@@ -62,6 +69,53 @@ function RenameField({ level, onDone }: { level: Level; onDone: () => void }) {
   );
 }
 
+interface LevelAgent {
+  id: string;
+  name: string;
+  color: number;
+  activity: string;
+}
+
+/** Agents on each level, as plain strings so a moving agent re-renders nothing here. */
+function useLevelAgents(): Map<string, LevelAgent[]> {
+  const keys = useAgents(
+    useShallow((st) => {
+      const out: string[] = [];
+      for (const [level, list] of agentsByLevel(st.views, Date.now())) for (const x of list) out.push(`${level}\u0000${x.id}\u0000${x.color}\u0000${x.activity}\u0000${x.name}`);
+      return out;
+    }),
+  );
+  return useMemo(() => {
+    const map = new Map<string, LevelAgent[]>();
+    for (const k of keys) {
+      const [level, id, color, activity, name] = k.split("\u0000");
+      const list = map.get(level) ?? [];
+      list.push({ id, name, color: Number(color), activity });
+      map.set(level, list);
+    }
+    return map;
+  }, [keys]);
+}
+
+/** "Ground floor is working here", "Ground floor and Services are working here". */
+function agentsHere(list: readonly LevelAgent[]): string {
+  if (list.length === 0) return "";
+  const names = list.map((x) => x.name);
+  const who = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]} and ${names.length - 1} other agents`;
+  return `${who} ${names.length === 1 ? "is" : "are"} working here`;
+}
+
+function AgentDots({ list }: { list: readonly LevelAgent[] }) {
+  if (list.length === 0) return null;
+  return (
+    <span className={a.levelDots} aria-hidden data-testid="level-agent-dots">
+      {list.map((x) => (
+        <i key={x.id} className={a.levelDot} data-activity={x.activity} style={{ "--peer": peerVar(x.color) } as CSSProperties} />
+      ))}
+    </span>
+  );
+}
+
 export function LevelsSection({ doc }: { doc: DocState }) {
   const [open, toggle] = useSection("level", true);
   const sectionRef = useRef<HTMLDivElement>(null);
@@ -76,6 +130,7 @@ export function LevelsSection({ doc }: { doc: DocState }) {
   const [busy, setBusy] = useState(false);
   const last = levels.length <= 1;
   const unit = doc.project.settings.display_unit;
+  const levelAgents = useLevelAgents();
 
   // The palette's "Delete this level" opens the confirmation here.
   const deleteRequest = useShell((st) => st.levelDeleteRequest);
@@ -116,6 +171,8 @@ export function LevelsSection({ doc }: { doc: DocState }) {
             const isActive = level.id === active.id;
             // Counted for every row, so a closing confirmation keeps its words.
             const count = elementsOnLevel(doc.project.elements, level.id);
+            const here = levelAgents.get(level.id) ?? [];
+            const hereLine = agentsHere(here);
             return (
               <li
                 key={key}
@@ -132,12 +189,14 @@ export function LevelsSection({ doc }: { doc: DocState }) {
                         type="button"
                         className={cx(s.levelPick, isActive && s.levelPickOn)}
                         aria-pressed={isActive}
-                        data-tip={isActive ? "Working on this level. Double-click to rename" : "Work on this level"}
+                        data-tip={`${isActive ? "Working on this level. Double-click to rename" : "Work on this level"}${hereLine ? `. ${hereLine}` : ""}`}
                         data-tip-side="top-start"
+                        aria-label={hereLine ? `${level.name}. ${hereLine}` : undefined}
                         onClick={() => useApp.getState().setActiveLevel(level.id)}
                         onDoubleClick={() => setRenaming(level.id)}
                       >
                         <span className={s.levelName}>{level.name}</span>
+                        <AgentDots list={here} />
                         <span className={s.levelElev}>{elevationLabel(level.elevation_mm)}</span>
                       </button>
                     )}

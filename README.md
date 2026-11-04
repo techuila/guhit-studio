@@ -121,43 +121,29 @@ site/                  the landing page, published with GitHub Pages
 
 Two rules hold everything together. The Rust engine is the only authority over the model: the UI keeps a read-only mirror and sends typed commands, and the AI uses the same commands. And every command is deterministic, validated, and one undo step, so a preview always equals the commit.
 
-Further reading: [AGENTS.md](AGENTS.md) (repo map, constraints, how to verify), [DECISIONS.md](DECISIONS.md) (locked decisions and why), [docs/CONTRACT.md](docs/CONTRACT.md) (types, IPC, conventions), [docs/MOTION.md](docs/MOTION.md) (the motion system).
+Further reading: [docs/CONTRACT.md](docs/CONTRACT.md) (types, IPC, conventions), [docs/MOTION.md](docs/MOTION.md) (the motion system), [docs/SHORTCUTS.md](docs/SHORTCUTS.md) (keyboard shortcuts), [docs/MCP.md](docs/MCP.md) (connecting an AI agent).
 
 ## Contributing
 
-Issues and pull requests are welcome. Please read [AGENTS.md](AGENTS.md) and [DECISIONS.md](DECISIONS.md) first: they say what is locked and what is open.
+Issues and pull requests are welcome. Please read [docs/CONTRACT.md](docs/CONTRACT.md) first, and open an issue before a large change so we can agree on the approach.
 
-**Before you open a pull request**
+[CONTRIBUTING.md](CONTRIBUTING.md) explains how to build the app, which checks to run before a pull request, the rules of the code, and how reviews work. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md). Your first pull request needs a signature on the [CLA](CLA.md); a bot walks you through it.
 
-```bash
-cargo test --workspace --exclude guhit-studio   # engine, export, import, app, mcp
-cargo build -p guhit-studio                     # the desktop shell compiles
-pnpm gen:types                                  # after any change in crates/guhit-model
-pnpm typecheck && pnpm build && pnpm vitest run # frontend
-```
-
-The 2D editor and 3D viewer also have scripted browser checks under `src/editor2d/dev/checks/` and `.devdata/` step files; `node scripts/ui-check.mjs` drives them. CI runs the tests and builds the app on macOS and Windows for every push and pull request.
-
-**Conventions**
-
-- Commits: `type(scope): subject`, lowercase, imperative, under 72 characters. Types: feat, fix, refactor, perf, chore, docs, test, style, build, ci. No body unless the change is not obvious.
-- Lengths are millimeters, plan +x is east and +y is north, angles are degrees counter-clockwise. See the conventions in [docs/CONTRACT.md](docs/CONTRACT.md).
-- Contract files (`crates/guhit-model`, `src/contract`, `src/state`, the design tokens) change only with a reason and with every consumer updated in the same change.
-- UI changes follow [docs/MOTION.md](docs/MOTION.md): every interaction animates, drags track the pointer, `prefers-reduced-motion` is respected, no animation library.
-- Plain language in code, comments and UI copy. No em dashes or en dashes; use a hyphen.
-- Third-party assets must be CC0 and listed in [assets/ASSETS.md](assets/ASSETS.md).
-
-**Good first contributions**: a new catalog object (2D symbol plus 3D form plus a CC0 model), a material preset, a review check, a DXF fixture from a real drawing that the wall recognizer gets wrong, translations of UI copy.
+Good first contributions: a new catalog object (2D symbol, 3D form and a CC0 model), a material preset, a review check, a DXF fixture the wall recognizer gets wrong, a translation of interface copy.
 
 **Releases** are cut by the maintainers with a tag push; see [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Security
 
-Keys for the copilot and AI rendering are stored in the app's data folder with user-only permissions and never leave your machine except in requests to the provider you chose. The MCP endpoint and the dev bridge listen on localhost only and refuse other origins. A live session is TLS 1.3 from guest to host, pinned to the certificate named in the invite, so the relay can neither read nor change it; the relay stores nothing and has no accounts. Report a vulnerability privately through GitHub's security advisories on this repository rather than a public issue.
+Keys for the copilot and AI rendering are stored in the app's data folder with user-only permissions and never leave your machine except in requests to the provider you chose. The MCP endpoint and the dev bridge listen on localhost only and refuse other origins. A live session is TLS 1.3 from guest to host, pinned to the certificate named in the invite, so the relay can neither read nor change it; the relay stores nothing and has no accounts. Report a vulnerability privately through GitHub's private vulnerability reporting rather than a public issue; see [SECURITY.md](SECURITY.md).
 
 ## License
 
-Not decided yet. Until a license file is added, the code is copyright the authors and all rights are reserved; you may read and build it, and contributions are accepted under the license the project settles on. The bundled assets are CC0 (see [assets/ASSETS.md](assets/ASSETS.md)).
+Guhit Studio is free software under the [GNU Affero General Public License v3.0 only](LICENSE) (AGPL-3.0-only): you may use, study, change and share it, and if you distribute a modified version or let people use one over a network, you must give them its source under the same license.
+
+- **Contributions** are accepted under the [contributor license agreement](CLA.md): you keep your copyright and license your work to Aliteo, which lets the project also offer it under other terms. See [CONTRIBUTING.md](CONTRIBUTING.md).
+- **The name and logo** are trademarks: the AGPL grants no trademark rights, so forks must rename. It limits trademark use only, not your rights in the code. See [TRADEMARKS.md](TRADEMARKS.md).
+- **Bundled assets** are CC0 (see [assets/ASSETS.md](assets/ASSETS.md)). **Third-party software** keeps its own licenses: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) lists them (the app ships the same file), and [NOTICE](NOTICE) covers the rest.
 
 ## Acknowledgements
 

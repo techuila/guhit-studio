@@ -57,7 +57,9 @@ export interface StairInfo {
   width: number;
   run: number;
   risers: number;
-  /** Tread depth: run / risers. */
+  /** Treads: one fewer than the risers, the top riser lands on the floor above (DECISIONS D44). At least one. */
+  treads: number;
+  /** Tread depth: run / treads. */
   going: number;
   /** Floor of `levelId`. */
   bottomZ: number;
@@ -111,7 +113,8 @@ export function stairsOf(doc: DocState | null): StairInfo[] {
       width,
       run,
       risers,
-      going: run / risers,
+      treads: Math.max(risers - 1, 1),
+      going: run / Math.max(risers - 1, 1),
       bottomZ: level.elevation_mm,
       rise,
     });
@@ -132,7 +135,9 @@ export function stairPoint(s: StairInfo, u: number, v: number): Pt {
 /**
  * Height of the walking line above the stair's floor at `u`: the line through
  * the middle of every tread, from 0 half a going before the first riser up to
- * the level height half a going before the head, flat beyond both.
+ * the level height half a going past the head (the top riser lands on the
+ * floor above, DECISIONS D44: the walker steps up that last half riser as it
+ * leaves the flight), flat beyond both.
  */
 export function rampHeight(s: StairInfo, u: number): number {
   const step = s.rise / s.risers;
@@ -274,7 +279,7 @@ function crosses(a: StairLocal, b: StairLocal, c: StairLocal, d: StairLocal): bo
 export function stairOutline(s: StairInfo): { outline: Pt[]; treads: [Pt, Pt][]; arrow: [Pt, Pt] } {
   const hw = s.width / 2;
   const treads: [Pt, Pt][] = [];
-  for (let i = 1; i < s.risers; i++) treads.push([stairPoint(s, i * s.going, -hw), stairPoint(s, i * s.going, hw)]);
+  for (let i = 1; i < s.treads; i++) treads.push([stairPoint(s, i * s.going, -hw), stairPoint(s, i * s.going, hw)]);
   return {
     outline: [stairPoint(s, 0, -hw), stairPoint(s, 0, hw), stairPoint(s, s.run, hw), stairPoint(s, s.run, -hw)],
     treads,

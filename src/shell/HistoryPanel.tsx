@@ -3,6 +3,11 @@
 // steps greyed below them. Hovering a row tints its elements, clicking shows
 // them, "Undo to here" takes back several steps as one revision. Pure parts
 // in history.ts.
+//
+// Agents' steps (DECISIONS D47) show the agent's name on a square dot, an AI
+// tag and whom it worked for ("for Axl"); each agent gets a filter chip like
+// each person. "Show its steps" in the Agents panel opens this panel
+// filtered to that agent (`useAgents.historyRequest`).
 import {
   useCallback,
   useEffect,
@@ -16,6 +21,9 @@ import {
 } from "react";
 import type { HistoryList } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
+import { AiMark } from "../live/AgentAvatar";
+import { forLine } from "../live/agents";
+import { useAgents } from "../live/agentsStore";
 import { initials, peerVar } from "../live/format";
 import { useLive } from "../live/liveStore";
 import { bus } from "../state/bus";
@@ -58,6 +66,17 @@ export function HistoryButton() {
   useEffect(() => {
     if (!hasDoc) setOpen(false);
   }, [hasDoc]);
+  // "Show its steps" (Agents panel): opens, filtered to that agent. The button opens it unfiltered.
+  const request = useAgents((st) => st.historyRequest);
+  const seenRequest = useRef(request?.token ?? 0);
+  const [ask, setAsk] = useState<{ filter: string; token: number } | null>(null);
+  useEffect(() => {
+    if (!request || request.token === seenRequest.current) return;
+    seenRequest.current = request.token;
+    if (!hasDoc) return;
+    setAsk(request);
+    setOpen(true);
+  }, [request, hasDoc]);
   return (
     <span className={s.anchor} ref={anchor}>
       <IconButton
@@ -69,10 +88,13 @@ export function HistoryButton() {
         aria-expanded={open}
         aria-haspopup="dialog"
         disabled={!hasDoc}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setAsk(null);
+          setOpen((v) => !v);
+        }}
       />
       <Presence open={open} exit="base">
-        {(stage) => <HistoryPanel stage={stage} anchor={anchor} onClose={close} />}
+        {(stage) => <HistoryPanel stage={stage} anchor={anchor} onClose={close} ask={ask} />}
       </Presence>
     </span>
   );
@@ -82,21 +104,33 @@ function HistoryPanel({
   stage,
   anchor,
   onClose,
+  ask,
 }: {
   stage: PresenceStage;
   anchor: RefObject<HTMLSpanElement | null>;
   onClose: (refocus: boolean) => void;
+  /** Opened for one agent's steps ("Show its steps"): the filter to start with. */
+  ask: { filter: string; token: number } | null;
 }) {
   const revision = useApp((st) => st.doc?.revision ?? null);
   const elements = useApp((st) => st.doc?.project.elements);
   const status = useLive((st) => st.status);
   const me = useLive((st) => st.profile?.name ?? "");
   const people = status.participants.length;
+  const known = useAgents((st) => st.known);
+  const agentIds = useMemo(() => new Set(Object.keys(known)), [known]);
   const [list, setList] = useState<HistoryList | null>(null);
   // The revision the list was read at: "Undo to here" counts its steps there.
   const [listRevision, setListRevision] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [person, setPerson] = useState(EVERYONE);
+  // Opened by "Show its steps": that agent's chip is on, also when asked again while open.
+  const [person, setPerson] = useState(() => ask?.filter ?? EVERYONE);
+  const seenAsk = useRef(ask?.token ?? 0);
+  useEffect(() => {
+    if (!ask || ask.token === seenAsk.current) return;
+    seenAsk.current = ask.token;
+    setPerson(ask.filter);
+  }, [ask]);
   const [now, setNow] = useState(() => new Date());
   const [active, setActive] = useState<string | null>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -155,7 +189,7 @@ function HistoryPanel({
     };
   }, [anchor, onClose, exiting]);
 
-  const rows = useMemo(() => (list ? historyRows(list, status) : []), [list, status]);
+  const rows = useMemo(() => (list ? historyRows(list, status, agentIds) : []), [list, status, agentIds]);
   const chips = useMemo(() => historyPeople(rows), [rows]);
   // A filter on someone who no longer has a step falls back to everyone.
   const filter = person !== EVERYONE && !chips.some((c) => c.key === person) ? EVERYONE : person;
@@ -182,6 +216,9 @@ function HistoryPanel({
   }, [present, firstUndone]);
 
   const tabStop = active && present.some((r) => r.key === active && !r.leaving) ? active : (present.find((r) => !r.leaving)?.key ?? null);
+
+  /** "for Axl" on an agent's step: whom it worked for. */
+  const forText = (row: HistoryRow): string | null => (row.agent ? forLine(row.step, status.self_id, me || null) : null);
 
   const tint = (row: HistoryRow | null) => {
     const app = useApp.getState();
@@ -275,10 +312,18 @@ function HistoryPanel({
               type="button"
               className={cx(s.chip, filter === c.key && s.chipOn)}
               aria-pressed={filter === c.key}
+              aria-label={`${c.name}${c.agent ? ", an AI agent" : ""}, ${c.count} ${c.count === 1 ? "step" : "steps"}`}
               onClick={() => setPerson(c.key)}
               style={dotStyle(c.color)}
+              data-testid={`history-chip-${c.key}`}
             >
-              <i className={s.chipDot} aria-hidden />
+              {c.agent ? (
+                <i className={s.chipAgent} aria-hidden>
+                  <AiMark size={7} />
+                </i>
+              ) : (
+                <i className={s.chipDot} aria-hidden />
+              )}
               {c.name}
               <span className={s.chipCount}>{c.count}</span>
             </button>
@@ -326,7 +371,7 @@ function HistoryPanel({
                     data-row={p.key}
                     tabIndex={isStop ? 0 : -1}
                     disabled={p.leaving}
-                    aria-label={`${row.step.label}, by ${row.name}${time ? `, ${time}` : ""}${detail ? `. ${detail}` : ""}${redo ? ", undone" : ""}. Show on the plan`}
+                    aria-label={`${row.step.label}, by ${row.name}${row.agent ? ", an AI agent" : ""}${forText(row) ? ` ${forText(row)}` : ""}${time ? `, ${time}` : ""}${detail ? `. ${detail}` : ""}${redo ? ", undone" : ""}. Show on the plan`}
                     onPointerEnter={() => tint(row)}
                     onPointerLeave={() => tint(null)}
                     onFocus={(e) => {
@@ -336,16 +381,22 @@ function HistoryPanel({
                     onBlur={() => tint(null)}
                     onClick={() => show(row)}
                   >
-                    <span className={s.dot} aria-hidden>
+                    <span className={cx(s.dot, row.agent && s.dotAgent)} aria-hidden>
                       {initials(row.mine && me ? me : row.name)}
+                      {row.agent ? (
+                        <i className={s.dotMark}>
+                          <AiMark size={6} />
+                        </i>
+                      ) : null}
                     </span>
                     <span className={s.text}>
                       <span className={s.label}>{row.step.label || "Change"}</span>
                       <span className={s.meta}>
                         <span className={s.who}>{row.name}</span>
+                        {forText(row) ? <span className={s.for}>{forText(row)}</span> : null}
                         {time ? <span className={s.when}>{time}</span> : null}
-                        {row.step.origin === "ai" ? (
-                          <span className={s.ai} data-tip="Made by the copilot or an MCP client" data-tip-side="right">
+                        {row.agent || row.step.origin === "ai" ? (
+                          <span className={s.ai} data-tip={row.agent ? "Made by an AI agent through MCP" : "Made by the copilot or an MCP client"} data-tip-side="right">
                             AI
                           </span>
                         ) : null}

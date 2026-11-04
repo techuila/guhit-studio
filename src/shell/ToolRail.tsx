@@ -6,7 +6,7 @@ import { Icon } from "../ui/icons";
 import { Presence, useSlidingIndicator } from "../ui/motionDom";
 import { formatLength } from "../ui/units";
 import type { DisplayUnit } from "../contract/bindings";
-import { DOOR_STYLES, TOOLS, WINDOW_STYLES, activateTool, type ToolDef } from "./actions";
+import { DOOR_STYLES, SLAB_KINDS, TOOLS, WINDOW_STYLES, activateTool, type ToolDef } from "./actions";
 import { DEVICE_LABEL, hpLabel, mountRef, mountingHeight } from "./devices";
 import { PipeOptions } from "./PipeOptions";
 import { useShell } from "./shellStore";
@@ -164,6 +164,43 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
               }}
             >
               <span>{o.label}</span>
+            </button>
+          ))}
+        </>
+      ) : null}
+
+      {tool.flyout === "slab" ? (
+        <>
+          <div className={s.flyoutTitle}>Slab type</div>
+          {SLAB_KINDS.map((k) => (
+            <button
+              key={k.value}
+              type="button"
+              aria-pressed={toolOptions.slabKind === k.value}
+              className={cx(s.flyoutItem, toolOptions.slabKind === k.value && s.flyoutItemOn)}
+              onClick={() => {
+                setTool("slab", { slabKind: k.value });
+                onClose();
+              }}
+            >
+              <span>{k.label}</span>
+              <small>{k.hint}</small>
+            </button>
+          ))}
+          <div className={s.flyoutTitle}>Railing</div>
+          {[true, false].map((on) => (
+            <button
+              key={String(on)}
+              type="button"
+              aria-pressed={toolOptions.slabRailing === on}
+              className={cx(s.flyoutItem, toolOptions.slabRailing === on && s.flyoutItemOn)}
+              onClick={() => {
+                setTool("slab", { slabRailing: on });
+                onClose();
+              }}
+            >
+              <span>{on ? "Railing on" : "No railing"}</span>
+              <small>{on ? "1000 mm bars" : "add one later"}</small>
             </button>
           ))}
         </>
