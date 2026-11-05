@@ -169,14 +169,6 @@ pub enum PlanFormat {
     Dxf,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export)]
-pub enum Orientation {
-    Landscape,
-    Portrait,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct PlanExportOptions {
@@ -209,30 +201,12 @@ pub struct PlanExportOptions {
     pub date: Option<String>,
 }
 
-/// The plan sheets a PH permit and hand-off set asks for. Every sheet keeps
-/// the title block; the signing professional's fields stay blank.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export)]
-pub enum SheetKind {
-    /// The architectural plan. Pipes follow `show_pipes`.
-    #[default]
-    Plan,
-    /// Lighting layout: fixtures, switches and their links, a legend and counts.
-    Lighting,
-    /// Power layout: outlets, special purpose outlets, panelboard, conduit,
-    /// a legend, counts and a schedule of loads with blank ratings for the PEE.
-    Power,
-    /// Plumbing layout: water, drainage, vent and storm, legend, fixture table.
-    Plumbing,
-    /// Water and sanitary isometric diagrams, not to scale, with a legend.
-    PlumbingIsometric,
-    /// Aircon layout: units, line sets, condensate, core holes, a legend.
-    Aircon,
-}
-
 fn default_true() -> bool {
     true
+}
+
+fn is_true(v: &bool) -> bool {
+    *v
 }
 
 /// Whole-model exports produced by the backend.
@@ -326,6 +300,40 @@ pub struct ExportResult {
     pub path: String,
     /// Scale that was actually used, 1:N.
     pub scale_denominator: Option<u32>,
+    /// What the export left out and why ("P-2 PLUMBING ISOMETRIC DIAGRAMS:
+    /// the model has no water, drainage or vent runs"). A printed sheet never
+    /// carries such a note itself.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+}
+
+// --------------------------------------------------------- sheets (D53, D54)
+
+/// `export_sheets`: the permit set, or some of its sheets.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SheetExportOptions {
+    /// PDF writes one file for the whole set; SVG one file per sheet; DXF
+    /// the views side by side in model space.
+    pub format: PlanFormat,
+    /// Empty: every sheet, in set order.
+    #[serde(default)]
+    pub sheet_ids: Vec<Id>,
+    /// Absolute path to write. None: the app asks or picks one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// The title block DATE, "YYYY-MM-DD"; None: today, on this computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+}
+
+/// A drawing as SVG: `sheet_preview` and `view_svg`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SvgDrawing {
+    pub svg: String,
+    /// The scale used, 1:N. None for a sheet, whose viewports each have one.
+    pub scale_denominator: Option<u32>,
 }
 
 // ------------------------------------------------------------------------- AI
@@ -367,6 +375,19 @@ pub struct AiRequest {
     /// the copilot may edit anything the user asks for.
     #[serde(default)]
     pub scope: Option<EditScope>,
+    /// A task the copilot runs instead of a free chat turn. None: chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<AiTask>,
+}
+
+/// A copilot task with its own pipeline.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export)]
+pub enum AiTask {
+    /// Furnish rooms: one proposal per room (`AiTurn::proposals`), each
+    /// accepted or rejected on its own (D8).
+    Furnish { room_ids: Vec<Id>, style: String },
 }
 
 /// Limits an AI edit to part of the plan (DECISIONS D30). The engine checks
@@ -410,6 +431,11 @@ pub struct AiTurn {
     pub proposal: Option<AiProposal>,
     /// Names of the tools the model called, for transparency.
     pub tools_used: Vec<String>,
+    /// A task with one proposal per room (`AiTask::Furnish`): each is
+    /// resolved on its own with `ai_resolve`, and `proposal` is None. Left
+    /// out of the JSON when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proposals: Vec<AiProposal>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -455,6 +481,8 @@ pub enum RenderKind {
     Enhanced,
     /// A contact sheet of sun positions.
     ShadowStudy,
+    /// A tour video (`RenderRecord::video`); the image is its poster frame.
+    Video,
 }
 
 /// The path tracer's time and sample budget: Quick aims at a minute at HD,
@@ -488,6 +516,10 @@ pub struct RenderInfo {
     /// unknown.
     #[serde(default)]
     pub gpu: String,
+    /// The roof and the cutaway the image shows. None: not known (older
+    /// records, tour videos). Left out of the JSON when None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<ViewVisibility>,
 }
 
 /// A saved visual, always tied to the model revision and camera it came from.
@@ -514,6 +546,112 @@ pub struct RenderRecord {
     /// visualizations.
     #[serde(default)]
     pub info: Option<RenderInfo>,
+    /// Conditioning maps saved with a model view, for AI renders. The new
+    /// record fields are left out of the JSON at their defaults.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub maps: Vec<RenderMap>,
+    /// The project look: AI renders' style reference. At most one record.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub look: bool,
+    /// For an AI visualization: how far it strayed from the model's lines.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drift: Option<DriftReport>,
+    /// A tour video; `image_path` is its poster frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<VideoInfo>,
+}
+
+/// A conditioning map saved with a model view.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RenderMap {
+    pub kind: MapKind,
+    /// Absolute path of the PNG inside the project folder.
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum MapKind {
+    Depth,
+    Normal,
+    /// Feature lines of the model.
+    Lines,
+    /// One flat color per element.
+    Ids,
+    /// Untextured, evenly lit.
+    Clay,
+}
+
+/// What a model view's maps were drawn with, kept in
+/// `renders/<id>.maps.json` (AI render v2, lane L6).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct MapsMeta {
+    /// Size of every map, pixels.
+    pub width: u32,
+    pub height: u32,
+    /// The roof and the cutaway the maps show. None: not known.
+    #[serde(default)]
+    pub visibility: Option<ViewVisibility>,
+    /// The colors of the ids map, one per element in view.
+    #[serde(default)]
+    pub legend: Vec<LegendEntry>,
+}
+
+/// One color of the ids map.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LegendEntry {
+    /// "#rrggbb" as drawn.
+    pub color: String,
+    /// The element, or "" for a part of the model that belongs to none.
+    pub element_id: Id,
+    /// How many pixels of the map it covers.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub pixels: u64,
+}
+
+impl LegendEntry {
+    /// The color as bytes. None for anything but "#rrggbb".
+    pub fn rgb(&self) -> Option<[u8; 3]> {
+        let hex = self.color.strip_prefix('#')?;
+        if hex.len() != 6 {
+            return None;
+        }
+        let byte = |i: usize| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok();
+        Some([byte(0)?, byte(2)?, byte(4)?])
+    }
+}
+
+/// How far an AI image strayed from the model it was conditioned on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DriftReport {
+    /// The share of model edges, 0 to 1, with no match in the AI image.
+    pub missing: f64,
+    /// Above the warning threshold: the image may show a different building.
+    pub warn: bool,
+    /// One sentence for the user.
+    pub note: String,
+}
+
+/// A tour video file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct VideoInfo {
+    /// Absolute path inside the project folder (`renders/<id>.mp4`), or the
+    /// frame folder for codec "png".
+    pub path: String,
+    pub tour_id: Id,
+    pub seconds: f64,
+    pub fps: u32,
+    pub width: u32,
+    pub height: u32,
+    /// "avc", "vp9", or "png" for a folder of frames.
+    pub codec: String,
 }
 
 // ------------------------------------------------------- AI visualization
@@ -553,6 +691,12 @@ pub struct RenderAiRequest {
     pub quality: RenderQuality,
     /// True keeps geometry, camera and composition strictly (the default).
     pub keep_geometry: bool,
+    /// Send the capture's conditioning maps too. Left out: yes.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub use_maps: bool,
+    /// The style reference image, a render id. None: the project look.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style_reference_id: Option<Id>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -561,6 +705,67 @@ pub struct RenderAiResult {
     pub record: RenderRecord,
     /// Seconds the provider took.
     pub seconds: f64,
+}
+
+/// Agents' AI images in this project today, against the cap (D53).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentUsage {
+    /// This computer's date, "YYYY-MM-DD": the cap resets at local midnight.
+    pub day: String,
+    /// Agents' AI images in this project today.
+    pub used: u32,
+    /// Images agents may make per project per day (settings.json).
+    pub cap: u32,
+    pub default_cap: u32,
+}
+
+/// What one AI render will cost and send, shown before every call
+/// (`render_ai_estimate`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Estimate {
+    /// Exact model id, "gemini-3.1-flash-image".
+    pub model: String,
+    /// "Gemini Flash", "Gemini Pro".
+    pub model_label: String,
+    /// "0.5K", "1K", "2K", "4K".
+    pub image_size: String,
+    /// Google list price per image, "0.10".
+    pub price_usd: String,
+    /// Why this model: "High quality", "the project look goes with it".
+    pub why: String,
+    pub pro: bool,
+    /// The style reference that goes with it: the project look, or the one
+    /// the request named. None: no reference.
+    pub style_reference_id: Option<Id>,
+    /// The maps that go with the capture.
+    pub maps: Vec<MapKind>,
+    /// Maps were asked for and the capture has none yet: the window draws
+    /// them first.
+    pub maps_missing: bool,
+    /// The whole text the provider receives.
+    pub prompt: String,
+    pub agents: AgentUsage,
+}
+
+/// `render_ai_draft`'s answer: the image, checked, not saved yet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Draft {
+    /// Keep it with `render_ai_keep`, or drop it with `render_ai_discard`.
+    pub pending_id: Id,
+    /// The image, as a data URL.
+    pub image: String,
+    /// None: the capture had no line map, so it was not checked.
+    pub drift: Option<DriftReport>,
+    /// Model edges with no match, red on transparent, as a PNG data URL.
+    pub overlay: Option<String>,
+    pub estimate: Estimate,
+    /// Seconds the provider took.
+    pub seconds: f64,
+    /// The model that made it, "gemini/gemini-3.1-flash-image".
+    pub provider: String,
 }
 
 // ------------------------------------------------------------- app events
@@ -622,16 +827,27 @@ pub enum WindowTask {
         visibility: Option<ViewVisibility>,
     },
     /// Save a capture of the live 3D view (Tier 1), seen from a saved view
-    /// when `camera_id` is set.
+    /// when `camera_id` is set, else from `camera` when set.
     CaptureView {
         camera_id: Option<Id>,
         /// As for `Render`.
         #[serde(default)]
         visibility: Option<ViewVisibility>,
+        /// An unsaved camera: a tour preview, or the `look` camera. Ignored
+        /// when `camera_id` is set. Left out of the JSON when None.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        camera: Option<Camera>,
     },
     /// Draw the plan of a level (None: the level on screen) on white and
     /// answer it as `WindowReply::image`. Nothing is saved.
     CapturePlan { level_id: Option<Id> },
+    /// Render the conditioning maps of a saved model view and attach them to
+    /// its record (`RenderRecord::maps`).
+    CaptureMaps { render_id: Id },
+    /// Export a tour as a video to Visuals: a long job through
+    /// `window_start` and `window_wait`. The reply's `render_ids` holds the
+    /// video record.
+    ExportTour { tour_id: Id, size: RenderSize },
 }
 
 /// What a render or capture asked for from outside the window shows

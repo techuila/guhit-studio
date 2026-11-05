@@ -1,20 +1,7 @@
 // Editable fields for one selected element, by kind. Every edit is one typed
 // command: update_element, or the specific semantic command where one exists.
 import { useState } from "react";
-import type {
-  CameraPreset,
-  Command,
-  DocState,
-  Element,
-  OpeningStyle,
-  Point,
-  Railing,
-  RailingStyle,
-  RoomUsage,
-  SlabKind,
-  Vec3,
-  WallAnchor,
-} from "../contract/bindings";
+import type { CameraPreset, Command, DocState, Element, OpeningStyle, Point, RoofShape, SlabKind, WallAnchor } from "../contract/bindings";
 import { SLAB_RAILING_HEIGHT_MM, SLAB_THICKNESS_MM, slabAreaMm2 } from "../editor2d/slab";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
@@ -23,15 +10,24 @@ import { Button, Field, NumberField, ReadOnly, Section, Segmented, Select, Switc
 import type { IconName } from "../ui/icons";
 import { formatAreaMm2, formatLength } from "../ui/units";
 import { DOOR_STYLES, WINDOW_STYLES } from "./actions";
-import { commitLatest, rebase, updateElement } from "./commitLatest";
+import { commitLatest, rebase } from "./commitLatest";
 import { DeviceBasics, DeviceSections, deviceIcon } from "./DeviceFields";
 import { DEVICE_LABEL, catalogItem, isDevice } from "./devices";
+import { LevelField, PointFields, Position, RailingFields, Rotation, Vec3Fields, update, type Of } from "./fields/common";
+import { BuiltInFields } from "./fields/BuiltInFields";
+import { DimensionFields } from "./fields/DimensionFields";
+import { GridFields } from "./fields/GridFields";
+import { LotFields } from "./fields/LotFields";
+import { OpeningTypeFields } from "./fields/OpeningTypeFields";
+import { RoofFields } from "./fields/RoofFields";
+import { RoomFields } from "./fields/RoomFields";
+import { StairFields } from "./fields/StairFields";
+import { ViewMarkFields } from "./fields/ViewMarkFields";
 import { PipeFields } from "./PipeFields";
 import { PIPE_COLOR, pipeLength, runLabel, sizeLabel } from "./pipes";
 import { useSection } from "./shellStore";
+import { TourFields } from "./tours/TourFields";
 import s from "./Inspector.module.css";
-
-type Of<K extends Element["kind"]> = Extract<Element, { kind: K }>;
 
 /** Queued after any edit still on its way, so edits land in the order they were made. */
 const dispatch = (command: Command) => void commitLatest(() => command);
@@ -43,25 +39,6 @@ const moveWallEnd = (wall: Of<"wall">, which: "start" | "end", point: Point) =>
     const moved = rebase(now[which], wall[which], point);
     return { type: "set_wall_endpoints", wall_id: wall.id, start: which === "start" ? moved : now.start, end: which === "end" ? moved : now.end };
   });
-/** Lays the fields this edit changed over the latest element (`commitLatest.ts`). */
-const update = (base: Element, element: Element) => void updateElement(base, element);
-
-const USAGE: Array<{ value: RoomUsage; label: string }> = [
-  { value: "living", label: "Living room" },
-  { value: "dining", label: "Dining" },
-  { value: "kitchen", label: "Kitchen" },
-  { value: "bedroom", label: "Bedroom" },
-  { value: "master_bedroom", label: "Master bedroom" },
-  { value: "bathroom", label: "Toilet and bath" },
-  { value: "powder_room", label: "Powder room" },
-  { value: "laundry", label: "Laundry and service" },
-  { value: "garage", label: "Garage or carport" },
-  { value: "porch", label: "Porch or lanai" },
-  { value: "hallway", label: "Hallway" },
-  { value: "storage", label: "Storage" },
-  { value: "office", label: "Office or study" },
-  { value: "other", label: "Other" },
-];
 
 const CAMERA_PRESETS: Array<{ value: CameraPreset; label: string }> = [
   { value: "eye_level", label: "Eye level" },
@@ -79,21 +56,19 @@ const SLAB_KINDS: Array<{ value: SlabKind; label: string }> = [
   { value: "void", label: "Void" },
 ];
 
+const ROOF_SHAPE_LABEL: Record<RoofShape, string> = {
+  flat: "Flat",
+  shed: "Shed",
+  gable: "Gable",
+  hip: "Hip",
+};
+
 const SLAB_TITLE: Record<SlabKind, string> = {
   floor: "Floor slab",
   balcony: "Balcony",
   deck: "Deck",
   void: "Void",
 };
-
-const RAILING_STYLES: Array<{ value: RailingStyle; label: string }> = [
-  { value: "bars", label: "Bars" },
-  { value: "glass", label: "Glass" },
-  { value: "solid", label: "Solid" },
-];
-
-/** New stairs get a 900 mm handrail (DECISIONS D50). */
-const STAIR_RAILING_HEIGHT_MM = 900;
 
 const STYLE_LABEL: Record<OpeningStyle, string> = {
   swing_single: "Single swing",
@@ -146,48 +121,20 @@ export function elementTitle(el: Element, doc: DocState): { title: string; subti
       };
     case "slab":
       return { title: SLAB_TITLE[el.slab_kind], subtitle: formatAreaMm2(slabAreaMm2(el.polygon)), icon: "slab" };
+    case "roof":
+      return { title: "Roof", subtitle: el.outline.type === "top_footprint" ? "Over the top floor" : ROOF_SHAPE_LABEL[el.shape], icon: "roof" };
+    case "grid":
+      return { title: "Grid line", subtitle: el.label, icon: "grid" };
+    case "view_mark":
+      return { title: el.mark_kind === "section" ? "Section mark" : "Elevation mark", subtitle: el.label, icon: "dimension" };
+    case "lot":
+      return { title: "Lot", subtitle: `${el.corners.length} corners`, icon: "pin" };
+    case "tour":
+      return { title: "Tour", subtitle: el.name, icon: "camera" };
   }
 }
 
 // ---------------------------------------------------------------- helpers
-
-function PointFields({ label, point, unit, onCommit }: { label: string; point: Point; unit: "mm" | "m"; onCommit: (p: Point) => void }) {
-  return (
-    <Field label={label}>
-      <NumberField label={`${label} X`} kind="length" unit={unit} value={point.x} onCommit={(x) => onCommit({ ...point, x })} />
-      <NumberField label={`${label} Y`} kind="length" unit={unit} value={point.y} onCommit={(y) => onCommit({ ...point, y })} />
-    </Field>
-  );
-}
-
-function Vec3Fields({ label, value, unit, onCommit }: { label: string; value: Vec3; unit: "mm" | "m"; onCommit: (v: Vec3) => void }) {
-  return (
-    <>
-      <PointFields label={label} point={{ x: value.x, y: value.y }} unit={unit} onCommit={(p) => onCommit({ ...value, ...p })} />
-      <Field label={`${label} height`}>
-        <NumberField label={`${label} height`} kind="length" unit={unit} value={value.z} onCommit={(z) => onCommit({ ...value, z })} />
-      </Field>
-    </>
-  );
-}
-
-function Rotation({ value, onCommit }: { value: number; onCommit: (deg: number) => void }) {
-  return (
-    <Field label="Rotation" hint="Degrees, counter-clockwise">
-      <NumberField label="Rotation" suffix="deg" step={15} min={-360} max={360} value={value} onCommit={onCommit} />
-    </Field>
-  );
-}
-
-/** Less-used exact coordinates, tucked away but always available. */
-function Position({ children }: { children: React.ReactNode }) {
-  const [open, toggle] = useSection("position", false);
-  return (
-    <Section title="Exact position" open={open} onToggle={toggle}>
-      {children}
-    </Section>
-  );
-}
 
 // ---------------------------------------------------------------- per kind
 
@@ -264,6 +211,7 @@ function OpeningFields({ el, doc }: { el: Of<"opening">; doc: DocState }) {
   const swings = el.style === "swing_single" || el.style === "swing_double" || el.style === "casement";
   return (
     <div className={s.group}>
+      <OpeningTypeFields el={el} doc={doc} />
       <Field label="Type">
         <Segmented
           label="Opening type"
@@ -330,31 +278,6 @@ function OpeningFields({ el, doc }: { el: Of<"opening">; doc: DocState }) {
   );
 }
 
-function RoomFields({ el, doc }: { el: Of<"room">; doc: DocState }) {
-  const unit = doc.project.settings.display_unit;
-  const g = doc.derived.rooms.find((r) => r.room_id === el.id);
-  return (
-    <div className={s.group}>
-      <Field label="Name">
-        <TextField label="Room name" value={el.name} required onCommit={(name) => update(el, { ...el, name, auto_named: false })} />
-      </Field>
-      <Field label="Use">
-        <Select label="Room use" value={el.usage} options={USAGE} onChange={(usage) => update(el, { ...el, usage })} />
-      </Field>
-      <Field label="Floor finish">
-        <MaterialPicker label="Floor material" materials={doc.project.materials} prefer={["floor", "wood"]} value={el.floor_material_id} noneLabel="Default floor" onChange={(floor_material_id) => update(el, { ...el, floor_material_id })} />
-      </Field>
-      <Field label="Net area" hint="Measured on the inner wall faces">
-        <ReadOnly>{g ? formatAreaMm2(g.area_mm2) : "Not enclosed"}</ReadOnly>
-      </Field>
-      <Field label="Perimeter">
-        <ReadOnly>{g ? formatLength(g.perimeter_mm, unit) : "-"}</ReadOnly>
-      </Field>
-      {g ? null : <p className={s.note}>The walls around this room do not close. Join them to get an area.</p>}
-    </div>
-  );
-}
-
 function ColumnFields({ el, doc }: { el: Of<"column">; doc: DocState }) {
   const unit = doc.project.settings.display_unit;
   const round = el.shape === "round";
@@ -391,75 +314,6 @@ function ColumnFields({ el, doc }: { el: Of<"column">; doc: DocState }) {
       <Position>
         <PointFields label="Center" point={el.center} unit={unit} onCommit={(center) => update(el, { ...el, center })} />
       </Position>
-    </>
-  );
-}
-
-function StairFields({ el, doc }: { el: Of<"stair">; doc: DocState }) {
-  const unit = doc.project.settings.display_unit;
-  const level = doc.project.levels.find((l) => l.id === el.level_id);
-  const riser = level ? level.height_mm / Math.max(1, el.riser_count) : null;
-  const tread = el.run_mm / Math.max(1, el.riser_count - 1);
-  return (
-    <>
-      <div className={s.group}>
-        <Field label="Width">
-          <NumberField label="Stair width" kind="length" unit={unit} min={500} max={5000} step={50} value={el.width_mm} onCommit={(width_mm) => update(el, { ...el, width_mm })} />
-        </Field>
-        <Field label="Run" hint="Plan length of the flight">
-          <NumberField label="Stair run" kind="length" unit={unit} min={500} max={20000} step={50} value={el.run_mm} onCommit={(run_mm) => update(el, { ...el, run_mm })} />
-        </Field>
-        <Field label="Risers">
-          <NumberField label="Number of risers" integer min={2} max={40} value={el.riser_count} onCommit={(riser_count) => update(el, { ...el, riser_count })} />
-        </Field>
-        <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update(el, { ...el, rotation_deg })} />
-        <Field label="Each riser" hint="Level height divided by the number of risers">
-          <ReadOnly>{riser ? formatLength(riser, unit) : "-"}</ReadOnly>
-        </Field>
-        <Field label="Each tread">
-          <ReadOnly>{formatLength(tread, unit)}</ReadOnly>
-        </Field>
-        <RailingFields railing={el.railing} unit={unit} defaultHeight={STAIR_RAILING_HEIGHT_MM} what="Handrail" onChange={(railing) => update(el, { ...el, railing })} />
-      </div>
-      <Position>
-        <PointFields label="First riser" point={el.origin} unit={unit} onCommit={(origin) => update(el, { ...el, origin })} />
-      </Position>
-    </>
-  );
-}
-
-/** A railing switch, then its height and style while it is on. Each change is one update_element. */
-function RailingFields({
-  railing,
-  unit,
-  defaultHeight,
-  what,
-  onChange,
-}: {
-  railing: Railing | null;
-  unit: "mm" | "m";
-  defaultHeight: number;
-  what: string;
-  onChange: (railing: Railing | null) => void;
-}) {
-  return (
-    <>
-      <Field label={what} hint="Along the open edges">
-        <label className={s.inlineSwitch}>
-          <Switch label={what} checked={!!railing} onChange={(on) => onChange(on ? { height_mm: defaultHeight, style: "bars" } : null)} />
-          <span>{railing ? "Along the open edges" : "None"}</span>
-        </label>
-      </Field>
-      {railing ? (
-        <>
-          <Field label={`${what} height`} hint="Top of the rail above the floor">
-            <NumberField label={`${what} height`} kind="length" unit={unit} min={300} max={2000} step={50} value={railing.height_mm} onCommit={(height_mm) => onChange({ ...railing, height_mm })} />
-          </Field>
-          <Field label={`${what} style`}>
-            <Segmented label={`${what} style`} stretch value={railing.style} options={RAILING_STYLES} onChange={(style) => onChange({ ...railing, style })} />
-          </Field>
-        </>
-      ) : null}
     </>
   );
 }
@@ -557,6 +411,7 @@ function AssetFields({ el, doc }: { el: Of<"asset">; doc: DocState }) {
         </Field>
         <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update(el, { ...el, rotation_deg })} />
       </div>
+      {item?.parametric ? <BuiltInFields el={el} item={item} doc={doc} /> : null}
       <Position>
         <PointFields label="Center" point={el.position} unit={unit} onCommit={(position) => update(el, { ...el, position })} />
       </Position>
@@ -578,29 +433,6 @@ function AnnotationFields({ el, doc }: { el: Of<"annotation">; doc: DocState }) 
       </div>
       <Position>
         <PointFields label="Anchor" point={el.position} unit={unit} onCommit={(position) => update(el, { ...el, position })} />
-      </Position>
-    </>
-  );
-}
-
-function DimensionFields({ el, doc }: { el: Of<"dimension">; doc: DocState }) {
-  const unit = doc.project.settings.display_unit;
-  return (
-    <>
-      <div className={s.group}>
-        <Field label="Measured">
-          <ReadOnly>{formatLength(Math.hypot(el.b.x - el.a.x, el.b.y - el.a.y), unit)}</ReadOnly>
-        </Field>
-        <Field label="Show text" hint="Leave empty to show the measured length">
-          <TextField label="Replacement text" value={el.text_override ?? ""} placeholder="Measured length" onCommit={(t) => update(el, { ...el, text_override: t === "" ? null : t })} />
-        </Field>
-        <Field label="Line offset" hint="Distance of the dimension line from the measured points">
-          <NumberField label="Dimension line offset" kind="length" unit={unit} step={50} value={el.offset_mm} onCommit={(offset_mm) => update(el, { ...el, offset_mm })} />
-        </Field>
-      </div>
-      <Position>
-        <PointFields label="From" point={el.a} unit={unit} onCommit={(a) => update(el, { ...el, a })} />
-        <PointFields label="To" point={el.b} unit={unit} onCommit={(b) => update(el, { ...el, b })} />
       </Position>
     </>
   );
@@ -681,15 +513,6 @@ function UnderlayFields({ el, doc }: { el: Of<"underlay">; doc: DocState }) {
         <PointFields label="Bottom left" point={el.position} unit={unit} onCommit={(position) => update(el, { ...el, position })} />
       </Position>
     </>
-  );
-}
-
-function LevelField({ levelId, doc, onChange }: { levelId: string; doc: DocState; onChange: (levelId: string) => void }) {
-  if (doc.project.levels.length <= 1) return null;
-  return (
-    <Field label="Level">
-      <Select label="Level" value={levelId} options={doc.project.levels.map((l) => ({ value: l.id, label: l.name }))} onChange={onChange} />
-    </Field>
   );
 }
 
@@ -789,5 +612,15 @@ export function ElementFields({ element, doc }: { element: Element; doc: DocStat
       return <PipeFields el={element} doc={doc} />;
     case "slab":
       return <SlabFields el={element} doc={doc} />;
+    case "roof":
+      return <RoofFields el={element} doc={doc} />;
+    case "grid":
+      return <GridFields el={element} doc={doc} />;
+    case "view_mark":
+      return <ViewMarkFields el={element} doc={doc} />;
+    case "lot":
+      return <LotFields el={element} doc={doc} />;
+    case "tour":
+      return <TourFields el={element} doc={doc} />;
   }
 }

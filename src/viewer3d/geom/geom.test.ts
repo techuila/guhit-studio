@@ -11,7 +11,6 @@ import {
 } from "./polygon";
 import { MeshData, pushPrism } from "./meshData";
 import { buildWallMesh, clampOpenings, type WallInput } from "./wallMesh";
-import { buildRoofInfill, buildRoofMesh, roofProfile, type RoofInput } from "./roofMesh";
 import {
   axonometric,
   exteriorCorner,
@@ -258,88 +257,6 @@ describe("wall mesh", () => {
       { a: 1, b: 550, bottom: 0, top: 2100 },
     ]);
     expect(clampOpenings([{ offset: NaN, width: 900, height: 2100, sill: 0 }], 0, 8000, 3000)).toEqual([]);
-  });
-});
-
-describe("roof", () => {
-  const fp = rect(-75, -75, 8075, 6075);
-  const gable: RoofInput = {
-    kind: "gable",
-    pitchDeg: 20,
-    overhang: 600,
-    thickness: 150,
-    ridgeAxis: "x",
-    footprint: fp,
-    baseHeight: 3000,
-  };
-  const tan20 = Math.tan((20 * Math.PI) / 180);
-
-  it("gable underside touches the wall top at the eaves and peaks on the ridge", () => {
-    const prof = roofProfile(gable)!;
-    expect(prof.under({ x: 0, y: -75 })).toBeCloseTo(3000);
-    expect(prof.under({ x: 0, y: 6075 })).toBeCloseTo(3000);
-    expect(prof.under({ x: 0, y: 3000 })).toBeCloseTo(3000 + 3075 * tan20);
-    expect(prof.ridge).toBeCloseTo(3000);
-    // the overhang dips below the wall top
-    expect(prof.under({ x: 0, y: -675 })).toBeCloseTo(3000 - 600 * tan20);
-  });
-
-  it("gable ridge follows ridge_axis y", () => {
-    const prof = roofProfile({ ...gable, ridgeAxis: "y" })!;
-    expect(prof.ridge).toBeCloseTo(4000);
-    expect(prof.under({ x: 4000, y: 0 })).toBeCloseTo(3000 + 4075 * tan20);
-  });
-
-  it("gable covering is closed, outward, and spans the overhang", () => {
-    const md = new MeshData();
-    buildRoofMesh(gable, md);
-    const vertical = 150 / Math.cos((20 * Math.PI) / 180);
-    expect(md.signedVolume()).toBeCloseTo((9350 * 7350 * vertical) / 1e9, 5);
-    const b = md.bounds()!;
-    expect(b.min[0]).toBeCloseTo(-0.675);
-    expect(b.max[0]).toBeCloseTo(8.675);
-    expect(b.min[2]).toBeCloseTo(-6.675);
-    expect(b.max[1]).toBeCloseTo((3000 + 3075 * tan20 + vertical) / 1000);
-  });
-
-  it("gable infill closes both end walls up to the ridge and nothing on the eave sides", () => {
-    const md = new MeshData();
-    buildRoofInfill(gable, md);
-    const b = md.bounds()!;
-    expect(b.min[1]).toBeCloseTo(3);
-    expect(b.max[1]).toBeCloseTo((3000 + 3075 * tan20) / 1000);
-    // outer + inner face on two gable ends, each a triangle of base 6150
-    let area = 0;
-    const p = md.positions;
-    for (let i = 0; i < p.length; i += 9) {
-      const ax = p[i + 3] - p[i];
-      const ay = p[i + 4] - p[i + 1];
-      const az = p[i + 5] - p[i + 2];
-      const bx = p[i + 6] - p[i];
-      const by = p[i + 7] - p[i + 1];
-      const bz = p[i + 8] - p[i + 2];
-      area += Math.hypot(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx) / 2;
-      // every face is vertical and looks along x
-      expect(Math.abs(md.normals[i])).toBeCloseTo(1);
-    }
-    const tri = (6.15 * 3.075 * tan20) / 2;
-    expect(area).toBeCloseTo(4 * tri, 5);
-  });
-
-  it("shed rises along the axis and flat is a slab", () => {
-    const shed = roofProfile({ ...gable, kind: "shed" })!;
-    expect(shed.under({ x: -75, y: 0 })).toBeCloseTo(3000);
-    expect(shed.under({ x: 8075, y: 0 })).toBeCloseTo(3000 + 8150 * tan20);
-    const md = new MeshData();
-    buildRoofMesh({ ...gable, kind: "flat" }, md);
-    expect(md.signedVolume()).toBeCloseTo((9350 * 7350 * 150) / 1e9, 6);
-    expect(md.bounds()!.min[1]).toBeCloseTo(3);
-    expect(md.bounds()!.max[1]).toBeCloseTo(3.15);
-  });
-
-  it("returns nothing for kind none or an empty footprint", () => {
-    expect(buildRoofMesh({ ...gable, kind: "none" }, new MeshData())).toBeNull();
-    expect(buildRoofMesh({ ...gable, footprint: [] }, new MeshData())).toBeNull();
   });
 });
 

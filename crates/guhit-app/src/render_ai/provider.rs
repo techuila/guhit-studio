@@ -21,7 +21,8 @@ pub type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub struct RenderInput {
     /// The Tier 1 capture, as PNG bytes.
     pub png: Vec<u8>,
-    /// The full text sent to the model: preamble, style, user text.
+    /// The full text sent to the model: preamble, the images, model facts,
+    /// style, user text. It names every image in the order they are sent.
     pub prompt: String,
     /// What the image must not change. Providers with a real negative-prompt
     /// field use it there; Gemini has none, so it goes in the text.
@@ -29,6 +30,27 @@ pub struct RenderInput {
     /// Derived from the capture, so the answer has the same framing.
     pub aspect_ratio: String,
     pub quality: RenderQuality,
+    /// Conditioning maps of the capture (`MapKind::Lines`, `Depth`), sent
+    /// right after it, in this order. Empty: the capture alone.
+    pub maps: Vec<InputImage>,
+    /// The project look: an approved image whose materials and light the
+    /// answer should match, never its shapes. Sent last.
+    pub style_reference: Option<InputImage>,
+}
+
+/// An image sent with the capture: a conditioning map or the style reference.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputImage {
+    /// What it is: "lines", "depth" or "style".
+    pub role: String,
+    pub mime: String,
+    pub bytes: Vec<u8>,
+}
+
+impl InputImage {
+    pub fn new(role: &str, kind: ImageKind, bytes: Vec<u8>) -> Self {
+        Self { role: role.to_string(), mime: kind.mime().to_string(), bytes }
+    }
 }
 
 /// One generated image.
@@ -133,6 +155,8 @@ pub struct FakeProvider {
     model: String,
     kind: ImageKind,
     error: Option<ProviderError>,
+    /// Bytes to answer with instead of the built-in tiny image.
+    answer: Mutex<Option<Vec<u8>>>,
 }
 
 impl Default for FakeProvider {
@@ -142,6 +166,7 @@ impl Default for FakeProvider {
             model: "fake-image-model".to_string(),
             kind: ImageKind::Png,
             error: None,
+            answer: Mutex::new(None),
         }
     }
 }
@@ -161,8 +186,26 @@ impl FakeProvider {
         Self { kind: ImageKind::Jpeg, ..Self::default() }
     }
 
+    /// A provider that answers with these image bytes (a synthetic AI image
+    /// for the drift check). The kind is sniffed from the bytes.
+    pub fn answering(bytes: Vec<u8>) -> Self {
+        let kind = ImageKind::sniff(&bytes).unwrap_or(ImageKind::Png);
+        Self { kind, answer: Mutex::new(Some(bytes)), ..Self::default() }
+    }
+
+    /// Answer the next calls with these bytes instead.
+    pub fn set_answer(&self, bytes: Vec<u8>) {
+        if let Ok(mut a) = self.answer.lock() {
+            *a = Some(bytes);
+        }
+    }
+
     pub fn calls(&self) -> usize {
         self.inputs.lock().map(|i| i.len()).unwrap_or(0)
+    }
+
+    pub fn last_input(&self) -> Option<RenderInput> {
+        self.inputs.lock().ok().and_then(|i| i.last().cloned())
     }
 
     pub fn last_prompt(&self) -> String {
@@ -220,11 +263,85 @@ impl ImageProvider for FakeProvider {
             if let Some(e) = &self.error {
                 return Err(e.clone());
             }
-            let bytes = match self.kind {
-                ImageKind::Png => tiny_png(),
-                ImageKind::Jpeg => tiny_jpeg(),
+            let answer = self.answer.lock().ok().and_then(|a| a.clone());
+            let (bytes, kind) = match answer {
+                Some(bytes) => {
+                    let kind = ImageKind::sniff(&bytes).unwrap_or(self.kind);
+                    (bytes, kind)
+                }
+                None => match self.kind {
+                    ImageKind::Png => (tiny_png(), ImageKind::Png),
+                    ImageKind::Jpeg => (tiny_jpeg(), ImageKind::Jpeg),
+                },
             };
-            Ok(RenderOutput { bytes, kind: self.kind, model: self.model.clone(), seconds: 0.25 })
+            Ok(RenderOutput { bytes, kind, model: self.model.clone(), seconds: 0.25 })
+        })
+    }
+}
+
+// ------------------------------------------------------------- dev provider
+
+/// Dev builds only: a stand-in for Gemini that never leaves the computer, so
+/// the render panel and the drift check can be tried end to end in the dev
+/// bridge (`GUHIT_RENDER_AI_FAKE=faithful` or `moved`). It answers with the
+/// capture itself, color graded so it reads as a different image; `moved`
+/// also slides the middle third of the picture sideways, where a front view
+/// has its doors and windows, the way an image model that redraws a facade
+/// would. It is never a render and never says it is.
+pub struct DevFakeProvider {
+    moved: bool,
+}
+
+impl DevFakeProvider {
+    /// From `GUHIT_RENDER_AI_FAKE`, in a debug build only.
+    pub fn from_env() -> Option<Self> {
+        if !cfg!(debug_assertions) {
+            return None;
+        }
+        match std::env::var("GUHIT_RENDER_AI_FAKE").ok()?.trim() {
+            "faithful" | "1" => Some(Self { moved: false }),
+            "moved" => Some(Self { moved: true }),
+            _ => None,
+        }
+    }
+
+    fn answer(&self, png: &[u8]) -> Result<Vec<u8>, ProviderError> {
+        let mut img = image::load_from_memory(png)
+            .map_err(|e| ProviderError::failed(format!("dev provider: the capture does not decode: {e}")))?
+            .to_rgb8();
+        let (w, h) = img.dimensions();
+        for p in img.pixels_mut() {
+            // A warm grade with a little more contrast.
+            let [r, g, b] = p.0;
+            let grade = |v: u8, gain: f32| (((v as f32 - 128.0) * 1.12 + 128.0) * gain).clamp(0.0, 255.0) as u8;
+            p.0 = [grade(r, 1.06), grade(g, 1.0), grade(b, 0.9)];
+        }
+        if self.moved {
+            let (from, to) = (w / 3, w * 2 / 3);
+            let shift = (w / 14).max(1);
+            let copy = img.clone();
+            for y in 0..h {
+                for x in from..to {
+                    let sx = x.saturating_sub(shift).max(from);
+                    img.put_pixel(x, y, *copy.get_pixel(sx, y));
+                }
+            }
+        }
+        let mut out = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut out, image::ImageFormat::Png)
+            .map_err(|e| ProviderError::failed(format!("dev provider: {e}")))?;
+        Ok(out.into_inner())
+    }
+}
+
+impl ImageProvider for DevFakeProvider {
+    fn render<'a>(&'a self, input: RenderInput) -> BoxFut<'a, Result<RenderOutput, ProviderError>> {
+        Box::pin(async move {
+            // Long enough to see the progress state, short enough to iterate.
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            let bytes = self.answer(&input.png)?;
+            let model = if self.moved { "dev-fake-moved" } else { "dev-fake" };
+            Ok(RenderOutput { bytes, kind: ImageKind::Png, model: model.to_string(), seconds: 1.5 })
         })
     }
 }

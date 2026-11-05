@@ -215,6 +215,8 @@ pub fn reconcile(before: &Project, project: &mut Project, ids: &mut IdGen) -> Re
                     .find(|m| m.id == defaults::MAT_FLOOR_DEFAULT)
                     .map(|m| m.id.clone()),
                 auto_named: true,
+                finishes: RoomFinishes::default(),
+                ceiling_height_mm: None,
             }));
             taken.insert((li, fi));
             assigned.insert(id, (li, fi));
@@ -222,4 +224,18 @@ pub fn reconcile(before: &Project, project: &mut Project, ids: &mut IdGen) -> Re
     }
 
     Reconciled { analysis, assigned }
+}
+
+/// A room's finishes and ceiling height (validate hub, part of
+/// `Element::Room`): the materials exist, and a ceiling height is between
+/// 1000 and 20000 mm. Lane L1 owns the finish and room schedules.
+pub fn validate_finishes(project: &Project, r: &Room) -> Result<(), crate::error::CoreError> {
+    let f = &r.finishes;
+    for m in [&f.wall_material_id, &f.ceiling_material_id, &f.base_material_id] {
+        crate::validate::require_material(project, m)?;
+    }
+    if let Some(h) = r.ceiling_height_mm {
+        crate::validate::in_range("room_ceiling", "Ceiling height", h, 1000.0, 20_000.0, "mm", &[r.id.clone()])?;
+    }
+    Ok(())
 }

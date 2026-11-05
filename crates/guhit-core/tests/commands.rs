@@ -466,6 +466,7 @@ fn add_opening_defaults_and_validation() {
             style: None,
             flip_side: None,
             flip_hinge: None,
+            type_id: None,
         },
     );
     assert_eq!(code(&e), "opening_too_tall");
@@ -502,6 +503,7 @@ fn opening_labels_say_door_or_window_whichever_command_made_it() {
                 flip_side: true,
                 flip_hinge: false,
                 material_id: None,
+                type_id: None,
             }),
         },
     );
@@ -534,6 +536,7 @@ fn add_opening_carries_the_flip_flags_and_none_means_false() {
             style: None,
             flip_side: Some(true),
             flip_hinge: Some(true),
+            type_id: None,
         },
     );
     let flipped = openings(&r.state.project)
@@ -825,6 +828,8 @@ fn add_room_element_needs_a_free_closed_face() {
             seed,
             floor_material_id: None,
             auto_named: false,
+            finishes: RoomFinishes::default(),
+            ceiling_height_mm: None,
         })
     };
     let e = apply_rejected(
@@ -1413,11 +1418,13 @@ fn upsert_material_inserts_replaces_and_validates() {
 #[test]
 fn set_roof_and_project_settings() {
     let mut doc = blank();
-    let mut roof = doc.project().roof.clone();
+    let mut roof = doc.project().top_roof();
     roof.kind = RoofKind::Gable;
     roof.pitch_deg = 30.0;
     let r = apply_checked(&mut doc, Command::SetRoof { roof: roof.clone() });
-    assert_eq!(r.state.project.roof, roof);
+    // The roof over the top floor is an element now (D54).
+    assert_eq!(r.state.project.top_roof(), roof);
+    assert!(r.state.project.top_roof_area().is_some());
     roof.pitch_deg = 89.0;
     assert_eq!(
         code(&apply_rejected(
@@ -1657,6 +1664,8 @@ fn add_dimension(a: Point, b: Point) -> Command {
             b,
             offset_mm: -900.0,
             text_override: None,
+            through: vec![],
+            auto: None,
         }),
     }
 }

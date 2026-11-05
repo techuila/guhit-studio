@@ -3,7 +3,7 @@
 
 use guhit_model::Point;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct V {
     pub x: f64,
     pub y: f64,

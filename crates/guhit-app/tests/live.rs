@@ -635,6 +635,68 @@ async fn a_guest_cannot_reach_what_is_the_hosts() {
     until("the host to see the guest leave", || async { status(&host.app).await.participants.len() == 1 }).await;
 }
 
+/// The text of the title block field with class `tb-<id>`, if printed.
+fn title_field(svg: &str, id: &str) -> Option<String> {
+    let at = svg.find(&format!("class=\"tb-{id}\""))?;
+    let rest = &svg[at..];
+    let open = rest.find('>')? + 1;
+    let close = rest[open..].find("</text>")?;
+    Some(rest[open..open + close].to_string())
+}
+
+#[tokio::test]
+async fn guests_see_license_numbers_masked_and_the_host_keeps_them_whole() {
+    // DECISIONS D55, GR1 #9: the welcome and every change carried the whole
+    // project, license numbers included, to every guest.
+    let (host, started) = hosting("Ana").await;
+    let invite = started.invite.clone().unwrap();
+    let full = Signatory {
+        name: "Arch. Ana Reyes".into(),
+        prc_no: "0012345".into(),
+        ptr_no: "PTR 7654321".into(),
+        iapoa_no: "IAPOA 18-0456".into(),
+        iapoa_or_no: "OR 990011".into(),
+        tin: "123-456-789-000".into(),
+        ..Signatory::default()
+    };
+    let masked = full.masked();
+    assert_ne!(masked.prc_no, full.prc_no);
+    let set = |s: &Signatory| serde_json::to_value(Command::SetSignatory { signatory: Box::new(s.clone()) }).unwrap();
+    let _: ApplyResult = call(&host.app, "doc_apply", apply(set(&full))).await;
+
+    // The welcome.
+    let ben = peer("Ben").await;
+    let copy = join(&ben, &invite).await;
+    assert_eq!(copy.project.title_block.signatory, masked, "the welcome");
+    assert_eq!(doc(&host.app).await.unwrap().project.title_block.signatory, full, "the host's own stays whole");
+
+    // Every change.
+    let _: ApplyResult = call(&host.app, "doc_apply", apply(wall(0.0, 0.0, 4000.0, 0.0))).await;
+    until("the host's edit on the copy", || async { walls(&doc(&ben.app).await.unwrap()) == 1 }).await;
+    assert_eq!(doc(&ben.app).await.unwrap().project.title_block.signatory, masked, "a change");
+    let applied: ApplyResult = call(&ben.app, "doc_apply", apply(wall(4000.0, 0.0, 4000.0, 3000.0))).await;
+    assert_eq!(applied.state.project.title_block.signatory, masked, "the guest's own edit");
+
+    // A set the guest prints shows them masked; the host's prints them whole.
+    let options = json!({ "format": "svg", "date": "2026-11-05" });
+    let theirs: ExportResult = call(&ben.app, "export_sheets", options.clone()).await;
+    let svg = std::fs::read_to_string(&theirs.path).unwrap();
+    assert_eq!(title_field(&svg, "prc-no").as_deref(), Some(masked.prc_no.as_str()));
+    assert!(!svg.contains(&full.prc_no) && !svg.contains(&full.tin), "no whole number in the guest's set");
+    let ours: ExportResult = call(&host.app, "export_sheets", options).await;
+    let svg = std::fs::read_to_string(&ours.path).unwrap();
+    assert_eq!(title_field(&svg, "prc-no").as_deref(), Some(full.prc_no.as_str()));
+
+    // The guest's title block form sends the masked numbers back with a new
+    // name: the host keeps its own numbers, and takes one typed anew.
+    let edited = Signatory { name: "Arch. Ana M. Reyes".into(), tin: "987-654-321-000".into(), ..masked.clone() };
+    let _: ApplyResult = call(&ben.app, "doc_apply", apply(set(&edited))).await;
+    let kept = doc(&host.app).await.unwrap().project.title_block.signatory;
+    assert_eq!(kept, Signatory { name: edited.name.clone(), tin: edited.tin.clone(), ..full.clone() });
+    until("the edit on the copy", || async { doc(&ben.app).await.unwrap().project.title_block.signatory.name == edited.name }).await;
+    assert_eq!(doc(&ben.app).await.unwrap().project.title_block.signatory, kept.masked());
+}
+
 #[tokio::test]
 async fn files_travel_through_the_host() {
     let (host, started) = hosting("Ana").await;
@@ -1576,6 +1638,52 @@ async fn an_older_guest_still_talks_to_a_newer_host() {
     let reply = frame_where(&mut old, |v| v["type"] == "reply" && v["id"] == 1).await;
     assert_eq!(reply["error"], Value::Null, "{reply}");
     assert_eq!(walls(&doc(&host.app).await.unwrap()), 1, "one step back, not two");
+}
+
+/// What a version 2 host answered every hello that was not version 2.
+const VERSION_2_REFUSAL: &str =
+    "This Guhit Studio is a different version from the host's. Update both to the latest version.";
+
+#[tokio::test]
+async fn version_3_and_version_2_refuse_each_other_with_the_update_message() {
+    // Schema 6 projects carry element kinds a version 2 build cannot read
+    // (P1-1, D54), so the protocol moved to 3.
+    assert_eq!(wire::PROTOCOL_VERSION, 3);
+
+    // A version 2 guest is turned away by this host.
+    let (_host, started) = hosting("Ana").await;
+    let invite = Invite::decode(started.invite.as_deref().unwrap()).unwrap();
+    let old = wire::ToHost::Hello { v: 2, secret: invite.secret.clone(), name: "Old Ben".into(), rejoin: None, features: vec![] };
+    let (_, answer) = raw_hello(&invite, &old).await;
+    assert_eq!(answer.unwrap_err(), VERSION_2_REFUSAL);
+
+    // And this guest by a version 2 host, whose rule refused any hello that
+    // was not version 2.
+    let identity = tls::HostIdentity::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let invite = Invite {
+        v: guhit_app::live::invite::INVITE_VERSION,
+        secret: URL_SAFE_NO_PAD.encode([7u8; 16]),
+        pin: identity.pin.clone(),
+        addrs: vec![listener.local_addr().unwrap().to_string()],
+        project: "Lumang bahay".into(),
+        relay: None,
+    }
+    .encode();
+    let old_host: JoinHandle<Value> = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut tls = identity.acceptor.accept(Box::new(tcp) as tls::BoxIo).await.unwrap();
+        let hello = frame_where(&mut tls, |v| v["type"] == "hello").await;
+        assert_ne!(hello["v"], json!(2));
+        let refused = wire::ToGuest::Refused { message: VERSION_2_REFUSAL.into() };
+        tls.write_all(&wire::encode(&refused, wire::MAX_HELLO_BYTES).unwrap()).await.unwrap();
+        tls.flush().await.unwrap();
+        hello
+    });
+    let ben = peer("Ben").await;
+    let err = fail(&ben.app, "live_join", json!({ "invite": invite })).await;
+    assert_eq!((err.code.as_str(), err.message.as_str()), ("live_refused", VERSION_2_REFUSAL));
+    assert_eq!(old_host.await.unwrap()["v"], json!(3));
 }
 
 #[tokio::test]

@@ -7,8 +7,8 @@
 // `startWindowTasks` runs once from App.tsx, so a request is answered from
 // the hub too: with `no_document`.
 
-import type { IpcError, ViewVisibility, WindowReply, WindowRequest } from "../contract/bindings";
-import { ipc, onAppEvent, toIpcError } from "../contract/ipc";
+import type { Camera, IpcError, ViewVisibility, WindowReply, WindowRequest } from "../contract/bindings";
+import { call, ipc, onAppEvent, toIpcError } from "../contract/ipc";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
 import { dur } from "../ui/motion";
@@ -110,11 +110,17 @@ async function capturePlan(levelId: string | null): Promise<WindowReply> {
   }
 }
 
-async function captureView(cameraId: string | null, visibility: ViewVisibility | null): Promise<WindowReply> {
+/** `unsaved`: a camera that is not a saved view (a tour preview, the `look` camera), used when `cameraId` is null. */
+async function captureView(cameraId: string | null, visibility: ViewVisibility | null, unsaved: Camera | null = null): Promise<WindowReply> {
   await need3dView();
-  if (cameraId) {
-    bus.emit("apply_camera", cameraOf(cameraId));
-    // The camera flies to the saved view; capture once it has landed.
+  const view = cameraId ? cameraOf(cameraId) : unsaved;
+  // A tour video exporting holds the view where it is (GR3 P1-1): the
+  // picture is taken from the asked camera off screen instead of flying there.
+  const { viewHeld } = await import("../viewer3d/tour/tourStore");
+  const held = view !== null && viewHeld();
+  if (view && !held) {
+    bus.emit("apply_camera", view);
+    // The camera flies to the view; capture once it has landed.
     await sleep(dur("scene") + 250);
   }
   if (!useApp.getState().captureView) fail("invalid", "The 3D view in Guhit Studio closed. Open it and try again.");
@@ -123,32 +129,147 @@ async function captureView(cameraId: string | null, visibility: ViewVisibility |
   // this window's toggles, which the client cannot see. The window's own
   // state comes back right after.
   const { captureForTask } = await import("../viewer3d/render/liveView");
-  const shot = captureForTask(visibility);
+  const shot = captureForTask(visibility, held ? view : null);
   if (!shot) fail("invalid", "The 3D view in Guhit Studio closed. Open it and try again.");
   const { png, camera } = shot;
-  const record = await ipc.renderCapture(camera, png);
+  // The record keeps the roof and cutaway the capture showed, and the AI
+  // render's conditioning maps show the same (L6).
+  const conditioning = await import("../viewer3d/render/conditioning").catch(() => null);
+  const record = await ipc.renderCapture(camera, png, { info: conditioning?.captureInfo(png, shot.visibility) });
   useViewer.getState().bumpRenders();
+  void conditioning?.queueMapsFor(record, shot.visibility).catch(() => undefined);
+  const { visibilityLabel } = await import("../viewer3d/render/renderQueue");
   return {
     render_ids: [record.id],
     image: await preview(png, PREVIEW_MAX_PX, "photo"),
-    note: `Captured the 3D view${camera.name ? ` (${camera.name})` : ""} and saved it to Visuals.`,
+    note: `Captured the 3D view${camera.name ? ` (${camera.name})` : ""}, ${visibilityLabel(shot.visibility)}, and saved it to Visuals.${held ? " A tour video is exporting, so the window's view stayed where it was and this picture was taken off screen from the camera asked for." : ""}`,
   };
 }
 
-async function render(task: Extract<WindowRequest["task"], { type: "render" }>): Promise<WindowReply> {
+// ------------------------------------------------- the render queue's report
+
+/**
+ * What the window's render queue is doing, as the backend keeps it for MCP
+ * clients (`window_status`, G4 problem 8): `render` status, and a busy
+ * window's refusal, say it. The fields of `WindowActivity` (window.rs).
+ */
+export interface WindowStatus {
+  busy: boolean;
+  what: string;
+  view: string | null;
+  index: number | null;
+  total: number | null;
+  progress_pct: number | null;
+  eta_s: number | null;
+  job_id: string | null;
+}
+
+/** The parts of the render queue's state the report reads. */
+export interface QueueView {
+  running: boolean;
+  current: { index: number; total: number; name: string } | null;
+  progress: { samples: number; targetSamples: number; elapsedMs: number; budgetMs: number; etaMs: number | null } | null;
+}
+
+/** The report for one state of the render queue. Pure. */
+export function queueStatus(q: QueueView, jobId: string | null): WindowStatus {
+  if (!q.running) return { busy: false, what: "", view: null, index: null, total: null, progress_pct: null, eta_s: null, job_id: null };
+  const p = q.progress;
+  const share = p ? Math.max(p.targetSamples > 0 ? p.samples / p.targetSamples : 0, p.budgetMs > 0 ? p.elapsedMs / p.budgetMs : 0) : null;
+  return {
+    busy: true,
+    what: jobId ? "Rendering for an MCP client" : "Rendering",
+    view: q.current?.name ?? null,
+    index: q.current?.index ?? null,
+    total: q.current?.total ?? null,
+    progress_pct: share === null ? null : Math.round(Math.min(1, share) * 1000) / 10,
+    eta_s: p?.etaMs == null ? null : Math.round(p.etaMs / 100) / 10,
+    job_id: jobId,
+  };
+}
+
+/** The parts of a tour export's state the report reads (L9's `TourExport`). */
+export interface ExportView {
+  done: number;
+  total: number;
+  phase: string;
+}
+
+/** The report while a tour video exports: frames done of all, and the time
+ * left at the rate so far. Pure. */
+export function exportStatus(e: ExportView | null, startedMs: number, nowMs: number, jobId: string): WindowStatus {
+  const share = e && e.total > 0 ? Math.min(1, e.done / e.total) : null;
+  const elapsed = (nowMs - startedMs) / 1000;
+  const eta = share !== null && share >= 0.02 ? (elapsed * (1 - share)) / share : null;
+  return {
+    busy: true,
+    what: e?.phase ? `Exporting a tour video (${e.phase.toLowerCase()})` : "Exporting a tour video",
+    view: null,
+    index: e && e.total > 0 ? e.done : null,
+    total: e && e.total > 0 ? e.total : null,
+    progress_pct: share === null ? null : Math.round(share * 1000) / 10,
+    eta_s: eta === null ? null : Math.round(eta),
+    job_id: jobId,
+  };
+}
+
+/** The window request a render answers, while it runs. */
+let renderJob: string | null = null;
+/** Least time between two reports while a render goes on, ms. */
+const REPORT_EVERY_MS = 2000;
+
+function report(status: WindowStatus): void {
+  // Best effort: an older backend without `window_status` just says no.
+  call("window_status", status as unknown as Record<string, unknown>).catch(() => undefined);
+}
+
+let watching = false;
+
+/**
+ * Report the render queue as it goes, whoever started the render: at once
+ * when it starts, moves to the next view or stops, else every 2 s. Loaded
+ * with the editor, so the hub bundle stays small.
+ */
+async function watchRenderQueue(): Promise<void> {
+  if (watching) return;
+  watching = true;
+  const { useRenderQueue } = await import("../viewer3d/render/renderQueue");
+  let last = 0;
+  let lastKey = "";
+  useRenderQueue.subscribe((st) => {
+    const status = queueStatus(st, renderJob);
+    const key = `${status.busy}|${status.index}|${status.view}`;
+    const now = Date.now();
+    if (key === lastKey && now - last < REPORT_EVERY_MS) return;
+    lastKey = key;
+    last = now;
+    report(status);
+  });
+}
+
+async function render(task: Extract<WindowRequest["task"], { type: "render" }>, jobId: string): Promise<WindowReply> {
   for (const id of task.views) cameraOf(id);
   await need3dView();
   useApp.getState().toast("info", "Rendering for an MCP client. The images go to Visuals.");
   // Loaded with the 3D view; imported here so the hub bundle stays small.
   const { renderForRequest } = await import("../viewer3d/render/renderQueue");
-  const results = await renderForRequest(task.views, task.quality, task.size, task.visibility ?? null);
+  void watchRenderQueue();
+  renderJob = jobId;
+  let results;
+  try {
+    results = await renderForRequest(task.views, task.quality, task.size, task.visibility ?? null);
+  } finally {
+    renderJob = null;
+  }
   const first = results[0];
   const data = await ipc.renderData(first.recordId);
-  const notes = results.map((r) =>
-    r.kind === "path_traced"
-      ? `${r.name}: path traced, ${Math.round(r.samples)} samples in ${Math.round(r.seconds)} s`
-      : `${r.name}: enhanced capture${r.note ? ` (${r.note})` : ""}`,
-  );
+  const { visibilityLabel } = await import("../viewer3d/render/renderQueue");
+  // Each says the camera and the roof and cutaway it used (G4 problem 8).
+  const notes = results.map((r) => {
+    const name = r.camera?.name || r.name;
+    const how = r.kind === "path_traced" ? `path traced, ${Math.round(r.samples)} samples in ${Math.round(r.seconds)} s` : `enhanced capture${r.note ? ` (${r.note})` : ""}`;
+    return `${name}: ${how}, ${visibilityLabel(r.visibility)}`;
+  });
   return {
     render_ids: results.map((r) => r.recordId),
     image: await preview(data, PREVIEW_MAX_PX, "photo"),
@@ -181,9 +302,32 @@ export async function runWindowTask(request: WindowRequest): Promise<WindowReply
     case "capture_plan":
       return capturePlan(task.level_id);
     case "capture_view":
-      return captureView(task.camera_id, task.visibility ?? null);
+      return captureView(task.camera_id, task.visibility ?? null, task.camera ?? null);
     case "render":
-      return render(task);
+      return render(task, request.id);
+    // Wave 2: L6's conditioning maps and L9's tour export, each in its own
+    // module, loaded when asked for.
+    case "capture_maps":
+      return (await import("../viewer3d/render/conditioning")).captureMaps(task.render_id);
+    case "export_tour": {
+      // Frames done of all, from L9's exporter, every 2 s.
+      const { useTours } = await import("../viewer3d/tour/tourStore");
+      const started = Date.now();
+      let last = 0;
+      report(exportStatus(null, started, started, request.id));
+      const off = useTours.subscribe((st) => {
+        const now = Date.now();
+        if (now - last < REPORT_EVERY_MS) return;
+        last = now;
+        report(exportStatus(st.exporting, started, now, request.id));
+      });
+      try {
+        return await (await import("../viewer3d/tour/export")).exportTour(task.tour_id, task.size);
+      } finally {
+        off();
+        report(queueStatus({ running: false, current: null, progress: null }, null));
+      }
+    }
   }
 }
 
@@ -207,9 +351,18 @@ let stop: (() => void) | null = null;
 /** Starts answering window requests. Calling it again does nothing. */
 export function startWindowTasks(): void {
   if (stop) return;
-  stop = onAppEvent((event) => {
+  const offEvents = onAppEvent((event) => {
     if (event.type === "window_request") void answer(event.request);
   });
+  // Renders the user starts are reported too, once the editor is up.
+  const offScreen = useApp.subscribe((st) => {
+    if (st.screen === "editor") void watchRenderQueue();
+  });
+  if (useApp.getState().screen === "editor") void watchRenderQueue();
+  stop = () => {
+    offEvents();
+    offScreen();
+  };
 }
 
 if (import.meta.hot) import.meta.hot.dispose(() => stop?.());

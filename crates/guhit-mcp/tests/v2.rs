@@ -166,11 +166,11 @@ async fn look_measure_and_check_verify_the_build() {
     let ids = plan["ids"].as_object().unwrap();
     assert!(ids.values().any(|v| v == &refs["bed"]), "the short ids map to the bedroom");
     assert!(plan["px_per_mm"].as_f64().unwrap() > 0.0);
-    // 3D needs the window; section is not in this version.
+    // 3D needs the window; a section needs a mark (Wave 2).
     assert_eq!(fail(&app, "look", json!({"mode": "3d"})).await.code, "no_window");
     let section = fail(&app, "look", json!({"mode": "section"})).await;
-    assert_eq!(section.code, "unavailable");
-    assert!(section.hint().unwrap().contains("measure"));
+    assert_eq!(section.code, "not_found");
+    assert!(section.hint().unwrap().contains("view_marks"));
 
     // Measure: the stair, the levels, a room, two parallel walls, a gap.
     let h = ok(&app, "measure", json!({"kind": "height", "ids": [refs["stair"], "Ground Floor"]})).await;
@@ -361,7 +361,7 @@ async fn levels_project_settings_history_and_export() {
     let p = project(&app);
     assert_eq!(p.settings.client_name, "Lovell");
     assert_eq!(p.settings.site.as_ref().unwrap().latitude_deg, 33.6);
-    assert_eq!(p.roof.kind, RoofKind::Flat);
+    assert_eq!(p.top_roof().kind, RoofKind::Flat);
     assert_eq!(fail(&app, "set_project", json!({})).await.code, "bad_args");
 
     // history: list, undo, redo, undo_to.
@@ -375,12 +375,15 @@ async fn levels_project_settings_history_and_export() {
     let back = ok(&app, "history", json!({"action": "undo_to", "index": 1})).await;
     assert_eq!(back["next_redo"], "MCP: set project");
 
-    // export: every level as PDF, the model as IFC, the bundle; GLB is the window's.
+    // export: every level as one PDF (the sheet set, G4 problem 9), one
+    // named level as its plan, the model as IFC, the bundle; GLB is the window's.
     ok(&app, "history", json!({"action": "redo", "steps": 2})).await;
     let pdf = ok(&app, "export", json!({"format": "pdf", "level": "all"})).await;
     let files = pdf["files"].as_array().unwrap();
-    assert_eq!(files.len(), 1, "one sheet per level with something on it");
-    assert_eq!(pdf["skipped"][0]["level"], "Upper");
+    assert_eq!(files.len(), 1, "every level in one PDF");
+    assert!(files[0]["path"].as_str().unwrap().ends_with(".pdf"));
+    let one = ok(&app, "export", json!({"format": "svg", "level": "all"})).await;
+    assert_eq!(one["skipped"][0]["level"], "Upper", "SVG keeps one sheet per level with something on it");
     for f in files {
         assert!(std::path::Path::new(f["path"].as_str().unwrap()).starts_with(dir.path()));
     }
@@ -572,12 +575,12 @@ async fn toolsets_errors_and_agents_over_http() {
     let info = rpc(&base, init).await;
     assert!(info["result"]["capabilities"]["prompts"].is_object());
     let list = |url: String| async move { rpc(&url, json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).await["result"]["tools"].as_array().unwrap().len() };
-    assert_eq!(list(base.clone()).await, 22);
-    assert_eq!(list(format!("{base}?toolsets=visuals,live")).await, 27);
-    assert_eq!(list(format!("{base}?toolsets=all")).await, 33);
+    assert_eq!(list(base.clone()).await, 26);
+    assert_eq!(list(format!("{base}?toolsets=visuals,live")).await, 32);
+    assert_eq!(list(format!("{base}?toolsets=all")).await, 45);
     // The setting is the default when the URL names none.
     app.handle("mcp_set_toolsets", json!({"toolsets": ["services"]})).await.unwrap();
-    assert_eq!(list(base.clone()).await, 25);
+    assert_eq!(list(base.clone()).await, 29);
 
     // A labelled URL names the agent; a failure is isError with structure.
     let call = |url: String, name: &str, args: Value| {

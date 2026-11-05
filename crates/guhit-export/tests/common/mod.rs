@@ -15,6 +15,13 @@ pub fn samples_dir() -> PathBuf {
     dir
 }
 
+/// Works `state.derived` out again after a test changed the project, as the
+/// engine does after every command.
+#[allow(dead_code)]
+pub fn rederive(state: &mut DocState) {
+    state.derived = guhit_core::compute_derived(&state.project);
+}
+
 pub fn fixture() -> DocState {
     let path = workspace_root().join("fixtures/sample-bungalow.docstate.json");
     let json = std::fs::read_to_string(&path).expect("read fixture");
@@ -103,6 +110,7 @@ pub fn rich() -> DocState {
             flip_side,
             flip_hinge,
             material_id: None,
+            type_id: None,
         })
     };
     // Own shell and rooms, so this project does not depend on fixture numbers.
@@ -118,6 +126,8 @@ pub fn rich() -> DocState {
             seed,
             floor_material_id: None,
             auto_named: false,
+            finishes: RoomFinishes::default(),
+            ceiling_height_mm: None,
         })
     };
     let room_geo = |id: &str, x0: f64, y0: f64, x1: f64, y1: f64| RoomGeometry {
@@ -165,6 +175,7 @@ pub fn rich() -> DocState {
             light: None,
             links: vec![],
             circuit: String::new(),
+            built_in: None,
         }),
         Element::Dimension(Dimension {
             id: "d-front".into(),
@@ -173,6 +184,8 @@ pub fn rich() -> DocState {
             b: p(8000.0, 0.0),
             offset_mm: -3200.0,
             text_override: None,
+            through: vec![],
+            auto: None,
         }),
     ];
 
@@ -215,6 +228,11 @@ pub fn rich() -> DocState {
             run_mm: 2750.0,
             riser_count: 11,
             railing: None,
+            shape: StairShape::Straight,
+            turn: Turn::Left,
+            first_flight_risers: None,
+            landing_mm: None,
+            well_mm: 0.0,
         }),
         Element::Annotation(Annotation {
             id: "a-porch".into(),
@@ -231,6 +249,8 @@ pub fn rich() -> DocState {
             b: p(0.0, 6000.0),
             offset_mm: 900.0,
             text_override: None,
+            through: vec![],
+            auto: None,
         }),
         Element::Dimension(Dimension {
             id: "d-angled".into(),
@@ -239,6 +259,8 @@ pub fn rich() -> DocState {
             b: p(10200.0, 8200.0),
             offset_mm: 700.0,
             text_override: None,
+            through: vec![],
+            auto: None,
         }),
         Element::Asset(Asset {
             id: "as-small".into(),
@@ -255,6 +277,7 @@ pub fn rich() -> DocState {
             light: None,
             links: vec![],
             circuit: String::new(),
+            built_in: None,
         }),
     ];
     s.project.elements.append(&mut add);
@@ -440,6 +463,7 @@ pub fn object(level: &str, o: &Obj) -> Asset {
         light: item.light,
         links: o.6.iter().map(|s| s.to_string()).collect(),
         circuit: o.5.into(),
+        built_in: None,
     }
 }
 
@@ -491,6 +515,7 @@ pub fn services() -> DocState {
         flip_side: true,
         flip_hinge: false,
         material_id: None,
+        type_id: None,
     }));
     s.project.elements.push(Element::Room(Room {
         id: "r-tb".into(),
@@ -500,6 +525,8 @@ pub fn services() -> DocState {
         seed: p(6900.0, 5000.0),
         floor_material_id: None,
         auto_named: false,
+        finishes: RoomFinishes::default(),
+        ceiling_height_mm: None,
     }));
     let bedroom = s
         .project
@@ -713,6 +740,11 @@ pub fn slabs() -> DocState {
             run_mm: 2750.0,
             riser_count: 11,
             railing: Some(hand),
+            shape: StairShape::Straight,
+            turn: Turn::Left,
+            first_flight_risers: None,
+            landing_mm: None,
+            well_mm: 0.0,
         }),
     ]);
     let riser = 3000.0 / 11.0;

@@ -21,17 +21,6 @@ pub enum WallAnchor {
     Center,
 }
 
-/// Plan side of a room, by the outward normal of its bounding wall(s).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export)]
-pub enum Side {
-    North,
-    South,
-    East,
-    West,
-}
-
 /// One end of a pipe segment or range, in point order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -116,6 +105,11 @@ pub enum Command {
         flip_side: Option<bool>,
         #[serde(default)]
         flip_hinge: Option<bool>,
+        /// Its door or window type (DECISIONS D53). The type's style, size
+        /// and sill win over the fields above. Left out of the JSON when
+        /// None, so an untyped opening's command seeds the ids it did.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        type_id: Option<Id>,
     },
 
     /// Move the bounding wall(s) on one side of a room outward by `delta_mm`
@@ -150,6 +144,12 @@ pub enum Command {
     SetMaterial { ids: Vec<Id>, material_id: Id },
     /// Insert or replace a material by id. An empty id is assigned.
     UpsertMaterial { material: Material },
+    /// Edit the roof over the top floor (`RoofOutline::TopFootprint`) from a
+    /// whole `Roof`: kind none removes it, any other kind changes it, or
+    /// adds it when there is none (fascia 200 mm, as Wave 1 drew it). What
+    /// `Roof` cannot say (fascia, gutter, eave, gable sides) is kept. For the
+    /// copilot's `set_roof`, MCP's `set_project` and v1 aliases; roof
+    /// elements are edited with `UpdateElement`.
     SetRoof { roof: Roof },
     SetProjectSettings { settings: ProjectSettings },
     /// Replace the level that has the same id.
@@ -221,8 +221,109 @@ pub enum Command {
     /// end shortens the run.
     RemovePipePoint { pipe_id: Id, index: u32 },
 
+    // ----------------------------------------------------- Wave 2 (D53, D54)
+    // Large payloads are boxed so `Command` stays its Wave 1 size on the
+    // stack; the JSON is the same.
+    /// Add or replace a door or window type by id. An empty id and an empty
+    /// mark are assigned (the next free D or W number). Every opening of the
+    /// type takes its style, size and sill in the same step; one that no
+    /// longer fits its wall refuses the command.
+    UpsertOpeningSpec { spec: Box<OpeningSpec> },
+    /// Delete door and window types. Their openings keep their size and
+    /// become untyped.
+    DeleteOpeningSpecs { ids: Vec<Id> },
+    /// Give every untyped opening a type: one per distinct opening type,
+    /// style, size and sill, reusing a type that matches. None: every level.
+    AssignOpeningTypes { level_id: Option<Id> },
+    /// Grid lines 1, 2, 3 along x (each `x_spacings_mm` apart, west to east)
+    /// and A, B, C along y (south to north), from `origin`, turned by
+    /// `rotation_deg`. Labels already taken continue from the next free one.
+    AddGridSystem {
+        origin: Point,
+        rotation_deg: f64,
+        x_spacings_mm: Vec<f64>,
+        y_spacings_mm: Vec<f64>,
+    },
+    /// Add automatic dimensions to a level: `exterior` is the overall,
+    /// walls (and grids) and openings strings on every side; `rooms` the
+    /// inside strings of each room.
+    AutoDimension { level_id: Id, kinds: Vec<AutoDimKind> },
+    /// Columns under the open eaves of a roof (no wall below), at most
+    /// `max_spacing_mm` apart.
+    AddRoofPosts {
+        roof_id: Id,
+        size_mm: f64,
+        max_spacing_mm: f64,
+    },
+    /// Set the lot from its title's technical description: legs from
+    /// `start`, each a bearing ("N 45-30 E" or "N 45°30' E") and a distance.
+    /// The summary states the misclosure. Replaces the project's lot.
+    SetLotFromSurvey { start: Point, legs: Vec<SurveyLeg> },
+    /// Set the title block. Its `signatory` is ignored and the stored one
+    /// kept: only `SetSignatory` changes it.
+    SetTitleBlock { title_block: Box<TitleBlock> },
+    /// Set the signing architect (DECISIONS D53). Only people: the app
+    /// refuses it from agents (MCP) and the copilot, with a hint.
+    SetSignatory { signatory: Box<Signatory> },
+    /// Add or replace a sheet by id, at `index` in the set (None: at the
+    /// end, or where it was). An empty id, and empty viewport ids, are
+    /// assigned. Sheet numbers are unique.
+    UpsertSheet { sheet: Box<Sheet>, index: Option<u32> },
+    DeleteSheets { ids: Vec<Id> },
+    /// Make the permit set: any missing elevation and section marks (four
+    /// facing true north, two through the stair and the longest room), then
+    /// A-1 site and vicinity, A-2 on plans, elevations, sections, roof plan
+    /// and reflected ceiling plans, the schedules, and the E, P and M sheets
+    /// the project has, with their blank professional blocks (D19).
+    /// `replace`: drop the sheets there are first; otherwise add only
+    /// sheets the set lacks.
+    MakeSheetSet { paper: PaperSize, replace: bool },
+    /// Add or replace a revision by id (empty: assigned) and mark it on these
+    /// sheets.
+    UpsertRevision { revision: SheetRevision, sheet_ids: Vec<Id> },
+    /// Delete a revision and take it off every sheet.
+    DeleteRevision { id: Id },
+    /// Make a tour: fly in, orbit, the front door, rooms in door order with
+    /// holds, up the stairs, day to dusk.
+    MakeTour { name: Option<String>, options: AutoTour },
+
     /// Apply all or nothing, as one undo step.
     Batch { label: String, commands: Vec<Command> },
+}
+
+/// What `AutoDimension` adds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum AutoDimKind {
+    /// Overall, walls and grids, and openings strings round the outside.
+    Exterior,
+    /// Inside strings of each room.
+    Rooms,
+}
+
+/// One leg of a lot's technical description.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SurveyLeg {
+    /// Quadrant bearing as titles write it: "N 45-30 E", "S 12°05' W".
+    pub bearing: String,
+    pub distance_mm: f64,
+}
+
+/// What `MakeTour` makes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AutoTour {
+    /// Fly in and orbit the outside first.
+    pub exterior: bool,
+    /// Light from day to dusk over the tour.
+    pub day_to_dusk: bool,
+    /// Walking pace, meters per second.
+    pub pace_mps: f64,
+    /// Levels to visit, in order. Empty: every level with rooms.
+    #[serde(default)]
+    pub levels: Vec<Id>,
 }
 
 /// Who issued a command. Recorded in history and AI logs.
@@ -257,4 +358,27 @@ pub enum Query {
     /// Device and fixture counts per level and room, grouped, with labels.
     /// From `Derived::schedule`.
     Schedule,
+    /// The door and window schedule, by mark, with counts per level. From
+    /// `Derived::opening_schedule`.
+    OpeningSchedule,
+    /// The room and finish schedule. From `Derived::room_schedule`.
+    RoomSchedule,
+    /// Net, gross, open and void areas per level, exactly as `Totals` counts
+    /// them. From `Derived::level_areas`.
+    LevelAreas,
+    /// The lot: area, sides with bearings and distances, setbacks, coverage.
+    /// From `Derived::site`.
+    Site,
+    /// Free spots for a catalog item in a room, against each wall, clear of
+    /// doors, swings, windows, voids and stair openings.
+    PlacementOptions { room_id: Id, catalog_key: String },
+    /// The camera at every frame of a tour (centripetal Catmull-Rom by arc
+    /// length, eased on arc length), so preview, export and checks agree.
+    /// `fps` None: the tour's own.
+    TourFrames { tour_id: Id, fps: Option<u32> },
+    /// Catalog items matching a search and a room usage.
+    Catalog {
+        search: Option<String>,
+        usage: Option<RoomUsage>,
+    },
 }

@@ -29,6 +29,7 @@ pub fn paper_size_mm(paper: PaperSize, orientation: Orientation) -> (f64, f64) {
         PaperSize::A3 => (297.0, 420.0),
         PaperSize::A2 => (420.0, 594.0),
         PaperSize::A1 => (594.0, 841.0),
+        PaperSize::A0 => (841.0, 1189.0),
     };
     match orientation {
         Orientation::Landscape => (long, short),
@@ -42,6 +43,7 @@ pub fn paper_name(paper: PaperSize) -> &'static str {
         PaperSize::A3 => "A3",
         PaperSize::A2 => "A2",
         PaperSize::A1 => "A1",
+        PaperSize::A0 => "A0",
     }
 }
 
@@ -75,10 +77,19 @@ pub struct Layout {
 impl Layout {
     pub fn new(paper: PaperSize, orientation: Orientation, title_block: bool) -> Layout {
         let (width, height) = paper_size_mm(paper, orientation);
+        Layout::sized(paper, width, height, title_block)
+    }
+
+    /// The layout of a `width` by `height` mm page with the margin and type
+    /// size of `paper`. The permit set (`sheetset`) draws a plan, service or
+    /// isometric sheet this way on the part of the paper left of its title
+    /// block.
+    pub fn sized(paper: PaperSize, width: f64, height: f64, title_block: bool) -> Layout {
         let (margin, k) = match paper {
             PaperSize::A4 | PaperSize::A3 => (10.0, 1.0),
             PaperSize::A2 => (15.0, 1.3),
             PaperSize::A1 => (15.0, 1.6),
+            PaperSize::A0 => (20.0, 2.0),
         };
         let title_h = if title_block { 24.0 * k } else { 0.0 };
         let band_h = 21.0 * k;
@@ -186,8 +197,17 @@ pub fn render(
     derived: &Derived,
     opts: &PlanExportOptions,
 ) -> Result<(String, u32), ExportError> {
+    render_in(project, derived, opts, Layout::new(opts.paper, opts.orientation, opts.title_block))
+}
+
+/// `render` on a given page layout.
+pub(crate) fn render_in(
+    project: &Project,
+    derived: &Derived,
+    opts: &PlanExportOptions,
+    layout: Layout,
+) -> Result<(String, u32), ExportError> {
     let level = resolve_level(project, opts.level_id.as_ref())?;
-    let layout = Layout::new(opts.paper, opts.orientation, opts.title_block);
     let build = |n: u32| {
         build_items(
             project,

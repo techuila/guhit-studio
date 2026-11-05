@@ -2,8 +2,10 @@
 import type { AirconSpec } from "./AirconSpec";
 import type { AssetCategory } from "./AssetCategory";
 import type { AssetLight } from "./AssetLight";
+import type { BuiltInKind } from "./BuiltInKind";
 import type { DeviceKind } from "./DeviceKind";
 import type { Mount } from "./Mount";
+import type { RoomUsage } from "./RoomUsage";
 
 /**
  * An entry of the built-in object library.
@@ -26,4 +28,26 @@ light: AssetLight | null,
 /**
  * Aircon units: line set and the manufacturer limits the review uses.
  */
-aircon: AirconSpec | null, };
+aircon: AirconSpec | null, 
+/**
+ * Rooms it belongs in, for placement and furnishing. Empty: any room.
+ * The new catalog fields are left out of the JSON at their defaults.
+ */
+rooms?: Array<RoomUsage>, 
+/**
+ * Search words: "modern", "rattan", "2 seater".
+ */
+tags?: Array<string>, 
+/**
+ * Free space it needs in front (its -y side), mm, for placement.
+ */
+clearance_mm?: number, 
+/**
+ * A built-in sized in code instead of a fixed model.
+ */
+parametric?: BuiltInKind | null, 
+/**
+ * The asset pack model it shows in 3D (`public/assets/pack/manifest.json`).
+ * None: the procedural form.
+ */
+model?: string | null, };

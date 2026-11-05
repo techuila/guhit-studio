@@ -17,7 +17,9 @@ What every part of the app agrees on. Types live in `crates/guhit-model`
 - Walls join when endpoints are within 1 mm. New ids are seeded per leaf command, so an id does not change when a batch grows.
 - `Derived::footprints` can hold several buildings per level, largest first.
 - Dimension endpoints within 1 mm of a wall joint or outline corner follow it when a command moves the wall (DECISIONS D12).
-- Stairs: a straight flight has `riser_count - 1` treads of `run_mm / (riser_count - 1)`, so treads times tread length is the run and the top riser lands on the floor above (DECISIONS D44). The inspector, the IFC, the plan and the exports count this way. See "Slabs and railings". Annotations: `position` is the left end of the first baseline.
+- Stairs: a straight flight has `riser_count - 1` treads of `run_mm / (riser_count - 1)`, so treads times tread length is the run and the top riser lands on the floor above (DECISIONS D44). An L or U stair has `riser_count - 2` (D54, "Wave 2 contract"). The inspector, the IFC, the plan and the exports count this way. See "Slabs and railings". Annotations: `position` is the left end of the first baseline.
+- The roof over the top floor is an element since schema 6: read it with `Project::top_roof()` / `topRoof(project)`, never `Project::roof` ("Wave 2 contract").
+- An element's level is `Element::level_id()` / `elementLevel(el)`; cameras and tours are views (`is_view` / `isView`).
 - Walls have a `role` (`WallRole`, schema 4): `building` (the default, and every wall of an older file; left out of the JSON) or `site`. See "Site walls".
 - `Diff::also_moved`: walls a command reshaped that it did not name (joined walls that stretched or shifted to follow). Also in `modified`, named in `summary` ("; also moved: Wall 4150 mm, Wall 3000 mm"), left out of the JSON when empty. See "Moving walls".
 
@@ -477,8 +479,9 @@ older stair has no railing.
   covers. `Totals::floor_area_m2` sums the rooms less the part a balcony or
   deck covers (an open lanai walled in on a deck is a room, not floor area).
   `Totals::gross_area_m2` sums the footprints, plus floor slabs where they
-  reach past the footprints, less what voids, balconies and decks cover
-  inside them (a loggia or lanai inside the walls is open floor, not gross
+  reach past the footprints. Gross area counts the walls: a void, balcony
+  or deck takes off only its clear part, inside the wall faces or outside
+  the building (a loggia or lanai inside the walls is open floor, not gross
   area). A stair opening is not taken off: a stair counts on every floor it
   serves.
 - `top_offset_mm` is from the level's floor and must stay under the level
@@ -642,8 +645,13 @@ loaded) in its own offscreen renderer, so the live view stays usable. Sizes: HD
 Quality: quick or final (`TraceQuality`), set by time. The result is
 denoised, saved as a `RenderRecord` (`render_capture`) with the camera and
 light it used, the revision the render started from, and `RenderRecord::info`
-(`RenderInfo`: kind, size, samples, seconds, quality, graphics adapter), and
-offered to "Visualize with AI" (D17). The job never calls
+(`RenderInfo`: kind, size, samples, seconds, quality, graphics adapter, and
+`visibility`, the roof and cutaway it showed), and
+offered to "Visualize with AI" (D17). A capture of the 3D view saves
+`RenderInfo` too, kind `capture`, with its size and visibility.
+`visibility` is left out of the JSON when unknown (older records, tour
+videos, shadow studies); the `capture_maps` task draws a record's maps with
+it, else with the model's defaults. The job never calls
 requestAnimationFrame: it paces itself on GPU fences, so the live view keeps
 its one pending frame. Esc cancels; stopping early saves what
 is there. If the path tracer cannot start, the render falls back to a refined
@@ -1095,8 +1103,10 @@ The MCP server (`crates/guhit-mcp`, docs/MCP.md) is the main way agents
 build the model (DECISIONS D42). It is a transport over `AppService`, like
 the Tauri shell and the dev bridge, and adds no model rules of its own.
 
-**Tools.** The core toolset `draft` (22 tools) is always listed; the toolsets
-`services`, `visuals`, `live`, `review` and `interop` (11 more) are listed
+**Tools.** The core toolset `draft` (26 tools, Wave 2 added `add_grid`,
+`annotate`, `add_roof` and `types`) is always listed; the toolsets
+`services`, `visuals`, `live`, `review`, `interop`, `documents` and `tours`
+(19 more) are listed
 when the request URL says `?toolsets=a,b` (or `all`), else when settings.json
 `mcp_toolsets` names them. Listing only: every tool answers whether listed or
 not. `guhit_mcp::toolsets` holds the lists; `guhit_mcp::tool_list_for` the
@@ -1254,6 +1264,895 @@ unchanged levels are not analyzed again; results are identical.
 After every change the engine recomputes `Derived`: wall outlines with
 resolved joins, room polygons and areas, footprints, totals, review issues.
 
+## Wave 2 contract (DECISIONS D53, D54)
+
+The types are in `guhit-model`; this section says what they cannot. Each
+lane writes the detail of its own part below its heading here, and asks the
+orchestrator for any change to the types, the hubs or another lane's part.
+
+### Schema 6 and the migration
+
+`SCHEMA_VERSION` is 6. `guhit_core::migrate` (run by `Document::new` and
+`with_revision`, idempotent) adds the `grids` and `roofs` layers and, when
+the project roof has a kind and there is no `TopFootprint` roof element,
+adds one `RoofArea { level_id: None, outline: TopFootprint }` with the old
+shape, pitch, axis, overhang, thickness and material, a 200 mm fascia (what
+Wave 1 drew), no gutter, and an id seeded from the project
+(`roofs::migrate`); then `Project::roof.kind` becomes `none` and keeps its
+other values. The templates come out migrated. Every other new field takes
+its serde default. The schema 5 copies of the two fixtures and the Wave 1
+G5 Lovell project are kept in `crates/guhit-core/tests/data/` for the
+migration tests (the G4 house was never saved as a project file).
+
+New fields on existing types (`Opening::type_id`, `Room::finishes` and
+`ceiling_height_mm`, the five `Stair` fields, `Dimension::through` and
+`auto`, `Asset::built_in`, the `CatalogItem` fields, the `RenderRecord`
+fields, `AddOpening::type_id`, `CaptureView::camera`) are left out of the
+JSON at their defaults, as `Wall::role` is, so an older command's JSON and
+the ids it seeds stay the same. Large payloads are boxed in Rust
+(`Project::title_block`, the `SetTitleBlock`, `SetSignatory`, `UpsertSheet`
+and `UpsertOpeningSpec` payloads, `Derived::site`, `Asset::built_in`) so
+`Command`, `Project` and `DocState` stay small on the stack; the JSON and
+the TypeScript are the same. Keep new large payloads boxed: the MCP v2 tests
+run within about 300 KB of the 2 MiB test thread stack in debug builds.
+
+### The roof over the top floor
+
+Read it with `Project::top_roof()` (Rust; `guhit_core::roofs::top_roof`
+too) or `topRoof(project)` (`src/contract/roof.ts`), never from
+`Project::roof`: once migrated its kind is `none`, and an edit built from it
+deletes the roof. `top_roof` is the `TopFootprint` element as a `Roof`, or
+the legacy roof of an unmigrated project. `RoofKind` gained `hip`; Wave 1
+roof drawing (core pipes, export model3d, TS roofMesh) draws a hip as a
+gable until `Derived::roofs` lands.
+
+`SetRoof { roof }`: kind none removes the `TopFootprint` roof (summary
+"Remove roof"); any other kind changes it, keeping fascia, gutter, eave and
+gable sides (a non-hip drops its gable sides), or adds it with a 200 mm
+fascia. The copilot's `set_roof` and MCP's `set_project` build the whole
+`Roof` from `top_roof`, so "pitch 25" changes only the pitch. Roof elements
+are otherwise edited with `AddElement`, `UpdateElement`, `DeleteElements`
+and `SetMaterial` (roofs take a material).
+
+Roof rules (`roofs::validate`): `level_id` is None exactly for
+`TopFootprint` (`roof_level`); one `TopFootprint` roof per project
+(`roof_exists`); a drawn `Polygon` outline must suit a pitched shape:
+every corner within 0.5 degrees of 90 or 270, gable and shed on 4 corners,
+hip on 4, 6 or 8 (`roof_outline`, naming what fits; flat takes any). A
+derived outline (`TopFootprint`, `Footprint`) is never refused: when its
+shape does not fit, `Derived::roofs` keeps the Wave 1 bounding box
+clipping (a hip falls back to a gable) and review raises a `roof_outline`
+suggestion. `gable_sides` only on a hip over a rectangle, sides 0 to 3 each
+once (`roof_gable_sides`). A drawn outline moves and turns with the roof; a
+quarter turn swaps its ridge axis. `flip` (default false) makes a shed rise
+against `ridge_axis`, toward -x or -y, so a lanai on any side slopes away
+from the house.
+
+### Elements on no level, and views
+
+`Element::level_id()` (Rust) and `elementLevel(el)` (`src/contract/
+elements.ts`) are the one answer: None for openings (they are on their
+wall), cameras and tours (views), grid lines and the lot (every level) and
+the `TopFootprint` roof. `DeleteLevel` never deletes them (openings go with
+their wall). View marks and `Footprint` and `Polygon` roofs belong to their
+level and go with it. `Element::is_view()` / `isView(el)` is true for
+cameras and tours: every camera special case (scope, agent limits, work
+areas, copies) goes through it. Layers: roofs `roofs`, grids `grids`, view
+marks `annotations`, the lot `site`; views have no layer in Rust (a locked
+layer never stops one; the TS plan index files them under annotations, as
+it does cameras).
+
+### Door and window types (D53)
+
+`Project::opening_types` holds `OpeningSpec`s; an opening's `type_id`
+names one of its own opening type (`unknown_opening_type`,
+`opening_type_mismatch`). A typed opening's style, size and sill are its
+type's (a type's `sill_mm` None leaves each opening its own). The rules the
+lane builds (`opening_types`): `UpsertOpeningSpec` writes the type into
+every opening of it in the same step, refused only by the existing fit
+rules; editing one typed opening's style, size or sill moves it to the type
+that matches, or a new type with the next free mark, in the same step, and
+the summary says so ("Door moved from D1 to D4"); never refuse
+(`opening_types::follow`, run after `post_validate`). `DeleteOpeningSpecs`
+leaves the openings untyped at their size. Marks: "D1", "W1", unique, empty
+gets the next free.
+
+### Dimension strings and automatic dimensions (D12 amended by D54)
+
+A dimension string is `a`, `through...`, `b` in order. An automatic
+dimension (`auto: Some(DimRef)`) stores what it measures; `exec::run`
+calls `dims_auto::after_command` after `post_validate`, like wall
+following: editing a, b or `through` by hand clears `auto`; references to
+deleted walls or grids are dropped, and a dimension left measuring nothing
+is deleted in the same step; then `dims_auto::rewrite` (the lane's) sets
+a, b and `through` from what it measures. Wall following (D12) skips
+automatic dimensions. `DimRef::Exterior` measures the dimension's own
+level (it has no `level_id` of its own).
+
+### Stairs (D44 extended)
+
+`Stair::shape` straight (default), `l` or `u`. Each flight's top riser
+lands on its landing or the floor, so n risers make n minus the flight
+count treads (n - 1 straight, n - 2 L or U), each `run_mm / treads`;
+`run_mm` excludes landings. An L or U needs at least 4 risers;
+`first_flight_risers` is 2 to n - 2 (None: half, rounded up);
+`landing_mm` 300 to 10000 (None: the width); `well_mm` 0 to 10000 (U).
+`Derived::stairs` is the one stair geometry every consumer reads, z above
+the stair's level floor.
+
+### Roofs and stairs, derived (lane L2)
+
+**Stairs** (`guhit_core::stairs`). An L leaves its first flight onto a
+landing `landing_mm` deep (the width when None) along the travel; the
+second flight leaves the landing's side (`turn` right: to the right going
+up), its far side in line with the landing's far edge. A U's landing spans
+both flights and the well; the second flight runs back down beside the
+first, `well_mm` clear. Each `Flight::outline` is exactly [first riser
+left, first riser right, top right, top left] facing up (counter-clockwise);
+its nosings are bottom first, the first on the first riser, `z` the tread's
+top. `opening` is the union of the flights, the landing and a U's well
+(empty when the stair arrives nowhere). `walk_line` starts half a going
+before the first riser at z 0, passes the middle of every tread at its top,
+runs flat across the landing round the turn, and ends half a going past the
+top riser at the level height: no step between points over one riser.
+Helpers: `geometry`, `frames` (each flight's frame), `head`, `foot`,
+`arrival_edge`, `pieces`, `covers`, `tread_count`, `describe`.
+Railings (`stair_side`) run up each flight's open sides on its nosing line
+and on round a landing, flat there; the next flight starts its own run; the
+inner sides of a U under 50 mm apart get none. The well guard upstairs goes
+round the whole opening but the arrival edge. Review: `stair_headroom_low`
+(under 2000 mm clear over the walking line: under the floors above outside
+the stairs' openings and voids, other stairs' soffits and landings, roofs),
+`stair_landing_short` (an L or U landing shallower than the stair is wide);
+`stair_landing_blocked` and `stair_top_no_floor` read the first and last
+flights.
+
+**Roofs** (`guhit_core::roofs`). The eave line is the wall line grown by
+`overhang_mm` (mitred); the underside at the wall line is `eave_mm`, or the
+level height; the top is `thickness_mm / cos(pitch)` over the underside
+(`vertical_mm`). A hip on a square-cornered outline is the straight skeleton
+of its eave line: every top point stands tan(pitch) times its distance from
+the eaves above the eave height, the distance measured square to the outline
+(the larger of the two axis distances to the nearest eave, in the outline's
+own frame), so hips and valleys run at 45 degrees and a rectangle's ridge is
+L - W. Sides in line facing the same way are one plane where the wavefront
+joins them. Gable sides stand still. Gable and shed slope in the rectangle's
+own frame; `ridge_axis` x is its side nearest to east-west. Lines: `eave`
+(low edges), `rake` (sloping outline edges), `ridge` (horizontal inner
+edges, and a shed's high edge), `hip`, `valley`. `eaves` are the low edges
+in outline order, z the top at the edge. `infill` only on derived outlines,
+along the wall line where the underside is above the wall top (first edge on
+the wall top, the outline's way round, so inward is its left).
+`plan_area_m2` is the eave outline, `surface_area_m2` each plane over its
+cosine. A never-migrated project's legacy roof derives with an empty
+`roof_id`. The roof over the top floor without a closed building anywhere
+covers the bounding box of the top level's walls when it spans over
+1000 mm both ways (Wave 1). Review: `roof_outline` (info, a derived outline
+the shape does not fit), `roof_unsupported` (a drawn roof with over 5 m of
+edge with no wall along it and no column within 400 mm).
+`AddRoofPosts { roof_id, size_mm 50..1000, max_spacing_mm 500..20000 }`:
+square columns on the roof's level along every open stretch of its wall
+line (no wall along it), at each corner and at most the spacing apart, outer
+faces on the line; none where a wall carries the end, nor within a post of
+an existing column; nothing to add is `no_open_eaves`. Pipes cross every
+plane of a roof on their level (`roof` penetrations).
+
+**Drawing.** Plans (`guhit_export::stairs::stairs_items`, the 2D canvas the
+same): on its own level a stair is solid up to the cut 1200 mm above the
+floor, with a break line there and the rest dashed (`StrsBelow`), the arrow
+along the walking line round the turn and UP before the first riser; on the
+level it arrives at, all dashed with DN. Roofs on the plan: the eaves dashed
+on the level the roof sits on only. 3D: every derived roof on its level
+(covering, soffit, fascia along eaves and rakes, a box gutter along eaves,
+gable ends a wall thick, a ceiling at the wall tops under a pitched roof over
+walls); roof decks (D26) drop under any roof on their level; a deck slab with
+no material reads as paving stones within 300 mm of the ground of the lowest level
+(a carport), timber otherwise. Walk mode climbs an L or U along its walking
+line (`u` follows it round the turn), held within the flights and landing.
+
+### Grids, view marks and the lot
+
+Grid labels are unique; a grid line is at least 100 mm long. A section or
+elevation mark is drawn on its level's plan; its drawing is computed on
+demand from the mark (`guhit_export::views`), never stored. One lot per
+project (`lot_exists`, naming the first): at least three corners, one side
+per corner, setbacks 0 or more. Setbacks and coverage are drawn facts,
+never code checks.
+
+### Title block and the signatory (D53)
+
+`TitleBlock` has no owner or location: sheets print
+`ProjectSettings::client_name` and `location`. `SetTitleBlock` keeps the
+stored signatory whatever it is given; only `SetSignatory` changes it, and
+`guhit_app::people_only` refuses `SetSignatory` (also inside a batch) for
+every agent path (`AgentsState::check_reach`, a guest's agents on the host)
+and the copilot's tools, with code `forbidden`. `Signatory::masked()` hides
+PRC, PTR, IAPOA, its OR and TIN (every letter and digit but the last two,
+all of one of four or fewer; separators stay; empty stays empty) and keeps
+the name, dates and place; `TitleBlock::masked()` masks its signatory. Use
+it for prompts, AI logs, MCP reads and agents' pictures
+(`SheetInputs::mask_signatory`); the PDF on disk prints in full.
+
+### Sheets, viewports and revisions
+
+`UpsertSheet` assigns an empty sheet id, empty viewport ids and an empty
+number ("A-n", the first free); numbers are unique
+(`sheet_number_taken`); a viewport's level or view mark must exist with the
+right mark kind (`bad_viewport`). A viewport whose level or mark is deleted
+leaves its sheet in that step, and the summary ends "; removed 1 viewport
+from sheet A-3" (`sheets::prune_viewports`). `UpsertRevision` assigns an
+empty id and marks the revision on `sheet_ids`; `DeleteRevision` takes it
+off every sheet. A perspective viewport is a model render, never an AI
+image. Ids of types, sheets, viewports, revisions and shots are hashed and
+reserved by `IdGen` (P0-5): two identical `UpsertSheet` calls with empty
+ids make two sheets.
+
+### Tours
+
+A tour is a view (no level, no layer, always allowed). Shots get ids like
+elements: empty ones on add and update, all new on a copy. fps 24, 30 or
+60; each shot at least one key, `at` 0 to 1, 0.1 to 600 s, a transition of
+0 to 10 s.
+
+Frames (`guhit_core::tours`, lane L9). Every reader takes the camera from
+`Query::TourFrames { tour_id, fps }` (fps None: the tour's own), never its
+own math: playback, the timeline, the 3D path, the video and the review.
+The answer is `{ tour_id, name, fps, seconds, frame_count, shots: [{ id,
+name, move, start, seconds, transition, first_frame, frame_count }],
+frames: [{ t, shot, position, target, fov_deg, light?, fx? }], doors:
+[{ id, from, to, open }] }`, one frame
+every 1 / fps seconds from 0, `round(seconds * fps)` of them; positions to
+0.1 mm.
+- A tour lasts the sum of its shots. A shot's keys are taken in `at` order;
+  position and target each run on a centripetal Catmull-Rom spline (alpha
+  0.5, mirrored ends) through them. The shot's ease turns time into
+  progress: `linear`, or `in_out`, which speeds up over the first fifth,
+  runs evenly, and slows over the last fifth (top speed 1.25 times the
+  average). Between two keys, progress moves along the position path by arc
+  length; when the camera stands still, along the target path (a pan); when
+  neither moves, evenly in time (a zoom). The lens runs linearly between
+  keys. `MakeTour` writes `at` by arc length, so its shots move at an even
+  pace, and sizes walks so their top speed is the pace.
+- A transition happens over the first `transition.seconds` of its shot
+  (`fx.mix` 0 to 1). Dissolve: the held frame `fx.from_frame` (the last of
+  the shot before; black for a first shot) fades out over this one. Dip to
+  black or white: the held frame goes to the color over the first half, the
+  color clears over the second. Whip pan: the camera already swings out of
+  the last shot's end and into this one (80 degrees), `fx.blur` the sideways
+  smear. Plan lift: the camera already lifts from straight above the
+  building, north up; the 2D plan lies over the picture and fades out over
+  the first 60 percent. Playback (`tour/player.ts`) and the video
+  (`render/tourJob.ts`) draw these layers the same way (`fxLayers`).
+- `light` (a `ViewLight`) is the shot's light, the clock running from
+  `light` to `light_end` (day to dusk); none: the live light.
+
+`MakeTour { name, options: AutoTour }` adds one tour, one undo step, 30 fps,
+named "Tour" (or "Tour 2" and on): with `exterior`, a fly-in (its first
+transition a plan lift), an orbit over the roof and a push-in down to the
+front door (the outside door into the living room or hall, else the
+widest); then through the front door, every room with a door, nearest by
+doors first, with a 3.5 s hold panning across each from its doorway; to
+the stairs and up `Derived::stairs` walk lines at eye height (1600 mm over
+the treads; straight up the flight's middle without one); the rooms upstairs
+the same way; rooms only reached from outside after a dissolve to their own
+door; with `day_to_dusk`, a pull-out outside from 16:50 to 18:00 on 15
+April after a dissolve. Walks go round walls through the corners of the
+room they are in. Walks look at their path 1.5 m ahead (1.8 m on a stair, tilted up 0.7
+of its rise), coming in where a wall is in the way, so the camera turns
+into a corner or up the next flight before it gets there; the turn out of
+a hold goes the way the walk turns. Walks keep 600 mm from walls where the
+room allows, pass a sliding door through the half its panel opens, and
+step off a stair short of a wall ahead (800 mm). Refused: a pace outside 0.3 to 3 m/s (`tour_pace`), no
+walls or no level with rooms (`tour_empty`), an unknown level.
+
+`tour_through_wall` (a warning, `element_ids` the tour then the wall, id
+`tour_through_wall:<tour>,<wall or level>`, `location` where, z above
+project zero) is raised once per wall or floor the camera passes through,
+sampled at 5 frames a second: the move between two samples meets a wall
+outside a door's opening (a window is glass), or crosses an upper floor
+over its buildings and floor slabs outside a stair opening or a void. A
+move across shots counts only where they join, and never under a whip pan.
+
+Videos (`guhit-app` `video.rs`): `video_begin` keeps an upload on disk
+(`renders/<id>.part` and `.part.json`, so no state lives in memory and a
+day old upload is dropped); `video_append` adds bytes in order;
+`video_finish` checks the info (codec `avc`, `vp9` or `png`, 1 to 120 fps,
+1 to 8192 px, the upload's tour), moves the bytes to `renders/<id>.mp4` (an
+MP4 starts with an ftyp box) or splits them at each PNG's end into
+`renders/<id>/frame-000001.png...`, saves the poster as `renders/<id>.png`
+or `.jpg`, and adds a `RenderRecord` with `info.kind` `video`, `video` set
+and the camera of the tour's first key. `video::is_video_file` names what
+`.guhit` bundles leave out unless `videos` is asked.
+
+The window encodes (`tour/export.ts`): WebCodecs H.264 High, Main, then
+Baseline, then VP9, each at the lowest level the browser supports, first in
+"quality" latency mode then "realtime", and each must turn three test
+frames into three chunks within 4 s before it is used: Safari 27 says yes
+to H.264 Main and High in "quality" mode and then never answers. No
+encoder: PNG frames, and the result says so. Mediabunny (MPL-2.0, small,
+writes MP4 in the browser; DECISIONS D54) muxes a fragmented MP4, so bytes
+are written in order and stream to `video_append` in 2 MiB chunks, at most
+four waiting. Frames render through `ViewerEngine.captureCanvas` with four
+jittered samples (`refine.ts` `Accumulator`), paced on GPU fences, never
+requestAnimationFrame. A hidden window is warned about: its timers slow to
+once a second.
+
+### Derived, queries and review
+
+The derive order is fixed: walls, rooms, footprints and totals, then
+stairs, railings, roofs, pipes, schedules (`opening_schedule`,
+`room_schedule`, `level_areas`), site, then review (Wave 1 checks, slabs,
+pipes, devices, then stairs, roofs, placement, site, tours), then review
+marks. Each step may read the ones before it. New queries:
+`OpeningSchedule`, `RoomSchedule`, `LevelAreas` and `Site` hand out the
+derived data; `PlacementOptions`, `TourFrames` and `Catalog` are the lanes'.
+`Query::Schedule` and `Derived::schedule` keep meaning device counts. New
+review codes (suggestions): `stair_headroom_low`, `stair_landing_short`,
+`roof_outline`, `roof_unsupported`, `asset_in_wall`, `assets_overlap`,
+`tour_through_wall`, `building_over_setback` (`room_no_door` exists).
+
+### Scope and agent limits
+
+AI edit scope (D30): `AddRoofPosts` needs its roof in reach; `MakeTour` and
+new tours and cameras are always allowed; a new grid, a new or changed
+`TopFootprint` roof or lot, types, automatic dimensions, the title block,
+the signatory, sheets and revisions are whole-project changes. Drawn roofs
+and view marks reach themselves. Agent limits (P1-3, corrected by the
+orchestrator): the `TopFootprint` roof is a roof on no level that reaches the
+topmost level with a building (the highest level while none has one), and
+so do posts under it: a level limit lets an agent edit it (`SetRoof`,
+`UpdateElement`, `DeleteElements`, `AddRoofPosts`) only when it names that
+level, and a kinds-only limit with roofs always does. It is still nobody's
+claim. Grids pass level limits and a kind limit decides;
+`UpsertOpeningSpec` and `DeleteOpeningSpecs` touch each opening of the
+type, `AssignOpeningTypes` each untyped opening it would type, so an
+openings-only agent can define D1; `AutoDimension` makes dimensions on its
+level; the lot, sheets, the title block and revisions are whole-project
+changes; tours are never refused.
+
+### Stubs, hubs and `not_built`
+
+Each lane's module starts as a stub with its final signature: commands
+answer `not_built` (`CoreError::not_built`, IPC code `not_built`,
+`ExportError::NotBuilt`), derive and queries answer empty data. The hubs
+(`guhit-core` `exec`, `validate`, `derive`, `query`, `issues`; `guhit-app`
+`lib.rs` routing and `ai/mod.rs`; `guhit-export` `lib.rs`; the frontend
+hubs listed in "Frontend join points") have one-line arms into the lanes'
+modules and are edited only by the orchestrator after C0.
+
+### Live sessions
+
+`PROTOCOL_VERSION` is 3: a version 2 guest is refused by a version 3 host,
+and a version 2 host refuses a version 3 guest, both with "Update both to
+the latest version." The `schema6` feature idea is dropped.
+
+### MCP pictures of drawings
+
+MCP `look` rasterizes elevations, sections, sheets and schedules in Rust
+with the `resvg` already in `guhit-mcp` (`look::svg_png`), as it does the
+plan, not through a window request. Elevations, sections and schedules come
+from the `view_svg` IPC command; a sheet from `guhit_export::sheet_svg` with
+`mask_signatory` set and its images, and every license number still printed
+in full is replaced by its masked form before the picture is made (D53).
+A tour frame is captured in the window from the camera `Query::TourFrames`
+gives for it (`WindowTask::CaptureView` with `camera`). A saved view's `look`
+hands the window that view's `Camera` as the engine holds it (`camera_id`
+null), and the result compares the record's camera with it.
+
+### The window's render queue (G4 problem 8)
+
+| Command | Args | Returns |
+|---|---|---|
+| `window_status` | `WindowActivity { busy, what, view?, index?, total?, progress_pct?, eta_s?, job_id? }` | null |
+
+The window sends it when a render starts, every 2 s while it runs, when it
+moves to the next view and when it stops, whoever started it, and around a
+tour export. `AppService::window_activity()` gives MCP the last report (not
+believed after 30 s while busy) with the window requests not answered yet;
+`render` action status and `window_busy` refusals quote it.
+
+### Export seam (plan 1.6)
+
+`guhit_export::{view_svg, sheet_svg, sheets_pdf, sheets_dxf}` and
+`views::items(p, d, view, scale) -> ViewItems { items, bounds }` (L3 to
+L4) with `SheetInputs { date, images, mask_signatory }`. `model3d::Scene`
+holds `roofs: Vec<RoofSolid { roof_id, kind, material_id, level, planes,
+infill }>`; the roof math moved to `guhit_export::roofs` and the stair
+plan items to `guhit_export::stairs` (behavior unchanged). The planes of a
+migrated roof stay within 0.5 mm of Wave 1's, L-shaped gables included
+(`crates/guhit-app/tests/w2_l2_roofs_stairs.rs`, with a frozen copy of the
+Wave 1 math).
+
+### Permit engine (lane L1)
+
+Door and window types (`guhit_core::opening_types`):
+- `doors` are the doors the tour moves, in the view only (a tour never
+  edits the model): door opening `id` goes from where it stood (as drawn,
+  before its first move) to `open` between `from` and `to` seconds,
+  smoothstep, then holds. `open` 0 is shut, 1 a swing leaf at 90 degrees,
+  more turns it on toward the wall (up to 165), 1 for a sliding panel all
+  the way over the fixed one. A door the camera goes through opens wide
+  before the camera comes within its width plus 600 mm, as far as no wall
+  or object stops it, and stays open; held short of 150 degrees it shuts
+  once the camera is 700 mm past, unless the camera comes back through
+  soon. A door the camera only passes is shut from the start (`from` and
+  `to` -1), so it never moves on screen. Playback, scrubbing and the video
+  apply them the same way (`tour/frames.ts` `doorsAt`, `DoorSwing.pose`).
+- A type drives style, width and height always; the sill when the type has
+  one (`sill_mm` Some); the material when it has one. `UpsertOpeningSpec`
+  writes them into every opening of the type; the fit rules still refuse a
+  type that pushes an opening past its wall. A type used by openings keeps
+  its kind (`opening_type_mismatch`). An empty description becomes "Single
+  swing door", "Sliding window" and so on.
+- Marks: unique ignoring letter case (`mark_taken`, naming the next free);
+  empty gets the lowest free "D<n>" or "W<n>". Schedules sort marks by
+  prefix, then number (D2 before D10).
+- `AssignOpeningTypes` groups untyped openings by kind, style, width,
+  height, material and, for windows, sill (a new door type has no sill of
+  its own); reuses a type that matches; new marks go doors first, widest
+  first, then tallest, then style (double swing, single swing, sliding,
+  casement, jalousie, fixed). Nothing to type is refused
+  (`nothing_to_type`). The sample bungalow gives D1 (front, 900), D2
+  (bedroom, 800), W1 (1500 sliding), W2 (1200 casement), W3 (1200
+  jalousie).
+- `follow`, after every leaf: an opening that just got its type (new, or a
+  new `type_id`) takes the type's values when they fit its wall, else keeps
+  its own and moves; an opening whose own driven values changed moves to the
+  type that matches, or to a new type with the next free mark. The step's
+  summary ends "; Door moved from D1 to new type D3" (or "to D1", or "Door
+  kept its size, which D3 does not fit; type D1").
+
+Schedules (`guhit_core::schedules`): `opening_schedule.rows` is one row
+per type (doors, then windows, mark order; a type no opening uses has total
+0; `per_level` lists every level, 0 included), then untyped groups with an
+empty mark; a typed row's sill and material are the type's, else the
+openings' common one. `room_schedule` rows give `net_area_m2` (less
+voids, as `RoomGeometry`) and `floor_area_m2` (as `Totals` counts it, also
+less balconies and decks), and the floor areas add up to
+`Totals::floor_area_m2`; `level_areas` net and gross add up to `Totals`. A
+room's ceiling height is its own; else, when a void in the floor of the
+level right above lies over more than half of the room, that level's
+ceiling measured from the room's floor (double height); else its level's
+ceiling: the level height, or 200 mm under the next level up when that is
+lower (D26; `schedules::level_ceiling_mm`).
+
+Grids: `AddGridSystem` makes n + 1 lines from n spacings: numbers spaced
+along x (lines run along y), letters spaced along y (no I or O; after Z,
+AA). Numbers and letters continue after the project's highest. Lines reach
+3600 mm past the outermost lines the other way, or past the buildings, so
+their bubbles clear the automatic exterior dimensions.
+
+Automatic dimensions (`guhit_core::dims_auto`). A to b always runs so that
+a positive `offset_mm` puts the line on the measured side.
+- `Openings { wall_ids, face }`: along the first wall's start to end; the
+  ends of each wall's face, every opening's jambs, and other walls meeting
+  the run between its ends (both their faces on the measured side; their
+  centerline for a centerline string). The face measured is the one on the
+  side of the line (the sign of the offset).
+- `Exterior { side, tier }`: plan sides (north is +y). Overall: outermost
+  face to outermost face. Walls: the centerlines of the walls that meet
+  that side's outer walls from inside, corner walls included, and the grid
+  lines across the side. Openings: that side's outer face corners and the
+  jambs of the openings in its outer walls. a and b lie on the outermost
+  face line; `through` points sit where they measure.
+- `Grids { grid_ids }`: across the grid lines, through the first one's
+  start.
+- `AutoDimension` replaces the level's automatic strings of the kinds asked.
+  Exterior: per side (north, east, south, west) openings 800 mm, walls 1600
+  mm and overall 2400 mm off the outermost face; a walls string only when it
+  has a point between its ends, an openings string only when the side has
+  openings. Rooms: inside strings, 600 mm into the room, along each room's
+  longest wall and the longest square to it, each wall and side once.
+- After every command: references to deleted walls and grids drop, a string
+  left with none (or an exterior string whose level has no building) goes,
+  and every automatic string is rewritten. One the command moved to
+  anything but what it measures was edited by hand: it becomes plain. One
+  moved together with what it measures stays automatic. Changing only the
+  offset keeps it automatic.
+- Plain dimension strings follow walls at every witness point (D12).
+
+The lot (`guhit_core::site`):
+- `SetLotFromSurvey` reads quadrant bearings as PH titles write them ("N 45
+  deg 30' E", "N. 45 deg. 30' E.", "N 45°30' E", "N 45-30 E", "S 12°05'30\"
+  W", "N45d30'E", "Due North"), against true north (`north_angle_deg`). A
+  bad one is refused (`bad_bearing`) naming the leg and the forms it reads.
+  Legs that end farther than 1:100 of the perimeter from their start are
+  refused (`lot_not_closed`); a smaller misclosure is spread by the compass
+  rule and stated in the summary ("misclosure 4 mm (1:13,500), spread over
+  the corners"). Corners are kept in the title's order from corner 1 (the
+  start), clockwise or not, so side i is the title's line i to i + 1. An
+  existing lot takes the new corners and keeps its id, grade and,
+  when the count matches, its sides.
+- `Derived::site`: area; per side its length, bearing ("N 45°30' E", to the
+  second when it has seconds) and the nearest building footprint (any
+  level); the setback outline (the lot offset inward by each side's
+  setback); coverage: the lowest built level's footprints over the lot
+  area, in percent, a fact.
+- `building_over_setback` (warning): a footprint corner past a side's
+  setback line, one item per side, id `building_over_setback:<lot>:<side>`,
+  saying how far. Never a code check.
+
+`MakeSheetSet`:
+- First the marks it lacks, on the lowest built level: elevations "North",
+  "East", "South", "West" (true north), each 5 m off that face, looking back
+  at it (an existing elevation with that label, or looking the same way,
+  counts); then sections up to two in all, "A", "B": along the first stair's
+  run through its first flight, and along the longest room's longest side
+  through its label (across it as well when there is no stair; ties go to
+  the larger room). Each spans the buildings and 3500 mm past them.
+- Then the sheets, landscape, scales left to fit: A-1 site plan and
+  vicinity map (500 m); a plan per built level; the elevations two to a
+  sheet (North and South, East and West); the sections; the roof plan with
+  each level's reflected ceiling plan; the schedules (doors and windows,
+  rooms, finishes, areas); then only for the services the project has (runs
+  of that trade, or objects the schedule counts under it): E-1 lighting,
+  E-2 power, P-1 plumbing, P-2 plumbing isometric, M-1 aircon, each with a
+  viewport per built level.
+- `replace` true keeps each sheet that comes back (by its views) with its
+  number, id and revision marks; new sheets follow. Service sheets show only
+  the levels with that trade; plumbing sheets need plumbing runs, the
+  isometric water, drainage or vent runs. false adds only views on no sheet
+  yet, numbered after the existing ones, and refuses
+  when nothing is missing (`nothing_to_add`). A project with no building
+  walls is refused (`nothing_to_draw`).
+
+At IPC every refusal reads `invalid` (only `not_built` keeps its code);
+the message carries the hint.
+
+### Views (lane L3)
+
+`guhit_export::views::items(p, d, view, scale)` draws every drawing
+`ViewRef` as plan `Item`s in drawing mm: a plan, a services plan or the
+reflected ceiling plan of a level, an elevation, a section, the roof plan,
+the site plan, the vicinity frame and notes. A schedule (a table) and a
+perspective (a render) answer `Failed`; the sheet lays those out.
+`ViewItems { items, bounds, title, scale_denominator, images }`: `title` is
+the view's own ("NORTH ELEVATION", "SECTION A-A", "GROUND FLOOR REFLECTED
+CEILING PLAN"); `images` are pictures to place under the items over
+`min..max` (the vicinity map), by file name in `SheetInputs::images`.
+Plans are model mm, y north. Elevations and sections are x across the
+picture plane to the viewer's right and y the height above project zero.
+
+Elevations and sections come from `model3d::build_scene` with
+`Derived::roofs` and `Derived::stairs` (`views::mesh`): walls with their
+openings cut, door and window panels with their sash, louvre and panel
+lines, slabs, roof decks (D26), columns, stairs, railings, roofs with
+fascia and gable infill, site objects as boxes. Furniture is left out;
+plants and cars are outlines (`section::figure_pieces`). Above 200k
+triangles every solid becomes its box. `views::hlr` keeps feature edges
+only (creases over 20 degrees, silhouettes, boundaries) and drops an edge
+where a surface simply carries on into a coplanar face (two walls in line,
+a wall over the slab edge under it); it hides with a uniform screen grid,
+a face hiding what is more than 0.5 mm behind it, and joins collinear
+pieces at 0.01 mm. A view mark looks to the left of start to end (`flip`:
+the right), from its line: a section cuts there (poche, heavy) and is
+cropped to its line; an elevation shows the whole model beyond its plane.
+`depth_mm` clips beyond. Pens: cut heavy over solid poche; the profile
+against open sky heavy (medium on a section); near edges medium, farther
+light, beyond 6 m fine; sash lines, entourage, grids and datums fine. Every
+elevation and section draws the grids that cross its plane with bubbles,
+level datums ("+3.000 SECOND FLOOR"), the finish grade (the lot's
+`grade_mm` under the lowest floor, else 150 mm), the top of the roof and
+the marks of `Derived::opening_schedule` where the opening shows.
+
+Roof plan: `Derived::roofs` planes and lines (eaves and rakes heavy,
+ridges, hips and valleys medium), a downhill arrow with the pitch on each
+plane, gutters, the walls under the roof dashed and lower floors' deck
+edges. Site plan: the lot as a phantom line with numbered corners, each
+side's bearing and distance (`Derived::site`, else worked out the same
+way), setbacks as chain lines, the ground floor hatched, upper floors and
+roof edges dashed, roads with name and width, site walls, lot area and
+footprint share (facts, never a check) and the north arrow. Reflected
+ceiling plan: walls cut, door heads, each room's ceiling height ("CH
+2.700": the room's own, `room_schedule`, else the level's) and ceiling
+finish, ceiling lights, smoke detectors and fans. Vicinity frame: the
+image, its 500 m (`radius_m`) ring, the site at the center, north up.
+
+Every plan (`plan::build_items`) also draws door and window tags from
+`Derived::opening_schedule::marks`, grid lines with bubbles, dimension
+strings (`Dimension::through`, a figure per segment) and the section and
+elevation marks of its level. Site walls print as a light outline over a
+grey band, and "UP" and "DN" move clear of the walls (G4 problem 11).
+
+Results are cached inside guhit-export by a hash of the project JSON (it
+changes with every revision): meshes and hidden line results, so drawing
+the same view twice, or at another scale, computes it once.
+`views::svg_of` and `views::write_items` ink items as the plan sheet does.
+The sheets' DXF (`sheets_dxf`, lane L8's `dxf::sheets`) draws its views
+from `views::items`. View linework is on the plan's categories, plus
+`Cat::Roof` (`A-ROOF-OTLN`: roofs in elevations, sections and the roof
+plan, slope arrows), `Cat::Grid` (`S-GRID`: grids, bubbles, level datums)
+and `Cat::Symb` (`A-ANNO-SYMB`: door and window tags, view marks, north
+arrows).
+
+### Sheets and the PH title block (lane L4)
+
+A sheet (`guhit_export::sheetset`) is its paper inside a border, the PH
+title block as a strip down the right edge (`titleblock::strip_width`, 66
+mm times the paper's type size: A3 1, A2 1.3, A1 1.6, A0 2), and the
+drawing area left of it (`sheetset::Page`). Viewports live only in the
+drawing area: a placed one (`position`, the content's center in paper mm
+from the bottom left) is moved back inside it, and everything is clipped
+to it, so nothing ever prints over the title block, at any paper size or
+orientation. Unplaced viewports pack in order, left to right and top to
+bottom, around the placed ones; viewports without a scale share the
+largest common scale (`COMMON_SCALES`) at which the whole sheet still
+packs; a stated scale is kept. Each viewport gets a title under it: a
+bubble with its number on the sheet over the sheet number, the title (the
+viewport's, else the view's: "NORTH ELEVATION", "SECTION A-A", "GROUND
+FLOOR PLAN"), and "SCALE 1:100" with a scale bar, or "NOT TO SCALE" for
+the vicinity map and perspectives; plans and the roof plan get a north
+arrow. A sheet whose one viewport is a lighting, power, plumbing or aircon
+plan, or the plumbing isometric, is that service sheet (legend, counts,
+the trade's blank professional block) drawn left of the PH block.
+
+Bodies: plans from `plan::build_items`; ceiling, services, elevation,
+section, roof and site plans from `views::items` (L3), shown as a dashed
+frame saying why while one cannot be drawn; schedules as tables
+(`tables::schedule`, from `Derived::opening_schedule`, `room_schedule`,
+`level_areas`, never counted again; a tall table continues in another
+column with its header repeated, rows are never dropped); notes; the
+vicinity map image (from `files/`) with the site marked and a north arrow,
+the radius in its title; a perspective from Visuals. Images reach the
+export through `SheetInputs::images`: the app (`documents::sheet_images`)
+reads the firm logo and vicinity maps from the project's `files/` folder
+and perspectives from Visuals, model views only; an AI image never goes on
+a sheet.
+
+The title block, top to bottom: firm (logo, name, address); project
+(title, else the project name; owner and location from the project
+settings; lot, block and TCT); revisions (the sheet's, in set order, at
+least twelve ruled rows; then a blank remarks box on tall paper);
+architect (name, PRC number and validity, PTR number with date and place,
+IAPOA number with OR number and date, TIN); signature and dry seal, left
+blank, with the printed name to sign over; sheet contents (title, SCALE
+"1:100", "AS SHOWN" or "NTS", DATE, PAPER); sheet number with "3 OF 12"
+(its place in the whole set). A field never typed prints blank. License
+numbers print exactly as typed, smaller when long, never cut; the PDF on
+disk prints them in full and `SheetInputs::mask_signatory` prints
+`Signatory::masked()` (agents' pictures). The block never says a set
+complies. Each field is a `<text class="tb-<field>">` (`tb-prc-no`,
+`tb-tin`, `tb-sheet-number`, ...), so tests and readers find it.
+
+The sheet SVG carries what the Sheets panel needs: `<g id="drawing-area"
+data-x data-y data-w data-h data-page="W H">` and one `<g class="viewport"
+data-id data-x data-y data-w data-h data-frame="x y w h" data-scale
+data-placed>` per viewport (paper mm, y down; the content rect, and the
+content with its title). A project with no sheets prints the default set
+(`sheetset::default_set`: a site sheet when there is a lot, a plan per
+level with walls, elevations and sections two to a sheet, the roof plan,
+the schedules), never stored. `export_sheets` writes PDF as one file, SVG
+as one file per sheet (`<name>-a-1.svg`, ...) and DXF through
+`sheets_dxf`; file names carry the local time. `sheet_preview` and
+`view_svg` answers are cached by project and revision in `documents.rs`.
+Files: the project's own images in `projects/<id>/files/` (`file_store`
+never overwrites, it picks a free name); the signing architect profile in
+settings.json under `professional`, which fills the title block only when
+a person asks (a `SetSignatory` from the window).
+
+### AI render v2 (D53, lane L6)
+
+Geometry stays the authority: an AI image is a record and a file, labelled
+"AI visualization", and never writes back. The source of an AI image is
+always a model view; the project look is a style reference only.
+
+- **Conditioning maps.** The window draws a model view's maps from its own
+  camera, in a renderer of its own (`src/viewer3d/render/conditioning.ts`,
+  no requestAnimationFrame): `lines` (black on white where the element
+  changes, the surface turns over 30 degrees or the depth jumps over 6%),
+  `depth` (inverse, near light), `normal` (view space), `ids` (one color
+  per element, 5 bits a channel, black sky) and `clay`, at most 1024 px on
+  the long side. They are drawn in the background after every capture and
+  render, with the roof and cutaway it used, and on the `capture_maps`
+  window task. Saved as `renders/<id>.<map>.png`, listed in
+  `RenderRecord::maps`, with `renders/<id>.maps.json` (`MapsMeta { width,
+  height, visibility, legend: [{ color, element_id, pixels }] }`). Deleting
+  the record trashes them with it.
+- **The request.** Text first, then the capture, then the `lines` and
+  `depth` maps, then the style reference (JPEG, at most 1536 px). The text
+  is preamble, an image guide ("Image 2 is the model's line drawing ..."),
+  model facts, style, user text, geometry line. Model facts come from Rust
+  (`render_ai/facts.rs`): storeys, roofs, walls, the doors, windows, rooms
+  (with finishes) and furniture in view from the ids legend, the view's
+  time of day, and "Do not move, add or remove walls, doors or windows",
+  with the counts in view. The title block never goes.
+- **The project look.** `render_set_look` marks one still (usually an
+  approved AI image) as `look`; later renders send it unless the request's
+  `style_reference_id` names another, or is `""` or `"none"` for no
+  reference. Deleting it clears the look.
+- **Cost.** Auto mode uses Gemini Pro only for High or with a style
+  reference; an explicit model setting wins. `render_ai_estimate` prices a
+  request before anything is spent. Agents (`render_ai_generate` with
+  `agent`, set by the MCP server) get `render_ai_agent_daily_cap` images
+  per project per local day (settings.json, default 20, 0 to 1000, counted
+  in `renders/ai-usage.json`); past it the call fails `rate_limited` with
+  what the user can do. People are never capped.
+- **Drift check** (`render_ai/drift.rs`). The AI image and the line map at
+  384 px: model edges (direction from the structure tensor) look for an AI
+  edge (strongest color channel, thinned) within 2 px and 34 degrees,
+  after the best shift within 6 px. `DriftReport::missing` is the share
+  left over, furniture and pipes not counted; `warn` above 0.35 or when a
+  door, window, stair or column loses 60% of its edges, and the note names
+  them. `renders/<id>.drift.png` keeps the unmatched edges. No line map:
+  `drift` is None.
+- **People decide before saving.** The window renders with
+  `render_ai_draft` (not saved), keeps a clean image at once and shows a
+  flagged one until the person keeps or discards it. Drafts last 30 minutes.
+
+| Command (`render_ai::OWNS`) | Args | Returns |
+|---|---|---|
+| `render_ai_estimate` | `request`, `agent?` | `Estimate { model, model_label, image_size, price_usd, why, pro, style_reference_id, maps, maps_missing, prompt, agents }` |
+| `render_ai_draft` | `request` | `Draft { pending_id, image, drift, overlay, estimate, seconds, provider }` |
+| `render_ai_keep` | `pending_id` | `RenderRecord` |
+| `render_ai_discard` | `pending_id` | `null` |
+| `render_ai_generate` | `request`, `agent?` | `RenderAiResult`; with `agent`, capped, and the window draws missing maps first |
+| `render_ai_maps_save` | `render_id`, `maps: [{kind, png}]`, `meta?: MapsMeta` | `RenderRecord` |
+| `render_ai_map_data` | `id`, `kind` | data URL |
+| `render_ai_drift_overlay` | `id` | data URL or null |
+| `render_ai_usage` | | `AgentUsage { day, used, cap, default_cap }` |
+| `render_ai_usage_set` | `agent_daily_cap` | `AgentUsage` |
+
+`Estimate`, `Draft`, `AgentUsage`, `MapsMeta` and `LegendEntry` are contract
+types in `guhit-model` (`api.rs`, generated bindings); `guhit_app::render_ai`
+and `guhit_app::renders` re-export them. The typed calls are in
+`src/contract/ipc.ts` (`renderAiEstimate`, `renderAiDraft`, `renderAiKeep`,
+`renderAiDiscard`, `renderAiMapsSave`, `renderAiMapData`,
+`renderAiDriftOverlay`, `renderAiUsage`, `renderAiUsageSet`), wrapped by
+`aiRender` in `src/viewer3d/render/aiRender.ts`. A debug build with
+`GUHIT_RENDER_AI_FAKE=faithful` or `moved` uses a local stand-in provider
+that answers with the capture itself (graded, or with its right third slid
+sideways), so the flow can be tried without a key or a provider call.
+
+### Interop: DXF 2013 and IFC types and quantities (lane L8)
+
+**DXF 2013 (AC1027)**, `guhit_export::dxf::{plan, plans, sheets}`, and the
+services and isometric sheets (`plan_dxf` with those `sheet`s):
+
+- UTF-8 text as typed ("Parañaque", "m²"), `$INSUNITS` 4 (mm), model
+  space 1:1, y north, handles stable for the same project.
+- Layers carry the plan's pens as lineweights: walls and site walls 0.35,
+  doors, windows and columns 0.25, the rest 0.18; an entity drawn with
+  another pen carries its own.
+- Doors and windows are INSERTs of a block per type: the mark ("D1") for a
+  typed opening, "DOOR-SWING-900" for an untyped one, "D1_WALL200" when a
+  type sits in walls of another thickness. The block is the plan's own
+  drawing of the opening; a flipped hinge or swing is the block mirrored.
+  Each insert has invisible MARK, WIDTH, HEIGHT and SILL attributes.
+  Objects are INSERTs of a block per catalog key and size with a NAME
+  attribute; their labels stay loose.
+- Dimensions are DIMENSION entities (rotated linear) with a style per scale
+  (`GUHIT-100`, `GUHIT-100-M` for meters) and their `*D` blocks, drawn as
+  the sheet draws them; a dimension string is one per segment on one line.
+- Cut walls, columns and every solid ink fill are solid HATCHes in their
+  outline.
+- `plans` puts every level side by side; `sheets` lays each sheet's views
+  in a row in set order, titled with their scale, plans drawn as above
+  and other views from `views::items`. A view that cannot be drawn leaves
+  its title and the reason.
+- `plan_dxf` writes the plan through `dxf::plan` and `sheets_dxf` through
+  `dxf::sheets`; drawings that are only items (the reflected ceiling plan)
+  go through `dxf::write`, DXF 2013 without blocks or dimensions. Only the
+  3D DXF stays R12.
+
+**IFC4**, `guhit_export::model_ifc`:
+
+- Qto sets on every wall, slab (floors, balconies, decks, landings, roof
+  planes), space, door, window, roof and stair flight: lengths in mm,
+  areas in m², volumes in m³, openings taken off walls and voids off floors.
+- An IfcDoorType or IfcWindowType per type, named and tagged with its mark,
+  untyped openings grouped by kind, style and size; an IfcWallType per
+  thickness and material. Each defines its occurrences and is declared to
+  the project. A typed door or window has its mark as Tag and as the
+  Pset_*Common Reference.
+- With `Derived::stairs`: an IfcStair of its shape (straight, quarter or
+  half turn) aggregating one IfcStairFlight per flight, treads as steps,
+  and IfcSlab .LANDING. landings 150 mm deep. With `Derived::roofs`: an
+  IfcRoof over one sloped IfcSlab per plane and the gable ends as IfcWall
+  .USERDEFINED. 'GABLEWALL' ("Gable wall N") centered on the wall below; a
+  flat roof is its slab. The first roof keeps the Wave 1 GUIDs.
+- One IfcGrid on the lowest storey (lines along the first one are U, the
+  rest V; none when they all run one way), IfcSite latitude and longitude
+  from `ProjectSettings::site` and LandTitleNumber from the title block
+  TCT, an IfcSanitaryTerminal per WC, lavatory, shower, bathtub and sink.
+
+### Catalog v2, placement and furnishing (lane L5)
+
+The catalog (`crates/guhit-model/src/catalog.rs`, 108 items) gains 51:
+43 photoscanned Poly Haven models (`sofa-leather` to `lamp-post-classic`),
+five built-ins and three site kit objects drawn in code. Every furnishing
+item names `rooms`, `tags` and `clearance_mm`; `model` is the pack model,
+keyed by the catalog key in `public/assets/pack/manifest.json` (None: the
+procedural form). The pack is 29.14 MB (40 MB cap, D51);
+`node scripts/assets-build.mjs --check` fails on any unlisted pack file,
+any source other than CC0 Poly Haven, ambientCG or Kenney, any model key
+not in the catalog, or a pack over 40 MB.
+
+Built-ins (`CatalogItem::parametric`, `Asset::built_in`): `kitchen-run`,
+`wardrobe-builtin`, `vanity`, `counter`, `shelf-wall`, sized by the
+object's own width, depth and height. Positions are from the left end
+seen from the front (local -x). An asset without options draws with
+`placement::built_in_defaults`, mirrored by `builtInDefaults` in
+`src/viewer3d/scene/builtins.ts` (both tested against one table): a
+kitchen run's sink at 30 percent rounded to 50 mm (450 mm from either
+end), its cooktop at three quarters and at least 900 mm on (none under
+1800 mm), wall cabinets from 1450 to 2150 mm, 350 deep; a vanity's basin
+in the middle under a mirror cabinet (1150 to 1850 mm, 140 deep); about a
+door per 450 mm (500 for a wardrobe). Validation (`built_in_options`):
+only built-ins take options; a sink sits 150 mm or more from the ends,
+only on a kitchen run, counter or vanity; a cooktop 300 mm or more from
+the ends, only on a kitchen run or counter, and 600 mm or more from the
+sink; at most one door per 250 mm.
+
+Site kit: `gate-steel`, `hedge`, `lamp-post` (and the scanned `gate-iron`,
+`lamp-post-classic`) are objects of `AssetCategory::Site` or `Plant` on the
+`assets` layer. Paving is a deck slab (`SlabKind::Deck`) with the built-in
+material `mat-paving-stone` (ambientCG grey pavers in the pack).
+
+One rule set (`guhit_core::placement`) decides where an object may stand,
+for `PlacementOptions`, review and furnishing alike: its footprint inside
+the room's net floor (1 percent slack) and clear of wall islands and wall
+outlines; clear of voids, stairs on their own level and stair openings on
+the level they arrive at (the engine's stair geometry once L2 has it, the
+straight flight's rectangle until then); clear of each doorway's zone
+(900 mm deep on both faces, the leaf width on the swing side when wider,
+50 mm past each jamb, plus the swing sectors) up to the door head; out of
+a window's 150 mm band on either face when any part of it is higher than
+the sill; clear of other objects whose height ranges meet (devices never
+count); its front clearance free of objects standing below 1200 mm and
+80 percent inside the room, and nobody else's front taken. Built-ins'
+wall and mirror cabinets are their own boxes. Touches under 0.01 m2 (or
+5 percent of the smaller footprint) do not count.
+
+`Query::PlacementOptions { room_id, catalog_key }` answers
+`{room_id, room, level_id, catalog_key, size, mount, clearance_mm,
+options: [...], note, reason?, more?}`. Each option is
+`{kind, position, rotation_deg, edge?, fit?, wall_id?, free_from_mm?,
+free_to_mm?}`: `kind` "wall" (back against the wall of net edge `edge`,
+10 mm off its face, `fit` the middle, start or end of a free stretch whose
+extent along the edge is `free_from_mm` to `free_to_mm`), "center"
+(tables, sets and cars, with 450 mm to walk round) or "ceiling". At most
+48; `reason` says why when there is none. An unknown key is refused as
+`unknown_catalog_key`, a room without closed walls as `room_not_closed`.
+
+`Query::Catalog { search, usage }` answers `{count, search, usage, items,
+note}`: items whose key, name, category or tags hold every word of
+`search`; a usage lists the items that name it, and items for any room
+only when a search narrows it. Built-ins carry `built_in_defaults`.
+
+Review (suggestions): `asset_in_wall` (more than 0.005 m2 of the footprint
+in a wall outline, under the wall's height; buried and through-window
+objects excepted), `assets_overlap` (two objects whose boxes meet in plan
+and height), and `asset_over_opening` for an object standing on a stair
+flight or partly over a void or stair opening (the center over one stays
+`slabs::review`'s finding).
+
+Furnishing: `placement::furnish_room(project, room_id, picks, style)`
+returns a `FurnishPlan { room_id, room_name, usage, assets, skipped }`
+(new objects only, never an edit) and `commands()`, one `AddElement` each.
+Without picks it uses the room's default set for its use, size and style
+(modern, tropical, classic, industrial); with picks it places them in
+order, anchors first (bed, sofa, run, desk, vanity, water closet), then
+what goes with them (nightstands beside the bed, a coffee table in front
+of the sofa, a console facing it, art above it, a chair at the desk). Ids
+are stable for the same plan. Agents (D47) use it through L7's tools.
+The copilot's `AiTask::Furnish { room_ids, style }` (empty: every closed
+room on the active level) makes one model call with one tool,
+`choose_furniture` (picks per room, from the keys for its use; unknown
+keys dropped), then one proposal per room in `AiTurn::proposals`
+(`proposal` is None), each a `Batch` labelled "AI: Furnish <room>" whose
+dry run raises no `asset_in_wall`, `assets_overlap`, `door_swing_blocked`
+or `asset_over_opening` on its objects. Every room's proposal waits in the
+furnishing queue, which `ai_resolve` asks first (`ai::furnish::resolve`):
+any room is applied or discarded on its own, in any order. One made
+before another room went in is checked again on the plan as it is now and
+applied only when it adds the same objects and raises none of those
+items; otherwise it is `stale`. The first room is also the hub's pending
+proposal. Asking again for one room makes no model call (the picks are
+kept per room and style), gives the same objects with the same ids, and
+replaces that room's proposal in the queue; a new chat turn clears the
+queue. Built-in options are edited in the inspector
+(`src/shell/fields/BuiltInFields.tsx`).
+
 ## IPC commands
 
 One entry point: `AppService::handle(cmd, args) -> Result<Value, IpcError>`.
@@ -1263,7 +2162,7 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 |---|---|---|---|
 | `hub_list` | | `ProjectMeta[]` | newest first |
 | `hub_create` | `name`, `settings?`, `template?` | `DocState` | opens it. templates: `blank`, `sample-bungalow`, `plumbing-demo` ("Bungalow with services": T&B, 16 plumbing runs, 2 downspouts, a line set and condensate drain, and 32 objects including lights, switches, outlets, a panelboard and a split aircon) |
-| `hub_open` | `id` | `DocState` | |
+| `hub_open` | `id` | `DocState` | the answer may carry `repairs`: what opening mended (`Document::repairs`) |
 | `hub_rename` | `id`, `name` | `ProjectMeta` | |
 | `hub_duplicate` | `id` | `ProjectMeta` | |
 | `hub_delete` | `id` | `null` | moves the folder to `trash/`, never hard-deletes |
@@ -1278,26 +2177,38 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | `doc_revision` | | `{revision, project_id}` | cheap poll for external changes |
 | `snapshot_create` | `label` | `SnapshotMeta` | named version |
 | `snapshot_list` | | `SnapshotMeta[]` | |
-| `snapshot_restore` | `id` | `DocState` | takes an auto snapshot first; is undoable history reset |
+| `snapshot_restore` | `id` | `DocState` | takes an auto snapshot first; is undoable history reset; the answer may carry `repairs`: what opening mended (`Document::repairs`) |
 | `catalog_assets` | | `CatalogItem[]` | |
 | `export_plan` | `format`, `options`, `path?` | `ExportResult` | null path -> `<data>/exports/` |
 | `export_image` | `png`, `name`, `path?` | `ExportResult` | |
 | `underlay_store` | `file_name`, `data` | `{file_name}` | copies into the project folder |
 | `underlay_data` | `file_name` | data URL | |
+| `export_sheets` | the fields of `SheetExportOptions`: `format` (pdf, svg, dxf), `sheet_ids` (empty: all), `path?`, `date?` | `ExportResult` | one PDF for the whole set (L4, `documents.rs`) |
+| `sheet_preview` | `sheet_id` | `SvgDrawing` | one sheet at paper size (L4) |
+| `view_svg` | `view: ViewRef`, `scale?` | `SvgDrawing` | one view alone, `scale_denominator` used (L3 draws, L4 routes) |
+| `file_store` | `file_name`, `data` (image data URL) | `{file_name}` | into the project's `files/` folder: firm logo, vicinity map (L4) |
+| `file_data` | `file_name` | data URL | (L4) |
+| `professional_get` | | `Signatory` | this computer's signing architect profile in settings.json; empty when unset (L4) |
+| `professional_set` | `signatory` | `Signatory` | (L4) |
+| `video_begin` | `tour_id`, `revision` | `{id}` | a tour video streamed from the window (L9, `video.rs`) |
+| `video_append` | `id`, `data` (base64, at most 4 MiB) | `null` | (L9) |
+| `video_finish` | `id`, `poster` (data URL), `info: VideoInfo` | `RenderRecord` | `renders/<id>.mp4`, kind `video` (L9) |
+| `video_abort` | `id` | `null` | (L9) |
 | `import_inspect` | `path` or `file_name`+`data` | `ImportInspection` | DXF; DWG when the converter is configured |
 | `import_commit` | source + `options` | `ImportResult` | one undo step "Import <file>" |
 | `model_store` | source | `{file_name, size}` | glTF/GLB/OBJ into `models/` |
 | `model_data` | `file_name` | data URL | |
 | `export_model` | `format` (ifc, dxf3d, dwg), `path?` | `ExportResult` | |
 | `export_bytes` | `name`, `data`, `path?` | `ExportResult` | GLB/OBJ/DAE made by the frontend |
-| `bundle_save` | `path?` | `ExportResult` | `.guhit` zip of the project folder |
-| `bundle_open` | source | `DocState` | copies into `projects/`, new id if it collides |
+| `bundle_save` | `path?`, `videos?` | `ExportResult` | `.guhit` zip of the project folder; tour videos and their frames only with `videos: true` (D54) |
+| `bundle_open` | source | `DocState` | copies into `projects/`, new id if it collides; the answer may carry `repairs`: what opening mended (`Document::repairs`) |
 | `dwg_status`, `dwg_set_path` | , `path` | `DwgConverterStatus` | ODA File Converter, stored in settings.json |
 | `render_styles` | | `RenderStyle[]` | |
 | `render_list` | | `RenderRecord[]` | |
 | `render_capture` | `camera`, `png`, `revision?`, `info?` | `RenderRecord` | Tier 1 capture or render. Tied to `revision` (the one a render started from, never newer than the document) or the current one. `info` says how it was made; width and height at least 1, seconds 0 or more |
 | `render_data` | `id` | data URL | |
 | `render_delete` | `id` | `null` | |
+| `render_set_look` | `id` (null clears) | `RenderRecord[]` | the project look, AI renders' style reference (L6, `renders.rs`) |
 | `render_ai_settings_get` | | `RenderAiSettings` | |
 | `render_ai_settings_set` | `api_key?`, `model?` | `RenderAiSettings` | `""` removes the key |
 | `render_ai_generate` | `request` | `RenderAiResult` | 10 to 60 s; writes a `RenderRecord` with source `ai_visualization` and `source_render_id` |
@@ -1342,7 +2253,7 @@ client that did. In memory only, since the app started. The transports report in
 
 External changes: after every commit, undo, redo, open, create, close, delete and restore, a rename of the open project, and every document a live session guest receives, `AppService::watch_changes()` fires `{revision, project_id, seq}`. The desktop shell forwards it as the Tauri event `doc_changed {revision}`; the dev bridge serves `/mcp` on its port and the UI polls `doc_revision`. The frontend subscribes with `onDocChanged` (`src/contract/ipc.ts`): `App.tsx` switches hub to editor, `EditorShell` refetches state. Full MCP tool list: `docs/MCP.md`.
 
-Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (neither an address nor the relay reached the host; the message says why), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request), `unavailable` (needs the desktop app, such as the Claude Desktop extension), and for agents ("Agents") `agent_paused`, `agent_stopped`, `too_many_agents`, `claimed`, `rate_limited`, `out_of_scope` (outside an agent's limit), `not_yours` (another computer's agent), `project_changed` (another project was opened while the call ran). An AI edit outside its scope has no IPC code of its own: the model reads a tool error that starts with `out_of_scope:`, and a proposal that stops fitting its scope before it is applied is `invalid`.
+Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (neither an address nor the relay reached the host; the message says why), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request), `not_built` (a Wave 2 command, query or drawing whose lane has not built it yet), `unavailable` (needs the desktop app, such as the Claude Desktop extension), and for agents ("Agents") `agent_paused`, `agent_stopped`, `too_many_agents`, `claimed`, `rate_limited`, `out_of_scope` (outside an agent's limit), `not_yours` (another computer's agent), `project_changed` (another project was opened while the call ran). An AI edit outside its scope has no IPC code of its own: the model reads a tool error that starts with `out_of_scope:`, and a proposal that stops fitting its scope before it is applied is `invalid`.
 
 `hub_open` on the project that is already open returns the current state with its undo history intact.
 
@@ -1400,3 +2311,23 @@ Rules:
 - Backend pushes (live session, presence, chat, window requests) arrive through `onAppEvent`; one connection serves every subscriber.
 - `useApp().aiScope` is the "Only the selection" switch (D30): the copilot sends it as `AiRequest::scope`, and it rides this window's presence so MCP clients are held to it too.
 - `useApp().undoConfirm` holds an undo or redo the engine refused as someone else's (`other_author`); the shell asks and calls `resolveUndoConfirm`. `undoSteps(n, expectedRevision?)` and `redoSteps(n, expectedRevision?)` take several steps as one revision (History's "Undo to here", D38), asking through `undoConfirm` when the engine says `other_author`. `UndoConfirm::steps` says how many and `revision` the revision the question was asked at; "Undo anyway" sends it, and a `stale` answer turns into a toast.
+
+### Wave 2 hooks (C0)
+
+One-line hooks the hubs above call into each lane's module (lane in
+brackets); the lanes own the modules, the orchestrator the hubs. File and
+line detail is in the C0 handoff.
+
+| Hub | Hook | Lane module |
+|---|---|---|
+| `src/contract/ipc.ts` | `exportSheets`, `sheetPreview`, `viewSvg`, `fileStore`, `fileData`, `professionalGet`, `professionalSet`, `renderSetLook`, `videoBegin`, `videoAppend`, `videoFinish`, `videoAbort` | Rust lanes above |
+| `src/state/bus.ts` | `open_sheets`, `open_view` [L4], `play_tour` [L9] | panels open themselves |
+| `src/state/store.ts` | tools `grid`, `dimension_string`, `view_mark`, `lot` [L1], `roof` [L2] | `src/editor2d/laneTools.ts` registry |
+| `src/editor2d/controller.ts` | tool dispatch | `editor2d/permit/{gridTool,dimStringTool,viewMarkTool,lotTool}.ts` [L1], `editor2d/{roofTool,stairTool}.ts` [L2] |
+| `src/editor2d/render.ts` | draw passes | `editor2d/permit/draw.ts` [L1], `editor2d/drawRoofsStairs.ts` [L2] |
+| `src/editor2d/hit.ts` | stair hits | `editor2d/hitRoofsStairs.ts` [L2] |
+| `src/shell/ElementFields.tsx`, `Inspector.tsx` | element fields, project sections | `shell/fields/*.tsx` [L1, L2], `shell/TypesPanel.tsx`, `SchedulesSection.tsx` [L1], `shell/sheets/TitleBlockSection.tsx` [L4], `shell/tours/{ToursSection,TourFields}.tsx` [L9] |
+| `src/shell/EditorShell.tsx`, `TopBar.tsx` | panels and buttons | `shell/sheets/*`, `shell/views/ViewsPanel.tsx` [L4], `shell/tours/*` [L9], `shell/TypesPanel.tsx` [L1] |
+| `src/viewer3d/scene/buildScene.ts` | scene builders | `scene/{roofs,stairs}.ts` [L2], `scene/{builtins,siteKit}.ts` [L5], `tour/pathPreview.ts` [L9] |
+| `src/viewer3d/engine/ViewerEngine.ts` [L6] | walk, assets and tour hooks in the one frame loop | `walk/entry.ts` [L2], `scene/pack.ts` [L5], `tour/player.ts` [L9] |
+| `src/shell/windowTasks.ts` [L7] | `capture_maps`, `export_tour`, `capture_view.camera` | `render/conditioning.ts` [L6], `tour/export.ts` [L9] |

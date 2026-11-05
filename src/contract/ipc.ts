@@ -9,6 +9,11 @@ import type {
   AiResolveResult,
   AgentLimit,
   AgentSummary,
+  AgentUsage,
+  Draft,
+  Estimate,
+  MapKind,
+  MapsMeta,
   AiSettings,
   AiTurn,
   AppEvent,
@@ -44,7 +49,12 @@ import type {
   RenderInfo,
   RenderRecord,
   RenderStyle,
+  SheetExportOptions,
+  Signatory,
   SnapshotMeta,
+  SvgDrawing,
+  VideoInfo,
+  ViewRef,
 } from "./bindings";
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -194,13 +204,17 @@ export function onAppEvent(handler: AppEventHandler): () => void {
 
 export type FileSource = { path: string } | { file_name: string; data: string };
 
+/** An open's answer: the state, plus what opening the project mended
+ * (`Document::repairs`), one sentence each. Absent when nothing was. */
+export type Opened = DocState & { repairs?: string[] };
+
 export const ipc = {
   // project hub
   hubList: () => call<ProjectMeta[]>("hub_list"),
   /** Creates and opens a project. `template`: "blank" | "sample-bungalow" | "plumbing-demo". */
   hubCreate: (name: string, settings?: ProjectSettings, template?: string) =>
     call<DocState>("hub_create", { name, settings: settings ?? null, template: template ?? null }),
-  hubOpen: (id: string) => call<DocState>("hub_open", { id }),
+  hubOpen: (id: string) => call<Opened>("hub_open", { id }),
   hubRename: (id: string, name: string) => call<ProjectMeta>("hub_rename", { id, name }),
   hubDuplicate: (id: string) => call<ProjectMeta>("hub_duplicate", { id }),
   hubDelete: (id: string) => call<null>("hub_delete", { id }),
@@ -229,7 +243,7 @@ export const ipc = {
   // versions
   snapshotCreate: (label: string) => call<SnapshotMeta>("snapshot_create", { label }),
   snapshotList: () => call<SnapshotMeta[]>("snapshot_list"),
-  snapshotRestore: (id: string) => call<DocState>("snapshot_restore", { id }),
+  snapshotRestore: (id: string) => call<Opened>("snapshot_restore", { id }),
 
   // library
   catalogAssets: () => call<CatalogItem[]>("catalog_assets"),
@@ -248,6 +262,28 @@ export const ipc = {
   /** Returns a data URL. */
   underlayData: (fileName: string) => call<string>("underlay_data", { file_name: fileName }),
 
+  // Wave 2 (DECISIONS D53, D54). Until the lane that owns a call builds it,
+  // the engine answers with the error code `not_built`.
+
+  // the permit set (lane L4) and drawings computed on demand (lane L3)
+  /** Writes the permit set, or the sheets in `sheet_ids`: PDF one file, SVG one per sheet, DXF side by side. */
+  exportSheets: (opts: SheetExportOptions) => call<ExportResult>("export_sheets", { ...opts }),
+  /** One sheet as SVG, title block included. */
+  sheetPreview: (sheetId: string) => call<SvgDrawing>("sheet_preview", { sheet_id: sheetId }),
+  /** One view as SVG: a plan, an elevation, a section, the roof or site plan, a schedule. `scale` 1:N, default the view's own. */
+  viewSvg: (view: ViewRef, scale?: number) => call<SvgDrawing>("view_svg", { view, scale: scale ?? null }),
+
+  // project files: images placed on sheets, the vicinity map (D53)
+  /** `dataUrl` is an image data URL, as for `underlayStore`. Returns the stored file name. */
+  fileStore: (fileName: string, dataUrl: string) => call<{ file_name: string }>("file_store", { file_name: fileName, data: dataUrl }),
+  /** Returns a data URL. */
+  fileData: (fileName: string) => call<string>("file_data", { file_name: fileName }),
+
+  // the architect's license numbers on this computer (D53). Only people set
+  // them; agents and the copilot are refused.
+  professionalGet: () => call<Signatory>("professional_get"),
+  professionalSet: (signatory: Signatory) => call<Signatory>("professional_set", { signatory }),
+
   // renders
   renderStyles: () => call<RenderStyle[]>("render_styles"),
   renderList: () => call<RenderRecord[]>("render_list"),
@@ -261,6 +297,18 @@ export const ipc = {
   /** Returns a data URL. */
   renderData: (id: string) => call<string>("render_data", { id }),
   renderDelete: (id: string) => call<null>("render_delete", { id }),
+  /** Makes a render the project's look, the style reference for AI renders (lane L6). `id` null clears it. Returns every record. */
+  renderSetLook: (id: string | null) => call<RenderRecord[]>("render_set_look", { id }),
+
+  // tour videos (lane L9): the window encodes, the backend writes the file.
+  /** Starts a video file for a tour at a revision. Returns the upload id. */
+  videoBegin: (tourId: string, revision: number) => call<{ id: string }>("video_begin", { tour_id: tourId, revision }),
+  /** Appends encoded bytes, base64, at most 4 MiB per call. */
+  videoAppend: (id: string, base64: string) => call<null>("video_append", { id, data: base64 }),
+  /** Closes the file and saves it to Visuals. `poster` is an image data URL. */
+  videoFinish: (id: string, poster: string, info: VideoInfo) => call<RenderRecord>("video_finish", { id, poster, info }),
+  /** Drops an unfinished video. */
+  videoAbort: (id: string) => call<null>("video_abort", { id }),
 
   // interchange. A file arrives either as a native path (desktop, from the
   // open dialog) or as a data URL (browser). Exactly one of the two.
@@ -280,9 +328,10 @@ export const ipc = {
   exportBytes: (name: string, data: string, path: string | null) =>
     call<ExportResult>("export_bytes", { name, data, path }),
   /** Saves the open project as one .guhit bundle. */
-  bundleSave: (path: string | null) => call<ExportResult>("bundle_save", { path }),
+  /** `videos`: also pack tour videos and their frames (left out by default, D54). */
+  bundleSave: (path: string | null, videos = false) => call<ExportResult>("bundle_save", { path, videos }),
   /** Opens a .guhit bundle: copies it into the projects folder and opens it. */
-  bundleOpen: (source: FileSource) => call<DocState>("bundle_open", source),
+  bundleOpen: (source: FileSource) => call<Opened>("bundle_open", source),
   dwgStatus: () => call<DwgConverterStatus>("dwg_status"),
   /** Sets the ODA File Converter path. Empty string clears it. */
   dwgSetPath: (path: string) => call<DwgConverterStatus>("dwg_set_path", { path }),
@@ -319,6 +368,27 @@ export const ipc = {
     call<RenderAiSettings>("render_ai_settings_set", { api_key: apiKey, model }),
   /** Long call (10 to 60 s). The UI shows progress and may abandon the promise. */
   renderAiGenerate: (request: RenderAiRequest) => call<RenderAiResult>("render_ai_generate", { request }),
+
+  // AI render v2 (lane L6, D53): the price before every call, the drift
+  // check before a person's image is saved, the maps, the agents' cap.
+  /** What the request will cost and send. Spends nothing. */
+  renderAiEstimate: (request: RenderAiRequest) => call<Estimate>("render_ai_estimate", { request }),
+  /** Long call. The image comes back checked and is saved only by `renderAiKeep`. */
+  renderAiDraft: (request: RenderAiRequest) => call<Draft>("render_ai_draft", { request }),
+  /** Saves a draft to Visuals with its drift report. Drafts last 30 minutes. */
+  renderAiKeep: (pendingId: string) => call<RenderRecord>("render_ai_keep", { pending_id: pendingId }),
+  renderAiDiscard: (pendingId: string) => call<null>("render_ai_discard", { pending_id: pendingId }),
+  /** Attaches a model view's conditioning maps (PNG data URLs) and what they were drawn with. */
+  renderAiMapsSave: (renderId: string, maps: Array<{ kind: MapKind; png: string }>, meta: MapsMeta | null) =>
+    call<RenderRecord>("render_ai_maps_save", { render_id: renderId, maps, meta }),
+  /** One saved map as a data URL. */
+  renderAiMapData: (id: string, kind: MapKind) => call<string>("render_ai_map_data", { id, kind }),
+  /** An AI image's unmatched model edges as a data URL, or null. */
+  renderAiDriftOverlay: (id: string) => call<string | null>("render_ai_drift_overlay", { id }),
+  /** Agents' AI images in this project today, against the cap. */
+  renderAiUsage: () => call<AgentUsage>("render_ai_usage"),
+  /** 0 to 1000; 0 keeps agents from making AI images. */
+  renderAiUsageSet: (agentDailyCap: number) => call<AgentUsage>("render_ai_usage_set", { agent_daily_cap: agentDailyCap }),
 
   // AI copilot
   aiSettingsGet: () => call<AiSettings>("ai_settings_get"),

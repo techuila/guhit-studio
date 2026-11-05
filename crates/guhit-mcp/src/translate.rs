@@ -64,6 +64,10 @@ pub(crate) enum Then {
     },
     /// Give every element the commands added this material.
     Material { material_id: Id },
+    /// Posts under the open eaves of the roof the step made or changed.
+    RoofPosts { roof_id: Option<Id>, size_mm: f64, max_spacing_mm: f64 },
+    /// The roles, setbacks and roads of the lot the step set, side by side.
+    LotSides { sides: Vec<LotSide>, grade_mm: Option<f64> },
 }
 
 /// One step, translated.
@@ -77,13 +81,16 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
-    fn of(commands: Vec<Command>, primary: Primary) -> Self {
+    pub(crate) fn of(commands: Vec<Command>, primary: Primary) -> Self {
         Self { commands, then: vec![], primary, info: None }
     }
 }
 
-/// v2 tools that edit the plan and can be steps of `batch`.
-pub const EDIT_TOOLS: [&str; 17] = [
+/// v2 tools that edit the plan and can be steps of `batch`. The Wave 2
+/// tools (from `add_grid` on) answer their reads on their own: `types`
+/// action list, `sheets` list, preview and export, `title_block` get,
+/// `view_marks` list.
+pub const EDIT_TOOLS: [&str; 27] = [
     "add_walls",
     "add_room",
     "add_opening",
@@ -101,6 +108,16 @@ pub const EDIT_TOOLS: [&str; 17] = [
     "add_pipe",
     "link_devices",
     "set_review_mark",
+    "add_grid",
+    "annotate",
+    "add_roof",
+    "types",
+    "title_block",
+    "sheets",
+    "view_marks",
+    "set_lot",
+    "make_tour",
+    "edit_tour",
 ];
 
 /// True for a tool `plan` translates: a v2 editing tool or a v1 one.
@@ -134,6 +151,17 @@ pub(crate) fn plan(view: &View, tool: &str, args: &Value, default_level: &Id) ->
         "add_pipe" => add_pipe(p, args, default_level),
         "link_devices" => link_devices(p, args),
         "set_review_mark" => set_review_mark(args),
+        // Wave 2 (D53, D54).
+        "add_grid" => crate::permit::add_grid(p, args),
+        "annotate" => crate::permit::annotate(view, args, default_level),
+        "add_roof" => crate::permit::add_roof(p, args, default_level),
+        "types" => crate::permit::types(p, args),
+        "title_block" => crate::documents::title_block(p, args),
+        "sheets" => crate::documents::sheets(p, args),
+        "view_marks" => crate::documents::view_marks(p, args, default_level),
+        "set_lot" => crate::documents::set_lot(args),
+        "make_tour" => crate::tours::make_tour(p, args),
+        "edit_tour" => crate::tours::edit_tour(p, args),
         // A command a tool built itself (import_underlay). Never a step a
         // caller can name: `is_edit` is false for it.
         // Commands a tool worked out itself, several in one step
@@ -193,12 +221,12 @@ pub(crate) fn point(v: &Value, what: &str) -> Result<Point, ToolFail> {
     }
 }
 
-fn points(list: &[Value], what: &str) -> Result<Vec<Point>, ToolFail> {
+pub(crate) fn points(list: &[Value], what: &str) -> Result<Vec<Point>, ToolFail> {
     list.iter().enumerate().map(|(i, v)| point(v, &format!("{what}[{i}]"))).collect()
 }
 
 /// A point with a height: `{x, y, z}`.
-fn point3(v: &Value, what: &str) -> Result<Vec3, ToolFail> {
+pub(crate) fn point3(v: &Value, what: &str) -> Result<Vec3, ToolFail> {
     let get = |k: &str| v.get(k).and_then(Value::as_f64).filter(|n| n.is_finite());
     match (get("x"), get("y"), get("z")) {
         (Some(x), Some(y), Some(z)) => Ok(Vec3 { x, y, z }),
@@ -206,7 +234,7 @@ fn point3(v: &Value, what: &str) -> Result<Vec3, ToolFail> {
     }
 }
 
-fn positive(v: f64, what: &str) -> Result<f64, ToolFail> {
+pub(crate) fn positive(v: f64, what: &str) -> Result<f64, ToolFail> {
     if v.is_finite() && v > 0.0 {
         Ok(v)
     } else {
@@ -214,11 +242,11 @@ fn positive(v: f64, what: &str) -> Result<f64, ToolFail> {
     }
 }
 
-fn positive_opt(v: Option<f64>, what: &str) -> Result<Option<f64>, ToolFail> {
+pub(crate) fn positive_opt(v: Option<f64>, what: &str) -> Result<Option<f64>, ToolFail> {
     v.map(|v| positive(v, what)).transpose()
 }
 
-fn finite(v: f64, what: &str) -> Result<f64, ToolFail> {
+pub(crate) fn finite(v: f64, what: &str) -> Result<f64, ToolFail> {
     if v.is_finite() {
         Ok(v)
     } else {
@@ -226,7 +254,7 @@ fn finite(v: f64, what: &str) -> Result<f64, ToolFail> {
     }
 }
 
-fn find<'a>(project: &'a Project, id: &str) -> Result<&'a Element, ToolFail> {
+pub(crate) fn find<'a>(project: &'a Project, id: &str) -> Result<&'a Element, ToolFail> {
     project
         .elements
         .iter()
@@ -234,7 +262,7 @@ fn find<'a>(project: &'a Project, id: &str) -> Result<&'a Element, ToolFail> {
         .ok_or_else(|| ToolFail::new("not_found", format!("no element has id `{id}`")).with_ids(vec![id.to_string()]))
 }
 
-fn ids_exist(project: &Project, ids: &[Id]) -> Result<(), ToolFail> {
+pub(crate) fn ids_exist(project: &Project, ids: &[Id]) -> Result<(), ToolFail> {
     if ids.is_empty() || ids.iter().any(|i| i.trim().is_empty()) {
         return Err(ToolFail::args("ids must hold at least one element id"));
     }
@@ -557,6 +585,47 @@ pub(crate) fn then_commands(view: &View, then: &Then, added: &[Id]) -> Result<(V
             }
             Ok((vec![Command::SetMaterial { ids: added.to_vec(), material_id: material_id.clone() }], None))
         }
+        Then::RoofPosts { roof_id, size_mm, max_spacing_mm } => {
+            let roof_id = roof_id
+                .clone()
+                .or_else(|| {
+                    view.project.elements.iter().find_map(|e| match e {
+                        Element::Roof(r) if added.contains(&r.id) => Some(r.id.clone()),
+                        _ => None,
+                    })
+                })
+                .ok_or_else(|| ToolFail::new("not_found", "the step made no roof to put posts under"))?;
+            Ok((vec![Command::AddRoofPosts { roof_id, size_mm: *size_mm, max_spacing_mm: *max_spacing_mm }], None))
+        }
+        Then::LotSides { sides, grade_mm } => {
+            let Some(mut lot) = view.project.elements.iter().find_map(|e| match e {
+                Element::Lot(l) => Some(l.clone()),
+                _ => None,
+            }) else {
+                return Err(ToolFail::new("not_found", "the step set no lot to give sides to"));
+            };
+            let id = lot.id.clone();
+            if !sides.is_empty() {
+                if sides.len() != lot.sides.len() {
+                    return Err(ToolFail::args(format!(
+                        "sides has {} entries; the lot has {} sides, one per leg in order",
+                        sides.len(),
+                        lot.sides.len()
+                    )));
+                }
+                lot.sides = sides.clone();
+            }
+            if let Some(g) = grade_mm {
+                lot.grade_mm = *g;
+            }
+            let before = view.project.elements.iter().find(|e| e.id() == &id);
+            let commands = if before == Some(&Element::Lot(lot.clone())) {
+                vec![]
+            } else {
+                vec![Command::UpdateElement { element: Element::Lot(lot) }]
+            };
+            Ok((commands, Some(id)))
+        }
     }
 }
 
@@ -578,6 +647,31 @@ struct AddOpeningIn {
     flip_hinge: Option<bool>,
     material_id: Option<String>,
     level: Option<String>,
+    /// A door or window type by mark ("D1") or id: its size and style win.
+    #[serde(rename = "type")]
+    type_of: Option<String>,
+}
+
+/// A door or window type by id or mark (case and spaces ignored).
+pub(crate) fn find_type<'a>(project: &'a Project, wanted: &str) -> Result<&'a OpeningSpec, ToolFail> {
+    let wanted = wanted.trim();
+    project
+        .opening_types
+        .iter()
+        .find(|t| t.id == wanted)
+        .or_else(|| project.opening_types.iter().find(|t| t.mark.trim().eq_ignore_ascii_case(wanted)))
+        .ok_or_else(|| {
+            let known: Vec<&str> = project.opening_types.iter().map(|t| t.mark.as_str()).collect();
+            let f = ToolFail::new(
+                "not_found",
+                if known.is_empty() {
+                    format!("no door or window type is `{wanted}`; the project has no types yet")
+                } else {
+                    format!("no door or window type is `{wanted}`. Types: {}", known.join(", "))
+                },
+            );
+            f.with_hint("types action \"list\" shows the types; types action \"set\" makes one.")
+        })
 }
 
 /// How far from a wall's centerline, beyond half its thickness, a point
@@ -656,6 +750,27 @@ fn add_opening(view: &View, args: &Value, default_level: &Id) -> Result<Plan, To
         }
         flip_side = Some(swing_side(view, wall, offset_mm, room_id)?);
     }
+    let type_id = match i.type_of.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        None => None,
+        Some(t) => {
+            let spec = find_type(p, t)?;
+            if spec.opening_type != i.kind {
+                return Err(ToolFail::args(format!(
+                    "type {} is a {} type; this opening is a {}",
+                    spec.mark,
+                    kind_word(spec.opening_type),
+                    kind_word(i.kind)
+                )));
+            }
+            if i.width_mm.is_some() || i.height_mm.is_some() || i.style.is_some() || i.sill_mm.is_some() {
+                return Err(ToolFail::args(format!(
+                    "a typed opening takes its size, style and sill from type {}: leave width_mm, height_mm, style and sill_mm out, or the type out",
+                    spec.mark
+                )));
+            }
+            Some(spec.id.clone())
+        }
+    };
     let mut plan = Plan::of(
         vec![Command::AddOpening {
             wall_id: wall.id.clone(),
@@ -667,6 +782,7 @@ fn add_opening(view: &View, args: &Value, default_level: &Id) -> Result<Plan, To
             style: i.style,
             flip_side,
             flip_hinge: i.flip_hinge,
+            type_id,
         }],
         Primary::Kind(ElementKind::Opening),
     );
@@ -675,6 +791,13 @@ fn add_opening(view: &View, args: &Value, default_level: &Id) -> Result<Plan, To
     }
     plan.info = Some(json!({"wall_id": wall.id, "offset_mm": geo::r1(offset_mm)}));
     Ok(plan)
+}
+
+pub(crate) fn kind_word(t: OpeningType) -> &'static str {
+    match t {
+        OpeningType::Door => "door",
+        OpeningType::Window => "window",
+    }
 }
 
 /// `flip_side` for a leaf that swings into `room_id`: false when the room is
@@ -716,6 +839,10 @@ struct AddStairIn {
     riser_count: Option<u32>,
     tread_mm: Option<f64>,
     shape: Option<String>,
+    turn: Option<Turn>,
+    first_flight_risers: Option<u32>,
+    landing_mm: Option<f64>,
+    well_mm: Option<f64>,
     railing: Option<Value>,
 }
 
@@ -724,17 +851,26 @@ const RISER_TARGET_MM: f64 = 175.0;
 /// Tread depth a new stair gets when the call gives neither run nor tread.
 const TREAD_DEFAULT_MM: f64 = 250.0;
 
+/// `shape` as the call spells it: straight, l or u (any case).
+fn stair_shape(v: Option<&str>) -> Result<StairShape, ToolFail> {
+    match v.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+        None | Some("straight") => Ok(StairShape::Straight),
+        Some("l") | Some("l_shaped") | Some("quarter_turn") => Ok(StairShape::L),
+        Some("u") | Some("u_shaped") | Some("half_turn") | Some("dogleg") => Ok(StairShape::U),
+        Some(other) => Err(ToolFail::args(format!("unknown shape `{other}`. Use straight, l or u"))),
+    }
+}
+
 fn add_stair(p: &Project, args: &Value, default_level: &Id) -> Result<Plan, ToolFail> {
     let i: AddStairIn = parse(args)?;
-    match i.shape.as_deref().map(str::trim) {
-        None | Some("straight") => {}
-        Some(other) => {
-            return Err(ToolFail::new(
-                "unavailable",
-                format!("stairs are straight flights in this version, not `{other}`"),
-            )
-            .with_hint("Build an L or U stair as two straight flights with a landing slab between them (add_slab slab_kind \"floor\")."))
-        }
+    let shape = stair_shape(i.shape.as_deref())?;
+    if shape == StairShape::Straight
+        && (i.turn.is_some() || i.first_flight_risers.is_some() || i.landing_mm.is_some() || i.well_mm.is_some())
+    {
+        return Err(ToolFail::args("turn, first_flight_risers, landing_mm and well_mm are for shape l or u"));
+    }
+    if shape == StairShape::L && i.well_mm.is_some() {
+        return Err(ToolFail::args("well_mm is the gap between the flights of a U stair; an L has none"));
     }
     let level_id = pick_level(p, i.level.as_deref(), default_level)?;
     let level = p.levels.iter().find(|l| l.id == level_id).ok_or_else(|| ToolFail::new("unknown_level", "the level is gone"))?;
@@ -759,10 +895,22 @@ fn add_stair(p: &Project, args: &Value, default_level: &Id) -> Result<Plan, Tool
         Some(n) => n,
         None => (rise / RISER_TARGET_MM).ceil().max(2.0) as u32,
     };
-    if riser_count < 2 {
-        return Err(ToolFail::new("stair_size", "a stair needs at least 2 risers"));
+    // Each flight's top riser lands on its landing or on the floor (D44,
+    // D54): n risers make n - 1 treads in one flight, n - 2 in two.
+    let flights = shape.flights();
+    let least = if flights == 1 { 2 } else { 4 };
+    if riser_count < least {
+        return Err(ToolFail::new("stair_size", format!("a {} stair needs at least {least} risers", shape_word(shape))));
     }
-    let treads = (riser_count - 1) as f64;
+    if let Some(first) = i.first_flight_risers {
+        if first < 2 || first > riser_count - 2 {
+            return Err(ToolFail::new(
+                "stair_size",
+                format!("first_flight_risers is 2 to {} for {riser_count} risers", riser_count - 2),
+            ));
+        }
+    }
+    let treads = (riser_count - flights) as f64;
     let run_mm = match (i.run_mm, i.tread_mm) {
         (Some(_), Some(_)) => return Err(ToolFail::args("give run_mm or tread_mm, not both")),
         (Some(r), None) => positive(r, "run_mm")?,
@@ -780,17 +928,44 @@ fn add_stair(p: &Project, args: &Value, default_level: &Id) -> Result<Plan, Tool
         run_mm,
         riser_count,
         railing: railing(i.railing.as_ref(), 900.0, Some(Railing { height_mm: 900.0, style: RailingStyle::Bars }))?,
+        shape,
+        turn: i.turn.unwrap_or(Turn::Left),
+        first_flight_risers: i.first_flight_risers,
+        landing_mm: positive_opt(i.landing_mm, "landing_mm")?,
+        well_mm: match i.well_mm {
+            Some(w) if !(w.is_finite() && w >= 0.0) => return Err(ToolFail::args("well_mm is 0 or more")),
+            Some(w) => w,
+            None => 0.0,
+        },
     };
-    let top = geo::stair_outline(&stair);
-    let mut plan = Plan::of(vec![Command::AddElement { element: Element::Stair(stair) }], Primary::Kind(ElementKind::Stair));
-    plan.info = Some(json!({
+    let mut info = json!({
+        "shape": shape,
         "rise_mm": geo::r1(rise),
         "riser_mm": geo::r1(rise / riser_count as f64),
         "tread_mm": geo::r1(run_mm / treads),
-        "treads": riser_count - 1,
-        "top_landing_edge": [top[3], top[2]],
-    }));
+        "treads": riser_count - flights,
+    });
+    if shape == StairShape::Straight {
+        let top = geo::stair_outline(&stair);
+        info["top_landing_edge"] = json!([top[3], top[2]]);
+    } else {
+        let first = guhit_core::stairs::first_flight(&stair);
+        info["turn"] = json!(stair.turn);
+        info["flights"] = json!([first, riser_count - first]);
+        info["landing_mm"] = json!(geo::r1(stair.landing_mm.unwrap_or(width_mm)));
+        info["note"] = json!("Flights, landings and the floor opening are worked out by the engine: query what \"describe\" with the stair id, or look the plan.");
+    }
+    let mut plan = Plan::of(vec![Command::AddElement { element: Element::Stair(stair) }], Primary::Kind(ElementKind::Stair));
+    plan.info = Some(info);
     Ok(plan)
+}
+
+fn shape_word(shape: StairShape) -> &'static str {
+    match shape {
+        StairShape::Straight => "straight",
+        StairShape::L => "L",
+        StairShape::U => "U",
+    }
 }
 
 // ------------------------------------------------------------------ columns
@@ -1048,18 +1223,66 @@ struct MoveIn {
 /// The `set` fields each kind takes.
 fn settable(kind: ElementKind) -> &'static [&'static str] {
     match kind {
-        ElementKind::Room => &["name", "usage", "floor_material_id", "material_id"],
-        ElementKind::Opening => &["width_mm", "height_mm", "sill_mm", "style", "flip_side", "flip_hinge", "material_id", "offset_mm", "swing_into"],
+        ElementKind::Room => &["name", "usage", "floor_material_id", "material_id", "ceiling_height_mm", "finishes"],
+        ElementKind::Opening => &["width_mm", "height_mm", "sill_mm", "style", "flip_side", "flip_hinge", "material_id", "offset_mm", "swing_into", "type"],
         ElementKind::Wall => &["thickness_mm", "height_mm", "material_id", "role"],
         ElementKind::Column => &["width_mm", "depth_mm", "shape", "rotation_deg", "material_id"],
-        ElementKind::Stair => &["width_mm", "run_mm", "riser_count", "railing", "direction_deg"],
+        ElementKind::Stair => &["width_mm", "run_mm", "riser_count", "railing", "direction_deg", "shape", "turn", "first_flight_risers", "landing_mm", "well_mm"],
         ElementKind::Slab => &["slab_kind", "kind", "thickness_mm", "top_offset_mm", "material_id", "railing"],
         ElementKind::Asset => &["name", "circuit", "elevation_mm", "rotation_deg"],
         ElementKind::Camera => &["name", "fov_deg"],
         ElementKind::Annotation => &["text"],
         ElementKind::Pipe => &["name", "diameter_mm", "material"],
+        ElementKind::Roof => &["shape", "pitch_deg", "ridge_axis", "flip", "overhang_mm", "thickness_mm", "eave_mm", "gable_sides", "material_id", "fascia_mm", "gutter_mm"],
+        ElementKind::Grid => &["label"],
+        ElementKind::ViewMark => &["label", "flip", "depth_mm"],
+        ElementKind::Dimension => &["offset_mm", "text"],
         _ => &[],
     }
+}
+
+/// A trim of `size_mm`, or none for 0 or null.
+fn trim_of(v: &Value, what: &str, keep: Option<&Trim>) -> Result<Option<Trim>, ToolFail> {
+    if v.is_null() {
+        return Ok(None);
+    }
+    let size = num(v, what)?;
+    if size == 0.0 {
+        return Ok(None);
+    }
+    Ok(Some(Trim { size_mm: positive(size, &format!("set.{what}"))?, material_id: keep.and_then(|t| t.material_id.clone()) }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FinishesIn {
+    wall_material_id: Option<String>,
+    ceiling_material_id: Option<String>,
+    base_material_id: Option<String>,
+    remarks: Option<String>,
+}
+
+/// Room finishes: the fields given change, the rest stay.
+fn finishes_of(p: &Project, v: &Value, mut f: RoomFinishes) -> Result<RoomFinishes, ToolFail> {
+    let i: FinishesIn = parse(v).map_err(|e| ToolFail::args(format!("set.finishes: {}", e.message)))?;
+    for (slot, given) in [
+        (&mut f.wall_material_id, i.wall_material_id),
+        (&mut f.ceiling_material_id, i.ceiling_material_id),
+        (&mut f.base_material_id, i.base_material_id),
+    ] {
+        if let Some(m) = given.map(|m| m.trim().to_string()) {
+            if m.is_empty() {
+                *slot = None;
+            } else {
+                check_material(p, &m)?;
+                *slot = Some(m);
+            }
+        }
+    }
+    if let Some(r) = i.remarks {
+        f.remarks = r.trim().to_string();
+    }
+    Ok(f)
 }
 
 fn num(v: &Value, what: &str) -> Result<f64, ToolFail> {
@@ -1090,6 +1313,55 @@ fn apply_set(view: &View, el: &Element, set: &serde_json::Map<String, Value>) ->
             }
             (Element::Room(r), "usage") => r.usage = enum_of(v, key)?,
             (Element::Room(r), "floor_material_id" | "material_id") => r.floor_material_id = Some(text(v, key)?),
+            (Element::Room(r), "ceiling_height_mm") => {
+                r.ceiling_height_mm = if v.is_null() { None } else { Some(positive(num(v, key)?, "set.ceiling_height_mm")?) }
+            }
+            (Element::Room(r), "finishes") => r.finishes = finishes_of(p, v, r.finishes.clone())?,
+            // A type writes its size, style and sill into the opening, as
+            // the engine does for every opening of the type (D53).
+            (Element::Opening(o), "type") => match v.as_str().map(str::trim).filter(|t| !t.is_empty()) {
+                None if v.is_null() || v.as_str().is_some() => o.type_id = None,
+                None => return Err(ToolFail::args("set.type is a type's mark or id, or null to make the opening untyped")),
+                Some(t) => {
+                    let spec = find_type(p, t)?;
+                    if spec.opening_type != o.opening_type {
+                        return Err(ToolFail::args(format!("type {} is a {} type; this is a {}", spec.mark, kind_word(spec.opening_type), kind_word(o.opening_type))));
+                    }
+                    o.type_id = Some(spec.id.clone());
+                    o.style = spec.style;
+                    o.width_mm = spec.width_mm;
+                    o.height_mm = spec.height_mm;
+                    if let Some(s) = spec.sill_mm {
+                        o.sill_mm = s;
+                    }
+                }
+            },
+            (Element::Stair(s), "shape") => s.shape = stair_shape(v.as_str())?,
+            (Element::Stair(s), "turn") => s.turn = enum_of(v, key)?,
+            (Element::Stair(s), "first_flight_risers") => s.first_flight_risers = if v.is_null() { None } else { Some(enum_of(v, key)?) },
+            (Element::Stair(s), "landing_mm") => {
+                s.landing_mm = if v.is_null() { None } else { Some(positive(num(v, key)?, "set.landing_mm")?) }
+            }
+            (Element::Stair(s), "well_mm") => s.well_mm = num(v, key)?,
+            (Element::Roof(r), "shape") => r.shape = enum_of(v, key)?,
+            (Element::Roof(r), "pitch_deg") => r.pitch_deg = num(v, key)?,
+            (Element::Roof(r), "ridge_axis") => r.ridge_axis = enum_of(v, key)?,
+            (Element::Roof(r), "flip") => r.flip = enum_of(v, key)?,
+            (Element::Roof(r), "overhang_mm") => r.overhang_mm = num(v, key)?,
+            (Element::Roof(r), "thickness_mm") => r.thickness_mm = positive(num(v, key)?, "set.thickness_mm")?,
+            (Element::Roof(r), "eave_mm") => r.eave_mm = if v.is_null() { None } else { Some(num(v, key)?) },
+            (Element::Roof(r), "gable_sides") => r.gable_sides = enum_of(v, key)?,
+            (Element::Roof(r), "material_id") => r.material_id = Some(text(v, key)?),
+            (Element::Roof(r), "fascia_mm") => r.fascia = trim_of(v, key, r.fascia.as_ref())?,
+            (Element::Roof(r), "gutter_mm") => r.gutter = trim_of(v, key, r.gutter.as_ref())?,
+            (Element::Grid(g), "label") => g.label = text(v, key)?,
+            (Element::ViewMark(m), "label") => m.label = text(v, key)?,
+            (Element::ViewMark(m), "flip") => m.flip = enum_of(v, key)?,
+            (Element::ViewMark(m), "depth_mm") => {
+                m.depth_mm = if v.is_null() { None } else { Some(positive(num(v, key)?, "set.depth_mm")?) }
+            }
+            (Element::Dimension(d), "offset_mm") => d.offset_mm = num(v, key)?,
+            (Element::Dimension(d), "text") => d.text_override = v.as_str().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string),
             (Element::Opening(o), "width_mm") => o.width_mm = positive(num(v, key)?, "set.width_mm")?,
             (Element::Opening(o), "height_mm") => o.height_mm = positive(num(v, key)?, "set.height_mm")?,
             (Element::Opening(o), "sill_mm") => o.sill_mm = num(v, key)?,
@@ -1158,6 +1430,13 @@ fn anchor(project: &Project, el: &Element) -> Option<Point> {
         },
         Element::Camera(c) => pt(c.position.x, c.position.y),
         Element::Pipe(pp) => pt(pp.points.first()?.x, pp.points.first()?.y),
+        Element::Grid(g) => pt((g.start.x + g.end.x) / 2.0, (g.start.y + g.end.y) / 2.0),
+        Element::ViewMark(m) => pt((m.start.x + m.end.x) / 2.0, (m.start.y + m.end.y) / 2.0),
+        Element::Dimension(d) => pt((d.a.x + d.b.x) / 2.0, (d.a.y + d.b.y) / 2.0),
+        Element::Roof(r) => match &r.outline {
+            RoofOutline::Polygon { points } => geo::interior_point(points)?,
+            _ => return None,
+        },
         _ => return None,
     })
 }
@@ -1431,7 +1710,10 @@ fn set_project(p: &Project, args: &Value) -> Result<Plan, ToolFail> {
     let i: SetProjectIn = parse(args)?;
     let mut commands = vec![];
     if let Some(r) = i.roof {
-        let mut roof = p.roof.clone();
+        // The roof over the top floor as it is now (P0-2): an edit built
+        // from the retired `Project::roof` would delete it.
+        let current = p.top_roof();
+        let mut roof = current.clone();
         if let Some(k) = r.kind {
             roof.kind = k;
         }
@@ -1451,7 +1733,7 @@ fn set_project(p: &Project, args: &Value) -> Result<Plan, ToolFail> {
             check_material(p, &m)?;
             roof.material_id = Some(m);
         }
-        if roof != p.roof {
+        if roof != current {
             commands.push(Command::SetRoof { roof });
         }
     }
@@ -1687,8 +1969,19 @@ mod tests {
         let Command::AddElement { element: Element::Stair(s) } = &plan.commands[0] else { panic!() };
         assert_eq!(s.rotation_deg, 0.0, "north is the default direction");
         assert_eq!(s.railing.unwrap().height_mm, 900.0);
-        let e = add_stair(&p, &json!({"start": [0, 0], "shape": "u"}), &level).unwrap_err();
-        assert_eq!(e.code, "unavailable");
+        // An L or U: n - 2 treads, the turn and the flights (D54).
+        let plan = add_stair(&p, &json!({"start": [0, 0], "shape": "L", "turn": "right", "first_flight_risers": 10}), &level).unwrap();
+        let info = plan.info.unwrap();
+        assert_eq!((info["treads"].clone(), info["tread_mm"].clone(), info["flights"].clone()), (json!(16), json!(250.0), json!([10, 8])));
+        let Command::AddElement { element: Element::Stair(s) } = &plan.commands[0] else { panic!() };
+        assert_eq!((s.shape, s.turn, s.first_flight_risers, s.run_mm), (StairShape::L, Turn::Right, Some(10), 4000.0));
+        let plan = add_stair(&p, &json!({"start": [0, 0], "shape": "u", "well_mm": 100}), &level).unwrap();
+        let Command::AddElement { element: Element::Stair(s) } = &plan.commands[0] else { panic!() };
+        assert_eq!((s.shape, s.well_mm), (StairShape::U, 100.0));
+        assert_eq!(add_stair(&p, &json!({"start": [0, 0], "shape": "z"}), &level).unwrap_err().code, "bad_args");
+        assert_eq!(add_stair(&p, &json!({"start": [0, 0], "turn": "left"}), &level).unwrap_err().code, "bad_args");
+        assert_eq!(add_stair(&p, &json!({"start": [0, 0], "shape": "l", "riser_count": 3}), &level).unwrap_err().code, "stair_size");
+        assert_eq!(add_stair(&p, &json!({"start": [0, 0], "shape": "l", "first_flight_risers": 17}), &level).unwrap_err().code, "stair_size");
     }
 
     #[test]

@@ -107,33 +107,50 @@ pub struct Choice {
     pub model: String,
     pub image_size: &'static str,
     pub family: Family,
+    /// Why this model, in a few words for the price line.
+    pub why: &'static str,
 }
 
 impl Choice {
     pub fn price_usd(&self) -> &'static str {
         price_usd(self.family, self.image_size)
     }
+
+    /// "Gemini Flash", "Gemini Pro", "Gemini Flash Lite", or the exact id.
+    pub fn label(&self) -> String {
+        match self.model.as_str() {
+            FLASH_MODEL => "Gemini Flash".to_string(),
+            PRO_MODEL => "Gemini Pro".to_string(),
+            FLASH_LITE_MODEL => "Gemini Flash Lite".to_string(),
+            other => other.to_string(),
+        }
+    }
 }
 
 /// The `render_ai_model` setting. Empty means "let the quality pick the
-/// family", which is the default and the cheapest sensible behaviour.
+/// family", which is the default and the cheapest sensible behaviour: the
+/// Pro model runs only for High quality or when a style reference goes with
+/// the request (DECISIONS D53), because it follows a reference image far
+/// better and costs more. An explicit setting is a person's own choice and
+/// wins; the price shows before every call either way.
 ///
 /// Accepted: "" (auto), "flash", "flash-lite", "pro", or an exact model id
 /// starting with "gemini-".
-pub fn resolve(model_setting: &str, quality: RenderQuality) -> Choice {
+pub fn resolve(model_setting: &str, quality: RenderQuality, style_reference: bool) -> Choice {
     let setting = model_setting.trim().to_ascii_lowercase();
-    let model = match setting.as_str() {
-        "flash" => FLASH_MODEL.to_string(),
-        "flash-lite" | "flash_lite" | "lite" => FLASH_LITE_MODEL.to_string(),
-        "pro" => PRO_MODEL.to_string(),
-        "" | "auto" => match quality {
-            RenderQuality::High => PRO_MODEL.to_string(),
-            _ => FLASH_MODEL.to_string(),
+    let (model, why) = match setting.as_str() {
+        "flash" => (FLASH_MODEL.to_string(), "picked in settings"),
+        "flash-lite" | "flash_lite" | "lite" => (FLASH_LITE_MODEL.to_string(), "picked in settings"),
+        "pro" => (PRO_MODEL.to_string(), "picked in settings"),
+        "" | "auto" => match (quality, style_reference) {
+            (RenderQuality::High, _) => (PRO_MODEL.to_string(), "High quality"),
+            (_, true) => (PRO_MODEL.to_string(), "the project look goes with it"),
+            _ => (FLASH_MODEL.to_string(), "the cheaper model for this quality"),
         },
-        exact => exact.to_string(),
+        exact => (exact.to_string(), "picked in settings"),
     };
     let family = Family::of(&model);
-    Choice { image_size: family.image_size(quality), model, family }
+    Choice { image_size: family.image_size(quality), model, family, why }
 }
 
 /// Reject anything that is not one of the aliases or a plausible model id,
@@ -194,11 +211,13 @@ impl GeminiProvider {
         self
     }
 
-    pub fn choice(&self, quality: RenderQuality) -> Choice {
-        resolve(&self.model_setting, quality)
+    pub fn choice(&self, quality: RenderQuality, style_reference: bool) -> Choice {
+        resolve(&self.model_setting, quality, style_reference)
     }
 
-    fn body(&self, input: &RenderInput, choice: &Choice) -> Value {
+    /// The request body: the text, then the capture, its maps and the style
+    /// reference, in the order the text names them.
+    pub fn body(&self, input: &RenderInput, choice: &Choice) -> Value {
         // Gemini has no negative-prompt field, so the constraint goes in the
         // text. It is usually already the last line of the prompt.
         let mut text = input.prompt.clone();
@@ -207,12 +226,16 @@ impl GeminiProvider {
             text.push_str("\n\n");
             text.push_str(constraint);
         }
+        let mut parts = vec![
+            json!({"type": "text", "text": text}),
+            json!({"type": "image", "mime_type": "image/png", "data": B64.encode(&input.png)}),
+        ];
+        for extra in input.maps.iter().chain(input.style_reference.iter()) {
+            parts.push(json!({"type": "image", "mime_type": extra.mime, "data": B64.encode(&extra.bytes)}));
+        }
         json!({
             "model": choice.model,
-            "input": [
-                {"type": "text", "text": text},
-                {"type": "image", "mime_type": "image/png", "data": B64.encode(&input.png)},
-            ],
+            "input": parts,
             "response_format": {
                 "type": "image",
                 "mime_type": "image/png",
@@ -303,7 +326,7 @@ fn output_image(body: &Value) -> Option<(String, String)> {
 impl ImageProvider for GeminiProvider {
     fn render<'a>(&'a self, input: RenderInput) -> BoxFut<'a, Result<RenderOutput, ProviderError>> {
         Box::pin(async move {
-            let choice = self.choice(input.quality);
+            let choice = self.choice(input.quality, input.style_reference.is_some());
             let body = self.body(&input, &choice);
             let started = Instant::now();
 
@@ -368,31 +391,48 @@ impl ImageProvider for GeminiProvider {
 
 #[cfg(test)]
 mod tests {
+    use super::super::provider::InputImage;
     use super::*;
 
     #[test]
     fn quality_picks_model_and_size() {
-        let draft = resolve("", RenderQuality::Draft);
+        let draft = resolve("", RenderQuality::Draft, false);
         assert_eq!(draft.model, FLASH_MODEL);
         assert_eq!(draft.image_size, "0.5K");
-        let standard = resolve("", RenderQuality::Standard);
+        let standard = resolve("", RenderQuality::Standard, false);
         assert_eq!(standard.model, FLASH_MODEL);
         assert_eq!(standard.image_size, "2K");
-        let high = resolve("", RenderQuality::High);
+        let high = resolve("", RenderQuality::High, false);
         assert_eq!(high.model, PRO_MODEL);
         assert_eq!(high.image_size, "4K");
     }
 
     #[test]
+    fn pro_runs_only_for_high_or_with_a_style_reference() {
+        // DECISIONS D53: the expensive model only for High or the project look.
+        for quality in [RenderQuality::Draft, RenderQuality::Standard] {
+            assert_eq!(resolve("", quality, false).model, FLASH_MODEL);
+            let with_look = resolve("", quality, true);
+            assert_eq!(with_look.model, PRO_MODEL);
+            assert!(with_look.why.contains("look"));
+        }
+        assert_eq!(resolve("", RenderQuality::High, false).model, PRO_MODEL);
+        assert_eq!(resolve("auto", RenderQuality::Standard, true).price_usd(), "0.13");
+        assert_eq!(resolve("", RenderQuality::Standard, false).label(), "Gemini Flash");
+        assert_eq!(resolve("", RenderQuality::High, false).label(), "Gemini Pro");
+    }
+
+    #[test]
     fn the_model_setting_overrides_the_family() {
-        assert_eq!(resolve("pro", RenderQuality::Draft).model, PRO_MODEL);
+        assert_eq!(resolve("pro", RenderQuality::Draft, false).model, PRO_MODEL);
         // Pro has no 0.5K, so a draft on Pro is 1K.
-        assert_eq!(resolve("pro", RenderQuality::Draft).image_size, "1K");
-        assert_eq!(resolve("flash", RenderQuality::High).model, FLASH_MODEL);
-        assert_eq!(resolve("flash", RenderQuality::High).image_size, "4K");
+        assert_eq!(resolve("pro", RenderQuality::Draft, false).image_size, "1K");
+        assert_eq!(resolve("flash", RenderQuality::High, false).model, FLASH_MODEL);
+        assert_eq!(resolve("flash", RenderQuality::High, true).model, FLASH_MODEL, "a person's setting wins");
+        assert_eq!(resolve("flash", RenderQuality::High, false).image_size, "4K");
         // Flash Lite only has 1K, at every quality.
-        assert_eq!(resolve("flash-lite", RenderQuality::High).image_size, "1K");
-        let exact = resolve("gemini-3-pro-image", RenderQuality::Standard);
+        assert_eq!(resolve("flash-lite", RenderQuality::High, false).image_size, "1K");
+        let exact = resolve("gemini-3-pro-image", RenderQuality::Standard, false);
         assert_eq!(exact.model, "gemini-3-pro-image");
         assert_eq!(exact.family, Family::Pro);
     }
@@ -410,23 +450,50 @@ mod tests {
 
     #[test]
     fn prices_follow_the_published_table() {
-        assert_eq!(resolve("", RenderQuality::Draft).price_usd(), "0.05");
-        assert_eq!(resolve("", RenderQuality::Standard).price_usd(), "0.10");
-        assert_eq!(resolve("", RenderQuality::High).price_usd(), "0.24");
-        assert_eq!(resolve("pro", RenderQuality::Standard).price_usd(), "0.13");
+        assert_eq!(resolve("", RenderQuality::Draft, false).price_usd(), "0.05");
+        assert_eq!(resolve("", RenderQuality::Standard, false).price_usd(), "0.10");
+        assert_eq!(resolve("", RenderQuality::High, false).price_usd(), "0.24");
+        assert_eq!(resolve("pro", RenderQuality::Standard, false).price_usd(), "0.13");
     }
 
-    #[test]
-    fn the_request_body_matches_the_documented_shape() {
-        let provider = GeminiProvider::new("AIza-not-a-real-key".into(), "".into()).expect("client");
-        let input = RenderInput {
+    fn input_with(maps: Vec<InputImage>, style: Option<InputImage>) -> RenderInput {
+        RenderInput {
             png: vec![0x89, b'P', b'N', b'G'],
             prompt: "make it lovely".into(),
             constraint: super::super::prompt::GEOMETRY_LINE.into(),
             aspect_ratio: "16:9".into(),
             quality: RenderQuality::Standard,
-        };
-        let choice = provider.choice(RenderQuality::Standard);
+            maps,
+            style_reference: style,
+        }
+    }
+
+    #[test]
+    fn the_maps_and_the_style_reference_follow_the_capture_in_order() {
+        let provider = GeminiProvider::new("AIza-not-a-real-key".into(), "".into()).expect("client");
+        let lines = InputImage { role: "lines".into(), mime: "image/png".into(), bytes: vec![1, 2, 3] };
+        let depth = InputImage { role: "depth".into(), mime: "image/png".into(), bytes: vec![4, 5, 6] };
+        let style = InputImage { role: "style".into(), mime: "image/jpeg".into(), bytes: vec![7, 8, 9] };
+        let input = input_with(vec![lines, depth], Some(style));
+        let choice = provider.choice(input.quality, input.style_reference.is_some());
+        assert_eq!(choice.model, PRO_MODEL, "a style reference takes the Pro model");
+        let body = provider.body(&input, &choice);
+        let parts = body["input"].as_array().expect("input");
+        assert_eq!(parts.len(), 5, "text, capture, two maps, the look");
+        assert_eq!(parts[0]["type"], json!("text"));
+        assert_eq!(parts[1]["data"], json!("iVBORw=="), "the capture first");
+        assert_eq!(parts[2]["data"], json!(B64.encode([1, 2, 3])), "then the line map");
+        assert_eq!(parts[3]["data"], json!(B64.encode([4, 5, 6])), "then the depth map");
+        assert_eq!(parts[4]["mime_type"], json!("image/jpeg"));
+        assert_eq!(parts[4]["data"], json!(B64.encode([7, 8, 9])), "the style reference last");
+        assert_eq!(body["model"], json!(PRO_MODEL));
+    }
+
+    #[test]
+    fn the_request_body_matches_the_documented_shape() {
+        let provider = GeminiProvider::new("AIza-not-a-real-key".into(), "".into()).expect("client");
+        let input = input_with(vec![], None);
+        let choice = provider.choice(RenderQuality::Standard, false);
         let body = provider.body(&input, &choice);
         assert_eq!(body["model"], json!(FLASH_MODEL));
         assert_eq!(body["input"][0]["type"], json!("text"));
@@ -455,8 +522,10 @@ mod tests {
             constraint: line.into(),
             aspect_ratio: "1:1".into(),
             quality: RenderQuality::Draft,
+            maps: vec![],
+            style_reference: None,
         };
-        let body = provider.body(&input, &provider.choice(RenderQuality::Draft));
+        let body = provider.body(&input, &provider.choice(RenderQuality::Draft, false));
         let text = body["input"][0]["text"].as_str().unwrap();
         assert_eq!(text.matches(line).count(), 1);
     }

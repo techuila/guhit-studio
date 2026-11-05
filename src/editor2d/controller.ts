@@ -17,7 +17,6 @@ import type {
   PipeSystem,
   PlanView,
   Room,
-  Stair,
   Vec3,
   Wall,
 } from "../contract/bindings";
@@ -36,6 +35,7 @@ import { gripsFor, hitGrip, jointInset, normalDelta, rotationFromGrip } from "./
 import type { P, Rect, Seg } from "./geom";
 import { add, angleDeg, cross, dirDeg, dist, dot, mul, normDeg, projectParam, rectFromPoints, rectIsEmpty, sub, unit } from "./geom";
 import { hitTest, hitsElement, marqueeSelect, roomFloorAt } from "./hit";
+import { laneTool } from "./laneTools";
 import type { AssetEl, Linkable, LinkPair } from "./links";
 import { allLinks, defaultBow, deviceKindOf, linkArc, linkKey, linkables, linksOf, resolveLinkClick, threeWaySwitches, trimLink } from "./links";
 import type { DocIndex, OpeningEl, WallEl } from "./model";
@@ -81,6 +81,7 @@ import {
 import type { ElementStyle, Palette, RenderContext } from "./render";
 import { DEFAULT_PALETTE, drawElement, drawFlash, drawGrid, drawHighlight, drawModel, drawOrigin, drawPeerOutline, labelHeightMm, readPalette } from "./render";
 import type { PipePick } from "./pipePick";
+import type { PlanToolHost } from "./planTool";
 import { usePipePick } from "./pipePick";
 import {
   CONTINUE_HANDLE_PX,
@@ -111,6 +112,7 @@ import type { SnapResult, SnapScene } from "./snap";
 import { computeIntersections, emptyScene, snap } from "./snap";
 import type { RoomOutline } from "./slab";
 import { SLAB_KIND_LABEL, canCloseSlab, cleanOutline, insertVertex, moveVertex, newSlab, offersRoom, popSlabPoint, removeVertex, roomOutlineAt, sameOutline, slabClick } from "./slab";
+import { newStair, onStairGhost, stairToolHint, stairToolKey, useStairTool } from "./stairTool";
 import { assetSymbolAnchor } from "./symbols";
 import { useUnderlay } from "./underlay";
 import type { Box } from "./tags";
@@ -145,6 +147,8 @@ const LAYER_LABEL: Record<LayerKey, string> = {
   electrical: "Electrical",
   aircon: "Aircon",
   site: "Site",
+  grids: "Grids",
+  roofs: "Roofs",
 };
 function layerLabel(key: LayerKey): string {
   return LAYER_LABEL[key] ?? key;
@@ -430,6 +434,20 @@ export class PlanController {
   height = 0;
   palette: Palette = DEFAULT_PALETTE;
   index: DocIndex | null = null;
+
+  /** What a lane's plan tool borrows from the controller (planTool.ts). */
+  private toolHost: PlanToolHost = {
+    index: () => this.index,
+    levelId: () => this.levelId(),
+    snap: (world, from) => {
+      this.snapResult = this.snapAt(world, from);
+      return this.snapResult.point;
+    },
+    run: async (command) => (await useApp.getState().dispatch(command)) !== null,
+    invalidate: () => this.invalidate(),
+    pxMm: () => 1 / this.view.scale,
+    pointerInside: () => this.pointerInside,
+  };
   /** Index of the committed document while an AI preview is showing. */
   realIndex: DocIndex | null = null;
   op: Op = { kind: "idle" };
@@ -628,6 +646,14 @@ export class PlanController {
         this.invalidate();
       }),
     );
+    // A shape or turn picked for the next stair shows at once.
+    this.cleanups.push(
+      useStairTool.subscribe(() => {
+        this.refreshToolGhost();
+        this.invalidate();
+      }),
+    );
+    this.cleanups.push(onStairGhost(() => this.invalidate()));
     useApp.getState().registerCapturePlan((levelId) => this.capturePlan(levelId));
     // Dev only hook so scripted UI checks can map model points to the screen.
     if (import.meta.env.DEV) (window as unknown as { __planController?: PlanController }).__planController = this;
@@ -730,7 +756,7 @@ export class PlanController {
       case "column":
         return "Click to place a column. R rotates";
       case "stair":
-        return "Click to place a stair. R rotates";
+        return stairToolHint();
       case "dimension":
         if (op.kind !== "dimension") return "Click the first point to measure";
         return op.b ? "Move to set the offset, click to place" : "Click the second point";
@@ -751,7 +777,7 @@ export class PlanController {
         return `Click to start a ${name.toLowerCase()} run. PageUp or PageDown sets the height, or type h and a height`;
       }
       default:
-        return null;
+        return laneTool(tool)?.hint(this.toolHost) ?? null;
     }
   }
 
@@ -1339,6 +1365,7 @@ export class PlanController {
       if (el && this.index.visibleIds.has(el.id)) drawHighlight(rc, el, "selected", anim.value(`${K.sel}${id}`, 1));
     }
     drawOverlay(rc, this);
+    laneTool(s.tool)?.draw(rc, this.toolHost);
     this.drawFocusRing(rc);
   }
 
@@ -1971,6 +1998,7 @@ export class PlanController {
         break;
       }
       default:
+        laneTool(tool)?.down(this.toolHost, world, presses);
         break;
     }
     this.invalidate();
@@ -2132,6 +2160,7 @@ export class PlanController {
         break;
       }
       default:
+        laneTool(tool)?.hover(this.toolHost, world);
         break;
     }
   }
@@ -2507,7 +2536,9 @@ export class PlanController {
         op.current = world;
         break;
       case "dim_a":
-      case "dim_b": {
+      case "dim_b":
+      case "line_start":
+      case "line_end": {
         const r = this.snapAt(world, null, { useFaces: true });
         this.snapResult = r;
         op.current = r.point;
@@ -2563,6 +2594,10 @@ export class PlanController {
         return el.kind === "dimension" ? { ...el, a: op.current } : null;
       case "dim_b":
         return el.kind === "dimension" ? { ...el, b: op.current } : null;
+      case "line_start":
+        return el.kind === "grid" || el.kind === "view_mark" ? { ...el, start: op.current } : null;
+      case "line_end":
+        return el.kind === "grid" || el.kind === "view_mark" ? { ...el, end: op.current } : null;
       case "cam_pos":
         return el.kind === "camera" ? { ...el, position: { ...el.position, x: op.current.x, y: op.current.y } } : null;
       case "cam_target":
@@ -3805,20 +3840,7 @@ export class PlanController {
       const r = this.snapAt(world, null);
       this.snapResult = r;
       const lv = this.index.doc.project.levels.find((l) => l.id === level);
-      const risers = Math.max(3, Math.round((lv?.height_mm ?? 3000) / 180));
-      const el: Stair & { kind: "stair" } = {
-        kind: "stair",
-        id: "",
-        level_id: level,
-        origin: r.point,
-        rotation_deg: rot,
-        width_mm: 1000,
-        run_mm: risers * 250, // n - 1 treads of run_mm / (n - 1) each (D44)
-        riser_count: risers,
-        // New stairs get a handrail (DECISIONS D50).
-        railing: { height_mm: 900, style: "bars" },
-      };
-      return { element: el, faceSnap: null, mount: null };
+      return { element: newStair(level, lv?.height_mm, r.point, rot), faceSnap: null, mount: null };
     }
     const item = this.catalogItem();
     if (!item) return null;
@@ -4177,6 +4199,7 @@ export class PlanController {
 
   private onToolChange(_from: Tool, _to: Tool): void {
     if (!this.isBusy()) this.resetOp();
+    laneTool(_from)?.reset();
     this.heightEntry = null;
     this.flipSide = false;
     this.flipHinge = false;
@@ -4198,6 +4221,7 @@ export class PlanController {
     else if (op.kind === "pipe") this.finishPipe(op);
     else if (op.kind === "slab" && !op.committing) this.closeSlab(op);
     else if (!this.isBusy() && op.kind !== "idle") this.resetOp();
+    laneTool(useApp.getState().tool)?.finish(this.toolHost);
     this.invalidate();
   }
 
@@ -4334,7 +4358,9 @@ export class PlanController {
         return;
       }
     }
-    // Idle. Only tool keys that act on a visible ghost are handled.
+    // Idle. A lane's tool takes its keys first (Enter, Escape, typed lengths).
+    if (laneTool(s.tool)?.key(this.toolHost, e)) return swallow();
+    // Only tool keys that act on a visible ghost are handled.
     if (e.key === "Escape" && s.tool !== "select") {
       // Idle: act, but let the key through so the shell can react too.
       s.setTool("select");
@@ -4375,6 +4401,12 @@ export class PlanController {
       if (selKey.kind === "step") this.pipeHeightStep(selKey.dz);
       else if (selKey.kind === "height") this.startHeightEntry("selection");
       else usePipePick.getState().setPick(null);
+      swallow();
+      return;
+    }
+    // The stair tool's own keys (shape and turn) win over the tool shortcuts.
+    if (s.tool === "stair" && this.pointerInside && !e.metaKey && !e.ctrlKey && !e.altKey && stairToolKey(e.key)) {
+      this.refreshToolGhost();
       swallow();
       return;
     }

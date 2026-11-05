@@ -27,7 +27,10 @@ export type GripKind =
   /** A corner of a slab outline, `index` the vertex. */
   | "slab_vertex"
   /** The middle of a slab edge: dragging it inserts a vertex on edge `index`. */
-  | "slab_mid";
+  | "slab_mid"
+  /** The ends of a grid line or a section or elevation mark. */
+  | "line_start"
+  | "line_end";
 
 export interface Grip {
   elementId: string;
@@ -55,14 +58,24 @@ export function gripsFor(el: Element, pxMm: number): Grip[] {
       const d = el.shape === "round" ? el.width_mm : el.depth_mm;
       return [g("rotate", add(el.center, mul(backDir(el.rotation_deg), d / 2 + 26 * pxMm)))];
     }
-    case "stair":
-      return [g("rotate", add(el.origin, mul(backDir(el.rotation_deg), el.run_mm + 26 * pxMm)))];
+    case "stair": {
+      // An L or U turns at its landing, so the grip goes just past the
+      // landing, up the first flight's line (n - 2 treads, D54).
+      const n = el.riser_count;
+      const turns = (el.shape ?? "straight") !== "straight" && n >= 4;
+      const first = el.first_flight_risers ?? Math.ceil(n / 2);
+      const reach = turns ? ((first - 1) * el.run_mm) / (n - 2) + (el.landing_mm ?? el.width_mm) : el.run_mm;
+      return [g("rotate", add(el.origin, mul(backDir(el.rotation_deg), reach + 26 * pxMm)))];
+    }
     case "reference_model":
       return [g("rotate", add(el.position, mul(backDir(el.rotation_deg), 300 + 26 * pxMm)))];
     case "dimension": {
       const dg = dimensionGeometry(el.a, el.b, el.offset_mm);
       return [g("dim_offset", dg.mid), g("dim_a", el.a), g("dim_b", el.b)];
     }
+    case "grid":
+    case "view_mark":
+      return [g("line_start", el.start), g("line_end", el.end)];
     case "camera":
       return [
         g("cam_pos", { x: el.position.x, y: el.position.y }),
@@ -125,7 +138,8 @@ export function translateElement(el: Element, d: P): Element {
     case "annotation":
       return { ...el, position: add(el.position, d) };
     case "dimension":
-      return { ...el, a: add(el.a, d), b: add(el.b, d) };
+      // A dimension string's witness points move with it, as the engine moves them.
+      return { ...el, a: add(el.a, d), b: add(el.b, d), ...(el.through ? { through: el.through.map((p) => add(p, d)) } : {}) };
     case "camera":
       return {
         ...el,
@@ -142,7 +156,16 @@ export function translateElement(el: Element, d: P): Element {
       return { ...el, points: el.points.map((v) => ({ ...v, x: v.x + d.x, y: v.y + d.y })) };
     case "slab":
       return { ...el, polygon: el.polygon.map((p) => add(p, d)) };
+    case "grid":
+    case "view_mark":
+      return { ...el, start: add(el.start, d), end: add(el.end, d) };
+    case "lot":
+      return { ...el, corners: el.corners.map((p) => add(p, d)) };
+    case "roof":
+      // A roof that follows the walls moves with them.
+      return el.outline.type === "polygon" ? { ...el, outline: { ...el.outline, points: el.outline.points.map((p) => add(p, d)) } } : el;
     case "opening":
+    case "tour":
       return el;
   }
 }

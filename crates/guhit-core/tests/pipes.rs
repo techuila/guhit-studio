@@ -69,6 +69,7 @@ fn door(id: &str, wall: &str, offset: f64, width: f64) -> Element {
         flip_side: false,
         flip_hinge: false,
         material_id: None,
+        type_id: None,
     })
 }
 
@@ -1385,11 +1386,11 @@ fn a_version_1_project_opens_with_all_layers_and_the_current_schema() {
     let doc = Document::new(old.clone());
     let project = doc.project();
     assert_eq!(project.schema_version, SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 5);
+    assert_eq!(SCHEMA_VERSION, 6);
     let keys: Vec<LayerKey> = project.layers.iter().map(|l| l.key).collect();
     let expected: Vec<LayerKey> = defaults::default_layers().iter().map(|l| l.key).collect();
     assert_eq!(keys, expected);
-    assert_eq!(keys.len(), 18);
+    assert_eq!(keys.len(), 20);
     assert!(project.layers[2].locked, "existing layers keep their state");
     for l in &project.layers[9..] {
         assert!(l.visible && !l.locked);
@@ -1398,7 +1399,7 @@ fn a_version_1_project_opens_with_all_layers_and_the_current_schema() {
 
     // Also on a restore, and running it again changes nothing.
     let restored = Document::with_revision(old.clone(), 7);
-    assert_eq!(restored.project().layers.len(), 18);
+    assert_eq!(restored.project().layers.len(), 20);
     let mut twice = old;
     migrate(&mut twice);
     let once = twice.clone();

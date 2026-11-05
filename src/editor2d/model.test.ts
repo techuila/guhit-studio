@@ -5,6 +5,7 @@ import { gripsFor, hitGrip, jointInset, normalDelta, rotationFromGrip, stretched
 import { pt, rectFromPoints } from "./geom";
 import { hitTest, marqueeSelect, roomFloorAt } from "./hit";
 import { annotationBox, buildIndex, isLocked, layerOf, modelBounds, openingFrame, stairOutline, wallOutline } from "./model";
+import { elementLevel } from "../contract/elements";
 
 const doc = fixture as unknown as DocState;
 const W = (n: number): string => `00000000-0000-4000-8000-0000000001${String(n).padStart(2, "0")}`;
@@ -34,8 +35,11 @@ describe("model index", () => {
   });
 
   it("filters by level", () => {
+    // Only what is on no level shows on another one: the camera and, since
+    // schema 6, the roof over the top floor (DECISIONS D54).
     const index = buildIndex(doc, "some-other-level");
-    expect(index.visible.every((e) => e.kind === "camera")).toBe(true);
+    expect(index.visible.length).toBeGreaterThan(0);
+    expect(index.visible.every((e) => e.kind !== "opening" && elementLevel(e) === null)).toBe(true);
   });
 
   it("falls back to a centerline rectangle without derived geometry", () => {
@@ -69,6 +73,27 @@ describe("model index", () => {
     const cam = doc.project.elements.find((e) => e.kind === "camera");
     if (!cam) throw new Error("no camera");
     expect(layerOf(cam)).toBe("annotations");
+  });
+
+  it("shows grids, the lot, tours and the roof over the top floor on every level (D54)", () => {
+    const level = doc.project.levels[0].id;
+    const extra = [
+      { kind: "grid", id: "g1", label: "A", start: pt(0, 0), end: pt(0, 9000) },
+      { kind: "lot", id: "l1", corners: [], sides: [], grade_mm: 0 },
+      { kind: "tour", id: "t1", name: "Walkthrough", shots: [], fps: 30 },
+      { kind: "roof", id: "r1", level_id: null, outline: { type: "top_footprint" }, shape: "hip", pitch_deg: 25, ridge_axis: "x", overhang_mm: 600, thickness_mm: 100, material_id: null },
+      { kind: "roof", id: "r2", level_id: level, outline: { type: "footprint" }, shape: "shed", pitch_deg: 10, ridge_axis: "y", overhang_mm: 300, thickness_mm: 100, material_id: null },
+      { kind: "view_mark", id: "m1", level_id: level, mark_kind: "section", label: "A", start: pt(0, 0), end: pt(1000, 0), flip: false, depth_mm: null },
+    ] as unknown as Element[];
+    const d = structuredClone(doc);
+    d.project.elements.push(...extra);
+    const elsewhere = buildIndex(d, "some-other-level").visible.map((e) => e.id);
+    expect(elsewhere).toEqual(expect.arrayContaining(["g1", "l1", "t1", "r1"]));
+    expect(elsewhere).not.toContain("r2");
+    expect(elsewhere).not.toContain("m1");
+    expect(extra.map(layerOf)).toEqual(["grids", "site", "annotations", "roofs", "roofs", "annotations"]);
+    // Grid lines are drawn (lane L1): the bubble past the top of grid A adds to the bounds.
+    expect(modelBounds(buildIndex(d, null)).maxY).toBeGreaterThan(9000);
   });
 });
 

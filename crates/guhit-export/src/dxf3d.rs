@@ -14,13 +14,14 @@
 //! point's z), mitred at bends. Their faces keep a CONTINUOUS linetype on
 //! the dashed drainage and vent layers, so only the 2D linework is dashed.
 //!
-//! Simplifications, the same ones the IFC export makes: a gable roof is two
-//! sloped prisms and the triangular gable ends are not filled, so the walls
-//! keep their own height and the roof planes cover them; openings are boxes;
-//! a door or window is one thin panel; Linework, ReferenceModel, Underlay and
-//! Camera elements have no solid. Stairs do get real treads here, one box per
-//! tread (n - 1 of them for n risers, DECISIONS D44), because 3DFACE geometry
-//! is cheap.
+//! Simplifications, the same ones the IFC export makes: a roof is one
+//! sloped prism per plane, and its gable ends (`RoofSolid::infill`, from
+//! `Derived::roofs`) are flat faces on A-ROOF; openings are boxes; a door or
+//! window is one thin panel; Linework, ReferenceModel, Underlay and Camera
+//! elements have no solid. Stairs do get real treads here, one box per tread
+//! (n - 1 of them for n risers, DECISIONS D44), because 3DFACE geometry is
+//! cheap; with `Derived::stairs` they follow its flights, L and U included,
+//! and its landings are blocks 150 mm deep.
 
 use guhit_model::{
     ColumnShape, Derived, Element, LayerKey, OpeningType, PipeSystem, Project, RoofKind,
@@ -202,6 +203,31 @@ impl Faces {
 
     fn box_solid(&mut self, layer: &'static str, poly: &[V], z0: f64, z1: f64) {
         self.prism(layer, poly, &|_| z0, &|_| z1);
+    }
+
+    /// A flat polygon in any plane (a gable end), triangulated in the
+    /// plane it is most nearly parallel to.
+    fn planar(&mut self, layer: &'static str, pts: &[P3]) {
+        if pts.len() < 3 {
+            return;
+        }
+        let mut n = p3(0.0, 0.0, 0.0);
+        for i in 0..pts.len() {
+            let (a, b) = (pts[i], pts[(i + 1) % pts.len()]);
+            n.x += (a.y - b.y) * (a.z + b.z);
+            n.y += (a.z - b.z) * (a.x + b.x);
+            n.z += (a.x - b.x) * (a.y + b.y);
+        }
+        let flat: Vec<V> = if n.x.abs() >= n.y.abs() && n.x.abs() >= n.z.abs() {
+            pts.iter().map(|p| v(p.y, p.z)).collect()
+        } else if n.y.abs() >= n.z.abs() {
+            pts.iter().map(|p| v(p.x, p.z)).collect()
+        } else {
+            pts.iter().map(|p| v(p.x, p.y)).collect()
+        };
+        for t in triangulate(&flat) {
+            self.tri(layer, pts[t[0]], pts[t[1]], pts[t[2]]);
+        }
     }
 
     /// A flat slab from `z0` to `z1` with holes cut through it. The caps are
@@ -446,10 +472,30 @@ pub fn build_faces(project: &Project, derived: &Derived) -> Faces {
                     c.rotation_deg,
                 ),
             };
-            faces.box_solid("A-COLS", &poly, e, e + ls.level.height_mm.max(1.0));
+            // Up to the roof over it, sloped with the roof.
+            let top = crate::model3d::column_top(derived, ls.level, c);
+            faces.prism("A-COLS", &poly, &|_| e, &|q| e + top(q));
         }
 
         for st in &ls.stairs {
+            // The engine's flights and landings (`Derived::stairs`) when it
+            // has them: each tread a block from its flight's foot.
+            if let Some(geo) = derived.stairs.iter().find(|g| g.stair_id == st.id && !g.flights.is_empty()) {
+                for f in &geo.flights {
+                    let up = V::from(f.up).unit().unwrap_or(v(0.0, 1.0));
+                    let base = f.nosings.first().map(|n| n.z - geo.riser_mm).unwrap_or(0.0).max(0.0);
+                    for n in &f.nosings {
+                        let (a, b) = (V::from(n.a), V::from(n.b));
+                        let rect = vec![a, b, b + up * geo.tread_mm, a + up * geo.tread_mm];
+                        faces.box_solid("A-FLOR-STRS", &ensure_ccw(&rect), e + base, e + n.z);
+                    }
+                }
+                for l in &geo.landings {
+                    let poly: Vec<V> = l.polygon.iter().map(V::from).collect();
+                    faces.box_solid("A-FLOR-STRS", &ensure_ccw(&poly), e + (l.z - 150.0).max(0.0), e + l.z);
+                }
+                continue;
+            }
             for t in stair_treads(st, ls.level.height_mm) {
                 faces.box_solid("A-FLOR-STRS", &t.plan, e, e + t.top);
             }
@@ -479,9 +525,9 @@ pub fn build_faces(project: &Project, derived: &Derived) -> Faces {
         }
     }
 
-    if let Some(top) = scene.roof_level {
-        let e = scene.levels[top].level.elevation_mm;
-        for plane in &scene.roof {
+    for solid in &scene.roofs {
+        let e = scene.levels[solid.level].level.elevation_mm;
+        for plane in &solid.planes {
             let plan = plane.plan.clone();
             faces.prism(
                 ROOF_LAYER,
@@ -489,6 +535,12 @@ pub fn build_faces(project: &Project, derived: &Derived) -> Faces {
                 &|p| e + plane.under(p),
                 &|p| e + plane.top(p),
             );
+        }
+        // Gable ends between the wall tops and the roof, with the roof: the
+        // walls on A-WALL keep their own height.
+        for poly in &solid.infill {
+            let pts: Vec<P3> = poly.iter().map(|p| p3(p.x, p.y, e + p.z)).collect();
+            faces.planar(ROOF_LAYER, &pts);
         }
     }
 
@@ -797,7 +849,7 @@ pub fn faces_per_layer(faces: &Faces) -> Vec<(&'static str, usize)> {
 
 /// True when the project has a roof that should produce faces.
 pub fn has_roof(project: &Project) -> bool {
-    project.roof.kind != RoofKind::None
+    project.top_roof().kind != RoofKind::None
         && project
             .elements
             .iter()

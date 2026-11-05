@@ -61,6 +61,7 @@ pub fn sample_bungalow() -> Project {
             flip_side: false,
             flip_hinge: false,
             material_id: None,
+            type_id: None,
         })
     };
     elements.extend([
@@ -124,6 +125,8 @@ pub fn sample_bungalow() -> Project {
             seed,
             floor_material_id: Some(defaults::MAT_FLOOR_DEFAULT.into()),
             auto_named: false,
+            finishes: RoomFinishes::default(),
+            ceiling_height_mm: None,
         })
     };
     elements.extend([
@@ -145,6 +148,7 @@ pub fn sample_bungalow() -> Project {
         light: None,
         links: vec![],
         circuit: String::new(),
+        built_in: None,
     }));
     elements.push(Element::Dimension(Dimension {
         id: "00000000-0000-4000-8000-000000000501".into(),
@@ -153,6 +157,8 @@ pub fn sample_bungalow() -> Project {
         b: p(8000.0, 0.0),
         offset_mm: -900.0,
         text_override: None,
+        through: vec![],
+        auto: None,
     }));
     elements.push(Element::Camera(Camera {
         id: "00000000-0000-4000-8000-000000000601".into(),
@@ -172,6 +178,9 @@ pub fn sample_bungalow() -> Project {
         light: None,
     }));
     project.elements = elements;
+    // Schema 6: the project roof becomes the roof element over the top
+    // floor here, as `Document::new` would do it.
+    crate::migrate(&mut project);
     project
 }
 
@@ -344,6 +353,7 @@ pub fn plumbing_demo() -> Project {
             flip_side: *flip_side,
             flip_hinge: false,
             material_id: None,
+            type_id: None,
         }));
     }
 
@@ -363,6 +373,8 @@ pub fn plumbing_demo() -> Project {
             seed: *seed,
             floor_material_id: Some(defaults::MAT_FLOOR_DEFAULT.into()),
             auto_named: false,
+            finishes: RoomFinishes::default(),
+            ceiling_height_mm: None,
         }));
     }
 
@@ -414,6 +426,7 @@ pub fn plumbing_demo() -> Project {
             light: item.light,
             links: links.to_vec(),
             circuit: String::new(),
+            built_in: None,
         })
     };
     let assets = [
@@ -769,5 +782,8 @@ pub fn plumbing_demo() -> Project {
         light: None,
     }));
     project.elements = elements;
+    // Schema 6: the project roof becomes the roof element over the top
+    // floor here, as `Document::new` would do it.
+    crate::migrate(&mut project);
     project
 }

@@ -9,6 +9,8 @@ import { Dialog } from "../ui/Dialog";
 import { Button, Field, Section, Select, Spinner, TextField, cx } from "../ui/controls";
 import { Icon } from "../ui/icons";
 import type { PresenceStage } from "../ui/motion";
+import { AgentCap } from "../viewer3d/render/AiRenderParts";
+import { aiRender, type AgentUsage } from "../viewer3d/render/aiRender";
 import { useRenderUi } from "../viewer3d/render/renderStore";
 import { useSection } from "./shellStore";
 import s from "./overlays.module.css";
@@ -38,6 +40,9 @@ function AiRenderingSection() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
+  // The agents' daily cap for the open project (D53). Null with no project open.
+  const [usage, setUsage] = useState<AgentUsage | null>(null);
+  const [capBusy, setCapBusy] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,10 +63,29 @@ function AiRenderingSection() {
             : err.message,
         );
       });
+    void aiRender
+      .usage()
+      .then((u) => {
+        if (!cancelled) setUsage(u);
+      })
+      .catch(() => {
+        // No project open, or a backend without AI rendering: no cap to show.
+      });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const setCap = async (cap: number) => {
+    setCapBusy(true);
+    try {
+      setUsage(await aiRender.setCap(cap));
+    } catch (e) {
+      reportError(e);
+    } finally {
+      setCapBusy(false);
+    }
+  };
 
   // Opened from the studio: show this section and bring it into view.
   useEffect(() => {
@@ -140,6 +164,7 @@ function AiRenderingSection() {
               <Icon name={hasKey ? "check" : "warning"} size={14} />
               {hasKey ? `A key is configured. Cost: ${settings.cost_hint}` : "No key yet. Rendering stays off until you add one."}
             </p>
+            <AgentCap usage={usage} onSet={(cap) => void setCap(cap)} busy={capBusy} />
           </>
         )}
         <p className={s.exportNote}>

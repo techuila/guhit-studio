@@ -71,6 +71,10 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # keyring: API key in macOS Keychain / Windows Credential Manager (default
 # `v1` feature covers both, plus Secret Service on Linux).
 keyring = "4.2"
+# image: already in the build through guhit-mcp (same version and features).
+# The AI render drift check decodes the AI image (PNG or JPEG) and the line
+# map to compare their edges (render_ai/drift.rs, DECISIONS D53).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [dev-dependencies]
 # tempfile: throwaway data dirs for the AI tests.

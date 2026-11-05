@@ -128,6 +128,7 @@ fn add_opening_props() -> Value {
         "flip_hinge": {"type": "boolean", "description": "Hinge on the jamb nearer the wall end."},
         "material_id": string(""),
         "level": level(),
+        "type": string("A door or window type's mark (D1) or id: its size, style and sill win."),
     })
 }
 
@@ -141,7 +142,11 @@ fn add_stair_props() -> Value {
         "tread_mm": num("Default 250."),
         "level": level(),
         "to_level": string("The level it arrives at: must be the one the level's height reaches."),
-        "shape": enumerated(&["straight"], "Straight flights only for now."),
+        "shape": enumerated(&["straight", "l", "u"], ""),
+        "turn": enumerated(&["left", "right"], ""),
+        "first_flight_risers": {"type": "integer"},
+        "landing_mm": num("Default the width."),
+        "well_mm": num("u: gap between flights."),
         "railing": railing(),
     })
 }
@@ -207,15 +212,20 @@ pub fn definitions() -> Vec<ToolDef> {
     ));
     out.push(def(
         "query",
-        format!("Read the model; numbers come from the engine, never estimate them. what: summary (totals), levels, rooms, elements (filter by kind, level, ids), describe (full data of ids), selection (what the user selected in the window), schedule (device counts), takeoff (pipe runs), catalog (library, with search), materials, history. Compact rows by default; format full or fields for more. Paged: page, page_size. {MM}"),
+        format!("Read the model; numbers come from the engine, never estimate them. what: summary, levels, rooms, elements (by kind, level, ids), describe (ids), selection (the window's), schedules (doors and windows by mark, rooms and finishes, areas per level), schedule (device counts), site (the lot: area, bearings, setbacks, coverage), takeoff (pipes), catalog (search, usage), placements (free spots for catalog_key in room), tour (its camera per frame), materials, history. Compact rows; format full or fields for more. Paged: page, page_size. {MM}"),
         obj(json!({
-            "what": enumerated(&["summary", "levels", "rooms", "elements", "describe", "selection", "schedule", "takeoff", "catalog", "materials", "history"], ""),
-            "kind": enumerated(&["wall", "door", "window", "opening", "room", "column", "stair", "slab", "asset", "camera", "pipe", "annotation", "dimension", "underlay"], "For elements."),
+            "what": enumerated(&["summary", "levels", "rooms", "elements", "describe", "selection", "schedule", "schedules", "site", "takeoff", "catalog", "placements", "tour", "materials", "history"], ""),
+            "kind": enumerated(&["wall", "door", "window", "opening", "room", "column", "stair", "slab", "asset", "camera", "pipe", "annotation", "dimension", "underlay", "roof", "grid", "view_mark", "lot", "tour"], "For elements."),
             "level": level(),
             "ids": ids("For describe, or to filter elements."),
             "fields": ids("Keep only these fields of each row."),
             "format": enumerated(&["compact", "full"], "Default compact."),
             "search": string("For catalog: words in the key, name or category."),
+            "usage": enumerated(&USAGES, "For catalog."),
+            "room": string("For placements: id or name."),
+            "catalog_key": string("For placements."),
+            "tour": string("For tour: id or name."),
+            "fps": {"type": "integer"},
             "page": {"type": "integer", "description": "From 1."},
             "page_size": {"type": "integer", "description": "Default 50, at most 200."},
         }), &["what"]),
@@ -223,9 +233,15 @@ pub fn definitions() -> Vec<ToolDef> {
     ));
     out.push(def(
         "look",
-        format!("A picture to check the model with. mode plan: the plan of a level drawn by the engine (no window needed), with show dims, ids, grid, scale_bar; bbox crops it; overlay underlay draws the traced image. The result maps pixels to mm. mode 3d: the 3D view in the Guhit Studio window, or a saved view (view); the capture is kept in Visuals. section and elevation are not in this version. {MM}"),
+        format!("A picture to check the model with. plan: a level drawn by the engine, show dims, ids, grid, scale_bar; bbox crops; overlay underlay; pixels map to mm. elevation and section: the drawing of a mark (view_marks), with grids and levels. sheet: a permit sheet, license numbers masked. schedule: doors_windows, rooms, finishes or areas, as drawn and as data. 3d: the window's 3D view, or a saved view from its own camera. tour: a frame of a tour at at_s, through the window. {MM}"),
         obj(json!({
-            "mode": enumerated(&["plan", "3d", "section", "elevation"], "Default plan."),
+            "mode": enumerated(&["plan", "3d", "elevation", "section", "sheet", "schedule", "tour"], "Default plan."),
+            "mark": string("Id or label (North, A)."),
+            "sheet": string("A-1 or an id."),
+            "schedule": enumerated(&["doors_windows", "rooms", "finishes", "areas"], ""),
+            "tour": string("Id or name."),
+            "at_s": num("Default 0."),
+            "scale": {"type": "integer", "description": "1:N."},
             "level": level(),
             "show": {"type": "array", "items": {"type": "string", "enum": ["dims", "ids", "grid", "scale_bar", "labels", "furniture"]}, "description": "Default: dims, labels, furniture, scale_bar."},
             "bbox": {"type": "object", "description": "{min: {x, y}, max: {x, y}} in mm.", "properties": {"min": pt(""), "max": pt("")}},
@@ -239,7 +255,7 @@ pub fn definitions() -> Vec<ToolDef> {
     ));
     out.push(def(
         "measure",
-        format!("Measure from the model, never by eye. kind distance: between from and to (points or element ids); clear_width: face to face between two parallel walls (ids), or a room's clear width and depth, or a door's width; height: walls, levels (floor to floor and clear), openings, stairs (riser, tread); area: rooms (net), slabs, or a polygon; clearance: the gap between two elements' outlines. {MM}"),
+        format!("Measure from the model, never by eye. kind distance: between from and to (points or element ids); clear_width: face to face between two parallel walls (ids), or a room's clear width and depth, or a door's width; height: walls, levels (floor to floor and clear), openings, stairs (riser, tread, treads per flight, from the engine's flights and landings); area: rooms (net, less voids, and floor area as the schedule counts it, less balconies and decks), slabs, or a polygon; clearance: the gap between two elements' outlines (a stair's flights and landings). {MM}"),
         obj(json!({
             "kind": enumerated(&["distance", "clear_width", "height", "area", "clearance"], ""),
             "from": {"description": "A point {x, y} or an element id."},
@@ -295,13 +311,14 @@ pub fn definitions() -> Vec<ToolDef> {
     out.push(def("add_walls", format!("Straight walls through points, one undo step. Ends within 1 mm join; T junctions work. height_mm makes a tall wall (a double-height room). role site: a lot fence. {MM}"), with_scope(obj(add_walls_props(), &["points"])), false));
     out.push(def("add_room", format!("A named room: rect (south-west corner, width_mm east, depth_mm north) or polygon, on wall centerlines. Draws the walls unless walls is false; a side an existing wall covers is shared. With 150 mm walls a 4000 x 3000 rect has a net floor of 3850 x 2850. {MM}"), with_scope(obj(add_room_props(), &[])), false));
     out.push(def("add_opening", format!("A door or window. at: a point on the wall and the engine finds the wall; or wall_id and offset_mm. style: swing_single, swing_double, sliding, fixed, casement, jalousie. swing_into: the room the leaf opens into. A door between rooms goes on their shared wall, windows on outside walls. {MM}"), with_scope(obj(add_opening_props(), &["kind"])), false));
-    out.push(def("add_stair", format!("A straight stair from start, walking up direction_deg, rising the level's floor-to-floor height to the level above. Risers default to about 175 mm and treads to 250; the result gives the riser height and tread depth. A 900 mm handrail unless railing is false. Cut the floor above with add_slab slab_kind void. {MM}"), with_scope(obj(add_stair_props(), &["start"])), false));
+    out.push(def("add_stair", format!("A stair from start (the first riser's center), walking up direction_deg, rising the level's floor-to-floor height to the level above. shape straight, or l or u with a landing (turn left or right). Risers about 175 mm, treads 250 by default; n risers make n - 1 treads straight, n - 2 in an l or u. A 900 mm handrail unless railing is false. Cut the floor above with add_slab slab_kind void. {MM}"), with_scope(obj(add_stair_props(), &["start"])), false));
     out.push(def("add_column", format!("Columns at a point or points: rect or round, 300 mm by default. to_level repeats them on every level up to it, for frames through several storeys. {MM}"), with_scope(obj(add_column_props(), &[])), false));
     out.push(def("add_slab", format!("A slab on a level: a floor, a balcony or deck (with a railing, balcony 1000 mm bars by default) or a void that makes the room below double height (stairwells too). {MM}"), with_scope(obj(add_slab_props(), &[])), false));
-    out.push(def("place_asset", format!("One library item: furniture, fixtures, lights, outlets, switches, panelboard, detectors, aircon. An unknown key answers with the nearest keys. Wall items snap to the nearest wall face; ceiling items hang from the ceiling. {MM}"), with_scope(obj(place_asset_props(), &["catalog_key", "at"])), false));
+    out.push(def("place_asset", format!("One library item: furniture, fixtures, lights, outlets, switches, panelboard, detectors, aircon. An unknown key answers with the nearest keys. Wall items snap to the nearest wall face; ceiling items hang from the ceiling. query what \"placements\" finds free spots in a room. {MM}"), with_scope(obj(place_asset_props(), &["catalog_key", "at"])), false));
+    out.extend(crate::permit::definitions());
     out.push(def(
         "modify",
-        format!("Change elements, one undo step: move {{dx_mm, dy_mm}} (joined walls stretch unless stretch_connected is false), rotate_deg about pivot (default their center), set fields: rooms name, usage, floor_material_id; openings width_mm, height_mm, sill_mm, style, swing_into, offset_mm; walls thickness_mm, height_mm, material_id; columns, stairs, slabs, objects their sizes, railing, material_id. {MM}"),
+        format!("Change elements, one undo step: move {{dx_mm, dy_mm}} (joined walls stretch unless stretch_connected is false), rotate_deg about pivot (default their center), set fields: rooms name, usage, floor_material_id, ceiling_height_mm, finishes {{wall_material_id, ceiling_material_id, base_material_id, remarks}}; openings width_mm, height_mm, sill_mm, style, swing_into, offset_mm, type; walls thickness_mm, height_mm, material_id; stairs shape, turn; roofs shape, pitch_deg, ridge_axis, flip (a shed rises toward -x or -y instead), overhang_mm; grids and marks label; columns, slabs, objects their sizes, railing, material_id. {MM}"),
         with_scope(obj(json!({
             "ids": ids("Elements to change."),
             "move": {"type": "object", "properties": {"dx_mm": {"type": "number"}, "dy_mm": {"type": "number"}}},
@@ -368,6 +385,8 @@ pub fn definitions() -> Vec<ToolDef> {
         false,
     ));
     out.extend(crate::extended::definitions());
+    out.extend(crate::documents::definitions());
+    out.extend(crate::tours::definitions());
     out
 }
 
@@ -387,6 +406,15 @@ pub async fn call(app: &AppService, name: &str, args: &Value, ctx: &CallContext)
         "levels" if args.get("action").and_then(Value::as_str) == Some("list") => levels_list(app).await,
         "history" => history(app, args, ctx).await,
         "export" => export(app, args).await,
+        // Wave 2 reads answer on their own; their edits run through stage.
+        "types" if args.get("action").and_then(Value::as_str) == Some("list") => crate::permit::types_list(app).await,
+        n @ ("title_block" | "sheets" | "view_marks") => match Box::pin(crate::documents::read(app, n, args)).await {
+            Some(done) => done,
+            None => match crate::documents::store_vicinity(app, n, args).await {
+                Ok(args) => single(app, n, &args, ctx).await,
+                Err(e) => Err(e),
+            },
+        },
         n if translate::EDIT_TOOLS.contains(&n) && !matches!(n, "set_review_mark" | "add_camera") => single(app, n, args, ctx).await,
         _ => return None,
     })
@@ -496,31 +524,26 @@ struct QueryIn {
     fields: Option<Vec<String>>,
     format: Option<String>,
     search: Option<String>,
+    usage: Option<RoomUsage>,
+    room: Option<String>,
+    catalog_key: Option<String>,
+    tour: Option<String>,
+    fps: Option<u32>,
     page: Option<usize>,
     page_size: Option<usize>,
 }
 
-/// The level an element stands on: its own, or its host wall's.
+/// The level an element stands on: its own (`Element::level_id`), or an
+/// opening's host wall's. None for cameras, tours, grids, the lot and the
+/// roof over the top floor (P0-3).
 pub(crate) fn element_level<'a>(project: &'a Project, el: &'a Element) -> Option<&'a Id> {
-    Some(match el {
-        Element::Wall(e) => &e.level_id,
-        Element::Room(e) => &e.level_id,
-        Element::Column(e) => &e.level_id,
-        Element::Stair(e) => &e.level_id,
-        Element::Asset(e) => &e.level_id,
-        Element::Annotation(e) => &e.level_id,
-        Element::Dimension(e) => &e.level_id,
-        Element::Underlay(e) => &e.level_id,
-        Element::Linework(e) => &e.level_id,
-        Element::ReferenceModel(e) => &e.level_id,
-        Element::Pipe(e) => &e.level_id,
-        Element::Slab(e) => &e.level_id,
+    match el {
         Element::Opening(o) => match project.elements.iter().find(|w| w.id() == &o.wall_id) {
-            Some(Element::Wall(w)) => &w.level_id,
-            _ => return None,
+            Some(Element::Wall(w)) => Some(&w.level_id),
+            _ => None,
         },
-        Element::Camera(_) => return None,
-    })
+        other => other.level_id(),
+    }
 }
 
 /// The fields a compact row keeps, by the `kind` of the engine's JSON.
@@ -528,7 +551,7 @@ fn compact_keys(kind: &str) -> &'static [&'static str] {
     match kind {
         "wall" => &["id", "kind", "level", "start", "end", "length_mm", "thickness_mm", "height_mm", "role", "faces_outside"],
         "opening" => &["id", "kind", "type", "style", "wall_id", "offset_from_wall_start_mm", "width_mm", "height_mm", "sill_mm", "center"],
-        "room" => &["id", "kind", "name", "usage", "level", "net_area_m2", "clear_width_x_mm", "clear_depth_y_mm", "enclosed", "label_point"],
+        "room" => &["id", "kind", "name", "usage", "level", "net_area_m2", "floor_area_m2", "clear_width_x_mm", "clear_depth_y_mm", "enclosed", "label_point"],
         "column" => &["id", "kind", "level", "center", "shape", "width_mm", "depth_mm"],
         "stair" => &["id", "kind", "level", "origin", "rotation_deg", "width_mm", "run_mm", "riser_count"],
         "slab" => &["id", "kind", "slab_kind", "level", "polygon", "thickness_mm", "top_offset_mm", "railing_mm"],
@@ -539,6 +562,11 @@ fn compact_keys(kind: &str) -> &'static [&'static str] {
         "dimension" => &["id", "kind", "level", "a", "b", "measured_mm"],
         _ => &["id", "kind", "level", "name"],
     }
+}
+
+/// Square meters to two places, as the schedules print them.
+pub(crate) fn m2_2(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0 + 0.0
 }
 
 fn pick(row: &Value, keys: &[&str]) -> Value {
@@ -619,9 +647,29 @@ async fn query(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Outp
     match i.what.as_str() {
         "selection" => return crate::tools::dispatch(app, "get_selection", &json!({}), ctx).await,
         "history" => return history(app, &json!({"action": "list"}), ctx).await,
-        "catalog" => return Ok(Output::Json(catalog_query(&i))),
         "levels" => return levels_list(app).await,
         _ => {}
+    }
+    // Arguments that belong to another `what`.
+    let for_what = [
+        ("usage", i.usage.is_some(), "catalog"),
+        ("room", i.room.is_some(), "placements"),
+        ("catalog_key", i.catalog_key.is_some(), "placements"),
+        ("tour", i.tour.is_some(), "tour"),
+        ("fps", i.fps.is_some(), "tour"),
+    ];
+    if let Some((arg, _, what)) = for_what.iter().find(|(_, given, what)| *given && *what != i.what) {
+        return Err(ToolFail::args(format!("{arg} is for what \"{what}\"")));
+    }
+    if i.what == "catalog" {
+        // The library needs no project; with one open the engine's catalog
+        // answers (room usages, tags).
+        let s = app.session.lock().await;
+        let out = match s.doc.as_ref() {
+            Some(doc) => catalog_query(&i, |q| doc.query(&q).map_err(ToolFail::from)),
+            None => catalog_builtin(&i),
+        };
+        return Ok(Output::Json(out));
     }
     let s = app.session.lock().await;
     let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
@@ -640,6 +688,10 @@ async fn query(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Outp
         }
         "rooms" => {
             let v = engine(Query::RoomList)?;
+            // Both areas as the room schedule gives them (GR1 #12): net
+            // inside the walls less voids, and floor area as the Totals count
+            // it, also less balconies and decks.
+            let schedule = &doc.derived().room_schedule;
             let rows: Vec<Value> = v["rooms"]
                 .as_array()
                 .cloned()
@@ -652,11 +704,20 @@ async fn query(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Outp
                 })
                 .map(|mut r| {
                     r["kind"] = json!("room");
+                    if let Some(row) = schedule.iter().find(|row| r["id"] == row.room_id.as_str()) {
+                        r["net_area_m2"] = json!(m2_2(row.net_area_m2));
+                        r["floor_area_m2"] = json!(m2_2(row.floor_area_m2));
+                    }
                     r
                 })
                 .collect();
+            // The totals are the rows' own sums, so they add up.
+            let sum = |key: &str| m2_2(rows.iter().filter_map(|r| r[key].as_f64()).sum());
+            let (net, floor) = (sum("net_area_m2"), sum("floor_area_m2"));
             let mut out = paged("rooms", shape_rows(rows, &i), &i, revision);
-            out["total_net_area_m2"] = v["total_net_area_m2"].clone();
+            out["total_net_area_m2"] = json!(net);
+            out["total_floor_area_m2"] = json!(floor);
+            out["areas_note"] = json!("net_area_m2: inside the walls, less voids. floor_area_m2: what counts as floor area, as the room schedule and the totals count it, also less balconies and decks. The totals are the sums of the rows listed.");
             out
         }
         "elements" | "describe" => {
@@ -700,16 +761,102 @@ async fn query(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Outp
         "materials" => json!({
             "materials": project.materials.iter().map(|m| json!({"id": m.id, "name": m.name, "category": m.category})).collect::<Vec<_>>(),
         }),
+        // Wave 2 (D53, D54): numbers from the engine's own schedules.
+        "schedules" => {
+            let mut v = json!({
+                "revision": revision,
+                "openings": engine(Query::OpeningSchedule)?,
+                "rooms": engine(Query::RoomSchedule)?,
+                "levels": engine(Query::LevelAreas)?,
+                "note": "The door and window schedule counts by mark (types action \"assign\" gives untyped openings a mark); room and finish rows and level areas are exactly as the totals count them. Schedules are data, never a compliance check.",
+            });
+            if let Some(l) = &level_id {
+                v["level_id"] = json!(l);
+            }
+            v
+        }
+        "site" => {
+            let mut v = engine(Query::Site)?;
+            if v.is_object() {
+                v["revision"] = json!(revision);
+                v["note"] = json!("Setbacks are drawn as given and coverage is a fact; neither is a code check.");
+            }
+            v
+        }
+        "placements" => {
+            let room = i.room.as_deref().ok_or_else(|| ToolFail::args("what \"placements\" needs room (id or name) and catalog_key"))?;
+            let key = i.catalog_key.as_deref().ok_or_else(|| ToolFail::args("what \"placements\" needs catalog_key"))?;
+            let room_id = find_room(project, room, level_id.as_ref())?;
+            let mut v = engine(Query::PlacementOptions { room_id, catalog_key: key.trim().to_string() })?;
+            if v.is_object() {
+                v["revision"] = json!(revision);
+            }
+            v
+        }
+        "tour" => {
+            let tour = i.tour.as_deref().ok_or_else(|| ToolFail::args("what \"tour\" needs tour: its id or name"))?;
+            let t = crate::tours::find_tour(project, tour)?;
+            let v = engine(Query::TourFrames { tour_id: t.id.clone(), fps: i.fps })?;
+            let frames = v["frames"].as_array().cloned().unwrap_or_default();
+            let fps = i.fps.unwrap_or(t.fps);
+            let mut out = paged("tour", frames, &i, revision);
+            out["tour"] = json!({"id": t.id, "name": t.name, "fps": fps, "shots": t.shots.iter().map(|s| json!({"id": s.id, "name": s.name, "kind": s.kind, "seconds": s.seconds})).collect::<Vec<_>>()});
+            out["seconds"] = json!(out["count"].as_u64().map(|n| (n as f64 / fps.max(1) as f64 * 100.0).round() / 100.0));
+            for (k, val) in v.as_object().into_iter().flatten() {
+                if k != "frames" {
+                    out[k] = val.clone();
+                }
+            }
+            out
+        }
         other => {
             return Err(ToolFail::args(format!(
-                "unknown what `{other}`. Use summary, levels, rooms, elements, describe, selection, schedule, takeoff, catalog, materials or history"
+                "unknown what `{other}`. Use summary, levels, rooms, elements, describe, selection, schedules, schedule, site, takeoff, catalog, placements, tour, materials or history"
             )))
         }
     };
     Ok(Output::Json(out))
 }
 
-fn catalog_query(i: &QueryIn) -> Value {
+/// A room by id or name on a level (the first name match when no level is
+/// given).
+fn find_room(project: &Project, wanted: &str, level: Option<&Id>) -> Result<Id, ToolFail> {
+    let w = wanted.trim();
+    let rooms: Vec<&Room> = project
+        .elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Room(r) if level.is_none_or(|l| &r.level_id == l) => Some(r),
+            _ => None,
+        })
+        .collect();
+    rooms
+        .iter()
+        .find(|r| r.id == w)
+        .or_else(|| rooms.iter().find(|r| r.name.trim().eq_ignore_ascii_case(w)))
+        .map(|r| r.id.clone())
+        .ok_or_else(|| {
+            ToolFail::new("not_found", format!("no room is `{w}`. Rooms: {}", rooms.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join(", ")))
+                .with_hint("query what \"rooms\" lists them; add level when two levels have a room of that name.")
+        })
+}
+
+/// The library: the engine's catalog (`Query::Catalog`, with room usages
+/// and tags), else the built-in list searched here.
+fn catalog_query(i: &QueryIn, engine: impl Fn(Query) -> Result<Value, ToolFail>) -> Value {
+    let from_engine = engine(Query::Catalog { search: i.search.clone(), usage: i.usage })
+        .ok()
+        .filter(|v| v["items"].as_array().is_some_and(|items| !items.is_empty()));
+    if let Some(mut v) = from_engine {
+        let n = v["items"].as_array().map(Vec::len).unwrap_or(0);
+        v["what"] = json!("catalog");
+        v["count"] = json!(n);
+        return v;
+    }
+    catalog_builtin(i)
+}
+
+fn catalog_builtin(i: &QueryIn) -> Value {
     let words: Vec<String> = i
         .search
         .as_deref()
@@ -1055,9 +1202,14 @@ async fn history(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Ou
             let list: HistoryList = serde_json::from_value(app.handle("history_list", json!({})).await?)
                 .map_err(|e| ToolFail::new("io", e.to_string()))?;
             check_own_steps(if redo { &list.redo } else { &list.undo }, steps, &call.id, force, redo)?;
+            // Never across a change of the signing architect, `force` or not.
+            app.agent_steps_allowed(redo, steps).await?;
             app.handle(&cmd, json!({"steps": steps, "force": true, "expected_revision": revision})).await?
         }
-        None => app.handle(&cmd, call_args).await?,
+        None => {
+            app.agent_steps_allowed(redo, steps).await?;
+            app.handle(&cmd, call_args).await?
+        }
     };
     Ok(Output::Json(json!({
         "ok": true,
@@ -1125,6 +1277,19 @@ async fn export(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
     };
     let mut skipped: Vec<Value> = vec![];
     let files: Vec<Value> = match i.format.as_str() {
+        // Every level as one PDF is the sheet set: the stored sheets, or the
+        // default set, each with the title block (G4 problem 9).
+        "pdf" if i.level.as_deref().map(str::trim) == Some("all")
+            && i.sheet.as_deref().is_none_or(|s| s == "plan") =>
+        {
+            let v = app.handle("export_sheets", json!({"format": "pdf", "sheet_ids": [], "path": Value::Null})).await?;
+            // What the set left out, so the agent can say why a sheet is thin.
+            let mut f = file(v.clone(), None);
+            if let Some(notes) = v.get("notes") {
+                f["left_out"] = notes.clone();
+            }
+            vec![f]
+        }
         "pdf" | "svg" | "dxf" => {
             let all = i.level.as_deref().map(str::trim) == Some("all");
             let levels: Vec<Level> = {

@@ -11,10 +11,10 @@
 //! listed, still answered, so an agent set up on v1 does not break.
 
 /// The opt-in toolsets, in the order the docs list them.
-pub const EXTENDED: [&str; 5] = ["services", "visuals", "live", "review", "interop"];
+pub const EXTENDED: [&str; 7] = ["services", "visuals", "live", "review", "interop", "documents", "tours"];
 
 /// The core toolset, in the order `tools/list` shows it.
-pub const DRAFT: [&str; 22] = [
+pub const DRAFT: [&str; 26] = [
     "project",
     "get_guide",
     "query",
@@ -30,6 +30,10 @@ pub const DRAFT: [&str; 22] = [
     "add_column",
     "add_slab",
     "place_asset",
+    "add_grid",
+    "annotate",
+    "add_roof",
+    "types",
     "modify",
     "reshape",
     "delete",
@@ -41,10 +45,12 @@ pub const DRAFT: [&str; 22] = [
 
 /// Extended tools by toolset.
 pub const SERVICES: [&str; 3] = ["edit_pipe", "add_pipe", "link_devices"];
-pub const VISUALS: [&str; 2] = ["render", "visualize_render"];
+pub const VISUALS: [&str; 3] = ["render", "visualize_render", "set_look"];
 pub const LIVE: [&str; 3] = ["get_session", "send_chat_message", "set_status"];
 pub const REVIEW: [&str; 1] = ["set_review_mark"];
 pub const INTEROP: [&str; 2] = ["import_underlay", "import_dxf"];
+pub const DOCUMENTS: [&str; 4] = ["title_block", "sheets", "view_marks", "set_lot"];
+pub const TOURS: [&str; 3] = ["make_tour", "edit_tour", "export_tour"];
 
 /// The tools of one extended toolset.
 pub fn tools_of(toolset: &str) -> &'static [&'static str] {
@@ -54,6 +60,8 @@ pub fn tools_of(toolset: &str) -> &'static [&'static str] {
         "live" => &LIVE,
         "review" => &REVIEW,
         "interop" => &INTEROP,
+        "documents" => &DOCUMENTS,
+        "tours" => &TOURS,
         "draft" => &DRAFT,
         _ => &[],
     }
@@ -249,11 +257,12 @@ mod tests {
 
     #[test]
     fn toolsets_parse_and_list() {
-        assert_eq!(Toolsets::core().tools().len(), 22);
-        assert_eq!(Toolsets::all().tools().len(), 33);
+        assert_eq!(Toolsets::core().tools().len(), 26);
+        assert_eq!(Toolsets::all().tools().len(), 45);
         let t = Toolsets::parse("visuals, services,nope");
         assert_eq!(t.enabled(), &["services", "visuals"]);
-        assert_eq!(t.tools().len(), 22 + 3 + 2);
+        assert_eq!(t.tools().len(), 26 + 3 + 3);
+        assert_eq!(Toolsets::parse("documents,tours").tools().len(), 26 + 4 + 3);
         assert_eq!(Toolsets::from_query("a=1&toolsets=live%2Creview"), Some(Toolsets::parse("live,review")));
         assert_eq!(Toolsets::from_query("a=1"), None);
         assert_eq!(Toolsets::parse("all"), Toolsets::all());

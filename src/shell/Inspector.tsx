@@ -2,7 +2,7 @@
 // nothing selected -> project, review, schedules, site, level, roof, layers;
 // one element -> its fields; several -> shared actions.
 import { useEffect, useMemo, useRef } from "react";
-import type { DocState, Element, Layer, LayerKey, PaperSize, ProjectSettings, Roof, Site } from "../contract/bindings";
+import type { DocState, Element, Layer, LayerKey, PaperSize, ProjectSettings, Site } from "../contract/bindings";
 import { bus } from "../state/bus";
 import { useApp, useVisibleDoc } from "../state/store";
 import { MaterialPicker } from "../ui/MaterialPicker";
@@ -12,15 +12,18 @@ import { formatArea } from "../ui/units";
 import { DevicesMultiFields } from "./DeviceFields";
 import { catalogItem, isDevice, type AssetEl } from "./devices";
 import { ElementFields, elementTitle } from "./ElementFields";
+import { RoofSection } from "./fields/RoofFields";
 import { LevelsSection } from "./LevelsSection";
 import { PipesMultiFields, PlumbingSection, useReveal } from "./PipeSections";
 import { ReviewSection } from "./ReviewSection";
 import { SchedulesSection } from "./SchedulesSection";
-import { ROOF_KINDS, deleteSelection } from "./actions";
-import { commitLatest, editLayer, editRoof, editSettings, updateElements } from "./commitLatest";
+import { TitleBlockSection } from "./sheets/TitleBlockSection";
+import { ToursSection } from "./tours/ToursSection";
+import { TypesSection } from "./TypesPanel";
+import { deleteSelection } from "./actions";
+import { commitLatest, editLayer, editSettings, updateElements } from "./commitLatest";
 import { heightEdits, sharedNumber, thicknessEdits, unpinEdits, wallHeight, wallsLabel, type WallEl } from "./multiWalls";
 import { EMPTY_NETWORK, SERVICE_LAYER_COLOR, SERVICE_LAYER_ORDER, isServiceLayer, lengthByLayer } from "./pipes";
-import { hasScheduledDevices } from "./schedules";
 import { CUSTOM_SITE, SITE_PRESETS, editSite, presetByKey, siteFromPreset, siteLabel, siteOf, utcLabel } from "./site";
 import { isReviewShown, useProjectName, useSection, useShell } from "./shellStore";
 import s from "./Inspector.module.css";
@@ -34,6 +37,7 @@ const PAPERS: Array<{ value: PaperSize; label: string }> = [
   { value: "a3", label: "A3 (297 x 420)" },
   { value: "a2", label: "A2 (420 x 594)" },
   { value: "a1", label: "A1 (594 x 841)" },
+  { value: "a0", label: "A0 (841 x 1189)" },
 ];
 
 const LAYER_LABEL: Record<LayerKey, string> = {
@@ -55,6 +59,8 @@ const LAYER_LABEL: Record<LayerKey, string> = {
   electrical: "Electrical",
   aircon: "Aircon",
   site: "Site walls and fence",
+  grids: "Grid lines",
+  roofs: "Roofs",
 };
 
 function ProjectSection({ doc }: { doc: DocState }) {
@@ -163,53 +169,6 @@ function SiteSection({ doc }: { doc: DocState }) {
   );
 }
 
-function RoofSection({ doc }: { doc: DocState }) {
-  const [open, toggle] = useSection("roof", true);
-  const roof = doc.project.roof;
-  const unit = doc.project.settings.display_unit;
-  const set = (patch: Partial<Roof>) => void editRoof(roof, { ...roof, ...patch });
-  const sloped = roof.kind === "shed" || roof.kind === "gable";
-  return (
-    <Section title="Roof" icon="roof" open={open} onToggle={toggle}>
-      <Segmented label="Roof type" stretch value={roof.kind} onChange={(kind) => set({ kind })} options={ROOF_KINDS} />
-      {roof.kind === "none" ? (
-        <p className={s.note}>No roof is drawn. Pick a type to cover the building outline.</p>
-      ) : (
-        <>
-          {sloped ? (
-            <Field label="Pitch">
-              <NumberField label="Roof pitch" suffix="deg" min={1} max={60} value={roof.pitch_deg} onCommit={(v) => set({ pitch_deg: v })} />
-            </Field>
-          ) : null}
-          <Field label="Overhang" hint="Eave distance past the outer wall face">
-            <NumberField label="Roof overhang" kind="length" unit={unit} min={0} max={3000} step={50} value={roof.overhang_mm} onCommit={(v) => set({ overhang_mm: v })} />
-          </Field>
-          <Field label="Thickness">
-            <NumberField label="Roof thickness" kind="length" unit={unit} min={10} max={1000} value={roof.thickness_mm} onCommit={(v) => set({ thickness_mm: v })} />
-          </Field>
-          {sloped ? (
-            <Field label={roof.kind === "gable" ? "Ridge runs" : "Slopes along"}>
-              <Segmented
-                label="Ridge axis"
-                stretch
-                value={roof.ridge_axis}
-                onChange={(ridge_axis) => set({ ridge_axis })}
-                options={[
-                  { value: "x", label: "East-west" },
-                  { value: "y", label: "North-south" },
-                ]}
-              />
-            </Field>
-          ) : null}
-          <Field label="Material">
-            <MaterialPicker label="Roof material" materials={doc.project.materials} prefer={["roof", "metal"]} value={roof.material_id} noneLabel="Default roofing" onChange={(material_id) => set({ material_id })} />
-          </Field>
-        </>
-      )}
-    </Section>
-  );
-}
-
 function LayerRow({ layer, swatch, meta }: { layer: Layer; swatch?: string; meta?: string | null }) {
   const label = LAYER_LABEL[layer.key] ?? layer.key;
   return (
@@ -285,8 +244,6 @@ function LayersSection({ doc }: { doc: DocState }) {
 /** Nothing selected, or the review's shown objects: `shown` counts those. */
 function ProjectInspector({ doc, shown = 0 }: { doc: DocState; shown?: number }) {
   const t = doc.derived.totals;
-  const catalog = useApp((st) => st.catalog);
-  const scheduled = useMemo(() => hasScheduledDevices(doc, catalog), [doc, catalog]);
   return (
     <>
       <header className={s.head}>
@@ -320,13 +277,17 @@ function ProjectInspector({ doc, shown = 0 }: { doc: DocState; shown?: number })
           </div>
         </dl>
         <ReviewSection doc={doc} />
-        {scheduled ? <SchedulesSection doc={doc} /> : null}
+        {/* Wave 2 lanes own the sections below that live in their own files: each renders nothing until it has something to show. */}
+        <SchedulesSection doc={doc} />
         {doc.project.elements.some((e) => e.kind === "pipe") ? <PlumbingSection doc={doc} /> : null}
         <ProjectSection doc={doc} />
+        <TitleBlockSection doc={doc} />
         <DrawingSection doc={doc} />
         <SiteSection doc={doc} />
         <LevelsSection doc={doc} />
         <RoofSection doc={doc} />
+        <TypesSection doc={doc} />
+        <ToursSection doc={doc} />
         <LayersSection doc={doc} />
       </div>
     </>
@@ -350,6 +311,11 @@ const KIND_PLURAL: Record<Element["kind"], [string, string]> = {
   reference_model: ["reference model", "reference models"],
   pipe: ["pipe", "pipes"],
   slab: ["slab", "slabs"],
+  roof: ["roof", "roofs"],
+  grid: ["grid line", "grid lines"],
+  view_mark: ["section or elevation mark", "section and elevation marks"],
+  lot: ["lot", "lots"],
+  tour: ["tour", "tours"],
 };
 
 /** Thickness and height for several walls, each change one batch and one undo step. */

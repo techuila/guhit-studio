@@ -51,14 +51,48 @@ struct LookIn {
     source: Option<String>,
     view: Option<String>,
     visibility: Option<Value>,
+    mark: Option<String>,
+    sheet: Option<String>,
+    schedule: Option<ScheduleKind>,
+    tour: Option<String>,
+    at_s: Option<f64>,
+    scale: Option<u32>,
 }
 
 const SHOW: [&str; 6] = ["dims", "ids", "grid", "scale_bar", "labels", "furniture"];
 
 pub async fn look(app: &AppService, args: &Value, ctx: &crate::agent::CallContext) -> Result<Output, ToolFail> {
     let i: LookIn = parse(args)?;
-    match i.mode.as_deref().unwrap_or("plan") {
+    let mode = i.mode.as_deref().unwrap_or("plan");
+    // Arguments of the Wave 2 modes, refused on the others.
+    for (name, given, modes) in [
+        ("mark", i.mark.is_some(), &["elevation", "section"][..]),
+        ("sheet", i.sheet.is_some(), &["sheet"][..]),
+        ("schedule", i.schedule.is_some(), &["schedule"][..]),
+        ("tour", i.tour.is_some(), &["tour"][..]),
+        ("at_s", i.at_s.is_some(), &["tour"][..]),
+        ("scale", i.scale.is_some(), &["elevation", "section", "schedule"][..]),
+    ] {
+        if given && !modes.contains(&mode) {
+            return Err(ToolFail::args(format!("{name} is for mode {}", modes.join(" or "))));
+        }
+    }
+    if matches!(mode, "elevation" | "section" | "sheet" | "schedule" | "tour") {
+        let plan_only = [("level", i.level.is_some()), ("show", i.show.is_some()), ("bbox", i.bbox.is_some()), ("overlay", i.overlay.is_some()), ("source", i.source.is_some()), ("view", i.view.is_some())];
+        if let Some((name, _)) = plan_only.iter().find(|(_, given)| *given) {
+            return Err(ToolFail::args(format!("{name} is not for mode {mode}")));
+        }
+        if i.visibility.is_some() && mode != "tour" {
+            return Err(ToolFail::args("visibility is for mode 3d and tour"));
+        }
+    }
+    let width = i.width_px.unwrap_or(PLAN_PX).clamp(400, crate::visuals::PICTURE_MAX_PX);
+    match mode {
         "plan" => {}
+        "elevation" | "section" => return Box::pin(mark_drawing(app, &i, mode, width)).await,
+        "sheet" => return Box::pin(sheet_picture(app, &i, width)).await,
+        "schedule" => return Box::pin(schedule_picture(app, &i, width)).await,
+        "tour" => return Box::pin(tour_frame(app, &i)).await,
         "3d" => {
             if i.show.is_some() || i.bbox.is_some() || i.overlay.is_some() {
                 return Err(ToolFail::args("show, bbox and overlay are for mode plan"));
@@ -72,11 +106,7 @@ pub async fn look(app: &AppService, args: &Value, ctx: &crate::agent::CallContex
             }
             return crate::tools::dispatch(app, "capture_view", &Value::Object(v1), ctx).await;
         }
-        "section" | "elevation" => {
-            return Err(ToolFail::new("unavailable", "section and elevation views are not in this version")
-                .with_hint("Use look mode plan per level, mode 3d from a saved view, and measure height for levels, walls and stairs."))
-        }
-        other => return Err(ToolFail::args(format!("unknown mode `{other}`. Use plan or 3d"))),
+        other => return Err(ToolFail::args(format!("unknown mode `{other}`. Use plan, 3d, elevation, section, sheet, schedule or tour"))),
     }
     if i.visibility.is_some() {
         return Err(ToolFail::args("visibility is for mode 3d; the plan shows every visible layer"));
@@ -132,7 +162,6 @@ pub async fn look(app: &AppService, args: &Value, ctx: &crate::agent::CallContex
         }
         None => None,
     };
-    let width = i.width_px.unwrap_or(PLAN_PX).clamp(400, crate::visuals::PICTURE_MAX_PX);
     let drawing = draw_plan(&project, &derived, &level, &DrawOptions { show: &show, bbox, width_px: width, underlays: &underlays });
     let png = rasterize(&drawing.svg, drawing.width, drawing.height)?;
     let mut json = json!({
@@ -203,6 +232,8 @@ fn ink(cat: Cat) -> &'static str {
         Cat::Dims => "#475569",
         Cat::Furn => "#64748b",
         Cat::Site => "#6b7280",
+        Cat::Roof => "#334155",
+        Cat::Grid | Cat::Symb => "#475569",
         Cat::Text | Cat::Area => "#111827",
         _ => "#111111",
     }
@@ -501,6 +532,203 @@ pub(crate) fn rasterize(svg: &str, width: u32, height: u32) -> Result<Vec<u8>, T
     pixmap.encode_png().map_err(|e| ToolFail::new("io", format!("the plan picture could not be encoded: {e}")))
 }
 
+/// Any SVG drawing (an elevation, a sheet, a schedule) as a PNG whose long
+/// side is `long_px`, on white. Returns the PNG and its size.
+pub(crate) fn svg_png(svg: &str, long_px: u32) -> Result<(Vec<u8>, u32, u32), ToolFail> {
+    let opt = usvg::Options { fontdb: fonts(), font_family: "Arial".into(), ..usvg::Options::default() };
+    let tree = usvg::Tree::from_str(svg, &opt).map_err(|e| ToolFail::new("io", format!("the drawing could not be read: {e}")))?;
+    let size = tree.size();
+    let k = long_px as f32 / size.width().max(size.height()).max(1.0);
+    let (w, h) = ((size.width() * k).round().max(1.0) as u32, (size.height() * k).round().max(1.0) as u32);
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(w, h).ok_or_else(|| ToolFail::new("io", "the picture is too large"))?;
+    pixmap.fill(resvg::tiny_skia::Color::WHITE);
+    resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(k, k), &mut pixmap.as_mut());
+    let png = pixmap.encode_png().map_err(|e| ToolFail::new("io", format!("the picture could not be encoded: {e}")))?;
+    Ok((png, w, h))
+}
+
+/// A drawing as the picture an agent gets, with what it shows.
+fn drawing_output(svg: &str, width: u32, json: Value) -> Result<Output, ToolFail> {
+    let (png, w, h) = svg_png(svg, width)?;
+    let mut json = json;
+    json["image_px"] = json!([w, h]);
+    let picture = crate::visuals::fit_picture(&png, "image/png")?;
+    Ok(Output::Rich { json, images: vec![Picture { base64: picture.base64, mime: picture.mime }] })
+}
+
+/// `view_svg` of a view, as the app draws it for sheets.
+async fn view_drawing(app: &AppService, view: &ViewRef, scale: Option<u32>) -> Result<SvgDrawing, ToolFail> {
+    let v = app.handle("view_svg", json!({"view": view, "scale": scale})).await.map_err(|e| {
+        let not_built = e.code == "not_built";
+        let f = ToolFail::from(e);
+        if not_built {
+            f.with_hint("That drawing is not built in this version yet. look mode plan per level, mode 3d from a saved view, and measure height show the same model.")
+        } else {
+            f
+        }
+    })?;
+    serde_json::from_value(v).map_err(|e| ToolFail::new("io", e.to_string()))
+}
+
+/// look mode elevation or section: the drawing of a mark.
+async fn mark_drawing(app: &AppService, i: &LookIn, mode: &str, width: u32) -> Result<Output, ToolFail> {
+    let kind = if mode == "section" { MarkKind::Section } else { MarkKind::Elevation };
+    let (mark, revision) = {
+        let s = app.session.lock().await;
+        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+        let marks: Vec<&ViewMark> = doc
+            .project()
+            .elements
+            .iter()
+            .filter_map(|e| match e {
+                Element::ViewMark(m) if m.mark_kind == kind => Some(m),
+                _ => None,
+            })
+            .collect();
+        let known = || marks.iter().map(|m| format!("\"{}\" ({})", m.label, m.id)).collect::<Vec<_>>().join(", ");
+        let hint = "view_marks action \"add\" makes one; sheets action \"make\" adds four elevations and two sections.";
+        let Some(wanted) = i.mark.as_deref().map(str::trim).filter(|m| !m.is_empty()) else {
+            return Err(if marks.is_empty() {
+                ToolFail::new("not_found", format!("the project has no {mode} marks yet")).with_hint(hint)
+            } else {
+                ToolFail::args(format!("give mark: one of {}", known()))
+            });
+        };
+        let found = marks
+            .iter()
+            .find(|m| m.id == wanted)
+            .or_else(|| marks.iter().find(|m| m.label.trim().eq_ignore_ascii_case(wanted)))
+            .ok_or_else(|| {
+                ToolFail::new("not_found", if marks.is_empty() { format!("the project has no {mode} marks yet") } else { format!("no {mode} mark is `{wanted}`. Marks: {}", known()) }).with_hint(hint)
+            })?;
+        ((*found).clone(), doc.revision())
+    };
+    let view = if kind == MarkKind::Section { ViewRef::Section { mark_id: mark.id.clone() } } else { ViewRef::Elevation { mark_id: mark.id.clone() } };
+    let drawing = view_drawing(app, &view, i.scale).await.map_err(|f| {
+        if f.message.contains("nothing") {
+            f.with_hint("A mark looks to the left going start to end: set flip with modify (set {flip: true}), or move it so the building is in front of it.")
+        } else {
+            f
+        }
+    })?;
+    drawing_output(
+        &drawing.svg,
+        width,
+        json!({
+            "mode": mode, "revision": revision,
+            "mark": {"id": mark.id, "label": mark.label, "start": mark.start, "end": mark.end, "flip": mark.flip},
+            "scale": drawing.scale_denominator.map(|n| format!("1:{n}")),
+            "note": "Drawn by the engine from the model, hidden lines removed. Read heights with measure, not off the picture.",
+        }),
+    )
+}
+
+/// look mode sheet: a permit sheet as an agent may see it (D53: license
+/// numbers masked).
+async fn sheet_picture(app: &AppService, i: &LookIn, width: u32) -> Result<Output, ToolFail> {
+    let wanted = i.sheet.as_deref().ok_or_else(|| ToolFail::args("mode sheet needs sheet: its number (A-1) or id; sheets action \"list\" shows them"))?;
+    let (svg, meta) = crate::documents::sheet_svg_for_agent(app, wanted).await?;
+    drawing_output(
+        &svg,
+        width,
+        json!({
+            "mode": "sheet", "sheet": meta,
+            "note": "The signing architect's license numbers are masked on this picture; the PDF on disk prints them. Nothing on a sheet is permit approval.",
+        }),
+    )
+}
+
+/// look mode schedule: the schedule as drawn on a sheet, and its rows as
+/// data. The data comes back even when the drawing cannot be made.
+async fn schedule_picture(app: &AppService, i: &LookIn, width: u32) -> Result<Output, ToolFail> {
+    let schedule = i.schedule.ok_or_else(|| ToolFail::args("mode schedule needs schedule: doors_windows, rooms, finishes or areas"))?;
+    let (data, revision) = {
+        let s = app.session.lock().await;
+        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+        let q = match schedule {
+            ScheduleKind::DoorsWindows => Query::OpeningSchedule,
+            ScheduleKind::Rooms | ScheduleKind::Finishes => Query::RoomSchedule,
+            ScheduleKind::Areas => Query::LevelAreas,
+        };
+        (doc.query(&q).map_err(ToolFail::from)?, doc.revision())
+    };
+    let json = json!({"mode": "schedule", "schedule": schedule, "revision": revision, "rows": data, "note": "The numbers are the engine's; schedules are data, never a compliance check."});
+    match view_drawing(app, &ViewRef::Schedule { schedule }, i.scale).await {
+        Ok(drawing) => drawing_output(&drawing.svg, width, json),
+        Err(f) if f.code == "not_built" => {
+            let mut json = json;
+            json["drawing"] = json!("not built in this version yet: the rows above are the schedule");
+            Ok(Output::Json(json))
+        }
+        Err(f) => Err(f),
+    }
+}
+
+/// A frame's camera from `Query::TourFrames`: `{position, target, fov_deg}`,
+/// at the top or under `camera`.
+fn frame_camera(frame: &Value, name: &str) -> Option<Camera> {
+    let c = if frame.get("position").is_some() { frame } else { frame.get("camera")? };
+    let v = |k: &str| serde_json::from_value::<Vec3>(c.get(k)?.clone()).ok();
+    Some(Camera {
+        id: String::new(),
+        name: name.to_string(),
+        preset: CameraPreset::Custom,
+        position: v("position")?,
+        target: v("target")?,
+        fov_deg: c.get("fov_deg").and_then(Value::as_f64).unwrap_or(60.0),
+        light: c.get("light").and_then(|l| serde_json::from_value(l.clone()).ok()),
+    })
+}
+
+/// look mode tour: the frame at `at_s`, captured in the window from the
+/// camera the engine works out for it (the same an export uses).
+async fn tour_frame(app: &AppService, i: &LookIn) -> Result<Output, ToolFail> {
+    let wanted = i.tour.as_deref().ok_or_else(|| ToolFail::args("mode tour needs tour: its id or name"))?;
+    let at = i.at_s.unwrap_or(0.0);
+    if !(at.is_finite() && at >= 0.0) {
+        return Err(ToolFail::args("at_s is 0 or more"));
+    }
+    let (tour, frames) = {
+        let s = app.session.lock().await;
+        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+        let tour = crate::tours::find_tour(doc.project(), wanted)?.clone();
+        let v = doc.query(&Query::TourFrames { tour_id: tour.id.clone(), fps: None }).map_err(ToolFail::from)?;
+        (tour, v["frames"].as_array().cloned().unwrap_or_default())
+    };
+    if frames.is_empty() {
+        return Err(ToolFail::new("not_built", format!("the engine has no frames for tour \"{}\" in this version yet", tour.name))
+            .with_hint("look mode 3d from a saved view shows the model meanwhile."));
+    }
+    let fps = tour.fps.max(1) as f64;
+    let index = ((at * fps).round() as usize).min(frames.len() - 1);
+    let camera = frame_camera(&frames[index], &format!("{} at {:.1} s", tour.name, index as f64 / fps))
+        .ok_or_else(|| ToolFail::new("io", "a tour frame has no camera"))?;
+    let visibility = crate::visuals::visibility_of(&json!({"visibility": i.visibility}))?;
+    let mut out = crate::visuals::capture_camera(app, camera, visibility, std::time::Duration::from_secs(45)).await?;
+    if let Output::Json(v) | Output::Rich { json: v, .. } = &mut out {
+        v["tour"] = json!({"id": tour.id, "name": tour.name, "frame": index, "frames": frames.len(), "at_s": (index as f64 / fps * 100.0).round() / 100.0, "seconds": (frames.len() as f64 / fps * 100.0).round() / 100.0});
+        // A tour frame is a look, not a keeper: the window's capture leaves
+        // Visuals once the picture is in hand, so frames never pile up in
+        // the project and its bundle at about 2.4 MB each (GS F11).
+        if v["status"] == "done" {
+            let ids: Vec<String> = v["renders"].as_array().into_iter().flatten().filter_map(|r| r["id"].as_str().map(str::to_string)).collect();
+            for id in &ids {
+                if let Err(e) = app.handle("render_delete", json!({"id": id})).await {
+                    eprintln!("guhit-mcp: a tour frame's capture {id} stayed in Visuals: {}", e.message);
+                }
+            }
+            v["renders"] = json!([]);
+            v["kept"] = json!(false);
+            let kept = "A tour frame is not kept in Visuals. To keep one, look mode 3d or render action \"start\" from a saved view.";
+            v["note"] = match v["note"].as_str().filter(|n| !n.trim().is_empty()) {
+                Some(n) => json!(format!("{n} {kept}")),
+                None => json!(kept),
+            };
+        }
+    }
+    Ok(out)
+}
+
 /// The engine-drawn plan of a level as SVG, for the resource
 /// `guhit://project/levels/{level}/plan.svg`.
 pub(crate) async fn plan_svg(app: &AppService, level: &str) -> Result<String, ToolFail> {
@@ -544,7 +772,51 @@ fn target<'a>(project: &'a Project, v: &Value, what: &str) -> Result<Target<'a>,
     translate::point(v, what).map(Target::Point)
 }
 
-/// An element's plan outline, for distances and clearances.
+/// An element's plan outlines, for distances, clearances and footprints:
+/// one polygon, or for a stair every flight and landing it stands on, from
+/// the engine's own stair geometry (`Derived::stairs`), so an L or U is
+/// measured as it is built (GR1 #11).
+fn outlines(project: &Project, derived: &Derived, el: &Element) -> Vec<Vec<Point>> {
+    if let Element::Stair(s) = el {
+        if let Some(g) = derived.stairs.iter().find(|g| g.stair_id == s.id) {
+            let pieces = guhit_core::stairs::pieces(g);
+            if !pieces.is_empty() {
+                return pieces;
+            }
+        }
+    }
+    vec![outline(project, derived, el)]
+}
+
+/// The smallest gap between two sets of outlines; NaN when either is empty.
+fn gap_between(a: &[Vec<Point>], b: &[Vec<Point>]) -> f64 {
+    a.iter()
+        .flat_map(|p| b.iter().map(move |q| geo::polygon_gap(p, q)))
+        .filter(|g| !g.is_nan())
+        .fold(f64::NAN, f64::min)
+}
+
+/// The middle of a set of outlines: weighted by area, or the mean of the
+/// points when they have none.
+fn middle(shapes: &[Vec<Point>]) -> Point {
+    let (mut ax, mut ay, mut total) = (0.0, 0.0, 0.0);
+    for s in shapes.iter().filter(|s| s.len() >= 3) {
+        let a = geo::signed_area(s).abs();
+        let n = s.len() as f64;
+        ax += a * s.iter().map(|p| p.x).sum::<f64>() / n;
+        ay += a * s.iter().map(|p| p.y).sum::<f64>() / n;
+        total += a;
+    }
+    if total > 1e-6 {
+        return pt(ax / total, ay / total);
+    }
+    let all: Vec<&Point> = shapes.iter().flatten().collect();
+    let n = all.len().max(1) as f64;
+    pt(all.iter().map(|p| p.x).sum::<f64>() / n, all.iter().map(|p| p.y).sum::<f64>() / n)
+}
+
+/// An element's plan outline, for distances and clearances. A stair's is
+/// its flights and landings: use `outlines`.
 fn outline(project: &Project, derived: &Derived, el: &Element) -> Vec<Point> {
     match el {
         Element::Wall(w) => derived
@@ -646,7 +918,7 @@ pub async fn measure(app: &AppService, args: &Value) -> Result<Output, ToolFail>
                             return Ok(level_height(project, l));
                         }
                         let el = project.elements.iter().find(|e| e.id() == id).ok_or_else(|| ToolFail::new("not_found", format!("no element or level is `{id}`")))?;
-                        Ok(element_height(project, el))
+                        Ok(element_height(project, derived, el))
                     })
                     .collect::<Result<_, ToolFail>>()?
             };
@@ -661,13 +933,20 @@ pub async fn measure(app: &AppService, args: &Value) -> Result<Output, ToolFail>
                     .into_iter()
                     .map(|el| match el {
                         Element::Room(room) => {
+                            // Both areas as the room schedule gives them (GR1 #12).
                             let g = derived.rooms.iter().find(|g| g.room_id == room.id);
-                            json!({"id": room.id, "room": room.name, "net_m2": g.map(|g| (g.area_mm2 / 1.0e4).round() / 100.0), "enclosed": g.is_some()})
+                            let row = derived.room_schedule.iter().find(|row| row.room_id == room.id);
+                            json!({
+                                "id": room.id, "room": room.name,
+                                "net_m2": row.map(|r| crate::draft::m2_2(r.net_area_m2)).or(g.map(|g| crate::draft::m2_2(g.area_mm2 / 1.0e6))),
+                                "floor_m2": row.map(|r| crate::draft::m2_2(r.floor_area_m2)),
+                                "enclosed": g.is_some(),
+                            })
                         }
                         Element::Slab(sl) => json!({"id": sl.id, "slab_kind": sl.kind, "outline_m2": (geo::signed_area(&sl.polygon).abs() / 1.0e4).round() / 100.0}),
                         other => {
-                            let o = outline(project, derived, other);
-                            json!({"id": other.id(), "kind": other.kind(), "footprint_m2": (geo::signed_area(&o).abs() / 1.0e4).round() / 100.0})
+                            let area: f64 = outlines(project, derived, other).iter().map(|o| geo::signed_area(o).abs()).sum();
+                            json!({"id": other.id(), "kind": other.kind(), "footprint_m2": (area / 1.0e4).round() / 100.0})
                         }
                     })
                     .collect();
@@ -682,8 +961,7 @@ pub async fn measure(app: &AppService, args: &Value) -> Result<Output, ToolFail>
             let [a, b] = list.as_slice() else {
                 return Err(ToolFail::args("clearance takes two ids"));
             };
-            let (oa, ob) = (outline(project, derived, a), outline(project, derived, b));
-            let gap = geo::polygon_gap(&oa, &ob);
+            let gap = gap_between(&outlines(project, derived, a), &outlines(project, derived, b));
             let same_level = element_level(project, a) == element_level(project, b);
             json!({
                 "kind": "clearance",
@@ -718,18 +996,14 @@ fn distance(project: &Project, derived: &Derived, a: &Target, b: &Target) -> Val
         }
         _ => {
             let shape = |t: &Target| match t {
-                Target::Point(p) => vec![*p],
-                Target::Element(e) => outline(project, derived, e),
+                Target::Point(p) => vec![vec![*p]],
+                Target::Element(e) => outlines(project, derived, e),
             };
             let (sa, sb) = (shape(a), shape(b));
-            let center = |v: &[Point]| {
-                let n = v.len().max(1) as f64;
-                pt(v.iter().map(|p| p.x).sum::<f64>() / n, v.iter().map(|p| p.y).sum::<f64>() / n)
-            };
             json!({
                 "kind": "distance",
-                "gap_mm": r(geo::polygon_gap(&sa, &sb)),
-                "center_to_center_mm": r(geo::dist(center(&sa), center(&sb))),
+                "gap_mm": r(gap_between(&sa, &sb)),
+                "center_to_center_mm": r(geo::dist(middle(&sa), middle(&sb))),
                 "note": "gap_mm is between the outlines; center_to_center_mm between their middles.",
             })
         }
@@ -746,7 +1020,7 @@ fn level_height(project: &Project, l: &Level) -> Value {
     })
 }
 
-fn element_height(project: &Project, el: &Element) -> Value {
+fn element_height(project: &Project, derived: &Derived, el: &Element) -> Value {
     let level = element_level(project, el).and_then(|id| project.levels.iter().find(|l| &l.id == id));
     let floor = level.map(|l| l.elevation_mm).unwrap_or(0.0);
     let lh = level.map(|l| l.height_mm).unwrap_or(defaults::DEFAULT_LEVEL_HEIGHT_MM);
@@ -757,11 +1031,17 @@ fn element_height(project: &Project, el: &Element) -> Value {
         }
         Element::Opening(o) => json!({"id": o.id, "kind": "opening", "sill_mm": r(o.sill_mm), "height_mm": r(o.height_mm), "head_mm": r(o.sill_mm + o.height_mm)}),
         Element::Stair(s) => {
+            // The engine's stair, as plan, 3D, IFC and the walk line build it
+            // (D54): n risers make n - 1 treads straight, n - 2 in an L or U.
+            let g = derived.stairs.iter().find(|g| g.stair_id == s.id);
             let n = s.riser_count.max(1) as f64;
             json!({
-                "id": s.id, "kind": "stair", "rise_mm": r(lh), "riser_count": s.riser_count,
-                "riser_mm": r(lh / n), "treads": s.riser_count.saturating_sub(1),
-                "tread_mm": if s.riser_count > 1 { json!(r(s.run_mm / (n - 1.0))) } else { Value::Null },
+                "id": s.id, "kind": "stair", "shape": s.shape, "rise_mm": r(lh), "riser_count": s.riser_count,
+                "riser_mm": r(g.map(|g| g.riser_mm).unwrap_or(lh / n)),
+                "treads": guhit_core::stairs::tread_count(s),
+                "tread_mm": g.map(|g| r(g.tread_mm)),
+                "flights": g.map(|g| g.flights.iter().map(|f| f.nosings.len() + 1).collect::<Vec<_>>()),
+                "landings": g.map(|g| g.landings.len()),
                 "run_mm": r(s.run_mm),
             })
         }

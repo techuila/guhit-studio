@@ -248,7 +248,7 @@ export function ShareButton() {
       disabled={!hasDoc}
       onClick={() => openShare()}
     >
-      {SHARE_LABEL[mode]}
+      <span data-fold-label>{SHARE_LABEL[mode]}</span>
       {mode !== "off" ? <i className={s.liveDot} data-mode={mode} aria-hidden /> : null}
     </Button>
   );

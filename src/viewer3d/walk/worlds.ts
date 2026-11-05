@@ -29,6 +29,7 @@ import {
   stairColliders,
   stairLocal,
   stairOutline,
+  stairPieces,
   stairPoint,
   stairsOf,
   uAtHeight,
@@ -182,7 +183,7 @@ export class WalkWorlds implements WalkNav {
       if (!layerOn(run.kind === "slab_edge" ? "slabs" : "stairs")) continue;
       out.push(...railingColliders(run.points, run.host_id));
     }
-    const flights = this.stairs.filter((s) => s.levelId === levelId || s.topLevelId === levelId).map((s) => stairOutline(s).outline);
+    const flights = this.stairs.filter((s) => s.levelId === levelId || s.topLevelId === levelId).flatMap((s) => stairPieces(s));
     for (const s of this.slabs) {
       if (s.slab_kind !== "void" || this.levelId(s.level_id) !== levelId) continue;
       for (const piece of subtractWells(s.polygon, flights)) {

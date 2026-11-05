@@ -238,6 +238,7 @@ fn small_room_narrow_door_and_corner_notes() {
             style: None,
             flip_side: None,
             flip_hinge: None,
+            type_id: None,
         },
     );
     let c = codes(&r.state);

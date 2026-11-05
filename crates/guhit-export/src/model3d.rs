@@ -19,11 +19,12 @@
 use std::collections::HashMap;
 
 use guhit_model::{
-    Annotation, Asset, Axis, Column, Derived, Element, Level, Opening, Pipe, Project,
-    RailingRun, RailingStyle, Room, RoofKind, Slab, SlabKind, Stair, Wall,
+    Annotation, Asset, Column, Derived, Element, Level, Opening, Pipe, Project, RailingRun,
+    RailingStyle, Room, Slab, SlabKind, Stair, Wall,
 };
 
 use crate::geom::*;
+pub use crate::roofs::{roof_planes, RoofPlane, RoofSolid};
 
 /// Slab thickness under a storey floor, mm.
 pub const SLAB_THICKNESS_MM: f64 = 150.0;
@@ -133,11 +134,9 @@ fn clamp_openings(openings: &[&Opening], u_min: f64, u_max: f64, height: f64) ->
 /// The whole model, grouped by level and ready for either exporter.
 pub struct Scene<'a> {
     pub levels: Vec<LevelScene<'a>>,
-    /// Roof planes over the top level, empty for `RoofKind::None`.
-    pub roof: Vec<RoofPlane>,
-    pub roof_kind: RoofKind,
-    /// Index of the level the roof sits on, if any.
-    pub roof_level: Option<usize>,
+    /// Every roof, each on the level that carries it (P1-8, D54). Built by
+    /// `roofs::scene_roofs` (lane L2).
+    pub roofs: Vec<RoofSolid>,
 }
 
 pub struct LevelScene<'a> {
@@ -168,121 +167,8 @@ pub struct RoomSolid<'a> {
     pub wall_ids: Vec<String>,
 }
 
-/// One planar roof surface. `plan` is its footprint in plan coordinates,
-/// already offset by the overhang and clipped to this plane's share.
-pub struct RoofPlane {
-    pub plan: Vec<V>,
-    /// Plan point where the plane's local origin sits.
-    pub origin: V,
-    /// Underside height at `origin`, mm above the level floor.
-    pub base_h: f64,
-    /// Horizontal unit vector along the ridge (the plane's local x). Always
-    /// `up_slope` turned 90 degrees clockwise, so (along, up_slope) is right
-    /// handed and the plane normal points up.
-    pub along: V,
-    /// Plan unit vector pointing up the slope.
-    pub up_slope: V,
-    pub tan: f64,
-    pub cos: f64,
-    /// Thickness measured perpendicular to the plane, mm.
-    pub thickness: f64,
-}
-
-impl RoofPlane {
-    /// Underside height at a plan point, mm above the level floor.
-    pub fn under(&self, p: V) -> f64 {
-        self.base_h + (p - self.origin).dot(self.up_slope) * self.tan
-    }
-
-    /// Top surface height at a plan point, mm above the level floor.
-    pub fn top(&self, p: V) -> f64 {
-        self.under(p) + self.thickness / self.cos
-    }
-
-    /// Profile coordinates of a plan point in the plane's own 2D space.
-    pub fn profile(&self, p: V) -> V {
-        let r = p - self.origin;
-        v(r.dot(self.along), r.dot(self.up_slope) / self.cos)
-    }
-}
-
 fn pts(points: &[guhit_model::Point]) -> Vec<V> {
     points.iter().map(V::from).collect()
-}
-
-fn clamp_pitch(deg: f64) -> f64 {
-    if !deg.is_finite() {
-        0.0
-    } else {
-        deg.clamp(0.0, 60.0)
-    }
-}
-
-/// Roof planes over one building footprint. `base` is the wall top height
-/// above the level floor.
-pub fn roof_planes(project: &Project, footprint: &[V], base: f64) -> Vec<RoofPlane> {
-    let roof = &project.roof;
-    let fp = ensure_ccw(footprint);
-    let b = bounds_of(&fp);
-    if roof.kind == RoofKind::None || fp.len() < 3 || b.is_empty() {
-        return Vec::new();
-    }
-    let thickness = roof.thickness_mm.max(10.0);
-    let overhang = roof.overhang_mm.max(0.0);
-    let outline = offset_polygon(&fp, overhang);
-    if outline.len() < 3 {
-        return Vec::new();
-    }
-
-    // `along` is always `up_slope` turned 90 degrees clockwise.
-    let plane = |plan: Vec<V>, origin: V, up_slope: V, tan: f64, cos: f64| RoofPlane {
-        plan,
-        origin,
-        base_h: base,
-        along: v(up_slope.y, -up_slope.x),
-        up_slope,
-        tan,
-        cos,
-        thickness,
-    };
-
-    if roof.kind == RoofKind::Flat {
-        return vec![plane(outline, b.min, v(0.0, 1.0), 0.0, 1.0)];
-    }
-
-    let pitch = clamp_pitch(roof.pitch_deg).to_radians();
-    let tan = pitch.tan();
-    let cos = pitch.cos();
-    let axis_x = roof.ridge_axis == Axis::X;
-
-    if roof.kind == RoofKind::Shed {
-        // ridge_axis is the slope direction for a shed roof: it rises along +axis.
-        let up_slope = if axis_x { v(1.0, 0.0) } else { v(0.0, 1.0) };
-        return vec![plane(outline, b.min, up_slope, tan, cos)];
-    }
-
-    // Gable: the ridge runs along ridge_axis, the slopes fall across it.
-    let across = if axis_x { v(0.0, 1.0) } else { v(1.0, 0.0) };
-    let (lo, hi) = if axis_x {
-        (b.min.y, b.max.y)
-    } else {
-        (b.min.x, b.max.x)
-    };
-    let mid = (lo + hi) / 2.0;
-    let low_side = clip_half_plane(&outline, v(0.0, 0.0), across, mid, false);
-    let high_side = clip_half_plane(&outline, v(0.0, 0.0), across, mid, true);
-    let mut out = Vec::new();
-    for (plan, origin, up_slope) in [
-        (low_side, across * lo, across),
-        (high_side, across * hi, -across),
-    ] {
-        let plan = clean_polygon(&plan);
-        if plan.len() < 3 {
-            continue;
-        }
-        out.push(plane(plan, origin, up_slope, tan, cos));
-    }
-    out
 }
 
 /// Group the whole project into levels with geometry ready to write.
@@ -451,34 +337,8 @@ pub fn build_scene<'a>(project: &'a Project, derived: &'a Derived) -> Scene<'a> 
         }
     }
 
-    // The roof sits on the topmost level that has a footprint.
-    let roof_level = levels
-        .iter()
-        .enumerate()
-        .filter(|(_, l)| !l.footprints.is_empty())
-        .max_by(|a, b| {
-            a.1.level
-                .elevation_mm
-                .partial_cmp(&b.1.level.elevation_mm)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(|(i, _)| i);
-    let mut roof = Vec::new();
-    if project.roof.kind != RoofKind::None {
-        if let Some(i) = roof_level {
-            let base = levels[i].level.height_mm;
-            for fp in &levels[i].footprints {
-                roof.extend(roof_planes(project, fp, base));
-            }
-        }
-    }
-
-    Scene {
-        levels,
-        roof_kind: project.roof.kind,
-        roof_level: if roof.is_empty() { None } else { roof_level },
-        roof,
-    }
+    let roofs = crate::roofs::scene_roofs(project, derived, &levels);
+    Scene { levels, roofs }
 }
 
 /// Wall body split into solid cells. `strips[s]` is the plan polygon of strip
@@ -625,6 +485,47 @@ pub fn stair_treads(s: &Stair, level_height: f64) -> Vec<Tread> {
         .collect()
 }
 
+/// One solid piece of a derived stair (`Derived::stairs`): a tread or a
+/// landing, its plan outline counter-clockwise and its top, mm above the
+/// stair's level floor.
+#[derive(Debug, Clone)]
+pub struct StairPart {
+    pub plan: Vec<V>,
+    pub top: f64,
+    /// True for a landing, false for a tread.
+    pub landing: bool,
+    /// The flight a tread belongs to, 0 based; the landing's index for a landing.
+    pub index: usize,
+}
+
+/// Every tread and landing of a derived stair, flight by flight in walking
+/// order, landings after the flight before them. The exports and the 3D
+/// view build stairs from this (DECISIONS D54), never from `Stair` fields.
+pub fn stair_parts(g: &guhit_model::StairGeometry) -> Vec<StairPart> {
+    let mut out = vec![];
+    for (fi, f) in g.flights.iter().enumerate() {
+        let up = V::from(f.up);
+        let top_end = f.outline.get(3).map(|t0| (V::from(*t0) - V::from(f.outline[0])).dot(up));
+        for (k, n) in f.nosings.iter().enumerate() {
+            let (a, b) = (V::from(n.a), V::from(n.b));
+            let going = match f.nosings.get(k + 1) {
+                Some(next) => (V::from(next.a) - a).dot(up),
+                None => top_end.map(|t| t - (a - V::from(f.outline[0])).dot(up)).unwrap_or(g.tread_mm),
+            };
+            out.push(StairPart { plan: vec![a, b, b + up * going, a + up * going], top: n.z, landing: false, index: fi });
+        }
+        if let Some(l) = g.landings.get(fi) {
+            out.push(StairPart { plan: ensure_ccw(&pts(&l.polygon)), top: l.z, landing: true, index: fi });
+        }
+    }
+    out
+}
+
+/// The derived geometry of a stair, if it has one.
+pub fn stair_geometry<'a>(derived: &'a Derived, stair_id: &str) -> Option<&'a guhit_model::StairGeometry> {
+    derived.stairs.iter().find(|g| g.stair_id == stair_id)
+}
+
 /// Whole plan rectangle of a stair flight, for the single-box IFC form.
 pub fn stair_box(s: &Stair) -> Vec<V> {
     let fwd = dir(s.rotation_deg + 90.0);
@@ -633,7 +534,98 @@ pub fn stair_box(s: &Stair) -> Vec<V> {
     rect(c, s.width_mm.max(1.0), run, s.rotation_deg)
 }
 
+// ---------------------------------------------------------------- roof parts
+
+/// The wall a gable-end infill polygon (`RoofGeometry::infill`) continues:
+/// the nearest wall within a meter of its middle, as its thickness, a point
+/// of its centerline and its plan direction. The IFC and the drawings make
+/// the infill a wall that thick (150 mm when no wall is near).
+pub fn infill_host(poly: &[guhit_model::Vec3], walls: &[WallSolid]) -> Option<(f64, V, V)> {
+    if poly.is_empty() {
+        return None;
+    }
+    let mid = poly.iter().fold(v(0.0, 0.0), |acc, p| acc + v(p.x, p.y)) * (1.0 / poly.len() as f64);
+    walls
+        .iter()
+        .filter_map(|w| {
+            let (a, b) = (V::from(w.wall.start), V::from(w.wall.end));
+            let along = (b - a).unit()?;
+            let t = ((mid - a).dot(b - a) / (b - a).dot(b - a).max(1e-9)).clamp(0.0, 1.0);
+            Some(((a + (b - a) * t - mid).len(), w.wall.thickness_mm.abs().max(1.0), a, along))
+        })
+        .filter(|(d, ..)| *d < 1000.0)
+        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(_, t, a, along)| (t, a, along))
+}
+
+/// How far an infill's plane at plan point `o` moves along its horizontal
+/// unit normal `n` to sit centered on its host wall: the distance to the
+/// wall's centerline when the wall runs along the plane and the infill
+/// lies within its thickness (on a wall face), else 0.
+pub fn infill_shift(o: V, n: V, host: Option<(f64, V, V)>) -> f64 {
+    match host {
+        Some((t, at, along)) if along.dot(n).abs() < 0.05 => {
+            let d = (at - o).dot(n);
+            if d.abs() <= t { d } else { 0.0 }
+        }
+        _ => 0.0,
+    }
+}
+
+/// The roof plane over plan point `p` with the lowest underside there, of
+/// the roofs the level `level_id` carries (`Derived::roofs`). None under no
+/// roof.
+pub fn roof_plane_over(derived: &Derived, level_id: &str, p: V) -> Option<RoofPlane> {
+    let mut best: Option<(f64, RoofPlane)> = None;
+    for g in derived.roofs.iter().filter(|g| g.level_id == level_id) {
+        for top in &g.planes {
+            let plan: Vec<V> = top.iter().map(|q| v(q.x, q.y)).collect();
+            if plan.len() < 3 || !point_in_polygon(p, &plan) {
+                continue;
+            }
+            let Some(plane) = crate::roofs::plane_of(top, g.vertical_mm) else { continue };
+            let under = plane.under(p);
+            if under.is_finite() && best.as_ref().is_none_or(|(b, _)| under < *b) {
+                best = Some((under, plane));
+            }
+        }
+    }
+    best.map(|(_, plane)| plane)
+}
+
+/// The top of a column, mm above its level floor, at any plan point of its
+/// section: the underside of the roof over its center when its level
+/// carries one (a carport or lanai post runs up to its roof, as in the live
+/// 3D view), else the level height. Faceted exports slope the top with the
+/// roof; extruded ones stand to `column_height`.
+pub fn column_top(derived: &Derived, level: &Level, c: &Column) -> impl Fn(V) -> f64 {
+    let center = V::from(c.center);
+    let plane = roof_plane_over(derived, &level.id, center).filter(|pl| pl.under(center) > 10.0);
+    let height = level.height_mm.max(1.0);
+    move |p: V| plane.as_ref().map(|pl| pl.under(p)).filter(|z| z.is_finite() && *z > 1.0).unwrap_or(height)
+}
+
+/// How tall a column stands at its center, mm above its level floor
+/// (`column_top`).
+pub fn column_height(derived: &Derived, level: &Level, c: &Column) -> f64 {
+    column_top(derived, level, c)(V::from(c.center))
+}
+
 // ---------------------------------------------------------------------- slabs
+
+/// The clear part of a void (GA P0-1): its outline less the outlines of the
+/// walls of its level, as convex pieces. A void drawn to the wall
+/// centerlines takes off only the floor inside the walls, never the slab
+/// under them, as the engine counts gross floor area.
+pub fn void_clear(void: &[V], walls: &[WallSolid]) -> Vec<Vec<V>> {
+    let mut pieces = triangles(&ensure_ccw(void));
+    for w in walls.iter().filter(|w| overlap_area(void, &w.plan_outline) > 1.0) {
+        for t in triangles(&w.plan_outline) {
+            pieces = pieces.iter().flat_map(|p| subtract_convex(p, &t)).collect();
+        }
+    }
+    pieces.into_iter().filter(|p| polygon_area(p) > 1.0).collect()
+}
 
 /// A slab's outline, counter-clockwise, or empty when it is no polygon.
 pub fn slab_outline(s: &Slab) -> Vec<V> {
@@ -780,6 +772,7 @@ pub fn railing_pieces(run: &RailingRun) -> Vec<RailPiece> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use guhit_model::{Axis, RoofKind, StairShape, Turn};
 
     #[test]
     fn wall_cells_split_around_one_opening() {
@@ -835,7 +828,7 @@ mod tests {
             v(8075.0, 6075.0),
             v(-75.0, 6075.0),
         ];
-        let planes = roof_planes(&project, &fp, 3000.0);
+        let planes = roof_planes(&project.roof, &fp, 3000.0);
         assert_eq!(planes.len(), 2);
         let ridge = v(4000.0, 3000.0);
         let tan = 20f64.to_radians().tan();
@@ -865,6 +858,11 @@ mod tests {
             railing: None,
             run_mm: 2750.0,
             riser_count: 11,
+            shape: StairShape::Straight,
+            turn: Turn::Left,
+            first_flight_risers: None,
+            landing_mm: None,
+            well_mm: 0.0,
         };
         // D44: 11 risers are 10 treads of 275 mm, the last one riser under
         // the floor above.

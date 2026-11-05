@@ -1,5 +1,5 @@
 // Trim and the D50 slab parts of the 3D model: skirting boards along room
-// walls, the fascia board along the roof edge, railings along the runs the
+// walls (the roof fascia and gutters are in geom/roofMesh.ts), railings along the runs the
 // engine works out (`Derived.railings`), and the pieces a void cuts out of a
 // floor. Pure geometry into MeshData, plan mm, no three.js objects, so the
 // shapes are tested without a GPU (trim.test.ts).
@@ -89,65 +89,6 @@ export function pushSkirting(md: MeshData, poly: Pt[], doors: DoorSpan[], floorM
     const quad = [a, b, { x: b.x + nx, y: b.y + ny }, { x: a.x + nx, y: a.y + ny }];
     pushPrism(md, quad, { bottom: () => floorMm, top: () => top, skipBottom: true });
   }
-}
-
-// ------------------------------------------------------------------ fascia
-
-/** Fascia board: 25 mm thick, hung 180 mm below the roof edge's underside. */
-export const FASCIA_THICK_MM = 25;
-export const FASCIA_DROP_MM = 180;
-
-/**
- * A fascia board around a roof outline (eaves and rakes), just outside its
- * edge, from `FASCIA_DROP_MM` below the underside up to the top side. A
- * gable's rake edges are split at the ridge, so each piece has one slope.
- */
-export function pushFascia(
-  md: MeshData,
-  outlineIn: Pt[],
-  under: (p: Pt) => number,
-  vertical: number,
-  ridge: { across: (p: Pt) => number; at: number } | null,
-): void {
-  const outline = ensureCCW(outlineIn);
-  const pieces: [Pt, Pt][] = [];
-  for (let i = 0; i < outline.length; i++) {
-    const a = outline[i];
-    const b = outline[(i + 1) % outline.length];
-    if (ridge) {
-      const sa = ridge.across(a) - ridge.at;
-      const sb = ridge.across(b) - ridge.at;
-      if (sa * sb < 0) {
-        const t = sa / (sa - sb);
-        const m = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-        pieces.push([a, m], [m, b]);
-        continue;
-      }
-    }
-    pieces.push([a, b]);
-  }
-  for (const [a, b] of pieces) {
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    if (len < 1) continue;
-    // Outward: the right of a counter-clockwise edge.
-    const nx = ((b.y - a.y) / len) * FASCIA_THICK_MM;
-    const ny = (-(b.x - a.x) / len) * FASCIA_THICK_MM;
-    const quad = [a, { x: a.x + nx, y: a.y + ny }, { x: b.x + nx, y: b.y + ny }, b];
-    // `under` is planar over each piece: the piece is on one side of the ridge.
-    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    const slope = (p: Pt) => under(project(p, a, b, mid));
-    pushPrism(md, quad, { bottom: (p) => slope(p) - FASCIA_DROP_MM, top: (p) => slope(p) + vertical });
-  }
-}
-
-/** `p` moved onto the line a-b: the board follows the edge's height, not the roof's inside. */
-function project(p: Pt, a: Pt, b: Pt, fallback: Pt): Pt {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const l2 = dx * dx + dy * dy;
-  if (l2 < 1e-9) return fallback;
-  const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
-  return { x: a.x + dx * t, y: a.y + dy * t };
 }
 
 // --------------------------------------------------------------- railings

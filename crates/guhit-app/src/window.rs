@@ -20,16 +20,69 @@ const KEEP_FINISHED: Duration = Duration::from_secs(10 * 60);
 /// A request no window has answered after this long is given up.
 const GIVE_UP: Duration = Duration::from_secs(30 * 60);
 
+/// What the window last said it is doing is believed this long; after
+/// that it is reported as not heard from.
+const STATUS_FRESH: Duration = Duration::from_secs(30);
+
 struct Job {
     started: Instant,
     finished: Option<Instant>,
     result: Option<Result<WindowReply, IpcError>>,
     done: Arc<Notify>,
+    /// What was asked, in words: "render 2 views, quick, hd".
+    what: String,
+}
+
+/// What the window says its render queue is doing (G4 problem 8): sent by
+/// the window with `window_status` when a render starts, as it goes and
+/// when it ends, whoever started it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct WindowActivity {
+    pub busy: bool,
+    /// "Rendering", "Exporting a tour".
+    #[serde(default)]
+    pub what: String,
+    /// The view or shot it is on.
+    #[serde(default)]
+    pub view: Option<String>,
+    /// Which of how many, from 1.
+    #[serde(default)]
+    pub index: Option<u32>,
+    #[serde(default)]
+    pub total: Option<u32>,
+    #[serde(default)]
+    pub progress_pct: Option<f64>,
+    #[serde(default)]
+    pub eta_s: Option<f64>,
+    /// The window request it answers, when an MCP client asked for it.
+    #[serde(default)]
+    pub job_id: Option<Id>,
 }
 
 #[derive(Default)]
 pub struct WindowState {
     jobs: Mutex<HashMap<Id, Job>>,
+    activity: Mutex<Option<(WindowActivity, Instant)>>,
+}
+
+/// A task in words, for the queue's report.
+fn task_words(task: &WindowTask) -> String {
+    let size = |s: &RenderSize| serde_json::to_value(s).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+    match task {
+        WindowTask::CapturePlan { .. } => "a picture of the plan".into(),
+        WindowTask::CaptureView { .. } => "a capture of the 3D view".into(),
+        WindowTask::Render { views, quality, size: s, .. } => {
+            let q = serde_json::to_value(quality).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+            let what = match views.len() {
+                0 => "the view on screen".to_string(),
+                1 => "1 saved view".to_string(),
+                n => format!("{n} saved views"),
+            };
+            format!("a render of {what}, {q}, {}", size(s))
+        }
+        WindowTask::CaptureMaps { .. } => "the conditioning maps of a render".into(),
+        WindowTask::ExportTour { size: s, .. } => format!("a tour video export, {}", size(s)),
+    }
 }
 
 enum Checked {
@@ -67,7 +120,7 @@ impl AppService {
             WindowState::prune(&mut jobs);
             jobs.insert(
                 id.clone(),
-                Job { started: Instant::now(), finished: None, result: None, done: Arc::new(Notify::new()) },
+                Job { started: Instant::now(), finished: None, result: None, done: Arc::new(Notify::new()), what: task_words(&task) },
             );
         }
         self.emit(AppEvent::WindowRequest { request: WindowRequest { id: id.clone(), task } });
@@ -135,6 +188,40 @@ impl AppService {
         }
     }
 
+    /// What the window's render queue is doing, as the window last said
+    /// (G4 problem 8), with the requests it has not answered yet. None when
+    /// the window never said and nothing waits.
+    pub fn window_activity(&self) -> Option<Value> {
+        let waiting: Vec<Value> = {
+            let mut jobs = self.window.jobs.lock().unwrap_or_else(|e| e.into_inner());
+            WindowState::prune(&mut jobs);
+            let mut list: Vec<(&Id, &Job)> = jobs.iter().filter(|(_, j)| j.result.is_none()).collect();
+            list.sort_by_key(|(_, j)| j.started);
+            list.iter()
+                .map(|(id, j)| serde_json::json!({"job_id": id, "what": j.what, "running_s": j.started.elapsed().as_secs()}))
+                .collect()
+        };
+        let said = self.window.activity.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let (state, line) = match said {
+            Some((a, at)) if at.elapsed() < STATUS_FRESH || !a.busy => {
+                let line = activity_line(&a);
+                (Some(a), line)
+            }
+            Some((a, at)) => (
+                Some(a),
+                format!("The window said it was busy {} s ago and has not said since; it may still be working.", at.elapsed().as_secs()),
+            ),
+            None if waiting.is_empty() => return None,
+            None => (None, "The window has not reported its render queue.".to_string()),
+        };
+        Some(serde_json::json!({"busy": state.as_ref().is_some_and(|a| a.busy), "status": line, "state": state, "waiting": waiting}))
+    }
+
+    /// The window's report of its render queue (`window_status`).
+    fn window_status(&self, activity: WindowActivity) {
+        *self.window.activity.lock().unwrap_or_else(|e| e.into_inner()) = Some((activity, Instant::now()));
+    }
+
     /// The window's answer. The first answer wins; a late or unknown one is
     /// `not_found`, which the window ignores.
     fn window_reply(&self, id: &str, result: Result<WindowReply, IpcError>) -> Result<(), IpcError> {
@@ -149,10 +236,40 @@ impl AppService {
     }
 }
 
-pub const OWNS: &[&str] = &["window_reply"];
+/// "Rendering Front, view 1 of 2, 75%, about 30 s left", or "Idle".
+pub fn activity_line(a: &WindowActivity) -> String {
+    if !a.busy {
+        return "The window's render queue is idle.".to_string();
+    }
+    let mut parts = vec![if a.what.trim().is_empty() { "Busy".to_string() } else { a.what.trim().to_string() }];
+    if let Some(v) = a.view.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        parts[0] = format!("{} {v}", parts[0]);
+    }
+    if let (Some(i), Some(n)) = (a.index, a.total) {
+        if n > 1 {
+            parts.push(format!("{i} of {n}"));
+        }
+    }
+    if let Some(p) = a.progress_pct.filter(|p| p.is_finite()) {
+        parts.push(format!("{:.0}%", p.clamp(0.0, 100.0)));
+    }
+    if let Some(s) = a.eta_s.filter(|s| s.is_finite() && *s >= 0.0) {
+        parts.push(format!("about {:.0} s left", s.ceil()));
+    }
+    format!("{}.", parts.join(", "))
+}
+
+pub const OWNS: &[&str] = &["window_reply", "window_status"];
 
 pub async fn handle(app: &AppService, cmd: &str, args: Value) -> IpcResult {
     match cmd {
+        // The window's render queue, as it goes (G4 problem 8).
+        "window_status" => {
+            let activity: WindowActivity =
+                serde_json::from_value(args).map_err(|e| IpcError::new("bad_args", format!("window_status: {e}")))?;
+            app.window_status(activity);
+            Ok(Value::Null)
+        }
         "window_reply" => {
             let id: String = arg(&args, "id")?;
             let reply: Option<WindowReply> = arg(&args, "reply")?;
@@ -228,5 +345,28 @@ mod tests {
         let err = app.window_wait(&id, Duration::from_millis(20)).await.unwrap_err();
         assert_eq!(err.code, "no_document");
         assert_eq!(app.window_wait("nope", Duration::from_millis(1)).await.unwrap_err().code, "not_found");
+    }
+
+    /// G4 problem 8: the render queue says what it is doing, and what it
+    /// was asked and has not answered yet.
+    #[tokio::test]
+    async fn the_render_queue_reports_what_it_is_doing() {
+        let (app, _dir) = app();
+        let _events = app.events();
+        assert_eq!(app.window_activity(), None, "nothing said, nothing waiting");
+        let id = app
+            .window_start(WindowTask::Render { views: vec!["a".into(), "b".into()], quality: TraceQuality::Quick, size: RenderSize::Hd, visibility: None })
+            .unwrap();
+        let waiting = app.window_activity().unwrap();
+        assert_eq!(waiting["waiting"][0]["job_id"], id.as_str());
+        assert_eq!(waiting["waiting"][0]["what"], "a render of 2 saved views, quick, hd");
+        let status = json!({"busy": true, "what": "Rendering", "view": "Front", "index": 1, "total": 2, "progress_pct": 75.4, "eta_s": 29.2, "job_id": id});
+        handle(&app, "window_status", status).await.unwrap();
+        let now = app.window_activity().unwrap();
+        assert_eq!(now["busy"], true);
+        assert_eq!(now["status"], "Rendering Front, 1 of 2, 75%, about 30 s left.");
+        handle(&app, "window_status", json!({"busy": false})).await.unwrap();
+        assert_eq!(app.window_activity().unwrap()["status"], "The window's render queue is idle.");
+        assert_eq!(handle(&app, "window_status", json!({"busy": "yes"})).await.unwrap_err().code, "bad_args");
     }
 }

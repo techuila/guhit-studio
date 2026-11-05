@@ -12,6 +12,18 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import type { DocState } from "../../contract/bindings";
+
+/**
+ * The catalog keys a document wants a pack model for: every placed object.
+ * The engine asks for exactly these (ViewerEngine.requestPackModels); lane
+ * L5 adds the built-ins' and the site kit's here.
+ */
+export function packKeysOf(doc: DocState | null): string[] {
+  const keys: string[] = [];
+  for (const e of doc?.project.elements ?? []) if (e.kind === "asset") keys.push(e.catalog_key);
+  return keys;
+}
 
 /** Served from `public/assets/pack`. Same origin, so the webview CSP allows it. */
 export const PACK_BASE = "assets/pack/";

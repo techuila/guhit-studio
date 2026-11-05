@@ -1,43 +1,39 @@
-//! Minimal ASCII DXF writer, R12 (AC1009) flavor: LINE, POLYLINE, ARC,
-//! CIRCLE and TEXT only, no handles, no objects section. This is the most
-//! widely readable DXF there is: AutoCAD, BricsCAD, LibreCAD and QCAD open it.
+//! DXF export, as DXF 2013 (AC1027, `doc` and `build`): UTF-8 text
+//! ("Parañaque", "m²"), `$INSUNITS` 4 (millimeters), layers with the plan's
+//! pens as lineweights, a block per door and window type and per catalog
+//! object placed as INSERTs, real DIMENSION entities with a dimension style
+//! and their anonymous blocks, and solid HATCH for cut walls and columns.
+//! `plan` writes one level, `plans` every level side by side, `sheets` the
+//! views of the sheet set side by side (plan 1.6), `write_parts` the
+//! services and isometric sheets and `write` drawings that are only items.
+//!
+//! The 3D DXF (`dxf3d`) stays R12 and borrows the pipe, linetype and text
+//! helpers here.
 //!
 //! Model space, millimeters, 1:1, y north (DXF is y-up like the model).
 //!
 //! Pipes go on one layer per system (`pipes::dxf_layer`). Drainage and vent
 //! layers use the dashed and dash-dot linetypes this file defines, with the
 //! pattern sized to plot at 1:N. Pipe layers and linetypes are only written
-//! when the drawing has pipes, so a project without pipes gives the same file
-//! as before.
+//! when the drawing has pipes.
 //!
 //! Slabs go on `A-FLOR-OTLN` and railings on `A-FLOR-HRAL`, layers written
 //! only when something is on them, like `L-SITE`. A stair seen from the level
 //! it arrives at stays on `A-FLOR-STRS` with the `GUHIT_DASHED` linetype.
 
-use guhit_model::PipeSystem;
+mod build;
+mod doc;
+mod sheets;
+
+pub use sheets::{plans, sheets};
+
+use guhit_model::{Derived, PipeSystem, PlanExportOptions, Project};
+
+use crate::{ExportError, PlanOutput};
 
 use crate::geom::*;
 use crate::pipes::{self, Dash, PlanPipe};
-use crate::plan::{items_bounds, Cat, Fill, HAlign, Item, Prim};
-use crate::text::est_width;
-
-/// AutoCAD color index per layer. Dark, readable on white and on black.
-fn layer_color(cat: Cat) -> u8 {
-    match cat {
-        Cat::Wall => 7,
-        Cat::Site => 8,
-        Cat::Door => 4,
-        Cat::Glaz => 5,
-        Cat::Cols => 7,
-        Cat::Strs | Cat::StrsBelow => 6,
-        Cat::Slab => 8,
-        Cat::Rail => 6,
-        Cat::Furn => 8,
-        Cat::Area => 3,
-        Cat::Dims => 1,
-        Cat::Text => 7,
-    }
-}
+use crate::plan::{items_bounds, Cat, Item, Prim};
 
 fn f(x: f64) -> String {
     let x = if x.is_finite() { x } else { 0.0 };
@@ -55,8 +51,8 @@ fn f(x: f64) -> String {
     }
 }
 
-/// DXF R12 text is plain ASCII. Other characters use the \U+XXXX escape
-/// that current CAD programs understand.
+/// Text for the R12 3D DXF, plain ASCII. Other characters use the \U+XXXX
+/// escape that current CAD programs understand.
 pub fn dxf_text(text: &str) -> String {
     let mut out = String::new();
     for c in text.chars() {
@@ -82,30 +78,6 @@ fn put_int(s: &mut String, code: i32, value: i64) {
 
 fn put_num(s: &mut String, code: i32, value: f64) {
     put(s, code, &f(value));
-}
-
-struct Writer {
-    s: String,
-}
-
-impl Writer {
-    fn pair(&mut self, code: i32, value: &str) {
-        put(&mut self.s, code, value);
-    }
-
-    fn num(&mut self, code: i32, value: f64) {
-        self.pair(code, &f(value));
-    }
-
-    fn int(&mut self, code: i32, value: i64) {
-        self.pair(code, &format!("{value:>6}"));
-    }
-
-    fn point(&mut self, base: i32, p: V) {
-        self.num(base, p.x);
-        self.num(base + 10, p.y);
-        self.num(base + 20, 0.0);
-    }
 }
 
 // ---------------------------------------------------------------------- pipes
@@ -203,9 +175,43 @@ pub(crate) fn write_pipe_entities(s: &mut String, list: &[PlanPipe], scale: f64)
     }
 }
 
-/// Write the primitives as a complete DXF document. `scale` sizes the pipe
-/// linetypes and riser marks and goes into the header comment; geometry is
-/// 1:1.
+/// One level's plan as DXF 2013: the level `opts.level_id` (None: the
+/// first) at `opts.scale_denominator`, else the project scale, else 1:100,
+/// which sizes text, ticks, dimension styles and dashes. Paper and title
+/// block options do not apply to model space. `opts.sheet` is not read:
+/// the services sheets go through their own writers.
+pub fn plan(project: &Project, derived: &Derived, opts: &PlanExportOptions) -> Result<PlanOutput<String>, ExportError> {
+    let level = crate::plan::resolve_level(project, opts.level_id.as_ref())?;
+    let scale = sheets::plan_scale(project, opts);
+    let mut b = build::Builder::new(scale as f64);
+    b.doc.comments = vec![
+        "Guhit Studio plan export".into(),
+        format!("DXF 2013. Units: millimeters, model space 1:1, y is north. Text sized for plotting at 1:{scale}"),
+    ];
+    let view = build::PlanView {
+        project,
+        derived,
+        level,
+        n: scale as f64,
+        show_dimensions: opts.show_dimensions,
+        show_room_labels: opts.show_room_labels,
+        show_assets: opts.show_assets,
+        show_pipes: opts.show_pipes,
+    };
+    if !b.add_plan(&view, v(0.0, 0.0)) {
+        return Err(crate::plan::empty_level(level));
+    }
+    Ok(PlanOutput {
+        data: doc::write(&b.finish()),
+        scale_denominator: scale,
+    })
+}
+
+/// Plan items and pipes as a DXF 2013 document, for drawings that are only
+/// items (the reflected ceiling plan, views drawn elsewhere): layers,
+/// lineweights, hatches and UTF-8 as `plan`, without the blocks and
+/// dimensions only the model gives. `scale` sizes the dashes and riser
+/// marks and goes into the header comment; geometry is 1:1.
 pub fn write(items: &[Item], pipe_list: &[PlanPipe], scale: u32) -> String {
     write_parts(
         &Parts {
@@ -244,8 +250,8 @@ pub(crate) struct Insert {
     pub attr_height: f64,
 }
 
-/// A loose entity on a named layer. Filled polygons become SOLIDs over a
-/// closed outline, filled circles become donuts.
+/// A loose entity on a named layer. Solid fills become hatches inside their
+/// outline.
 pub(crate) struct Ent {
     pub layer: String,
     pub prim: Prim,
@@ -297,167 +303,68 @@ fn prim_item(p: &Prim) -> Item {
     }
 }
 
-/// Write a complete DXF document from its parts. A plan without extras
-/// writes exactly what the plan export always wrote.
+/// A services or isometric sheet as DXF 2013 from its parts: the plan
+/// linework, pipes, the sheet's own layers, blocks with their inserts and
+/// loose entities. The layer table holds exactly the layers the parts name.
 pub(crate) fn write_parts(p: &Parts, scale: u32) -> String {
-    let mut w = Writer { s: String::new() };
-    let mut bounds = items_bounds(p.items);
-    if !p.pipes.is_empty() {
-        let pb = pipes::bounds(p.pipes, scale as f64);
-        bounds.add(pb.min);
-        bounds.add(pb.max);
-    }
-    if !p.ents.is_empty() || !p.inserts.is_empty() {
-        let mut extra: Vec<Item> = p.ents.iter().map(|e| prim_item(&e.prim)).collect();
-        for ins in &p.inserts {
-            if let Some(b) = p.blocks.iter().find(|b| b.name == ins.block) {
-                for prim in &b.prims {
-                    extra.push(prim_item(&offset_prim(prim, ins.at)));
-                }
-            }
-            bounds.add(ins.at);
-        }
-        let eb = items_bounds(&extra);
-        bounds.add(eb.min);
-        bounds.add(eb.max);
-    }
+    let n = scale as f64;
+    let mut b = build::Builder::new(n);
+    b.doc.comments = vec!["Guhit Studio plan export".into(), p.comment.clone()];
     let systems = pipes::systems_present(p.pipes);
-    let mut dashes = pipe_dashes(&systems);
     let hidden = p.items.iter().any(|i| i.cat == Cat::StrsBelow);
     for d in [Dash::Dashed, Dash::DashDot] {
-        let wanted = p.dashes.contains(&d) || (hidden && d == HIDDEN);
-        if wanted && !dashes.contains(&d) {
-            dashes.push(d);
+        let wanted = systems.iter().any(|s| pipes::dash(*s) == d) || p.dashes.contains(&d) || (hidden && d == HIDDEN);
+        if wanted {
+            b.ensure_dash(d);
         }
     }
-    dashes.sort_by_key(|d| match d {
-        Dash::Dashed => 0,
-        _ => 1,
-    });
-    let (min, max) = if bounds.is_empty() {
-        (v(0.0, 0.0), v(0.0, 0.0))
-    } else {
-        (bounds.min, bounds.max)
-    };
-
-    w.pair(999, "Guhit Studio plan export");
-    w.pair(999, &p.comment);
-
-    // HEADER
-    w.pair(0, "SECTION");
-    w.pair(2, "HEADER");
-    w.pair(9, "$ACADVER");
-    w.pair(1, "AC1009");
-    w.pair(9, "$INSBASE");
-    w.point(10, v(0.0, 0.0));
-    w.pair(9, "$EXTMIN");
-    w.point(10, min);
-    w.pair(9, "$EXTMAX");
-    w.point(10, max);
-    w.pair(9, "$LIMMIN");
-    w.num(10, min.x);
-    w.num(20, min.y);
-    w.pair(9, "$LIMMAX");
-    w.num(10, max.x);
-    w.num(20, max.y);
-    w.pair(9, "$LUNITS");
-    w.int(70, 2);
-    w.pair(9, "$LUPREC");
-    w.int(70, 2);
-    w.pair(0, "ENDSEC");
-
-    // TABLES
-    w.pair(0, "SECTION");
-    w.pair(2, "TABLES");
-
-    w.pair(0, "TABLE");
-    w.pair(2, "LTYPE");
-    w.int(70, 1 + dashes.len() as i64);
-    w.pair(0, "LTYPE");
-    w.pair(2, "CONTINUOUS");
-    w.int(70, 0);
-    w.pair(3, "Solid line");
-    w.int(72, 65);
-    w.int(73, 0);
-    w.num(40, 0.0);
-    write_pipe_linetypes(&mut w.s, &dashes, scale as f64);
-    w.pair(0, "ENDTAB");
-
-    w.pair(0, "TABLE");
-    w.pair(2, "LAYER");
-    // The site, slab and railing layers are only written when the plan has
-    // something on them, so a plan without them gives the same file as
-    // before.
-    let arch_cats: Vec<Cat> = layer_table_cats(p.items)
-        .into_iter()
-        .filter(|_| p.arch_layers)
-        .collect();
-    w.int(70, arch_cats.len() as i64 + 1 + systems.len() as i64 + p.layers.len() as i64);
-    w.pair(0, "LAYER");
-    w.pair(2, "0");
-    w.int(70, 0);
-    w.int(62, 7);
-    w.pair(6, "CONTINUOUS");
-    for cat in arch_cats {
-        w.pair(0, "LAYER");
-        w.pair(2, cat.dxf_layer());
-        w.int(70, 0);
-        w.int(62, p.arch_color.unwrap_or(layer_color(cat) as i64));
-        w.pair(6, "CONTINUOUS");
+    if p.arch_layers {
+        b.ensure_arch_layers(p.items, p.arch_color);
     }
-    write_pipe_layers(&mut w.s, &systems);
+    b.ensure_pipe_layers(&systems);
     for l in &p.layers {
-        w.pair(0, "LAYER");
-        w.pair(2, &l.name);
-        w.int(70, 0);
-        w.int(62, l.color);
-        w.pair(6, l.linetype);
+        b.ensure_layer(&l.name, l.color, l.linetype, doc::lineweight_of(0.25));
     }
-    w.pair(0, "ENDTAB");
-
-    w.pair(0, "TABLE");
-    w.pair(2, "STYLE");
-    w.int(70, 1);
-    w.pair(0, "STYLE");
-    w.pair(2, "STANDARD");
-    w.int(70, 0);
-    w.num(40, 0.0);
-    w.num(41, 1.0);
-    w.num(50, 0.0);
-    w.int(71, 0);
-    w.num(42, 2.5 * scale as f64);
-    w.pair(3, "txt");
-    w.pair(4, "");
-    w.pair(0, "ENDTAB");
-
-    w.pair(0, "ENDSEC");
-
-    // BLOCKS
-    w.pair(0, "SECTION");
-    w.pair(2, "BLOCKS");
-    for b in &p.blocks {
-        block_def(&mut w, b);
-    }
-    w.pair(0, "ENDSEC");
-
-    // ENTITIES
-    w.pair(0, "SECTION");
-    w.pair(2, "ENTITIES");
-    for cat in dxf_layer_order() {
-        for item in p.items.iter().filter(|i| i.cat == cat) {
-            entity(&mut w, item);
+    for bd in &p.blocks {
+        let mut ents = Vec::new();
+        for prim in &bd.prims {
+            ents.extend(b.prim_ents(prim, "0", None, None));
         }
+        b.doc.blocks.push(doc::Block {
+            name: bd.name.clone(),
+            anonymous: false,
+            ents,
+            attdefs: bd.attrs.iter().map(|t| doc::AttDef { tag: t.to_string(), height: bd.attr_height }).collect(),
+        });
     }
-    write_pipe_entities(&mut w.s, p.pipes, scale as f64);
+    b.add_items(p.items, v(0.0, 0.0));
+    b.add_pipes(p.pipes, n, v(0.0, 0.0));
     for ins in &p.inserts {
-        insert(&mut w, ins);
+        if let Some(bd) = p.blocks.iter().find(|bd| bd.name == ins.block) {
+            let moved: Vec<Item> = bd.prims.iter().map(|q| prim_item(&offset_prim(q, ins.at))).collect();
+            let bb = items_bounds(&moved);
+            if !bb.is_empty() {
+                b.doc.bounds.add(bb.min);
+                b.doc.bounds.add(bb.max);
+            }
+        }
+        b.doc.bounds.add(ins.at);
+        b.doc.ents.push(doc::Ent::on(
+            ins.layer,
+            doc::Kind::Insert {
+                block: ins.block.clone(),
+                at: ins.at,
+                sx: 1.0,
+                sy: 1.0,
+                rot: 0.0,
+                attrs: ins.attrs.iter().map(|(t, value)| (t.to_string(), value.clone(), ins.attr_height)).collect(),
+            },
+        ));
     }
     for e in &p.ents {
-        prim_on(&mut w, &e.layer, &e.prim, e.linetype);
+        b.add_prim(&e.prim, &e.layer, None, e.linetype);
     }
-    w.pair(0, "ENDSEC");
-    w.pair(0, "EOF");
-    w.s
+    doc::write(&b.finish())
 }
 
 /// A primitive moved by `at`.
@@ -488,107 +395,9 @@ pub(crate) fn offset_prim(p: &Prim, at: V) -> Prim {
     }
 }
 
-fn block_def(w: &mut Writer, b: &BlockDef) {
-    w.pair(0, "BLOCK");
-    w.pair(8, "0");
-    w.pair(2, &b.name);
-    w.int(70, if b.attrs.is_empty() { 0 } else { 2 });
-    w.point(10, v(0.0, 0.0));
-    w.pair(3, &b.name);
-    for prim in &b.prims {
-        prim_on(w, "0", prim, None);
-    }
-    for tag in &b.attrs {
-        w.pair(0, "ATTDEF");
-        w.pair(8, "0");
-        w.point(10, v(0.0, 0.0));
-        w.num(40, b.attr_height);
-        w.pair(1, "");
-        w.pair(3, tag);
-        w.pair(2, tag);
-        w.int(70, 1);
-        w.pair(7, "STANDARD");
-    }
-    w.pair(0, "ENDBLK");
-    w.pair(8, "0");
-}
-
-fn insert(w: &mut Writer, ins: &Insert) {
-    w.pair(0, "INSERT");
-    w.pair(8, ins.layer);
-    if !ins.attrs.is_empty() {
-        w.int(66, 1);
-    }
-    w.pair(2, &ins.block);
-    w.point(10, ins.at);
-    for (tag, value) in &ins.attrs {
-        w.pair(0, "ATTRIB");
-        w.pair(8, ins.layer);
-        w.point(10, ins.at);
-        w.num(40, ins.attr_height);
-        w.pair(1, &dxf_text(value));
-        w.pair(2, tag);
-        w.int(70, 1);
-        w.pair(7, "STANDARD");
-    }
-    if !ins.attrs.is_empty() {
-        w.pair(0, "SEQEND");
-        w.pair(8, ins.layer);
-    }
-}
-
-/// One primitive on `layer`: fills as SOLIDs and donuts, the rest as the
-/// plan writes them.
-fn prim_on(w: &mut Writer, layer: &str, prim: &Prim, linetype: Option<&str>) {
-    let lt = |w: &mut Writer| {
-        if let Some(t) = linetype {
-            w.pair(6, t);
-        }
-    };
-    match prim {
-        Prim::Poly { pts, fill: Fill::Ink, .. } if pts.len() >= 3 => {
-            for i in 1..pts.len() - 1 {
-                let (a, b, c) = (pts[0], pts[i], pts[i + 1]);
-                w.pair(0, "SOLID");
-                w.pair(8, layer);
-                w.point(10, a);
-                w.point(11, b);
-                w.point(12, c);
-                w.point(13, c);
-            }
-            let outline = Prim::Poly {
-                pts: pts.clone(),
-                closed: true,
-                fill: Fill::None,
-            };
-            entity_on(w, layer, &outline, lt);
-        }
-        Prim::Circle { c, r, fill: Fill::Ink } => {
-            // A donut: a closed polyline of two half circles, as wide as the
-            // radius, fills the disk.
-            w.pair(0, "POLYLINE");
-            w.pair(8, layer);
-            w.int(66, 1);
-            w.point(10, v(0.0, 0.0));
-            w.int(70, 1);
-            w.num(40, *r);
-            w.num(41, *r);
-            for x in [c.x - r / 2.0, c.x + r / 2.0] {
-                w.pair(0, "VERTEX");
-                w.pair(8, layer);
-                w.point(10, v(x, c.y));
-                w.num(42, 1.0);
-            }
-            w.pair(0, "SEQEND");
-            w.pair(8, layer);
-        }
-        other => entity_on(w, layer, other, lt),
-    }
-}
-
 /// Layer and entity order, walls first. `StrsBelow` draws on the stairs
 /// layer and has no table entry of its own.
-pub fn dxf_layer_order() -> [Cat; 13] {
+pub fn dxf_layer_order() -> [Cat; 16] {
     [
         Cat::Wall,
         Cat::Site,
@@ -599,16 +408,19 @@ pub fn dxf_layer_order() -> [Cat; 13] {
         Cat::Strs,
         Cat::StrsBelow,
         Cat::Rail,
+        Cat::Roof,
         Cat::Furn,
         Cat::Area,
         Cat::Dims,
+        Cat::Grid,
+        Cat::Symb,
         Cat::Text,
     ]
 }
 
 /// Categories whose layer is written only when an item is on it.
 pub(crate) fn optional_cat(cat: Cat) -> bool {
-    matches!(cat, Cat::Site | Cat::Slab | Cat::Rail)
+    matches!(cat, Cat::Site | Cat::Slab | Cat::Rail | Cat::Roof | Cat::Grid | Cat::Symb)
 }
 
 /// The categories with a layer table entry for these items, in order.
@@ -625,101 +437,6 @@ pub(crate) const HIDDEN: Dash = Dash::Dashed;
 /// Linetype name of hidden lines, `GUHIT_DASHED`.
 pub(crate) fn hidden_linetype() -> &'static str {
     pipes::dxf_linetype(HIDDEN).map(|t| t.0).unwrap_or("CONTINUOUS")
-}
-
-fn entity(w: &mut Writer, item: &Item) {
-    let hidden = item.cat == Cat::StrsBelow;
-    entity_on(w, item.cat.dxf_layer(), &item.prim, |w| {
-        if hidden {
-            w.pair(6, hidden_linetype());
-        }
-    });
-}
-
-/// One primitive on a layer. `linetype` may add a group 6 right after the
-/// layer.
-fn entity_on(w: &mut Writer, layer: &str, prim: &Prim, linetype: impl Fn(&mut Writer)) {
-    match prim {
-        Prim::Line { a, b } => {
-            w.pair(0, "LINE");
-            w.pair(8, layer);
-            linetype(w);
-            w.point(10, *a);
-            w.point(11, *b);
-        }
-        Prim::Poly { pts, closed, .. } => {
-            w.pair(0, "POLYLINE");
-            w.pair(8, layer);
-            linetype(w);
-            w.int(66, 1);
-            w.point(10, v(0.0, 0.0));
-            w.int(70, if *closed { 1 } else { 0 });
-            for p in pts {
-                w.pair(0, "VERTEX");
-                w.pair(8, layer);
-                w.point(10, *p);
-            }
-            w.pair(0, "SEQEND");
-            w.pair(8, layer);
-        }
-        Prim::Arc {
-            c,
-            r,
-            start_deg,
-            end_deg,
-        } => {
-            // DXF arcs run counter-clockwise from the start to the end angle,
-            // the same convention as the primitive.
-            w.pair(0, "ARC");
-            w.pair(8, layer);
-            linetype(w);
-            w.point(10, *c);
-            w.num(40, *r);
-            w.num(50, norm_deg(*start_deg));
-            w.num(51, norm_deg(*end_deg));
-        }
-        Prim::Circle { c, r, .. } => {
-            w.pair(0, "CIRCLE");
-            w.pair(8, layer);
-            linetype(w);
-            w.point(10, *c);
-            w.num(40, *r);
-        }
-        Prim::Text {
-            pos,
-            height,
-            rot_deg,
-            align,
-            text,
-            bold,
-        } => {
-            let content = dxf_text(text);
-            w.pair(0, "TEXT");
-            w.pair(8, layer);
-            match align {
-                HAlign::Start => {
-                    w.point(10, *pos);
-                }
-                HAlign::Middle => {
-                    // First point is the left end of the baseline (estimate,
-                    // CAD programs recompute it from the alignment point).
-                    let half = est_width(text, *height, *bold) / 2.0;
-                    w.point(10, *pos - dir(*rot_deg) * half);
-                }
-            }
-            w.num(40, *height);
-            w.pair(1, &content);
-            if rot_deg.abs() > 1e-9 {
-                w.num(50, norm_deg(*rot_deg));
-            }
-            w.pair(7, "STANDARD");
-            if *align == HAlign::Middle {
-                // 72 = 1: centered on the baseline, around the second point.
-                w.int(72, 1);
-                w.point(11, *pos);
-            }
-        }
-    }
 }
 
 #[cfg(test)]

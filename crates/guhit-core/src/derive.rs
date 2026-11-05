@@ -1,10 +1,15 @@
 //! Builds `Derived` from a project: wall outlines, rooms, footprints,
 //! totals, pipes, railings, the object schedule, review items and review
 //! marks.
+//!
+//! HUB (DECISIONS D54): after C0 only the orchestrator edits this file. The
+//! Wave 2 order is fixed: stairs, railings, roofs, pipes, schedules, site,
+//! then review; each lane's part is a one-line call into its module.
 
 use guhit_model::*;
 
 use crate::devices::{device_issues, schedule, Catalog, RoomIndex};
+use crate::{placement, roofs, schedules, site, stairs, tours};
 use crate::issues::{apply_review_marks, review};
 use crate::pipes::derive_pipes;
 use crate::rooms::{assign_by_seed, face};
@@ -95,12 +100,22 @@ pub fn derived_from(project: &Project, analysis: &Analysis) -> Derived {
     derived.totals.gross_area_m2 = tidy(derived.totals.gross_area_m2);
     derived.totals.wall_length_m = tidy(derived.totals.wall_length_m);
 
+    // Wave 2 order (D54): stairs, railings, roofs, pipes, schedules, site,
+    // review. Each step may read what the steps before it made.
+    derived.stairs = stairs::derive(project, analysis);
+    derived.railings = slabs::railings(project);
+    derived.roofs = roofs::derive(project, analysis);
     let (pipes, pipe_issues) = derive_pipes(project, analysis, &assigned);
     derived.pipes = pipes;
+    let tables = schedules::derive(project, analysis, &assigned, &derived);
+    derived.opening_schedule = tables.openings;
+    derived.room_schedule = tables.rooms;
+    derived.level_areas = tables.levels;
+    derived.site = site::derive(project, analysis, &derived);
+
     derived.issues = review(project, analysis, &assigned);
     derived.issues.extend(slabs::review(project, analysis));
     derived.issues.extend(pipe_issues);
-    derived.railings = slabs::railings(project);
 
     // Devices: the object schedule and the device review items.
     let catalog = Catalog::new();
@@ -109,6 +124,13 @@ pub fn derived_from(project: &Project, analysis: &Analysis) -> Derived {
         .issues
         .extend(device_issues(project, analysis, &rooms, &catalog));
     derived.schedule = schedule(project, &rooms, &catalog);
+
+    // Wave 2 review items, one call per lane module.
+    derived.issues.extend(stairs::review(project, analysis, &derived.stairs));
+    derived.issues.extend(roofs::review(project, analysis, &derived.roofs));
+    derived.issues.extend(placement::review(project, analysis));
+    derived.issues.extend(site::review(project, &derived));
+    derived.issues.extend(tours::review(project, &derived));
 
     // Review marks last, over every finding.
     derived.review_resolved = apply_review_marks(&project.review, &mut derived.issues);

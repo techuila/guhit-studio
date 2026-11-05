@@ -51,6 +51,21 @@ pub(crate) struct Options {
 /// Most items listed per list in a result; the rest are counted.
 const LIST_CAP: usize = 100;
 
+/// What an edit did besides elements, as `copilot::step_diff` lists it:
+/// levels, door and window types, sheets, revisions, the title block.
+const PROJECT_LISTS: [&str; 10] = [
+    "levels_added",
+    "levels_removed",
+    "types_added",
+    "types_changed",
+    "types_removed",
+    "sheets_added",
+    "sheets_changed",
+    "sheets_removed",
+    "revisions",
+    "title_block_changed",
+];
+
 // --------------------------------------------------------------- the scope
 
 /// The `scope` a call asked for (DECISIONS D30).
@@ -450,6 +465,15 @@ fn stage_all(
         }
         if let Some(info) = &plan.info {
             let mut info = info.clone();
+            // A dimension string reports what the engine stored, which
+            // measures walls on the face it names, not on the centerlines
+            // the call gave (GR2: 8000 said, 8150 stored).
+            if info.get("parts_mm").is_some() {
+                let stored = primary.as_ref().and_then(|id| staging.project().elements.iter().find(|e| e.id() == id));
+                if let Some(Element::Dimension(d)) = stored {
+                    crate::permit::report_parts(d, &mut info);
+                }
+            }
             info["step"] = json!(i + 1);
             if let Some(r) = &step.r#ref {
                 info["ref"] = json!(r);
@@ -465,7 +489,7 @@ fn stage_all(
                 "changed": diff["modified"],
                 "deleted": diff["removed"],
             });
-            for key in ["levels_added", "levels_removed"] {
+            for key in PROJECT_LISTS {
                 if let Some(v) = diff.get(key) {
                     one[key] = v.clone();
                 }
@@ -621,7 +645,7 @@ fn put_lists(out: &mut Value, step: &Value, also_moved: &[Id], after: &Project) 
             out[format!("{key}_count")] = json!(n);
         }
     }
-    for key in ["levels_added", "levels_removed"] {
+    for key in PROJECT_LISTS {
         if let Some(v) = step.get(key) {
             out[key] = v.clone();
         }

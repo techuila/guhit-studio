@@ -105,6 +105,45 @@ Handled by the plan canvas. Click a switch (or an outlet), then each light
 | Escape, or Enter | End linking |
 | Tool letters | Still switch tools, as everywhere else |
 
+### The permit tools: grid line, dimension string, section or elevation, lot
+
+Lane L1 (`src/editor2d/permit/`). No letter of their own yet: pick them on
+the tool rail or in the palette (Draw a grid line, Add a dimension string,
+Mark a section or an elevation, Draw the lot). While one has a draft, tool
+letters stay with it, as in the wall tool.
+
+| Key or action | Tool | Action |
+|---|---|---|
+| Click, click | Grid line | The two ends. Up and down lines get 1, 2, 3; across lines A, B, C (no I or O) |
+| A number, then Enter | Grid line | The second end exactly that far along the pointer |
+| Click each point, then Enter, a right click or a double click | Dimension string | Ends the points; the pointer then sets where the line goes, and a click puts it down |
+| A number, then Enter | Dimension string | While placing the line: its offset from the points (a minus puts it on the other side) |
+| Backspace | Dimension string | Takes the last point back, or goes back from placing the line to the points |
+| E | Dimension string | Before the first point: automatic dimensions of this level's outside walls (they follow the model). The project inspector's Permit drawing section also has Dimension this level, Dimension the rooms and Grid on the walls |
+| Click, click, click | Section or elevation | Start, end, then the side it looks at |
+| Tab | Section or elevation | Switches between a section and an elevation, at any step of a draft, or before one with the pointer over the plan; elsewhere Tab moves focus as usual |
+| Click each corner, then the first one, Enter, a right click or a double click | Lot | Closes the lot. A drawn lot replaces the corners of the project's lot |
+| MOD+V | Lot | Pastes the title's technical description: the legs after each "thence" (or one leg per line, "N 45-30 E 15.00"), from the last clicked point |
+| Backspace | Lot | Takes the last corner back |
+| Escape | All four | Clears a typed number, then drops the draft; with no draft, back to Select |
+
+### The roof and stair tools
+
+Lane L2 (`src/editor2d/roofTool.ts`, `stairTool.ts`). The roof tool has no
+letter of its own yet: pick it on the tool rail or in the palette (Draw a
+roof). The stair tool is S.
+
+| Key or action | Tool | Action |
+|---|---|---|
+| Click each corner, then the first one, Enter, a right click or a double click | Roof | Closes the outline and adds the roof on this level (a lanai, a carport). Corners snap square with Ortho |
+| Two corners, then Enter or a double click | Roof | The rectangle with that diagonal |
+| H, G, S, F | Roof | Hip, gable, shed or flat for the roof being drawn (shed to start) |
+| Backspace | Roof | Takes the last corner back |
+| Escape | Roof | Drops the draft; with no draft, back to Select |
+| L | Stair | Straight, L, U, in turn, for the next stair (also in the tool's flyout) |
+| T | Stair | Turns an L or U the other way |
+| R | Stair | Rotates the stair a quarter turn |
+
 ## Live session
 
 With the pointer on the plan, in a live session (DECISIONS D29). Handled by

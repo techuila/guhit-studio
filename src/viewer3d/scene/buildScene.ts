@@ -4,26 +4,29 @@
 // every builder falls back instead of throwing.
 
 import * as THREE from "three";
-import type { Asset, AssetCategory, DocState, Footprint, LayerKey, Level, Opening, Project, Stair, Wall } from "../../contract/bindings";
+import type { Asset, AssetCategory, DocState, Footprint, LayerKey, Level, Opening, Project, Wall } from "../../contract/bindings";
 import { planRotationToWorld, planToWorld, type Pt } from "../geom/coords";
 import { EMPTY_BOUNDS, type ModelBounds } from "../geom/cameraMath";
 import { MeshData, pushPrism } from "../geom/meshData";
 import { boundsOf, clipHalfPlane, ensureCCW, offsetPolygon, orientedRect, pointInPolygon, signedArea } from "../geom/polygon";
-import { buildRoofInfill, buildRoofMesh, type RoofInput } from "../geom/roofMesh";
 import { buildWallMesh } from "../geom/wallMesh";
 import { buildAssetForm, lampAnchor, type LampInfo } from "./assets";
+import { buildBuiltIns } from "./builtins";
 import { modelPack } from "./pack";
 import type { BuildCache } from "./buildCache";
 import { Kit, tagElement } from "./kit";
 import type { MaterialLibrary } from "./materials";
 import { buildOpening } from "./openings";
 import { buildPipeGhost, buildPipes, PipeScene } from "./pipes";
+import { buildRoofs } from "./roofs";
+import { buildSiteKit } from "./siteKit";
+import { buildStair, buildStairs } from "./stairs";
 import { defaultAnchor, fixtureSize, lampOptics, type LampSpec, type RoomSpec } from "../light/fixtures";
-import { stairOutline, stairsOf } from "../walk/stairs";
+import { buildTourPreview } from "../tour/pathPreview";
+import { stairsOf, stairWells } from "../walk/stairs";
 import { ceilingHeightMm } from "../../editor2d/mount";
-import { DECK_MM, DECK_TOPPING_MM, deckPieces } from "./roofDeck";
-import { slabsOf } from "./slabs";
-import { convexPieces, pushFascia, pushRailing, pushSkirting, type DoorSpan, type RailingMeshes } from "./trim";
+import { deckFinish, slabsOf } from "./slabs";
+import { convexPieces, pushRailing, pushSkirting, type DoorSpan, type RailingMeshes } from "./trim";
 
 /**
  * The layer a placed object is on, by category: lighting and electrical
@@ -115,6 +118,45 @@ export interface BuiltScene {
   lamps: LampSpec[];
   /** Rooms on shown levels: the light rig adds their bounce light and, without a fixture, a ghost light. View only. */
   lightRooms: RoomSpec[];
+}
+
+/**
+ * What `buildScene` hands the builders that live in other files (stairs,
+ * roofs, built-ins, the site kit, a tour's path): the document, the shared
+ * kit and materials, the groups to add to, and the level, layer and cutaway
+ * rules. Read only, except `root`, `roofGroup` and `addBounds`.
+ */
+export interface SceneHost {
+  doc: DocState;
+  lib: MaterialLibrary;
+  kit: Kit;
+  opts: BuildOptions;
+  /** The model. */
+  root: THREE.Group;
+  /** Roof covering, gable infill, ceilings and roof decks: hidden with the roof without a rebuild. */
+  roofGroup: THREE.Group;
+  levels: Map<string, Level>;
+  /** Bottom to top. */
+  sortedLevels: Level[];
+  lowest: Level | null;
+  /** The ground, mm: the lowest floor less the plinth. */
+  groundMm: number;
+  /** False for a level the cutaway hides. */
+  levelShown: (l: Level) => boolean;
+  /** The cutaway height above this level's floor, mm; null when it is not cut. */
+  levelCut: (l: Level) => number | null;
+  visible: (key: LayerKey) => boolean;
+  locked: (key: LayerKey) => boolean;
+  /** Every closed building on a level (`groupFootprints`). */
+  footprintsOf: (levelId: string) => Pt[][];
+  /** Walls by id. */
+  walls: Map<string, Wall>;
+  /** Plan points of each level's building walls (fences left out): a roof's fallback without a closed footprint. */
+  wallOutlinesByLevel: Map<string, Pt[]>;
+  /** Stairwells and voids cut out of each level's floor, as convex pieces. */
+  wells: Map<string, Pt[][]>;
+  /** Grows the model bounds (plan mm, heights mm). */
+  addBounds: (points: Pt[], z0: number, z1: number) => void;
 }
 
 class BoundsAcc {
@@ -294,16 +336,11 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
 
   // ----------------------------------------------------------------- floors
   lib.category = "floor";
-  // Stairwells: every flight's rectangle is cut out of the slab and the room
-  // floors of the level at its top, so the flight is open above and a walk
-  // up it never passes through the floor (walk/stairs.ts finds the flights).
-  const wells = new Map<string, Pt[][]>();
-  for (const flight of stairsOf(doc)) {
-    if (!flight.topLevelId) continue;
-    const list = wells.get(flight.topLevelId) ?? [];
-    list.push(stairOutline(flight).outline);
-    wells.set(flight.topLevelId, list);
-  }
+  // Stairwells: every stair's hole (both flights, the landing and a U's well,
+  // in convex pieces) is cut out of the slab and the room floors of the level
+  // at its top, so the stair is open above and a walk up it never passes
+  // through the floor (walk/stairs.ts).
+  const wells = stairWells(stairsOf(doc));
   // A void (DECISIONS D50) cuts its level's floor the same way, in convex
   // pieces: the space below is double height. A hidden Slabs layer leaves
   // the floor whole, as the walker finds it (walk/worlds.ts).
@@ -388,7 +425,8 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       const top = level.elevation_mm + s.top_offset_mm;
       const thick = Math.min(Math.max(s.thickness_mm, 20), 2000);
       const deck = s.slab_kind === "deck";
-      const finish = lib.get(s.material_id, deck ? "mat-wood-cladding" : "mat-tile-ceramic");
+      // A deck on the ground is paving, raised or upstairs it is timber (G4 problem 11).
+      const finish = lib.get(s.material_id, deck ? deckFinish(s, level === lowest) : "mat-tile-ceramic");
       const body = new MeshData();
       const skin = new MeshData();
       const finishMm = deck ? 0 : Math.min(FLOOR_FINISH_MM, thick / 2);
@@ -449,22 +487,29 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   }
 
   // ----------------------------------------------------------------- stairs
-  lib.category = "stair";
-  if (visible("stairs")) {
-    for (const e of project.elements) {
-      if (e.kind !== "stair") continue;
-      const level = levels.get(e.level_id) ?? lowest;
-      if (!level || !levelShown(level)) continue;
-      const cut = levelCut(level);
-      const mesh = buildStair(kit, lib, e, level, cut === null ? null : cut / 1000);
-      if (!mesh) continue;
-      tagElement(mesh, e.id, locked("stairs"));
-      root.add(mesh);
-      const a = (e.rotation_deg * Math.PI) / 180;
-      const mid = { x: e.origin.x - Math.sin(a) * (e.run_mm / 2), y: e.origin.y + Math.cos(a) * (e.run_mm / 2) };
-      acc.add(orientedRect(mid, e.width_mm, e.run_mm, e.rotation_deg), level.elevation_mm, level.elevation_mm + (cut ?? level.height_mm));
-    }
-  }
+  // Everything the build has so far, for the lanes' builders (SceneHost).
+  const host: SceneHost = {
+    doc,
+    lib,
+    kit,
+    opts,
+    root,
+    roofGroup,
+    levels,
+    sortedLevels,
+    lowest,
+    groundMm,
+    levelShown,
+    levelCut,
+    visible,
+    locked,
+    footprintsOf,
+    walls,
+    wallOutlinesByLevel,
+    wells,
+    addBounds: (points, z0, z1) => acc.add(points, z0, z1),
+  };
+  buildStairs(host);
 
   // --------------------------------------------------------------- railings
   // The engine's rail runs (`Derived.railings`, DECISIONS D50): slab edges on
@@ -539,7 +584,7 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       const ceilingMm = ceilingHeightMm(level, sortedLevels);
       // A buried object reaches up to the ground: the lawn outdoors, the floor indoors.
       const gradeMm = buried ? (outdoors ? groundMm : level.elevation_mm) - baseYMm : undefined;
-      const cacheKey = `${e.id}|${e.catalog_key}|${e.width_mm}|${e.depth_mm}|${e.height_mm}|${e.elevation_mm}|${baseYMm}|${cutY ?? "-"}|${assetsLocked}|${matKey}|${usePack ? "glb" : "proc"}|${lightKey}|${ceilingMm}|${gradeMm ?? "-"}`;
+      const cacheKey = `${e.id}|${e.catalog_key}|${e.width_mm}|${e.depth_mm}|${e.height_mm}|${e.elevation_mm}|${baseYMm}|${cutY ?? "-"}|${assetsLocked}|${matKey}|${usePack ? "glb" : "proc"}|${lightKey}|${ceilingMm}|${gradeMm ?? "-"}|${e.built_in ? JSON.stringify(e.built_in) : "-"}`;
       let g = opts.cache?.take(cacheKey) ?? null;
       if (!g) {
         const own = new Kit();
@@ -576,6 +621,11 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
     }
   }
 
+  // Built-ins (kitchen counters, wardrobes) and the site kit (gates, paving,
+  // planting), after the placed objects.
+  buildBuiltIns(host);
+  buildSiteKit(host);
+
   // Rooms get the light their lamps bounce, or a soft ghost light when they
   // have no fixture (light/lamps.ts).
   const lightRooms: RoomSpec[] = [];
@@ -610,82 +660,11 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   for (const batch of pipes.batches) root.add(batch.mesh);
 
   // ------------------------------------------------------------------- roof
-  lib.category = "roof";
-  const top = sortedLevels[sortedLevels.length - 1];
-  if (top && project.roof && project.roof.kind !== "none") {
-    let fps = footprintsOf(top.id);
-    if (fps.length === 0) {
-      // No closed footprint yet: cover the walls of the top level if they
-      // span a real area.
-      const b = boundsOf(wallOutlinesByLevel.get(top.id) ?? []);
-      if (b && b.maxX - b.minX > 1000 && b.maxY - b.minY > 1000) {
-        fps = [
-          [
-            { x: b.minX, y: b.minY },
-            { x: b.maxX, y: b.minY },
-            { x: b.maxX, y: b.maxY },
-            { x: b.minX, y: b.maxY },
-          ],
-        ];
-      }
-    }
-    // One roof per detached building on the top level, same settings each.
-    for (const fp of fps) {
-      const roof = project.roof;
-      const input: RoofInput = {
-        kind: roof.kind,
-        pitchDeg: roof.pitch_deg,
-        overhang: roof.overhang_mm,
-        thickness: roof.thickness_mm,
-        ridgeAxis: roof.ridge_axis,
-        footprint: fp,
-        baseHeight: top.elevation_mm + top.height_mm,
-        infillThickness: project.settings?.default_wall_thickness_mm ?? 150,
-      };
-      const md = new MeshData();
-      const trim = new MeshData();
-      const prof = buildRoofMesh(input, md, trim);
-      if (prof && md.triangleCount > 0) {
-        roofGroup.add(kit.mesh(kit.fromMeshData(md), lib.get(roof.material_id, "mat-roof-longspan")));
-        // Soffit and fascia: plain off-white, the usual painted fibre cement
-        // board look. The fascia board hangs below the edge all round.
-        pushFascia(trim, offsetPolygon(fp, Math.max(roof.overhang_mm, 0)), prof.under, prof.vertical, prof.ridge === null ? null : { across: prof.across, at: prof.ridge });
-        if (trim.triangleCount > 0) roofGroup.add(kit.mesh(kit.fromMeshData(trim), lib.plain("#ece9e1", 0.85)));
-        const infill = new MeshData();
-        buildRoofInfill(input, infill);
-        if (infill.triangleCount > 0) {
-          const firstWall = [...walls.values()].find((w) => w.level_id === top.id);
-          roofGroup.add(kit.mesh(kit.fromMeshData(infill), lib.get(firstWall?.material_id, "mat-chb-painted")));
-        }
-        if (roof.kind !== "flat") {
-          // Flat ceiling at the wall tops, so interiors read as closed rooms.
-          const ceiling = new MeshData();
-          pushPrism(ceiling, fp, { bottom: () => input.baseHeight, top: () => input.baseHeight + 20 });
-          const m = kit.mesh(kit.fromMeshData(ceiling), lib.plain("#f4f2ec", 0.95));
-          m.castShadow = false;
-          roofGroup.add(m);
-        }
-        if (!opts.cutaway) acc.add(fp, input.baseHeight, prof.peak);
-      }
-    }
-  }
-  // Roof decks: the part of a level that the next level up does not cover,
-  // at its ceiling (DECISIONS D26). They hide with the roof.
-  for (let i = 0; i + 1 < sortedLevels.length; i++) {
-    const level = sortedLevels[i];
-    if (!levelShown(level)) continue;
-    // The deck is the floor of the level above where that level has no
-    // building: its voids and stairwells cut it as they cut that floor.
-    const above = sortedLevels[i + 1];
-    const pieces = deckPieces(footprintsOf(level.id), footprintsOf(above.id)).flatMap((p) => subtractWells(p, wells.get(above.id)));
-    if (pieces.length === 0) continue;
-    const bottom = level.elevation_mm + ceilingHeightMm(level, sortedLevels);
-    const top = bottom + DECK_MM + DECK_TOPPING_MM;
-    const md = new MeshData();
-    for (const piece of pieces) pushPrism(md, piece, { bottom: () => bottom, top: () => top });
-    roofGroup.add(kit.mesh(kit.fromMeshData(md), lib.get("mat-floor-concrete", undefined, false)));
-    if (!opts.cutaway) for (const piece of pieces) acc.add(piece, bottom, top);
-  }
+  // The roof over the top floor and the roof decks, into `roofGroup`.
+  buildRoofs(host);
+  // A tour's camera path, when one is shown.
+  const tourPath = buildTourPreview(host);
+  if (tourPath) root.add(tourPath);
   roofGroup.visible = !opts.cutaway;
   root.add(roofGroup);
 
@@ -889,55 +868,6 @@ export function glowArea(root: THREE.Object3D, pick: (mesh: THREE.Mesh) => boole
     }
   });
   return area;
-}
-
-/**
- * Concrete stair: sawtooth profile with a sloped soffit, extruded across the
- * width. `maxHeight` (meters above the level floor) is the cutaway height:
- * the profile is clipped to it with the same half-plane cut the plan outlines
- * use, so a cutaway stair stops flush with the cut walls.
- */
-function buildStair(kit: Kit, lib: MaterialLibrary, s: Stair, level: Level, maxHeight?: number | null): THREE.Mesh | null {
-  const risers = Math.min(Math.max(Math.round(s.riser_count), 1), 200);
-  // DECISIONS D44: n risers make n - 1 treads of run / (n - 1); the top
-  // riser lands on the floor above, whose slab edge at the head is its face.
-  const treads = Math.max(risers - 1, 1);
-  const run = s.run_mm / 1000;
-  const width = s.width_mm / 1000;
-  const totalRise = level.height_mm / 1000;
-  if (!(run > 0.01 && width > 0.01 && totalRise > 0.01)) return null;
-  if (maxHeight != null && maxHeight < 0.02) return null;
-  const rise = totalRise / risers;
-  const going = run / treads;
-  const pts: Pt[] = [{ x: 0, y: 0 }];
-  for (let i = 0; i < treads; i++) {
-    pts.push({ x: i * going, y: (i + 1) * rise });
-    pts.push({ x: (i + 1) * going, y: (i + 1) * rise });
-  }
-  const waist = 0.2;
-  const topH = treads * rise;
-  const under = Math.max(topH - rise - waist, 0); // soffit height under the top step
-  pts.push({ x: run, y: under });
-  if (under > 0) {
-    const slope = rise / going;
-    const y0 = Math.max(run - under / slope, going * 0.5);
-    pts.push({ x: y0, y: 0 });
-  }
-  const poly = maxHeight != null && maxHeight < topH ? clipHalfPlane(pts, 0, 1, maxHeight) : pts;
-  if (poly.length < 3) return null;
-  const shape = new THREE.Shape();
-  shape.moveTo(poly[0].x, poly[0].y);
-  for (let i = 1; i < poly.length; i++) shape.lineTo(poly[i].x, poly[i].y);
-  shape.closePath();
-  const geo = kit.track(new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: false, steps: 1 }));
-  // Shape x is the run (plan +y, world -z), shape y is up, the extrusion is the width.
-  geo.rotateY(Math.PI / 2);
-  geo.translate(-width / 2, 0, 0);
-  const mesh = kit.mesh(geo, lib.get("mat-floor-concrete", undefined, false));
-  const [x, y, z] = planToWorld(s.origin.x, s.origin.y, level.elevation_mm);
-  mesh.position.set(x, y, z);
-  mesh.rotation.y = planRotationToWorld(s.rotation_deg);
-  return mesh;
 }
 
 /**

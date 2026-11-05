@@ -1,0 +1,56 @@
+/* Roof and stair fields (lane L2). Fields that only some shapes take open
+   and close by grid rows (MOTION.md rule 5), fading with them; an automatic
+   value sits beside its number with a small switch. Tokens only. */
+
+.reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: -6px;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--dur-base) var(--ease-out),
+    margin-top var(--dur-base) var(--ease-out),
+    opacity var(--dur-hover) var(--ease-in);
+}
+
+.revealOpen {
+  grid-template-rows: 1fr;
+  margin-top: 0;
+  opacity: 1;
+  transition:
+    grid-template-rows var(--dur-base) var(--ease-out),
+    margin-top var(--dur-base) var(--ease-out),
+    opacity var(--dur-base) var(--ease-out);
+}
+
+.revealClip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.auto {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.fact {
+  margin: 2px 0;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.posts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}

@@ -57,6 +57,7 @@ fn object(id: &str, level: &str, key: &str, x: f64, y: f64) -> Element {
         light: item.light,
         links: vec![],
         circuit: String::new(),
+        built_in: None,
     })
 }
 
@@ -83,6 +84,11 @@ fn stair(id: &str, x: f64, y: f64) -> Element {
         railing: None,
         run_mm: 2700.0,
         riser_count: 15,
+        shape: StairShape::Straight,
+        turn: Turn::Left,
+        first_flight_risers: None,
+        landing_mm: None,
+        well_mm: 0.0,
     })
 }
 
@@ -105,6 +111,8 @@ fn dim(id: &str, a: Point, b: Point) -> Element {
         b,
         offset_mm: 500.0,
         text_override: None,
+        through: vec![],
+        auto: None,
     })
 }
 
@@ -494,6 +502,8 @@ fn add_element_checks_where_each_kind_lands() {
                 seed: p(6000.0, 2000.0),
                 floor_material_id: None,
                 auto_named: false,
+                finishes: RoomFinishes::default(),
+                ceiling_height_mm: None,
             }),
             Element::Room(Room {
                 id: String::new(),
@@ -503,6 +513,8 @@ fn add_element_checks_where_each_kind_lands() {
                 seed: p(2000.0, 2000.0),
                 floor_material_id: None,
                 auto_named: false,
+                finishes: RoomFinishes::default(),
+                ceiling_height_mm: None,
             }),
             "room",
         ),

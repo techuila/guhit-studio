@@ -17,10 +17,18 @@ import { SunControl } from "./light/SunControl";
 import { LivePointers3D } from "./live/LivePointers3D";
 import { historyTintOf, peerTints, sameTint, sameTints, type Tint } from "./live/peers";
 import { CAPTURE_SIZE, useLiveView } from "./render/liveView";
+import { VIEW_HELD_NOTE, viewHeld } from "./tour/tourStore";
 import { RenderButton } from "./render/RenderButton";
 // Loads the render queue, which answers `bus.emit("render", ...)`.
 import "./render/renderQueue";
 import styles from "./Viewer3D.module.css";
+
+/** True, and says why, when a tour video export holds the view (tour/tourStore.ts). */
+function heldByExport(): boolean {
+  if (!viewHeld()) return false;
+  useApp.getState().toast("info", VIEW_HELD_NOTE);
+  return true;
+}
 
 const CAPTURE_W = CAPTURE_SIZE.width;
 const CAPTURE_H = CAPTURE_SIZE.height;
@@ -323,13 +331,15 @@ export function Viewer3D() {
     useApp.getState().registerExportScene(exportScene);
 
     const offFit = bus.on("zoom_to_fit", () => {
-      engine.goPreset("fit", []);
+      // F fits the plan too: while a video exports only the 3D view stays put, quietly.
+      if (!viewHeld()) engine.goPreset("fit", []);
     });
     const offFocus = bus.on("focus_elements", (ids) => {
       if (engine.focusElements(ids)) switchToXray("X-ray is on so the pipe shows through the wall and floor.");
     });
     const offCamera = bus.on("apply_camera", (camera) => {
       // Every pick of a saved view or a render's camera comes through here.
+      if (heldByExport()) return;
       userView();
       viewLabel.current = camera.name || "Saved view";
       setActivePreset(null);
@@ -338,10 +348,14 @@ export function Viewer3D() {
       engine.flyToCamera(camera);
     });
 
+    // A tour plays in this view (lane L9): the engine's player moves the camera.
+    const offTour = bus.on("play_tour", ({ tour_id }) => engine.playTour(tour_id));
+
     return () => {
       offFit();
       offFocus();
       offCamera();
+      offTour();
       if (useApp.getState().captureView === capture) useApp.getState().registerCaptureView(null);
       useLiveView.getState().unregister(engine);
       if (useApp.getState().exportScene === exportScene) useApp.getState().registerExportScene(null);
@@ -411,6 +425,10 @@ export function Viewer3D() {
   // Fly to the active Camera element.
   useEffect(() => {
     if (!activeCameraId) return;
+    if (heldByExport()) {
+      useApp.getState().setActiveCamera(null);
+      return;
+    }
     const el = useApp.getState().doc?.project.elements.find((e) => e.id === activeCameraId);
     if (!el || el.kind !== "camera") return;
     viewLabel.current = el.name || "Saved view";
@@ -436,7 +454,7 @@ export function Viewer3D() {
 
   const goPreset = useCallback((p: PresetButton) => {
     const engine = engineRef.current;
-    if (!engine) return;
+    if (!engine || heldByExport()) return;
     const app = useApp.getState();
     if (app.activeCameraId) app.setActiveCamera(null);
     const pose = engine.goPreset(p.kind, app.selection);
@@ -515,6 +533,7 @@ export function Viewer3D() {
             data-testid="preset-fit"
             title="Fit the whole model"
             onClick={() => {
+              if (heldByExport()) return;
               userView();
               engineRef.current?.goPreset("fit", []);
             }}

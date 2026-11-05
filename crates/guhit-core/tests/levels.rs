@@ -57,6 +57,7 @@ fn light(id: &str, links: &[&str]) -> Element {
         light: item.light,
         links: links.iter().map(|s| s.to_string()).collect(),
         circuit: String::new(),
+        built_in: None,
     })
 }
 
@@ -280,9 +281,10 @@ fn a_two_storey_services_demo_keeps_its_ground_floor_when_the_upper_goes() {
     let before = doc.state();
     let r = apply_checked(&mut doc, add_level(None, None, None));
     let upper = r.state.project.levels[1].id.clone();
-    // The roof sits on the top level, as in the 3D view: an empty upper
-    // level has none, so the vent stack no longer goes through a roof.
-    // Every other finding and the schedule of the ground floor stay.
+    // The roof over the top floor sits on the topmost level with a building
+    // (DECISIONS D54, `Derived::roofs`): an empty upper level leaves it on
+    // the ground floor, so the vent stack still goes through it. Every
+    // finding and the schedule of the ground floor stay.
     let summary = |d: &Derived| {
         d.issues
             .iter()
@@ -290,7 +292,9 @@ fn a_two_storey_services_demo_keeps_its_ground_floor_when_the_upper_goes() {
             .map(|i| i.message.clone())
             .unwrap()
     };
-    assert!(summary(&r.state.derived).starts_with("6 pipe penetrations need sleeves: 6 through the floor slab."));
+    assert!(summary(&before.derived).contains("through the roof"), "{}", summary(&before.derived));
+    assert_eq!(summary(&r.state.derived), summary(&before.derived));
+    assert_eq!(r.state.derived.roofs, before.derived.roofs, "the roof stays on the ground floor");
     let others = |d: &Derived| {
         d.issues
             .iter()

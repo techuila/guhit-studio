@@ -29,6 +29,12 @@ impl CoreError {
         }
     }
 
+    /// A Wave 2 command or check whose lane has not built it yet (D54):
+    /// code `not_built`, which reaches IPC as `not_built` too.
+    pub fn not_built(what: &str) -> Self {
+        CoreError::invalid("not_built", format!("{what} is not built yet."))
+    }
+
     /// Same as `invalid`, naming the elements the message is about.
     pub fn invalid_for(code: &str, message: impl Into<String>, element_ids: Vec<Id>) -> Self {
         CoreError::Invalid {
@@ -58,11 +64,12 @@ impl From<CoreError> for IpcError {
                 element_ids: vec![id],
             },
             CoreError::Invalid {
+                code,
                 message,
                 element_ids,
-                ..
             } => IpcError {
-                code: "invalid".into(),
+                // Every refusal reads `invalid`, except a Wave 2 stub's.
+                code: if code == "not_built" { code } else { "invalid".into() },
                 message,
                 element_ids,
             },

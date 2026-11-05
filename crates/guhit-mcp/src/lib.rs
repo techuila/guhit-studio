@@ -25,17 +25,20 @@
 #![allow(clippy::result_large_err)]
 
 pub mod agent;
+mod documents;
 mod draft;
 mod extended;
 pub mod fail;
 mod geo;
 mod look;
+mod permit;
 mod session;
 mod stage;
 pub mod stdio;
 mod text;
 pub mod tools;
 pub mod toolsets;
+mod tours;
 mod translate;
 pub mod visuals;
 
@@ -831,13 +834,18 @@ mod tests {
 
     #[test]
     fn the_list_follows_the_toolsets() {
-        assert_eq!(tool_list().len(), 22);
-        assert_eq!(tool_list_for(&Toolsets::all()).len(), 33);
-        assert_eq!(tool_list_for(&Toolsets::parse("live")).len(), 25);
+        assert_eq!(tool_list().len(), 26);
+        assert_eq!(tool_list_for(&Toolsets::all()).len(), 45);
+        assert_eq!(tool_list_for(&Toolsets::parse("live")).len(), 29);
+        assert_eq!(tool_list_for(&Toolsets::parse("documents,tours")).len(), 33);
         let names: Vec<String> = tool_list().iter().map(|t| t.name.to_string()).collect();
         assert!(!names.iter().any(|n| n == "add_rect_room"), "v1 names are never listed");
+        // About 1.7 KB a tool: every one is read on every turn.
         let bytes = serde_json::to_string(&tool_list()).unwrap().len();
-        assert!(bytes < 40_000, "the core tool list is {bytes} bytes");
+        let mut sizes: Vec<(usize, String)> =
+            tool_list().iter().map(|t| (serde_json::to_string(t).unwrap().len(), t.name.to_string())).collect();
+        sizes.sort_by(|a, b| b.cmp(a));
+        assert!(bytes < 44_000, "the core tool list is {bytes} bytes; the largest: {:?}", &sizes[..6]);
     }
 
     #[test]

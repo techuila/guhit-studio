@@ -217,6 +217,8 @@ const BUILTIN_FALLBACKS: Record<string, Partial<Material>> = {
   "mat-floor-concrete": { color: "#b3b1ab", roughness: 0.6, pattern: "concrete" },
   "mat-concrete-fairface": { color: "#bdbdb8", roughness: 0.85, pattern: "concrete" },
   "mat-steel": { color: "#4a4f57", roughness: 0.5, metalness: 0.7 },
+  // Site paving on deck slabs (lane L5); ambientCG pavers in the pack.
+  "mat-paving-stone": { color: "#a9a49a", roughness: 0.85, pattern: "tile" },
 };
 
 /** How far a photo may be pushed to reach the preset's albedo. */

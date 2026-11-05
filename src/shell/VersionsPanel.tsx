@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { IpcError, SnapshotMeta } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
-import { useApp } from "../state/store";
+import { toastRepairs, useApp } from "../state/store";
 import { ConfirmDialog, Dialog } from "../ui/Dialog";
 import { Button, Spinner, cx } from "../ui/controls";
 import { Icon } from "../ui/icons";
@@ -62,8 +62,10 @@ export function VersionsPanel({ onClose, stage }: { onClose: () => void; stage?:
   const restore = async (snap: SnapshotMeta) => {
     setRestoring(null);
     try {
-      setDoc(await ipc.snapshotRestore(snap.id));
+      const opened = await ipc.snapshotRestore(snap.id);
+      setDoc(opened);
       toast("success", `Restored "${snap.label}". The state before it was kept as an automatic version.`);
+      toastRepairs(opened.repairs);
       onClose();
     } catch (e) {
       reportError(e);

@@ -10,6 +10,7 @@
 
 pub mod agents;
 pub mod ai;
+pub mod documents;
 pub mod files;
 pub mod interop;
 pub mod live;
@@ -18,6 +19,7 @@ pub mod render_ai;
 pub mod renders;
 pub mod snapshots;
 pub mod store;
+pub mod video;
 pub mod window;
 
 use std::path::{Path, PathBuf};
@@ -215,12 +217,28 @@ impl Session {
     /// Replace the open document. The previous one is flushed first.
     pub(crate) fn set_doc(&mut self, project: Project) -> Result<(), IpcError> {
         self.flush()?;
-        self.doc = Some(Document::new(project));
+        let doc = Document::new(project);
+        log_repairs(&doc);
+        self.doc = Some(doc);
         self.dirty = false;
         self.last_auto_snapshot_revision = 0;
         self.live_copy = None;
         self.last_shared = None;
         Ok(())
+    }
+
+    /// What an open answers: the document's state, plus `repairs` when
+    /// opening it mended what the app could not use (`Document::repairs`,
+    /// GR1 #14), one sentence each, so the person is told. Left out when
+    /// nothing was mended. The file on disk keeps what was dropped until the
+    /// next change saves the project.
+    pub(crate) fn opened(&self) -> IpcResult {
+        let mut v = to_value(&self.state()?)?;
+        let repairs = self.open_doc()?.repairs();
+        if !repairs.is_empty() {
+            v["repairs"] = serde_json::json!(repairs);
+        }
+        Ok(v)
     }
 
     fn close_doc(&mut self) -> Result<(), IpcError> {
@@ -568,6 +586,13 @@ impl AppService {
         if agents::OWNS.contains(&cmd) {
             return agents::handle(self, cmd, args).await;
         }
+        // Wave 2 (D54): one line per lane module.
+        if documents::OWNS.contains(&cmd) {
+            return documents::handle(self, cmd, args).await;
+        }
+        if video::OWNS.contains(&cmd) {
+            return video::handle(self, cmd, args).await;
+        }
         match cmd {
             // ------------------------------------------------------ library
             "catalog_assets" => to_value(&defaults::asset_catalog()),
@@ -632,7 +657,7 @@ impl AppService {
                     s.auto_snapshot("Auto: on open");
                 }
                 self.notify(&s);
-                to_value(&s.state()?)
+                s.opened()
             }
             "hub_rename" => {
                 let id: String = arg(&args, "id")?;
@@ -787,12 +812,14 @@ impl AppService {
                 // going up, so it never repeats a number an AI proposal or a
                 // render record was pinned to.
                 let revision = revision + 1;
-                s.doc = Some(Document::with_revision(project, revision));
+                let doc = Document::with_revision(project, revision);
+                log_repairs(&doc);
+                s.doc = Some(doc);
                 s.last_auto_snapshot_revision = revision;
                 s.dirty = true;
                 s.save()?;
                 self.notify(&s);
-                to_value(&s.state()?)
+                s.opened()
             }
 
             // ------------------------------------------------------- export
@@ -832,6 +859,7 @@ impl AppService {
                 to_value(&ExportResult {
                     path: target.to_string_lossy().into_owned(),
                     scale_denominator: Some(scale),
+                    notes: vec![],
                 })
             }
             "export_image" => {
@@ -851,6 +879,7 @@ impl AppService {
                 to_value(&ExportResult {
                     path: target.to_string_lossy().into_owned(),
                     scale_denominator: None,
+                    notes: vec![],
                 })
             }
 
@@ -874,6 +903,7 @@ impl AppService {
                 to_value(&ExportResult {
                     path: target.to_string_lossy().into_owned(),
                     scale_denominator: None,
+                    notes: vec![],
                 })
             }
 
@@ -939,6 +969,11 @@ impl AppService {
                 let s = self.session.lock().await;
                 to_value(&renders::data(&s.open_project_dir()?, &id)?)
             }
+            "render_set_look" => {
+                let id: Option<Id> = arg(&args, "id")?;
+                let s = self.session.lock().await;
+                to_value(&renders::set_look(&s.open_project_dir()?, id.as_deref())?)
+            }
             "render_delete" => {
                 let id: String = arg(&args, "id")?;
                 let s = self.session.lock().await;
@@ -965,10 +1000,97 @@ pub fn local_date_at(utc: chrono::DateTime<chrono::Utc>, offset: chrono::FixedOf
     utc.with_timezone(&offset).format("%Y-%m-%d").to_string()
 }
 
-fn export_err(e: guhit_export::ExportError) -> IpcError {
+pub(crate) fn export_err(e: guhit_export::ExportError) -> IpcError {
     match e {
         guhit_export::ExportError::Empty(_) => IpcError::new("invalid", e.to_string()),
         guhit_export::ExportError::Failed(_) => IpcError::new("io", e.to_string()),
+        guhit_export::ExportError::NotBuilt(_) => IpcError::new("not_built", e.to_string()),
+    }
+}
+
+/// Refuse what only people may do, for the copilot and agents (DECISIONS
+/// D53): setting the signing architect's license numbers. Walks batches.
+pub fn people_only(command: &Command) -> Result<(), IpcError> {
+    match command {
+        Command::SetSignatory { .. } => Err(IpcError::new(
+            "forbidden",
+            "Only people set the signing architect's name and license numbers (PRC, PTR, IAPOA, TIN). Ask the user to fill them in the title block form.",
+        )),
+        Command::Batch { commands, .. } => commands.iter().try_for_each(people_only),
+        _ => Ok(()),
+    }
+}
+
+/// The log names what opening a project mended (`Document::repairs`).
+fn log_repairs(doc: &Document) {
+    for note in doc.repairs() {
+        eprintln!("guhit-app: opening \"{}\" mended it: {note}", doc.project().name);
+    }
+}
+
+impl AppService {
+    /// What opening the open project mended (`Document::repairs`), one
+    /// sentence each; empty when nothing was. MCP `project` open reports it.
+    pub async fn open_repairs(&self) -> Vec<String> {
+        let s = self.session.lock().await;
+        s.doc.as_ref().map(|d| d.repairs().to_vec()).unwrap_or_default()
+    }
+}
+
+/// The label of a `SetSignatory` step (`guhit_core::sheets`). A live session
+/// guest's copy keeps no history, only the host's step labels, so there the
+/// label tells a signatory step.
+const SIGNATORY_STEP_LABEL: &str = "Edit signing architect";
+
+/// True when undoing (or with `redo` redoing) the `n` newest steps of `doc`
+/// would change the signing architect: a step on the way set it.
+pub fn crosses_signatory(doc: &Document, redo: bool, n: usize) -> bool {
+    let mut at = &doc.project().title_block.signatory;
+    for project in doc.step_projects(redo, n) {
+        if project.title_block.signatory != *at {
+            return true;
+        }
+        at = &project.title_block.signatory;
+    }
+    false
+}
+
+fn signatory_step_refused(redo: bool) -> IpcError {
+    let (what, done) = if redo { ("redo", "redone") } else { ("undo", "undone") };
+    IpcError::new(
+        "forbidden",
+        format!(
+            "A step to {what} changed the signing architect's name or license numbers (PRC, PTR, IAPOA, TIN). Only people change those, so an agent never takes that step back or brings it back, even with force; nothing was {done}. Ask the user to do it in the History panel, or {what} fewer steps."
+        ),
+    )
+}
+
+/// Refuse an agent's undo or redo of `steps` steps across a change of the
+/// signing architect (DECISIONS D53): only people set it, so `force` does
+/// not help either (GR1 #7). On a live session guest the host's step labels
+/// tell, since the copy keeps no history.
+pub(crate) fn check_agent_steps(s: &Session, live: &live::LiveState, redo: bool, steps: usize) -> Result<(), IpcError> {
+    let doc = s.open_doc()?;
+    let crosses = match s.live_copy.as_ref() {
+        Some(copy) => {
+            let list = live.history(doc, Some(copy));
+            let steps_of = if redo { &list.redo } else { &list.undo };
+            steps_of.iter().take(steps).any(|step| step.label == SIGNATORY_STEP_LABEL)
+        }
+        None => crosses_signatory(doc, redo, steps),
+    };
+    if crosses {
+        return Err(signatory_step_refused(redo));
+    }
+    Ok(())
+}
+
+impl AppService {
+    /// `check_agent_steps` for the MCP server's own undo and redo of several
+    /// steps, which then go back through `doc_undo` with the revision checked.
+    pub async fn agent_steps_allowed(&self, redo: bool, steps: u32) -> Result<(), IpcError> {
+        let s = self.session.lock().await;
+        check_agent_steps(&s, &self.live, redo, steps as usize)
     }
 }
 

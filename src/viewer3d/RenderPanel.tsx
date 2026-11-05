@@ -15,6 +15,7 @@ import { useShell } from "../shell/shellStore";
 import { useApp } from "../state/store";
 import { usePresence } from "../ui/motion";
 import { collapseOut } from "../ui/motionWaapi";
+import { captureInfo, queueMapsFor } from "./render/conditioning";
 import { RenderLightbox } from "./render/RenderLightbox";
 import { RenderSection } from "./render/RenderSection";
 import { ShadowStudyDialog } from "./render/ShadowStudyDialog";
@@ -25,6 +26,32 @@ import { formatResolution, useRenderUi } from "./render/renderStore";
 import { useViewer } from "./viewerStore";
 import styles from "./RenderPanel.module.css";
 import rs from "./render/render.module.css";
+
+/**
+ * Plays a tour video (a record with `video`; its image is the poster) in the
+ * system player, or shows its folder of PNG frames in Finder or Explorer.
+ * Desktop only: a browser cannot open files on this computer. The desktop
+ * app may open only `renders/*.mp4` (src-tauri capabilities): anything else
+ * in a project folder could have come in a received bundle, so a frame
+ * folder is revealed, never opened.
+ */
+async function openVideo(r: RenderRecord): Promise<void> {
+  const app = useApp.getState();
+  const video = r.video;
+  if (!video?.path) return;
+  if (!isTauri) {
+    app.toast("info", `Open the desktop app to play the video. It is saved at ${video.path}`);
+    return;
+  }
+  try {
+    const { openPath, revealItemInDir } = await import("@tauri-apps/plugin-opener");
+    if (video.codec === "png") await revealItemInDir(video.path);
+    else if (video.path.toLowerCase().endsWith(".mp4")) await openPath(video.path);
+    else app.toast("error", "This video is not an MP4 file, so it was not opened.");
+  } catch (e) {
+    app.toast("error", `Could not open the video: ${toIpcError(e).message || String(e)}`);
+  }
+}
 
 function fileName(r: RenderRecord): string {
   const base = (r.camera?.name || "view").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -178,7 +205,15 @@ export function RenderPanel() {
     useViewer.getState().flashCapture();
     try {
       const { png, camera } = await app.captureView();
-      const record = await ipc.renderCapture(camera, png);
+      // The record keeps the roof and cutaway this view shows, and the AI
+      // render's maps are drawn with them in the background
+      // (render/conditioning.ts).
+      const viewer = useViewer.getState();
+      const visibility = { roof: viewer.roofVisible, cutaway: viewer.cutaway };
+      const record = await ipc.renderCapture(camera, png, { info: captureInfo(png, visibility) });
+      void queueMapsFor(record, visibility, app.activeLevelId).then(
+        (saved) => saved && alive.current && void reload(),
+      );
       if (!alive.current) return;
       requested.current.add(record.id);
       setThumbs((t) => ({ ...t, [record.id]: png }));
@@ -316,6 +351,8 @@ export function RenderPanel() {
     onDelete: (r: RenderRecord) => void remove(r),
     onEnlarge: (id: string) => setLightboxId(id),
     onAddKey: addKey,
+    onReload: () => void reload(),
+    onOpenVideo: (r: RenderRecord) => void openVideo(r),
   };
 
   return (

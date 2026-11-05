@@ -75,27 +75,38 @@ pub fn follow_walls(before: &Project, after: &mut Project) -> usize {
         })
         .collect();
 
-    let mut updates: Vec<(usize, Point, Point)> = vec![];
+    let mut updates: Vec<(usize, Point, Point, Vec<Point>)> = vec![];
     for (i, el) in after.elements.iter().enumerate() {
         let Element::Dimension(d) = el else { continue };
         let Some(was) = old.get(&d.id) else { continue };
+        // An automatic dimension is rewritten from what it measures
+        // (`dims_auto`, P1-2), never dragged.
+        if d.auto.is_some() {
+            continue;
+        }
         // A dimension the command moved itself is never moved twice.
-        if was.a != d.a || was.b != d.b {
+        if was.a != d.a || was.b != d.b || was.through != d.through {
             continue;
         }
         let a = displaced(&anchors, &d.level_id, d.a);
         let b = displaced(&anchors, &d.level_id, d.b);
-        if a != d.a || b != d.b {
-            updates.push((i, a, b));
+        // A dimension string's witness points follow the same way.
+        let through: Vec<Point> = d
+            .through
+            .iter()
+            .map(|p| displaced(&anchors, &d.level_id, *p))
+            .collect();
+        if a != d.a || b != d.b || through != d.through {
+            updates.push((i, a, b, through));
         }
     }
 
     let mut changed = 0;
-    for (i, a, b) in updates {
+    for (i, a, b, through) in updates {
         let Element::Dimension(d) = &mut after.elements[i] else {
             continue;
         };
-        let kept = (d.a, d.b);
+        let kept = (d.a, d.b, std::mem::replace(&mut d.through, through));
         d.a = a;
         d.b = b;
         let moved = after.elements[i].clone();
@@ -105,6 +116,7 @@ pub fn follow_walls(before: &Project, after: &mut Project) -> usize {
             if let Element::Dimension(d) = &mut after.elements[i] {
                 d.a = kept.0;
                 d.b = kept.1;
+                d.through = kept.2;
             }
         } else {
             changed += 1;

@@ -83,6 +83,11 @@ fn two_storey() -> (Document, Id, Id) {
             run_mm: 2750.0,
             riser_count: 11,
             railing: Some(Railing { height_mm: 900.0, style: RailingStyle::Bars }),
+            shape: StairShape::Straight,
+            turn: Turn::Left,
+            first_flight_risers: None,
+            landing_mm: None,
+            well_mm: 0.0,
         }),
     ] {
         let what = format!("{:?}", element.kind());
@@ -121,16 +126,25 @@ fn slabs_and_the_stair_reach_the_plan_dxf_and_ifc() {
     assert_eq!(svg.matches("OPEN TO BELOW").count(), 1);
     assert!(svg.contains("<g id=\"stairs-below\">") && svg.contains(">DN<"), "the stair from below");
     let ground_svg = guhit_export::plan_svg(project, derived, &options(&ground)).unwrap().data;
-    assert!(ground_svg.contains(">UP<") && !ground_svg.contains("<g id=\"stairs-below\">"));
+    assert!(ground_svg.contains(">UP<") && !ground_svg.contains(">DN<"), "the stair going up");
+    // The treads over the plan's 1200 mm cut are drawn dashed past the break
+    // line (D54), in the dashed stair group.
+    assert!(ground_svg.contains("<g id=\"stairs-below\">"), "the flight above the cut");
 
     let dxf = guhit_export::plan_dxf(project, derived, &options(&second)).unwrap().data;
     assert!(dxf.contains("\n  2\nA-FLOR-OTLN\n"), "the layer table lists A-FLOR-OTLN");
     assert!(dxf.contains("\n  6\nGUHIT_DASHED\n"), "the flight from below is dashed");
-    // D44 on the ground floor: 11 risers, 9 lines between 10 treads, and
-    // the arrow shaft.
+    // D44 on the ground floor: 11 risers, 9 tread lines between 10 treads,
+    // across the 1000 mm flight (x 3000 to 4000) between its first riser
+    // (y 500) and its top (y 3250).
     let ground_dxf = guhit_export::plan_dxf(project, derived, &options(&ground)).unwrap().data;
-    let stair_lines = ground_dxf.matches("  0\nLINE\n  8\nA-FLOR-STRS\n").count();
-    assert_eq!(stair_lines, 9 + 1);
+    let treads = dxf_lines(&ground_dxf, "A-FLOR-STRS")
+        .into_iter()
+        .filter(|(a, b)| {
+            (a.1 - b.1).abs() < 1e-6 && ((a.0 - b.0).abs() - 1000.0).abs() < 1e-3 && a.1 > 500.0 + 1.0 && a.1 < 3250.0 - 1.0
+        })
+        .count();
+    assert_eq!(treads, 9);
 
     let ifc = guhit_export::model_ifc(project, derived).unwrap();
     assert!(guhit_export::ifc::dangling_refs(&ifc).is_empty());
@@ -142,6 +156,44 @@ fn slabs_and_the_stair_reach_the_plan_dxf_and_ifc() {
     assert!(ifc.contains("IFCRELVOIDSELEMENT("));
     let dxf3d = guhit_export::model_dxf3d(project, derived).unwrap();
     assert!(dxf3d.contains("A-FLOR-SLAB"));
+}
+
+/// The LINE entities of a DXF on `layer`, as ((x1, y1), (x2, y2)) in model
+/// mm. Reads the group code pairs, so the handles and owners DXF 2013
+/// puts between them do not matter.
+fn dxf_lines(text: &str, layer: &str) -> Vec<((f64, f64), (f64, f64))> {
+    let lines: Vec<&str> = text.lines().collect();
+    let pairs: Vec<(i32, &str)> = lines
+        .chunks(2)
+        .filter(|c| c.len() == 2)
+        .filter_map(|c| c[0].trim().parse::<i32>().ok().map(|code| (code, c[1].trim())))
+        .collect();
+    let mut out = vec![];
+    let mut i = 0;
+    while i < pairs.len() {
+        if pairs[i] != (0, "LINE") {
+            i += 1;
+            continue;
+        }
+        let (mut on, mut a, mut b) = (false, (0.0, 0.0), (0.0, 0.0));
+        i += 1;
+        while i < pairs.len() && pairs[i].0 != 0 {
+            let v = |s: &str| s.parse::<f64>().unwrap_or(f64::NAN);
+            match pairs[i] {
+                (8, l) => on = l == layer,
+                (10, x) => a.0 = v(x),
+                (20, y) => a.1 = v(y),
+                (11, x) => b.0 = v(x),
+                (21, y) => b.1 = v(y),
+                _ => {}
+            }
+            i += 1;
+        }
+        if on {
+            out.push((a, b));
+        }
+    }
+    out
 }
 
 /// The rails the engine derives (`Derived::railings`) in every export. Needs

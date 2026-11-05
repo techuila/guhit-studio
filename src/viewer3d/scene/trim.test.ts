@@ -11,7 +11,7 @@ import { buildScene, exteriorSide } from "./buildScene";
 import { MaterialLibrary } from "./materials";
 import { Highlight } from "../engine/highlights";
 import { MeshFade } from "../engine/meshFade";
-import { convexPieces, pushFascia, pushRailing, pushSkirting, RAIL, skirtingRuns, SKIRTING_HEIGHT_MM, type RailingMeshes } from "./trim";
+import { convexPieces, pushRailing, pushSkirting, RAIL, skirtingRuns, SKIRTING_HEIGHT_MM, type RailingMeshes } from "./trim";
 
 const rect = (x0: number, y0: number, x1: number, y1: number) => [
   { x: x0, y: y0 },
@@ -127,18 +127,6 @@ describe("voids and fascia", () => {
     const area = parts.reduce((sum, p) => sum + Math.abs(signedArea(p)), 0);
     expect(area).toBeCloseTo(3_000_000, 0);
   });
-
-  it("hangs a fascia board below the roof edge and splits a gable's rakes at the ridge", () => {
-    const md = new MeshData();
-    // A gable over x 0..8000, ridge along x at y = 3000.
-    const under = (p: { x: number; y: number }) => 2800 + (3000 - Math.abs(p.y - 3000)) * 0.5;
-    pushFascia(md, rect(0, 0, 8000, 6000), under, 100, { across: (p) => p.y, at: 3000 });
-    const h = heights(md);
-    expect(h.min).toBeCloseTo(2800 - 180, 3);
-    expect(h.max).toBeCloseTo(2800 + 1500 + 100, 3);
-    // Six pieces (two eaves, four half rakes), a closed box each.
-    expect(md.triangleCount).toBe(6 * 12);
-  });
 });
 
 /** The first thing a ray straight down from high above hits, world meters. */
@@ -149,8 +137,14 @@ function firstHitY(root: THREE.Object3D, xMm: number, yMm: number): number | nul
   return hits[0]?.point.y ?? null;
 }
 
-function build(doc: DocState) {
+/** No roof over the top floor: since schema 6 it is an element (D54). */
+function noRoof(doc: DocState) {
   doc.project.roof = { ...doc.project.roof, kind: "none" };
+  doc.project.elements = doc.project.elements.filter((e) => e.kind !== "roof");
+}
+
+function build(doc: DocState) {
+  noRoof(doc);
   return buildScene(doc, new MaterialLibrary(), { cutaway: false, activeLevelId: null, packModels: false });
 }
 
@@ -214,7 +208,7 @@ describe("slabs in 3D", () => {
 function deckDoc(extra: DocState["project"]["elements"], groundWidth = 12000): DocState {
   const d = twoLevelDoc();
   d.project.elements = d.project.elements.filter((e) => e.kind !== "stair");
-  d.project.roof = { ...d.project.roof, kind: "none" };
+  noRoof(d);
   d.derived.footprints = [
     { level_id: d.project.levels[0].id, polygon: rect(0, 0, groundWidth, 8000), area_mm2: groundWidth * 8000 },
     { level_id: "test-level-2", polygon: rect(0, 0, 8000, 8000), area_mm2: 64e6 },
@@ -251,7 +245,7 @@ describe("voids cut every floor under them", () => {
 
   it("and a stairwell cuts a slab it rises through", () => {
     const d = twoLevelDoc();
-    d.project.roof = { ...d.project.roof, kind: "none" };
+    noRoof(d);
     d.project.elements.push({ kind: "slab", id: "f", level_id: "test-level-2", slab_kind: "floor", polygon: rect(100, 1000, 1200, 5200), thickness_mm: 200, top_offset_mm: 0, material_id: null, railing: null });
     const built = buildScene(d, lib(), opts);
     // Over the middle of the flight the first thing below is the stair, well under the upper floor.

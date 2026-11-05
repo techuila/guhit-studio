@@ -94,7 +94,10 @@ fn ifc_counts_match_the_fixture() {
         .filter(|e| matches!(e, Element::Room(_)))
         .count();
 
-    assert_eq!(c.walls, walls, "one IfcWall per wall");
+    // Gable ends (`RoofGeometry::infill`) are USERDEFINED IfcWalls too.
+    let gables: usize = s.derived.roofs.iter().map(|r| r.infill.len()).sum();
+    assert_eq!(gables, 2, "the bungalow's gable has two ends");
+    assert_eq!(c.walls, walls + gables, "one IfcWall per wall and gable end");
     assert_eq!(c.doors, doors);
     assert_eq!(c.windows, windows);
     assert_eq!(c.openings, doors + windows, "one void per opening");
@@ -103,7 +106,7 @@ fn ifc_counts_match_the_fixture() {
     assert_eq!(c.windows as u32, s.derived.totals.window_count);
 
     // One floor slab per footprint, plus two roof planes for the gable.
-    assert_eq!(s.project.roof.kind, RoofKind::Gable);
+    assert_eq!(s.project.top_roof().kind, RoofKind::Gable);
     assert_eq!(c.roofs, 1, "one IfcRoof aggregating the planes");
     assert_eq!(c.slabs, s.derived.footprints.len() + 2);
     assert_eq!(ifc.matches("IFCRELVOIDSELEMENT(").count(), doors + windows);
@@ -282,34 +285,22 @@ fn ifc_bounds_spaces_to_the_walls_that_enclose_them() {
     assert!(ifc.contains(",$,.PHYSICAL.,.INTERNAL.)"));
 }
 
+// The IFC and 3D DXF of each roof kind need the roof derived again after the
+// change (`Derived::roofs`, DECISIONS D54), which guhit-export cannot do: those
+// tests are in crates/guhit-app/tests/w2_l2_roofs_stairs.rs
+// (`ifc_and_dxf3d_roofs_follow_the_roof_kind`). A roof element that is gone
+// draws nothing even with stale derived data:
 #[test]
-fn ifc_roof_follows_the_project_setting() {
-    let base = fixture();
-    for (kind, expect_roof, expect_planes) in [
-        (RoofKind::None, false, 0usize),
-        (RoofKind::Flat, false, 1),
-        (RoofKind::Shed, true, 1),
-        (RoofKind::Gable, true, 2),
-    ] {
-        let mut s = base.clone();
-        s.project.roof.kind = kind;
-        let ifc = model_ifc(&s.project, &s.derived).unwrap();
-        let c = count_entities(&ifc);
-        assert_eq!(c.roofs, usize::from(expect_roof), "{kind:?} IfcRoof");
-        assert_eq!(
-            c.slabs,
-            s.derived.footprints.len() + expect_planes,
-            "{kind:?} slabs"
-        );
-        if expect_roof {
-            let tag = if kind == RoofKind::Gable {
-                ".GABLE_ROOF."
-            } else {
-                ".SHED_ROOF."
-            };
-            assert!(ifc.contains(tag));
-        }
-    }
+fn a_removed_roof_draws_nothing_in_either_export() {
+    let mut s = fixture();
+    s.project.elements.retain(|e| !matches!(e, Element::Roof(_)));
+    assert_eq!(s.project.top_roof().kind, RoofKind::None);
+    let c = count_entities(&model_ifc(&s.project, &s.derived).unwrap());
+    assert_eq!(c.roofs, 0);
+    assert_eq!(c.slabs, s.derived.footprints.len());
+    let faces = build_faces(&s.project, &s.derived);
+    let per_layer: HashMap<&str, usize> = faces_per_layer(&faces).into_iter().collect();
+    assert_eq!(per_layer.get("A-ROOF").copied().unwrap_or(0), 0);
 }
 
 #[test]
@@ -427,24 +418,12 @@ fn dxf3d_has_faces_on_every_solid_layer() {
 }
 
 #[test]
-fn dxf3d_roof_faces_follow_the_roof_kind() {
-    let base = fixture();
-    for (kind, min_faces) in [
-        (RoofKind::None, 0usize),
-        (RoofKind::Flat, 8),
-        (RoofKind::Shed, 8),
-        (RoofKind::Gable, 16),
-    ] {
-        let mut s = base.clone();
-        s.project.roof.kind = kind;
-        let faces = build_faces(&s.project, &s.derived);
-        let per_layer: HashMap<&str, usize> = faces_per_layer(&faces).into_iter().collect();
-        let n = per_layer["A-ROOF"];
-        assert!(n >= min_faces, "{kind:?} produced {n} roof faces");
-        if kind == RoofKind::None {
-            assert_eq!(n, 0);
-        }
-    }
+fn dxf3d_draws_the_fixture_gable_with_its_ends() {
+    let s = fixture();
+    let faces = build_faces(&s.project, &s.derived);
+    let per_layer: HashMap<&str, usize> = faces_per_layer(&faces).into_iter().collect();
+    // Two sloped prisms and the two gable ends, on the roof layer.
+    assert!(per_layer["A-ROOF"] >= 16 + 2, "{per_layer:?}");
 }
 
 #[test]

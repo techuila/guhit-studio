@@ -3,17 +3,40 @@ import type { Element } from "./Element";
 import type { Layer } from "./Layer";
 import type { Level } from "./Level";
 import type { Material } from "./Material";
+import type { OpeningSpec } from "./OpeningSpec";
 import type { ProjectSettings } from "./ProjectSettings";
 import type { ReviewMark } from "./ReviewMark";
 import type { Roof } from "./Roof";
+import type { SheetSet } from "./SheetSet";
+import type { TitleBlock } from "./TitleBlock";
 
 export type Project = { schema_version: number, id: string, name: string, 
 /**
  * RFC 3339 timestamps.
  */
-created_at: string, updated_at: string, settings: ProjectSettings, levels: Array<Level>, layers: Array<Layer>, materials: Array<Material>, elements: Array<Element>, roof: Roof, 
+created_at: string, updated_at: string, settings: ProjectSettings, levels: Array<Level>, layers: Array<Layer>, materials: Array<Material>, elements: Array<Element>, 
+/**
+ * The single roof of files before schema 6. `guhit_core::migrate` turns
+ * it into a `TopFootprint` `Element::Roof` and leaves its kind none, so
+ * nothing reads it: the roof over the top floor is `top_roof`.
+ */
+roof: Roof, 
 /**
  * Review items the designer set aside, with a note. Open is the default
  * and is not stored; resolved is derived (`Derived::review_resolved`).
  */
-review: Array<ReviewMark>, };
+review: Array<ReviewMark>, 
+/**
+ * Door and window types with their marks (D1, W1), DECISIONS D53.
+ */
+opening_types: Array<OpeningSpec>, 
+/**
+ * The PH title block printed on every sheet. Boxed, like the large
+ * command payloads, so `Project` and `DocState` stay small on the stack
+ * (the JSON is the same).
+ */
+title_block: TitleBlock, 
+/**
+ * Sheets in set order, and the revision log.
+ */
+sheet_set: SheetSet, };

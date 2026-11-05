@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-11-03T21:13:53.323Z",
+  "generated_at": "2026-11-04T04:44:47.096Z",
   "hdri": {
     "id": "pretoria_gardens",
     "name": "Pretoria Gardens",
@@ -211,6 +211,42 @@
       "bytes": 395420,
       "note": "Flat modern clay tile look (RoofingTiles013A, the barrel/Spanish-profile option, is a near-black underexposed photo unsuitable as-is)."
     },
+    "mat-ground-grass": {
+      "id": "mat-ground-grass",
+      "name": "Lawn (the 3D view's ground)",
+      "source_url": "https://ambientcg.com/a/Grass004",
+      "source_asset_id": "Grass004",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        1400,
+        1400
+      ],
+      "maps": [
+        "materials/mat-ground-grass/color.jpg",
+        "materials/mat-ground-grass/normal.jpg",
+        "materials/mat-ground-grass/roughness.jpg"
+      ],
+      "bytes": 1061388,
+      "note": "Not a project material: the 3D view draws its ground with it (src/viewer3d/engine/environment.ts), sampled at two scales so the tile does not repeat visibly."
+    },
+    "mat-paving-stone": {
+      "id": "mat-paving-stone",
+      "name": "Paving stones (site paving)",
+      "source_url": "https://ambientcg.com/a/PavingStones099",
+      "source_asset_id": "PavingStones099",
+      "license": "CC0 1.0",
+      "physical_size_mm": [
+        2200,
+        2200
+      ],
+      "maps": [
+        "materials/mat-paving-stone/color.jpg",
+        "materials/mat-paving-stone/normal.jpg",
+        "materials/mat-paving-stone/roughness.jpg"
+      ],
+      "bytes": 390100,
+      "note": "For deck slabs used as site paving (SlabKind::Deck with this material): driveways, carports, garden walks. Grey I-shaped interlocking concrete pavers, 200 x 157 mm at this tile size."
+    },
     "mat-paint-warm-white": {
       "id": "mat-paint-warm-white",
       "name": "Paint, warm white",
@@ -280,24 +316,6 @@
       "maps": [],
       "bytes": 0,
       "note": "No texture: flat MeshStandardMaterial color #bfe3ee (pattern \"none\" in crates/guhit-model/src/defaults.rs). Glass has no texture map: transparency + roughness only."
-    },
-    "mat-ground-grass": {
-      "id": "mat-ground-grass",
-      "name": "Lawn (the 3D view's ground)",
-      "source_url": "https://ambientcg.com/a/Grass004",
-      "source_asset_id": "Grass004",
-      "license": "CC0 1.0",
-      "physical_size_mm": [
-        1400,
-        1400
-      ],
-      "maps": [
-        "materials/mat-ground-grass/color.jpg",
-        "materials/mat-ground-grass/normal.jpg",
-        "materials/mat-ground-grass/roughness.jpg"
-      ],
-      "bytes": 1061388,
-      "note": "Not a project material: the 3D view draws its ground with it (src/viewer3d/engine/environment.ts), sampled at two scales so the tile does not repeat visibly."
     }
   },
   "models": {
@@ -648,6 +666,726 @@
       "file": null,
       "source": "none",
       "note": "None of the three approved sources publish a CC0 vehicle model."
+    },
+    "sofa-leather": {
+      "file": "models/sofa-leather.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/sofa_02",
+      "source_asset_id": "sofa_02",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1810,
+        "depth": 820,
+        "height": 710
+      },
+      "triangles": 2690,
+      "bytes": 168992
+    },
+    "sofa-wood": {
+      "file": "models/sofa-wood.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/chinese_sofa",
+      "source_asset_id": "chinese_sofa",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 2290,
+        "depth": 970,
+        "height": 860
+      },
+      "triangles": 698,
+      "bytes": 169464
+    },
+    "lounge-chair": {
+      "file": "models/lounge-chair.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/mid_century_lounge_chair",
+      "source_asset_id": "mid_century_lounge_chair",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 1010,
+        "depth": 1190,
+        "height": 1170
+      },
+      "triangles": 5800,
+      "bytes": 121904
+    },
+    "armchair-classic": {
+      "file": "models/armchair-classic.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/ArmChair_01",
+      "source_asset_id": "ArmChair_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 850,
+        "depth": 770,
+        "height": 1065
+      },
+      "triangles": 5616,
+      "bytes": 142572
+    },
+    "ottoman": {
+      "file": "models/ottoman.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/Ottoman_01",
+      "source_asset_id": "Ottoman_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 885,
+        "depth": 620,
+        "height": 625
+      },
+      "triangles": 4010,
+      "bytes": 97064
+    },
+    "coffee-table-round": {
+      "file": "models/coffee-table-round.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/coffee_table_round_01",
+      "source_asset_id": "coffee_table_round_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1200,
+        "depth": 1200,
+        "height": 490
+      },
+      "triangles": 3732,
+      "bytes": 192456
+    },
+    "coffee-table-square": {
+      "file": "models/coffee-table-square.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/modern_coffee_table_02",
+      "source_asset_id": "modern_coffee_table_02",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1100,
+        "depth": 1100,
+        "height": 370
+      },
+      "triangles": 12749,
+      "bytes": 477688
+    },
+    "side-table": {
+      "file": "models/side-table.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/side_table_01",
+      "source_asset_id": "side_table_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 550,
+        "depth": 450,
+        "height": 550
+      },
+      "triangles": 2542,
+      "bytes": 84052
+    },
+    "side-table-round": {
+      "file": "models/side-table-round.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/side_table_tall_01",
+      "source_asset_id": "side_table_tall_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 385,
+        "depth": 385,
+        "height": 760
+      },
+      "triangles": 5538,
+      "bytes": 88308
+    },
+    "tea-table": {
+      "file": "models/tea-table.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/chinese_tea_table",
+      "source_asset_id": "chinese_tea_table",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 840,
+        "depth": 840,
+        "height": 500
+      },
+      "triangles": 2436,
+      "bytes": 67416
+    },
+    "sideboard": {
+      "file": "models/sideboard.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/modern_wooden_cabinet",
+      "source_asset_id": "modern_wooden_cabinet",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "optimize": "--simplify-ratio 0.5 --simplify-error 0.003",
+      "bbox_mm": {
+        "width": 2000,
+        "depth": 500,
+        "height": 680
+      },
+      "triangles": 15687,
+      "bytes": 396168
+    },
+    "ceiling-fan": {
+      "file": "models/ceiling-fan.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/ceiling_fan",
+      "source_asset_id": "ceiling_fan",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 1460,
+        "depth": 1460,
+        "height": 520
+      },
+      "triangles": 11457,
+      "bytes": 152400
+    },
+    "plant-leafy": {
+      "file": "models/plant-leafy.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/potted_plant_02",
+      "source_asset_id": "potted_plant_02",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "optimize": "--simplify-ratio 0.35 --simplify-error 0.01",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 700,
+        "depth": 660,
+        "height": 840
+      },
+      "triangles": 24426,
+      "bytes": 329396
+    },
+    "plant-succulent": {
+      "file": "models/plant-succulent.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/potted_plant_04",
+      "source_asset_id": "potted_plant_04",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 170,
+        "depth": 185,
+        "height": 270
+      },
+      "triangles": 8697,
+      "bytes": 179716
+    },
+    "vase-ceramic": {
+      "file": "models/vase-ceramic.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/ceramic_vase_01",
+      "source_asset_id": "ceramic_vase_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 260,
+        "depth": 260,
+        "height": 500
+      },
+      "triangles": 9784,
+      "bytes": 81020
+    },
+    "wall-art": {
+      "file": "models/wall-art.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/fancy_picture_frame_01",
+      "source_asset_id": "fancy_picture_frame_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 600,
+        "depth": 20,
+        "height": 465
+      },
+      "triangles": 335,
+      "bytes": 99600
+    },
+    "mirror-wall": {
+      "file": "models/mirror-wall.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/ornate_mirror_01",
+      "source_asset_id": "ornate_mirror_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 490,
+        "depth": 26,
+        "height": 745
+      },
+      "triangles": 10621,
+      "bytes": 122644
+    },
+    "shelf-cube": {
+      "file": "models/shelf-cube.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/wooden_display_shelves_01",
+      "source_asset_id": "wooden_display_shelves_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "turn_deg": -90,
+      "bbox_mm": {
+        "width": 1080,
+        "depth": 370,
+        "height": 1555
+      },
+      "triangles": 2854,
+      "bytes": 169316
+    },
+    "shelf-steel": {
+      "file": "models/shelf-steel.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/steel_frame_shelves_01",
+      "source_asset_id": "steel_frame_shelves_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1100,
+        "depth": 500,
+        "height": 2140
+      },
+      "triangles": 3664,
+      "bytes": 178992
+    },
+    "basket-rattan": {
+      "file": "models/basket-rattan.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/wicker_basket_02",
+      "source_asset_id": "wicker_basket_02",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 374,
+        "depth": 270,
+        "height": 220
+      },
+      "triangles": 17608,
+      "bytes": 271320
+    },
+    "rocking-chair": {
+      "file": "models/rocking-chair.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/Rockingchair_01",
+      "source_asset_id": "Rockingchair_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 710,
+        "depth": 830,
+        "height": 995
+      },
+      "triangles": 11014,
+      "bytes": 165144
+    },
+    "dining-round-2": {
+      "file": "models/dining-round-2.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/round_wooden_table_02",
+      "source_asset_id": "round_wooden_table_02",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 800,
+        "depth": 800,
+        "height": 745
+      },
+      "triangles": 3662,
+      "bytes": 102948
+    },
+    "chair-dining": {
+      "file": "models/chair-dining.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/dining_chair_02",
+      "source_asset_id": "dining_chair_02",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 435,
+        "depth": 575,
+        "height": 975
+      },
+      "triangles": 17011,
+      "bytes": 167872
+    },
+    "chair-wood-white": {
+      "file": "models/chair-wood-white.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/painted_wooden_chair_01",
+      "source_asset_id": "painted_wooden_chair_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 430,
+        "depth": 540,
+        "height": 955
+      },
+      "triangles": 672,
+      "bytes": 79708
+    },
+    "chair-monobloc": {
+      "file": "models/chair-monobloc.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/plastic_monobloc_chair_01",
+      "source_asset_id": "plastic_monobloc_chair_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 640,
+        "depth": 630,
+        "height": 880
+      },
+      "triangles": 3226,
+      "bytes": 130656
+    },
+    "stool-wood": {
+      "file": "models/stool-wood.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/bar_chair_round_01",
+      "source_asset_id": "bar_chair_round_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 480,
+        "depth": 480,
+        "height": 750
+      },
+      "triangles": 14373,
+      "bytes": 378892
+    },
+    "table-wood": {
+      "file": "models/table-wood.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/wooden_table_02",
+      "source_asset_id": "wooden_table_02",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1200,
+        "depth": 700,
+        "height": 760
+      },
+      "triangles": 196,
+      "bytes": 209256
+    },
+    "dining-set-4": {
+      "file": "models/dining-set-4.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/wooden_table_02",
+      "source_asset_id": "wooden_table_02 + 4x painted_wooden_chair_01 (composed)",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "composed_from": [
+        {
+          "id": "wooden_table_02",
+          "source_url": "https://polyhaven.com/a/wooden_table_02",
+          "size_mm": [
+            1200,
+            800,
+            750
+          ]
+        },
+        {
+          "id": "painted_wooden_chair_01",
+          "source_url": "https://polyhaven.com/a/painted_wooden_chair_01",
+          "size_mm": [
+            430,
+            540,
+            955
+          ],
+          "count": 4
+        }
+      ],
+      "chair_tuck_mm": 140,
+      "bbox_mm": {
+        "width": 1200,
+        "depth": 1600,
+        "height": 955
+      },
+      "triangles": 868,
+      "bytes": 409940
+    },
+    "dining-set-6": {
+      "file": "models/dining-set-6.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/wooden_table_02",
+      "source_asset_id": "wooden_table_02 + 6x painted_wooden_chair_01 (composed)",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "composed_from": [
+        {
+          "id": "wooden_table_02",
+          "source_url": "https://polyhaven.com/a/wooden_table_02",
+          "size_mm": [
+            1800,
+            900,
+            750
+          ]
+        },
+        {
+          "id": "painted_wooden_chair_01",
+          "source_url": "https://polyhaven.com/a/painted_wooden_chair_01",
+          "size_mm": [
+            430,
+            540,
+            955
+          ],
+          "count": 6
+        }
+      ],
+      "chair_tuck_mm": 140,
+      "bbox_mm": {
+        "width": 1800,
+        "depth": 1700,
+        "height": 955
+      },
+      "triangles": 868,
+      "bytes": 410228
+    },
+    "nightstand": {
+      "file": "models/nightstand.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/painted_wooden_nightstand",
+      "source_asset_id": "painted_wooden_nightstand",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 505,
+        "depth": 510,
+        "height": 615
+      },
+      "triangles": 468,
+      "bytes": 82084
+    },
+    "dresser": {
+      "file": "models/dresser.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/GothicCommode_01",
+      "source_asset_id": "GothicCommode_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1200,
+        "depth": 580,
+        "height": 1210
+      },
+      "triangles": 3871,
+      "bytes": 218016
+    },
+    "cabinet-drawers": {
+      "file": "models/cabinet-drawers.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/drawer_cabinet",
+      "source_asset_id": "drawer_cabinet",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1140,
+        "depth": 490,
+        "height": 1880
+      },
+      "triangles": 13543,
+      "bytes": 247720
+    },
+    "desk-metal": {
+      "file": "models/desk-metal.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/metal_office_desk",
+      "source_asset_id": "metal_office_desk",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1600,
+        "depth": 760,
+        "height": 760
+      },
+      "triangles": 4856,
+      "bytes": 178520
+    },
+    "range-electric": {
+      "file": "models/range-electric.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/electric_stove",
+      "source_asset_id": "electric_stove",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 550,
+        "depth": 650,
+        "height": 860
+      },
+      "triangles": 12532,
+      "bytes": 285296
+    },
+    "microwave": {
+      "file": "models/microwave.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/vintage_microwave",
+      "source_asset_id": "vintage_microwave",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 500,
+        "depth": 370,
+        "height": 300
+      },
+      "triangles": 7191,
+      "bytes": 107768
+    },
+    "cabinet-white": {
+      "file": "models/cabinet-white.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/painted_wooden_cabinet",
+      "source_asset_id": "painted_wooden_cabinet",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1195,
+        "depth": 615,
+        "height": 1180
+      },
+      "triangles": 2135,
+      "bytes": 231044
+    },
+    "outdoor-set": {
+      "file": "models/outdoor-set.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/outdoor_table_chair_set_01",
+      "source_asset_id": "outdoor_table_chair_set_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 783,
+        "depth": 1828,
+        "height": 860
+      },
+      "triangles": 9602,
+      "bytes": 412248
+    },
+    "bench-wood": {
+      "file": "models/bench-wood.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/painted_wooden_bench",
+      "source_asset_id": "painted_wooden_bench",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1165,
+        "depth": 500,
+        "height": 890
+      },
+      "triangles": 624,
+      "bytes": 258656
+    },
+    "planter-box": {
+      "file": "models/planter-box.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/planter_box_01",
+      "source_asset_id": "planter_box_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "texture_px": 512,
+      "bbox_mm": {
+        "width": 915,
+        "depth": 415,
+        "height": 425
+      },
+      "triangles": 6898,
+      "bytes": 152056
+    },
+    "car-covered": {
+      "file": "models/car-covered.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/covered_car",
+      "source_asset_id": "covered_car",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "bbox_mm": {
+        "width": 1790,
+        "depth": 4380,
+        "height": 1410
+      },
+      "triangles": 12118,
+      "bytes": 327740
+    },
+    "gate-iron": {
+      "file": "models/gate-iron.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/large_iron_gate",
+      "source_asset_id": "large_iron_gate",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "optimize": "--simplify-ratio 0.5 --simplify-error 0.002",
+      "bbox_mm": {
+        "width": 2950,
+        "depth": 100,
+        "height": 2930
+      },
+      "triangles": 19070,
+      "bytes": 447908
+    },
+    "lamp-post-classic": {
+      "file": "models/lamp-post-classic.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/street_lamp_01",
+      "source_asset_id": "street_lamp_01",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "scale": "uniformly by height",
+      "bbox_mm": {
+        "width": 509,
+        "depth": 280,
+        "height": 2800
+      },
+      "triangles": 20052,
+      "bytes": 282540
+    },
+    "tree-flowering": {
+      "file": "models/tree-flowering.glb",
+      "source": "polyhaven",
+      "source_url": "https://polyhaven.com/a/jacaranda_tree",
+      "source_asset_id": "jacaranda_tree",
+      "license": "CC0 1.0",
+      "back_axis": "-z",
+      "scale": "uniformly by height",
+      "optimize": "--simplify-ratio 0.01 --simplify-error 0.05",
+      "texture_px": 512,
+      "alpha": "BLEND leaves set to OPAQUE (they carry no alpha)",
+      "bbox_mm": {
+        "width": 6758,
+        "depth": 5326,
+        "height": 5460
+      },
+      "triangles": 50192,
+      "bytes": 1451612
     }
   }
 }

@@ -73,7 +73,7 @@ pub fn definitions() -> Vec<ToolDef> {
         // -------------------------------------------------------- visuals
         def(
             "render",
-            format!("Path traced renders in the Guhit Studio window, saved to Visuals. action start: views (saved views by id or name, each from its own camera; none for the view on screen), quality quick (about a minute) or final, size hd|qhd|4k|square, wait_seconds; it answers with the images or a job_id. A window still rendering answers window_busy with when to try again. status: job_id, wait_seconds. image: a saved visual by id, fitted to 1568 px. list: saved visuals, newest first. Needs the window open on the project. {MM}"),
+            format!("Path traced renders in the Guhit Studio window, saved to Visuals. action start: views (saved views by id or name, each from its own camera; none for the view on screen), quality quick (about a minute) or final, size hd|qhd|4k|square, wait_seconds; it answers with the images or a job_id. A window still rendering answers window_busy with what it is doing and when to try again. status: job_id and wait_seconds, or no job_id for what the window's render queue is doing. image: a saved visual by id, fitted to 1568 px. list: saved visuals, newest first. {MM}"),
             obj(json!({
                 "action": {"type": "string", "enum": ["start", "status", "image", "list"]},
                 "views": {"type": "array", "items": {"type": "string"}},
@@ -86,6 +86,13 @@ pub fn definitions() -> Vec<ToolDef> {
             false,
         ),
         take(&visuals, "visualize_render"),
+        def(
+            "set_look",
+            format!("Make a saved visual the project look: AI renders follow its style (D53). id: from render action \"list\"; null clears it. It never changes the model. {MM}"),
+            obj(json!({"id": {"type": ["string", "null"], "description": "A saved visual's id, or null."}}), &["id"]),
+            false,
+            false,
+        ),
         // ----------------------------------------------------------- live
         take(&session, "get_session"),
         take(&session, "send_chat_message"),
@@ -155,6 +162,8 @@ pub async fn call(app: &AppService, name: &str, args: &Value, ctx: &CallContext)
             stage::run(app, vec![StepIn::new(name, args)], scope.as_ref(), Options { label, dry_run: false, per_step: false }, ctx).await
         }
         "render" => render(app, args, ctx).await,
+        "set_look" => crate::visuals::set_look(app, args).await,
+        "export_tour" => crate::tours::export_tour(app, args).await,
         "set_status" => crate::agent::set_status(app, ctx, args).await,
         "import_underlay" => import_underlay(app, args, ctx).await,
         "import_dxf" => import_dxf(app, args, ctx).await,
@@ -165,6 +174,16 @@ pub async fn call(app: &AppService, name: &str, args: &Value, ctx: &CallContext)
 async fn render(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let mut rest = args.as_object().cloned().unwrap_or_default();
     let action = rest.remove("action").and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+    // Status with no job: what the window's render queue is doing, whoever
+    // started it (G4 problem 8).
+    if action == "status" && rest.get("job_id").is_none_or(Value::is_null) {
+        let activity = app.window_activity();
+        return Ok(Output::Json(json!({
+            "busy": activity.as_ref().is_some_and(|a| a["busy"] == true),
+            "window": activity,
+            "note": if activity.is_none() { "The window has not reported a render since it opened: nothing is rendering, or the window is closed." } else { "start waits for a render that is running; or pass job_id to wait for one of yours." },
+        })));
+    }
     let v1 = match action.as_str() {
         "start" => "render_view",
         "status" => "get_render_job",

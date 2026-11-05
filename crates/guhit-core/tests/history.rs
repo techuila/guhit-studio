@@ -152,3 +152,29 @@ fn history_keeps_the_newest_max_history_steps() {
     assert!(!s.can_undo);
     assert_eq!(doc.history().redo.len(), MAX_HISTORY);
 }
+
+#[test]
+fn step_projects_walk_the_states_an_undo_or_redo_passes_through() {
+    let mut doc = blank();
+    let start = doc.project().clone();
+    doc.apply(add_wall(p(0.0, 0.0), p(4000.0, 0.0)), Origin::User).unwrap();
+    let one = doc.project().clone();
+    doc.apply(add_wall(p(0.0, 3000.0), p(4000.0, 3000.0)), Origin::User).unwrap();
+    let two = doc.project().clone();
+
+    // Undo: one step back, then two; fewer when fewer are kept.
+    let back: Vec<&Project> = doc.step_projects(false, 5).collect();
+    assert_eq!(back, vec![&one, &start]);
+    assert_eq!(doc.step_projects(false, 1).count(), 1);
+    assert_eq!(doc.step_projects(true, 3).count(), 0);
+
+    // Each is what an undo or redo leaves.
+    doc.undo_steps(2).unwrap();
+    assert_eq!(doc.project(), &start);
+    let forward: Vec<&Project> = doc.step_projects(true, 2).collect();
+    assert_eq!(forward, vec![&one, &two]);
+    doc.redo().unwrap();
+    assert_eq!(doc.project(), &one);
+    assert_eq!(doc.step_projects(true, 1).next(), Some(&two));
+    assert_eq!(doc.step_projects(false, 1).next(), Some(&start));
+}

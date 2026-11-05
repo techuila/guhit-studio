@@ -54,6 +54,15 @@ pub const REVIEW_CODES: &[&str] = &[
     "outdoor_unit_clearance",
     "outdoor_unit_unsupported",
     "unit_near_tv",
+    // Wave 2 (D54). Each lane's module produces its own.
+    "stair_headroom_low",
+    "stair_landing_short",
+    "roof_outline",
+    "roof_unsupported",
+    "asset_in_wall",
+    "assets_overlap",
+    "tour_through_wall",
+    "building_over_setback",
 ];
 
 /// A wall end this close to another wall, but not joined, is probably a slip.

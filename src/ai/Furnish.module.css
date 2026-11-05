@@ -1,0 +1,232 @@
+/* "Furnish rooms": the bar above the composer and one card per room. Purple
+   (--ai) marks the AI-authored cards only, as in the rest of the dock. */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.styles {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.style {
+  height: 22px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.style:hover {
+  color: var(--ink);
+}
+
+.style:active {
+  transform: scale(var(--press-scale));
+}
+
+.styleOn {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.go {
+  margin-left: auto;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--ai) 45%, var(--line));
+  border-radius: var(--radius-sm);
+  background: var(--ai-soft);
+  color: var(--ai);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.go:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ai-soft) 70%, var(--ai));
+}
+
+.go:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+
+.go:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ----------------------------------------------------------------- cards */
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.room {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--ai) 30%, var(--line));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--ai-soft) 35%, var(--surface));
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    background var(--dur-hover) var(--ease-out);
+}
+
+.roomActive {
+  border-color: var(--ai);
+  background: color-mix(in srgb, var(--ai-soft) 70%, var(--surface));
+}
+
+.roomDone {
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+
+.roomHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.roomName {
+  font-weight: 600;
+}
+
+.roomState {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  animation: fadeIn var(--dur-base) var(--ease-out);
+}
+
+.roomState[data-state="applied"] {
+  color: var(--ok);
+}
+
+.roomState[data-state="stale"] {
+  color: var(--warn);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+.items {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.apply,
+.discard {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--dur-base) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.apply {
+  background: var(--ai);
+  color: #fff;
+}
+
+.apply:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ai) 86%, #000);
+}
+
+.applyBusy {
+  opacity: 0.7;
+}
+
+.discard {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.discard:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.apply:active:not(:disabled),
+.discard:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+
+.count {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  animation: fadeIn var(--dur-base) var(--ease-out);
+}
+
+.note[data-state="applied"] {
+  color: var(--ok);
+}
+
+.note[data-state="stale"] {
+  color: var(--warn);
+}
+
+.check {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw var(--dur-base) var(--ease-out) forwards;
+}
+
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}

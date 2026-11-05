@@ -9,7 +9,7 @@ import { EYE_HEIGHT_MM } from "./cameraMath";
 import { crossesWall, isClear, levelResolver, pushOut, WALKER_RADIUS_MM, type CollisionWorld } from "./collision";
 import type { Pt } from "./coords";
 import { boundsOf, ensureCCW, orientedRect, pointInPolygon, signedArea } from "./polygon";
-import { stairLocal, stairsOf } from "../walk/stairs";
+import { nearStair, stairsOf } from "../walk/stairs";
 
 export interface WalkPose {
   x: number;
@@ -177,11 +177,7 @@ export function walkStartPose(
     // Never on a stair: not on its flight, its approach or in its stairwell.
     const level = levelResolver(doc)(levelId)?.id ?? levelId;
     const flights = stairsOf(doc).filter((st) => st.levelId === level || st.topLevelId === level);
-    const onStair = (p: Pt) =>
-      flights.some((st) => {
-        const { u, v } = stairLocal(st, p);
-        return u > -st.going - r && u < st.run + r && Math.abs(v) < st.width / 2 + r;
-      });
+    const onStair = (p: Pt) => flights.some((st) => nearStair(st, p, r));
     for (const room of rooms) {
       const v = bestViewInRoom(room, edges, world, r, onStair);
       if (v) return { x: v.x, y: v.y, yaw: v.yaw, pitch: -0.05, from: "room" };

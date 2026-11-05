@@ -1,7 +1,10 @@
 // Things the shell can do, shared by the top bar, shortcuts and the palette.
 import type { DisplayUnit, OpeningStyle, RoofKind, SlabKind, Vec3 } from "../contract/bindings";
+import { isView } from "../contract/elements";
 import { ipc } from "../contract/ipc";
+import { topRoof } from "../contract/roof";
 import { getActiveController } from "../editor2d/controller";
+import { LANE_TOOLS, withLaneTools } from "../editor2d/laneTools";
 import { rectIsEmpty } from "../editor2d/geom";
 import { boundsOfIds, buildIndex, layerOf, levelOf } from "../editor2d/model";
 import { levelBelow } from "../editor2d/slab";
@@ -35,7 +38,8 @@ export interface ToolDef {
   flyout?: FlyoutKind;
 }
 
-export const TOOLS: ToolDef[] = [
+/** The plan controller's own tools, in rail order. */
+const BASE_TOOLS: ToolDef[] = [
   { tool: "select", label: "Select", phrase: "Select and move things", icon: "select", key: "V", group: "pick", keywords: "pointer arrow pick move" },
   { tool: "wall", label: "Wall", phrase: "Draw walls", icon: "wall", key: "W", group: "draw", keywords: "line partition chb", flyout: "wall" },
   { tool: "rect_room", label: "Room", phrase: "Draw a room rectangle", icon: "room", key: "R", group: "draw", keywords: "rectangle box space" },
@@ -52,7 +56,7 @@ export const TOOLS: ToolDef[] = [
   { tool: "door", label: "Door", phrase: "Place a door", icon: "door", key: "D", group: "place", keywords: "opening swing sliding", flyout: "door" },
   { tool: "window", label: "Window", phrase: "Place a window", icon: "window", key: "N", group: "place", keywords: "opening jalousie casement glass", flyout: "window" },
   { tool: "column", label: "Column", phrase: "Place a column", icon: "column", key: "C", group: "place", keywords: "post pillar structure" },
-  { tool: "stair", label: "Stair", phrase: "Add a stair", icon: "stair", key: "S", group: "place", keywords: "steps flight" },
+  { tool: "stair", label: "Stair", phrase: "Add a stair", icon: "stair", key: "S", group: "place", keywords: "steps flight l u landing", flyout: "stair" },
   { tool: "asset", label: "Objects", phrase: "Place furniture and fixtures", icon: "asset", key: "O", group: "place", keywords: "library furniture sofa bed toilet sink kitchen car plant", flyout: "asset" },
   {
     tool: "pipe",
@@ -70,6 +74,15 @@ export const TOOLS: ToolDef[] = [
   { tool: "camera", label: "Camera", phrase: "Place a camera", icon: "camera", key: "K", group: "annotate", keywords: "view perspective render shot" },
   { tool: "pan", label: "Pan", phrase: "Pan the view", icon: "pan", key: "H", group: "view", keywords: "hand move scroll navigate" },
 ];
+
+/**
+ * The rail and the palette: the controller's tools, then each Wave 2 tool
+ * its lane has turned on in its own module (editor2d/laneTools.ts).
+ */
+export const TOOLS: ToolDef[] = withLaneTools(
+  BASE_TOOLS,
+  LANE_TOOLS.filter((t) => t.enabled).map((t) => t.rail),
+);
 
 /** The slab tool's kinds: what the rail flyout and the palette offer. */
 export const SLAB_KINDS: Array<{ value: SlabKind; label: string; hint: string }> = [
@@ -104,6 +117,7 @@ export const ROOF_KINDS: Array<{ value: RoofKind; label: string }> = [
   { value: "flat", label: "Flat" },
   { value: "shed", label: "Shed" },
   { value: "gable", label: "Gable" },
+  { value: "hip", label: "Hip" },
 ];
 
 /** Activates a tool, keeping a sensible default option for openings. */
@@ -299,7 +313,7 @@ export function selectAllOnLevel() {
   const byId = new Map(doc.project.elements.map((e) => [e.id, e]));
   const blocked = new Set(doc.project.layers.filter((l) => !l.visible || l.locked).map((l) => l.key));
   const ids = doc.project.elements
-    .filter((e) => e.kind !== "camera" && e.kind !== "underlay")
+    .filter((e) => !isView(e) && e.kind !== "underlay")
     .filter((e) => levelOf(e, byId) === activeLevelId)
     .filter((e) => !blocked.has(layerOf(e)))
     .map((e) => e.id);
@@ -347,8 +361,9 @@ export function zoomToSelection() {
   else bus.emit("zoom_to_fit");
 }
 
+/** A whole roof from the one over the top floor, never from `project.roof` (D54): kind none there would delete it. */
 export function setRoofKind(kind: RoofKind) {
-  void commitLatest((doc) => ({ type: "set_roof", roof: { ...doc.project.roof, kind } }));
+  void commitLatest((doc) => ({ type: "set_roof", roof: { ...topRoof(doc.project), kind } }));
 }
 
 export function setDisplayUnit(unit: DisplayUnit) {
@@ -588,7 +603,7 @@ export function paletteActions(): PaletteAction[] {
       group: "Roof",
       icon: "roof",
       keywords: `roof preset ${r.label}`,
-      disabled: doc?.project.roof.kind === r.value,
+      disabled: !!doc && topRoof(doc.project).kind === r.value,
       run: () => setRoofKind(r.value),
     });
   }

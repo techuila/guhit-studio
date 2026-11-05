@@ -15,12 +15,16 @@ import { CommandPalette } from "./CommandPalette";
 import { ExportDialog } from "./ExportDialog";
 import { Inspector } from "./Inspector";
 import { SettingsDialog } from "./Settings";
+import { SheetsPanel } from "./sheets/SheetsPanel";
 import { ShortcutsDialog, useGlobalShortcuts } from "./shortcuts";
 import { StatusBar } from "./StatusBar";
 import { ToolRail } from "./ToolRail";
 import { TopBar } from "./TopBar";
+import { ToursPanel } from "./tours/ToursPanel";
+import { TypesPanel } from "./TypesPanel";
 import { UpdateNotice } from "./UpdateNotice";
 import { VersionsPanel } from "./VersionsPanel";
+import { ViewsPanel } from "./views/ViewsPanel";
 import { saveThumbnail } from "./actions";
 import { useShell, type DockTab } from "./shellStore";
 import s from "./EditorShell.module.css";
@@ -301,6 +305,12 @@ export function EditorShell() {
       </div>
       <StatusBar />
       <UpdateNotice />
+      {/* Wave 2 panels, one per lane: each opens itself on its bus event
+          (open_sheets, open_view, play_tour) and renders nothing until then. */}
+      <SheetsPanel />
+      <ViewsPanel />
+      <ToursPanel />
+      <TypesPanel />
 
       <Presence open={overlay !== null} exit={lastOverlay === "palette" ? "base" : "panel"}>
         {(stage) => {

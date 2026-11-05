@@ -34,7 +34,7 @@ pub fn sheet_systems(sheet: guhit_model::SheetKind) -> &'static [PipeSystem] {
     use guhit_model::SheetKind as S;
     match sheet {
         S::Plan => &SYSTEMS,
-        S::Lighting => &[],
+        S::Lighting | S::ReflectedCeiling => &[],
         S::Power => &[PipeSystem::Conduit],
         S::Plumbing => &[
             PipeSystem::ColdWater,

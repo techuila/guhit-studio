@@ -5,6 +5,15 @@ import type { AiMessage, AiProposal, AiSettings } from "../contract/bindings";
 
 export type ProposalStatus = "pending" | "applying" | "applied" | "discarded" | "stale";
 
+/** One room of a "Furnish rooms" answer: its own proposal, applied on its own (D8). */
+export interface FurnishRoom {
+  roomId: string;
+  roomName: string;
+  proposal: AiProposal;
+  status: ProposalStatus;
+  note: string | null;
+}
+
 export interface ChatItem {
   id: number;
   /** "note" is a local system line (errors, stale notices). Never sent to the model. */
@@ -16,6 +25,10 @@ export interface ChatItem {
   /** Shown under a proposal card after it was resolved. */
   proposalNote: string | null;
   tone: "normal" | "error";
+  /** A "Furnish rooms" answer: one proposal per room. Null for chat turns. */
+  furnish?: FurnishRoom[] | null;
+  /** The style the rooms were furnished in, to apply each one in it. */
+  furnishStyle?: string;
 }
 
 interface CopilotState {

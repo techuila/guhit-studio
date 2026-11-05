@@ -90,6 +90,10 @@ pub enum CallKind {
     Read,
     /// Changes the model, undoes or redoes: refused while paused.
     Edit,
+    /// Leaves the model as it is but spends money or runs long: an AI image,
+    /// a traced render, a tour video. Refused while paused, like an edit, so
+    /// a pause stops the spending too (GR1 #8).
+    Work,
 }
 
 /// One tool call of one agent, from [`AppService::agent_call`]. It holds no
@@ -230,11 +234,14 @@ impl AppService {
     /// Undo (or with `redo` redo) the agent's own top step, in or out of a
     /// live session. Another agent's step is refused (`other_author`)
     /// always; a person's step only with `force`, which the MCP client may
-    /// pass once the user confirmed (DECISIONS D29).
+    /// pass once the user confirmed (DECISIONS D29). A step that changed the
+    /// signing architect is refused (`forbidden`) even with `force`.
     pub async fn agent_undo(&self, call: &AgentCall, redo: bool, force: bool) -> Result<DocState, IpcError> {
         self.agents.check_edit(&call.id, self.agents.now())?;
         let mut s = self.session.lock().await;
         same_project(call, s.open_doc()?)?;
+        // Never across a change of the signing architect, `force` or not.
+        crate::check_agent_steps(&s, &self.live, redo, 1)?;
         if let Some(copy) = s.live_copy.as_ref() {
             let top = if redo { copy.undo.redo_by.clone() } else { copy.undo.undo_by.clone() };
             let label = if redo { copy.undo.redo_label.clone() } else { copy.undo.undo_label.clone() };
@@ -561,6 +568,9 @@ struct Agent {
     /// newest `MAX_TOLD`: times have whole seconds, so the window alone
     /// would tell some twice.
     told: VecDeque<String>,
+    /// The project open at its latest call. Once it is idle, an agent of
+    /// another project leaves the list (`Registry::shows`).
+    project: Option<Id>,
 }
 
 struct Registry {
@@ -764,6 +774,7 @@ impl AgentsState {
                     last_ok_at: at.clone(),
                     notes_since: at.clone(),
                     told: VecDeque::new(),
+                    project: project_id.clone(),
                 });
                 reg.agents.len() - 1
             }
@@ -772,16 +783,17 @@ impl AgentsState {
         // Refused calls count as calls: the agent shows while it tries.
         agent.last_call = now;
         agent.last_call_at = at.clone();
+        agent.project = project_id.clone();
         match (run, kind) {
             (Run::Stopped, _) => return Err(stopped(owner, &agent.name)),
-            (Run::Paused, CallKind::Edit) => return Err(paused(owner, &agent.name)),
+            (Run::Paused, CallKind::Edit | CallKind::Work) => return Err(paused(owner, &agent.name)),
             _ => {}
         }
         if !who.client.is_empty() {
             agent.client = who.client;
             agent.client_version = who.client_version;
         }
-        agent.edited_last = kind == CallKind::Edit;
+        agent.edited_last = kind != CallKind::Read;
         agent.tool_status = tool_status(tool).map(str::to_string);
         agent.notes_since = std::mem::replace(&mut agent.last_ok_at, at);
         let call = AgentCall { id: agent.id.clone(), name: agent.name.clone(), kind, project_id };
@@ -843,6 +855,9 @@ impl AgentsState {
         staged: &Project,
         command: &Command,
     ) -> Result<(), IpcError> {
+        // Only people set license numbers (D53): refused for every agent,
+        // whatever its limit. Every agent edit path checks its reach here.
+        crate::people_only(command)?;
         let owner = self.owner();
         let now = self.now();
         let (limit, name, claims) = {
@@ -1087,7 +1102,7 @@ impl AgentsState {
             Some(id) => match reg.agents.iter().find(|a| a.id == id) {
                 Some(agent) => {
                     let freed = reg.run_of(agent) == Run::Stopped && run != Run::Stopped;
-                    let siblings = reg.agents.iter().filter(|a| a.conn == agent.conn && a.on_list(now)).count();
+                    let siblings = reg.agents.iter().filter(|a| a.conn == agent.conn && reg.shows(a, now)).count();
                     if freed && reg.counted(now).count() + siblings > MAX_AGENTS {
                         return Err(IpcError::new(
                             "too_many_agents",
@@ -1343,7 +1358,15 @@ const MAX_STATUS_CHARS: usize = 80;
 
 impl Registry {
     fn listed(&self, now: Instant) -> impl Iterator<Item = &Agent> {
-        self.agents.iter().filter(move |a| a.on_list(now))
+        self.agents.iter().filter(move |a| self.shows(a, now))
+    }
+
+    /// On the list: called within `OFF_LIST_AFTER`, and on the open project,
+    /// or another one but not idle yet. An agent that worked on a project
+    /// since closed or deleted leaves once it goes idle, so the panel shows
+    /// who works on this project (GS F7); it comes back with its next call.
+    fn shows(&self, a: &Agent, now: Instant) -> bool {
+        a.on_list(now) && (a.project == self.project || now.saturating_duration_since(a.last_call) < IDLE_AFTER)
     }
 
     /// What a person set for the agent: its connection's.
@@ -1355,7 +1378,7 @@ impl Registry {
     /// and not stopped: stopping one frees its place, and it stays in the
     /// history.
     fn counts(&self, a: &Agent, now: Instant) -> bool {
-        a.on_list(now) && self.run_of(a) != Run::Stopped
+        self.shows(a, now) && self.run_of(a) != Run::Stopped
     }
 
     fn counted(&self, now: Instant) -> impl Iterator<Item = &Agent> {
@@ -1636,6 +1659,11 @@ fn kind_plural(kind: ElementKind) -> &'static str {
         ElementKind::ReferenceModel => "reference models",
         ElementKind::Pipe => "pipes",
         ElementKind::Slab => "slabs",
+        ElementKind::Roof => "roofs",
+        ElementKind::Grid => "grid lines",
+        ElementKind::ViewMark => "section and elevation marks",
+        ElementKind::Lot => "the lot",
+        ElementKind::Tour => "tours",
     }
 }
 
@@ -1938,6 +1966,8 @@ impl AppService {
     /// On the host, before a guest's agent's edit: other agents' claims and
     /// the automatic version.
     pub(crate) fn agent_check_remote(&self, s: &Session, author: &str, command: &Command) -> Result<(), IpcError> {
+        // Only people set license numbers (D53), a guest's agents included.
+        crate::people_only(command)?;
         let doc = s.open_doc()?;
         self.agents.claims_check_remote(author, doc.project(), doc.derived(), doc.project(), command)?;
         self.agents.version_before(s);

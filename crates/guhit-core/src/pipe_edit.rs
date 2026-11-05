@@ -729,6 +729,7 @@ fn move_points(
         ("Move pipe points", count_noun(points, "pipe point"))
     };
     Ok(Outcome {
+        notes: vec![],
         label: label.into(),
         summary: Some(format!(
             "Moved {what} {}{}",
@@ -797,6 +798,7 @@ fn set_length(
     }
     let followed = moves.apply(project);
     Ok(Outcome {
+        notes: vec![],
         label: "Set pipe length".into(),
         summary: Some(format!(
             "Set the length of segment {segment} of {} to {} mm{}",
@@ -908,6 +910,7 @@ fn set_slope(
     let followed = moves.apply(project);
     let verb = if slope_pct < 0.0 { "rise" } else { "fall" };
     Ok(Outcome {
+        notes: vec![],
         label: "Set pipe slope".into(),
         summary: Some(format!(
             "Set {} of {} to {verb} {} percent{}",
@@ -949,6 +952,7 @@ fn insert_point(
         p.points.insert(s + 1, at);
     }
     Ok(Outcome {
+        notes: vec![],
         label: "Add bend".into(),
         summary: None,
         also_moved: vec![],
@@ -974,6 +978,7 @@ fn remove_point(project: &mut Project, pipe_id: &Id, index: u32) -> Result<Outco
         p.points.remove(i);
     }
     Ok(Outcome {
+        notes: vec![],
         label: if end {
             "Remove pipe end"
         } else {
@@ -2031,7 +2036,8 @@ mod tests {
                 (2000.0, 0.0, 800.0)
             ]
         );
-        assert_eq!(r.diff.summary, "Add riser: changed 1 pipe");
+        // The batch keeps the step's own sentence after the diff.
+        assert_eq!(r.diff.summary, "Add riser: changed 1 pipe; Moved 1 pipe point 500 mm up");
         assert_eq!(d.history().undo.len(), 1);
         d.undo().unwrap();
         assert_eq!(d.project().elements, before.elements);

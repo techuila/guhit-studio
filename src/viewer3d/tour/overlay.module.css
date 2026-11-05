@@ -1,0 +1,45 @@
+/* Transitions over the 3D view while a tour plays (tour/overlay.ts). The
+   opacities are set per frame from the tour's frames, never by a CSS
+   transition: the frames are the motion. */
+
+.root {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+
+.plan {
+  object-fit: contain;
+  background: var(--paper);
+}
+
+.black {
+  background: #000;
+}
+
+.white {
+  background: #fff;
+}
+
+/* A thin bar along the top edge: how far through the tour. */
+.progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  opacity: 0.9;
+}

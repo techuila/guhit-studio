@@ -41,7 +41,12 @@ use tokio::sync::{mpsc, watch};
 /// "agents" (DECISIONS D47) carries `ToHost::Agents`, `ToGuest::Agents` and
 /// the `agent` of an apply or a chat. An older build lists none, so it is
 /// sent none of them, and an unknown message would close its connection.
-pub const PROTOCOL_VERSION: u32 = 2;
+///
+/// Version 3 (DECISIONS D54): schema 6 projects carry element kinds a
+/// version 2 build cannot read, so the version check refuses a version 2
+/// guest here and a version 2 host refuses this guest, both with the update
+/// message.
+pub const PROTOCOL_VERSION: u32 = 3;
 /// The feature for AI agents working through MCP.
 pub const FEATURE_AGENTS: &str = "agents";
 /// Every feature this build knows, for its hello and its welcomes.

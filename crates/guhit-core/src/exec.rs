@@ -1,6 +1,11 @@
 //! Command execution. `execute` mutates a working copy of the project; the
 //! caller (`Document`) only commits the copy when it returns Ok, so every
 //! command is atomic and a `Batch` is all or nothing.
+//!
+//! HUB (DECISIONS D54): after C0 only the orchestrator edits this file.
+//! Every Wave 2 command is a one-line arm into its lane's module, and the
+//! after-command hooks in `run` (automatic dimensions, typed openings,
+//! viewports) call into theirs.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -8,6 +13,7 @@ use guhit_model::*;
 
 use crate::dimensions;
 use crate::error::CoreError;
+use crate::{dims_auto, grids, opening_types, roofs, sheets, site, tours};
 use crate::geom::*;
 use crate::ids::IdGen;
 use crate::issues::clean_review_target;
@@ -24,13 +30,17 @@ pub struct Outcome {
     /// Walls the command reshaped without naming them: joined walls that
     /// stretched or shifted to follow. `Diff::also_moved` names them.
     pub also_moved: Vec<Id>,
+    /// What the engine did as a consequence, for the end of the summary:
+    /// "removed 1 viewport from sheet A-3", "Door moved from D1 to D4".
+    pub notes: Vec<String>,
 }
 
-fn outcome(label: &str) -> Outcome {
+pub(crate) fn outcome(label: &str) -> Outcome {
     Outcome {
         label: label.to_string(),
         summary: None,
         also_moved: vec![],
+        notes: vec![],
     }
 }
 
@@ -49,6 +59,7 @@ fn run(project: &mut Project, command: &Command) -> Result<Outcome, CoreError> {
             ));
         }
         let mut also_moved: Vec<Id> = vec![];
+        let mut notes: Vec<String> = vec![];
         for (i, c) in commands.iter().enumerate() {
             let done = run(project, c).map_err(|e| match e {
                 CoreError::Invalid {
@@ -67,6 +78,12 @@ fn run(project: &mut Project, command: &Command) -> Result<Outcome, CoreError> {
                     also_moved.push(id);
                 }
             }
+            notes.extend(done.notes);
+            // A step's own sentence ("Set the lot from 4 legs: 180.00 m2, it
+            // closes exactly") is kept: MCP and the copilot always commit a batch.
+            if let Some(s) = done.summary.filter(|s| !s.trim().is_empty()) {
+                notes.push(s);
+            }
         }
         let label = if label.trim().is_empty() {
             "Batch"
@@ -75,6 +92,7 @@ fn run(project: &mut Project, command: &Command) -> Result<Outcome, CoreError> {
         };
         return Ok(Outcome {
             also_moved,
+            notes,
             ..outcome(label)
         });
     }
@@ -112,6 +130,15 @@ fn run(project: &mut Project, command: &Command) -> Result<Outcome, CoreError> {
             }
         }
     }
+    // A typed opening whose style, size or sill changed moves to the type
+    // that matches, or to a new one, in this step (P0-6, D53).
+    out.notes.extend(opening_types::follow(&before, project, ids));
+    // Viewports whose level or view mark is gone leave their sheets (P1-8).
+    out.notes.extend(sheets::prune_viewports(project));
+    // Automatic dimensions are rewritten from what they measure, after
+    // `post_validate` like the wall following above (P1-2, D54), and after
+    // typed openings took their type's size, so they measure the final model.
+    dims_auto::after_command(&before, project);
     let rec = reconcile(&before, project, ids);
     for id in &changed_slabs {
         if let Some(Element::Slab(slab)) = project.elements.iter().find(|e| e.id() == id) {
@@ -192,26 +219,6 @@ fn normalize_changed_slabs(before: &Project, project: &mut Project) -> Vec<Id> {
         }
     }
     changed
-}
-
-/// The level an element stands on. Openings (on their wall) and cameras
-/// have none of their own.
-fn element_level(el: &Element) -> Option<&Id> {
-    match el {
-        Element::Wall(e) => Some(&e.level_id),
-        Element::Room(e) => Some(&e.level_id),
-        Element::Column(e) => Some(&e.level_id),
-        Element::Stair(e) => Some(&e.level_id),
-        Element::Asset(e) => Some(&e.level_id),
-        Element::Annotation(e) => Some(&e.level_id),
-        Element::Dimension(e) => Some(&e.level_id),
-        Element::Underlay(e) => Some(&e.level_id),
-        Element::Linework(e) => Some(&e.level_id),
-        Element::ReferenceModel(e) => Some(&e.level_id),
-        Element::Pipe(e) => Some(&e.level_id),
-        Element::Slab(e) => Some(&e.level_id),
-        Element::Opening(_) | Element::Camera(_) => None,
-    }
 }
 
 /// "Level 2", or the next free number.
@@ -646,7 +653,24 @@ fn joint_should_follow(
     let (along, d) = project_on_segment(new_j, far, p);
     let shrinking = d <= JOIN_EPS && along < len;
     if !shrinking {
-        return true;
+        // Growing along its own line past the joint, where another wall
+        // carries the same line on (a four-way joint, or a straight wall
+        // drawn in two pieces): growing would run over that wall. It stays,
+        // and the moved wall lands on that wall's body as a T (GA P1-6).
+        let ahead = sub(new_j, p);
+        let grows = cross(wd, ahead).abs() <= JOIN_EPS && dot(wd, ahead) > JOIN_EPS;
+        let carried_on = unmoved.iter().any(|o| {
+            let beyond = if dist(o.start, old_j) <= JOIN_EPS {
+                o.end
+            } else if dist(o.end, old_j) <= JOIN_EPS {
+                o.start
+            } else {
+                return false;
+            };
+            let on = sub(beyond, p);
+            cross(wd, on).abs() <= JOIN_EPS && dot(wd, on) > JOIN_EPS
+        });
+        return !(grows && carried_on);
     }
     !unmoved.iter().any(|o| {
         [o.start, o.end].iter().any(|e| {
@@ -664,9 +688,13 @@ fn translate_element(el: &mut Element, d: Point) {
         Element::Stair(s) => s.origin = add(s.origin, d),
         Element::Asset(a) => a.position = add(a.position, d),
         Element::Annotation(a) => a.position = add(a.position, d),
+        // A string's witness points go with it.
         Element::Dimension(dm) => {
             dm.a = add(dm.a, d);
             dm.b = add(dm.b, d);
+            for p in dm.through.iter_mut() {
+                *p = add(*p, d);
+            }
         }
         Element::Camera(c) => {
             c.position.x += d.x;
@@ -692,6 +720,35 @@ fn translate_element(el: &mut Element, d: Point) {
             for v in p.points.iter_mut() {
                 v.x += d.x;
                 v.y += d.y;
+            }
+        }
+        // A derived roof outline follows the walls; a drawn one moves.
+        Element::Roof(r) => {
+            if let RoofOutline::Polygon { points } = &mut r.outline {
+                for p in points.iter_mut() {
+                    *p = add(*p, d);
+                }
+            }
+        }
+        Element::Grid(g) => {
+            g.start = add(g.start, d);
+            g.end = add(g.end, d);
+        }
+        Element::ViewMark(m) => {
+            m.start = add(m.start, d);
+            m.end = add(m.end, d);
+        }
+        Element::Lot(l) => {
+            for p in l.corners.iter_mut() {
+                *p = add(*p, d);
+            }
+        }
+        Element::Tour(t) => {
+            for k in t.shots.iter_mut().flat_map(|s| s.keys.iter_mut()) {
+                for v in [&mut k.position, &mut k.target] {
+                    v.x += d.x;
+                    v.y += d.y;
+                }
             }
         }
     }
@@ -852,6 +909,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 false,
             )?;
             Ok(Outcome {
+                notes: vec![],
                 label: "Move wall ends".into(),
                 summary: Some(move_summary(1, 0, stretched.len())),
                 also_moved: stretched,
@@ -934,6 +992,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
             let mut also_moved = shifted_ids;
             also_moved.extend(stretched.iter().cloned());
             Ok(Outcome {
+                notes: vec![],
                 label: "Set wall length".into(),
                 also_moved,
                 summary: Some(format!(
@@ -1024,6 +1083,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
             style,
             flip_side,
             flip_hinge,
+            type_id,
         } => {
             ensure_unlocked(project, ElementKind::Opening)?;
             find_wall(project, wall_id)?;
@@ -1031,7 +1091,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 OpeningType::Door => defaults::DOOR_DEFAULT,
                 OpeningType::Window => defaults::WINDOW_DEFAULT,
             };
-            let opening = Opening {
+            let mut opening = Opening {
                 id: ids.next_id(),
                 wall_id: wall_id.clone(),
                 opening_type: *opening_type,
@@ -1047,7 +1107,10 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 flip_side: flip_side.unwrap_or(false),
                 flip_hinge: flip_hinge.unwrap_or(false),
                 material_id: None,
+                type_id: type_id.clone(),
             };
+            // A typed opening takes its type's style, size and sill (D53).
+            opening_types::apply_to_new(project, &mut opening)?;
             project.elements.push(Element::Opening(opening));
             Ok(outcome(match opening_type {
                 OpeningType::Door => "Add door",
@@ -1133,6 +1196,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 .collect();
             let stretched = move_walls(project, &moves, true, true)?;
             Ok(Outcome {
+                notes: vec![],
                 also_moved: stretched.clone(),
                 label: format!("Resize {}", room.name),
                 summary: Some(format!(
@@ -1161,6 +1225,10 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 ));
             } else {
                 ids.reserve(element.id());
+            }
+            // Shots get ids like elements (P0-5).
+            if let Element::Tour(t) = &mut element {
+                tours::assign_ids(t, ids, false);
             }
             if let Element::Room(r) = &mut element {
                 if r.name.trim().is_empty() {
@@ -1225,6 +1293,9 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
             }
             if let Element::Asset(a) = &mut element {
                 a.circuit = a.circuit.trim().to_string();
+            }
+            if let Element::Tour(t) = &mut element {
+                tours::assign_ids(t, ids, false);
             }
             let label = format!("Edit {}", kind_noun(element.kind()));
             *slot = element;
@@ -1292,6 +1363,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
             let wall_count = moves.len();
             let stretched = move_walls(project, &moves, *stretch_connected, true)?;
             Ok(Outcome {
+                notes: vec![],
                 label: "Move".into(),
                 summary: Some(move_summary(wall_count, moved_other, stretched.len())),
                 also_moved: stretched,
@@ -1345,6 +1417,9 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                     Element::Dimension(d) => {
                         d.a = rot(d.a);
                         d.b = rot(d.b);
+                        for p in d.through.iter_mut() {
+                            *p = rot(*p);
+                        }
                     }
                     Element::Camera(c) => {
                         let p = rot(pt(c.position.x, c.position.y));
@@ -1379,6 +1454,43 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                             let r = rot(pt(v.x, v.y));
                             v.x = r.x;
                             v.y = r.y;
+                        }
+                    }
+                    // A derived roof outline follows the walls; a drawn one
+                    // turns, and a quarter turn swaps its ridge axis.
+                    Element::Roof(r) => {
+                        if let RoofOutline::Polygon { points } = &mut r.outline {
+                            for p in points.iter_mut() {
+                                *p = rot(*p);
+                            }
+                        }
+                        if ((angle_deg.rem_euclid(180.0)) - 90.0).abs() < 1e-6 {
+                            r.ridge_axis = match r.ridge_axis {
+                                Axis::X => Axis::Y,
+                                Axis::Y => Axis::X,
+                            };
+                        }
+                    }
+                    Element::Grid(g) => {
+                        g.start = rot(g.start);
+                        g.end = rot(g.end);
+                    }
+                    Element::ViewMark(m) => {
+                        m.start = rot(m.start);
+                        m.end = rot(m.end);
+                    }
+                    Element::Lot(l) => {
+                        for p in l.corners.iter_mut() {
+                            *p = rot(*p);
+                        }
+                    }
+                    Element::Tour(t) => {
+                        for k in t.shots.iter_mut().flat_map(|s| s.keys.iter_mut()) {
+                            for v in [&mut k.position, &mut k.target] {
+                                let r = rot(pt(v.x, v.y));
+                                v.x = r.x;
+                                v.y = r.y;
+                            }
                         }
                     }
                 }
@@ -1463,6 +1575,10 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                         if let Element::Camera(cam) = &mut c {
                             cam.name = format!("{} copy", cam.name);
                         }
+                        if let Element::Tour(t) = &mut c {
+                            t.name = format!("{} copy", t.name);
+                            tours::assign_ids(t, ids, true);
+                        }
                         copied.insert(other.id().clone(), c.id().clone());
                         copies.push(c);
                         count += 1;
@@ -1516,13 +1632,14 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                     Element::Column(c) => c.material_id = Some(material_id.clone()),
                     Element::Opening(o) => o.material_id = Some(material_id.clone()),
                     Element::Room(r) => r.floor_material_id = Some(material_id.clone()),
+                    Element::Roof(r) => r.material_id = Some(material_id.clone()),
                     other => refused.push(other.id().clone()),
                 }
             }
             if !refused.is_empty() {
                 return Err(CoreError::invalid_for(
                     "no_material_slot",
-                    "Only walls, columns, doors, windows and room floors take a material.",
+                    "Only walls, columns, doors, windows, room floors and roofs take a material.",
                     refused,
                 ));
             }
@@ -1576,23 +1693,8 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
             }
         }
 
-        Command::SetRoof { roof } => {
-            require_material(project, &roof.material_id)?;
-            for (name, v, lo, hi) in [
-                ("Roof pitch (degrees)", roof.pitch_deg, 0.0, 75.0),
-                ("Roof overhang (mm)", roof.overhang_mm, 0.0, 5000.0),
-                ("Roof thickness (mm)", roof.thickness_mm, 10.0, 1000.0),
-            ] {
-                if !v.is_finite() || v < lo || v > hi {
-                    return Err(CoreError::invalid(
-                        "bad_roof",
-                        format!("{name} must be between {lo} and {hi}."),
-                    ));
-                }
-            }
-            project.roof = roof.clone();
-            Ok(outcome("Edit roof"))
-        }
+        // The roof over the top floor, from a whole `Roof` (P0-2, D54).
+        Command::SetRoof { roof } => roofs::set_roof(project, ids, roof),
 
         Command::SetProjectSettings { settings } => {
             let s = settings;
@@ -1708,6 +1810,7 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 .unwrap_or(project.levels.len());
             project.levels.insert(at, level);
             Ok(Outcome {
+                notes: vec![],
                 label: "Add level".into(),
                 summary: Some(format!(
                     "Added {name}, floor at {elevation:.0} mm, {height:.0} mm floor to floor"
@@ -1739,9 +1842,11 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 })
                 .collect();
             // Everything on the level, and the doors and windows of its walls.
+            // Elements on no level (grids, the lot, tours, cameras, the roof
+            // over the top floor) stay (P0-3).
             project.elements.retain(|e| match e {
                 Element::Opening(o) => !walls.contains(&o.wall_id),
-                other => element_level(other) != Some(level_id),
+                other => other.level_id() != Some(level_id),
             });
             project.levels.retain(|l| &l.id != level_id);
             Ok(outcome(&format!("Delete level {}", name.trim())))
@@ -1787,6 +1892,32 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
                 )),
             }
         }
+
+        // ------------------------------------- Wave 2: one arm per command
+        Command::UpsertOpeningSpec { spec } => opening_types::upsert(project, ids, spec),
+        Command::DeleteOpeningSpecs { ids: type_ids } => opening_types::delete(project, type_ids),
+        Command::AssignOpeningTypes { level_id } => opening_types::assign(project, ids, level_id),
+        Command::AddGridSystem {
+            origin,
+            rotation_deg,
+            x_spacings_mm,
+            y_spacings_mm,
+        } => grids::add_system(project, ids, *origin, *rotation_deg, x_spacings_mm, y_spacings_mm),
+        Command::AutoDimension { level_id, kinds } => dims_auto::add(project, ids, level_id, kinds),
+        Command::AddRoofPosts {
+            roof_id,
+            size_mm,
+            max_spacing_mm,
+        } => roofs::add_posts(project, ids, roof_id, *size_mm, *max_spacing_mm),
+        Command::SetLotFromSurvey { start, legs } => site::set_from_survey(project, ids, *start, legs),
+        Command::SetTitleBlock { title_block } => sheets::set_title_block(project, title_block),
+        Command::SetSignatory { signatory } => sheets::set_signatory(project, signatory),
+        Command::UpsertSheet { sheet, index } => sheets::upsert_sheet(project, ids, sheet, *index),
+        Command::DeleteSheets { ids: sheet_ids } => sheets::delete_sheets(project, sheet_ids),
+        Command::MakeSheetSet { paper, replace } => sheets::make_sheet_set(project, ids, *paper, *replace),
+        Command::UpsertRevision { revision, sheet_ids } => sheets::upsert_revision(project, ids, revision, sheet_ids),
+        Command::DeleteRevision { id } => sheets::delete_revision(project, id),
+        Command::MakeTour { name, options } => tours::make_tour(project, ids, name, options),
     }
 }
 
@@ -1841,6 +1972,10 @@ pub fn diff_noun(el: &Element) -> &'static str {
             _ => "object",
         },
         Element::Slab(s) => slabs::kind_name(s.kind),
+        Element::ViewMark(m) => match m.mark_kind {
+            MarkKind::Section => "section mark",
+            MarkKind::Elevation => "elevation mark",
+        },
         other => kind_noun(other.kind()),
     }
 }
@@ -1875,5 +2010,10 @@ pub fn kind_noun(kind: ElementKind) -> &'static str {
         ElementKind::ReferenceModel => "reference model",
         ElementKind::Pipe => "pipe",
         ElementKind::Slab => "slab",
+        ElementKind::Roof => "roof",
+        ElementKind::Grid => "grid line",
+        ElementKind::ViewMark => "view mark",
+        ElementKind::Lot => "lot",
+        ElementKind::Tour => "tour",
     }
 }

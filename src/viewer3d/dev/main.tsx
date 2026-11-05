@@ -13,6 +13,7 @@ import ReactDOM from "react-dom/client";
 import "../../styles/tokens.css";
 import type { Command, DocState, Element, Roof } from "../../contract/bindings";
 import { ipc } from "../../contract/ipc";
+import { topRoof, withTopRoof } from "../../contract/roof";
 import { bus } from "../../state/bus";
 import { useApp } from "../../state/store";
 import { useViewer } from "../viewerStore";
@@ -165,9 +166,10 @@ function Harness() {
 
   const setRoof = (patch: Partial<Roof>) => {
     if (!doc) return;
-    const roof = { ...doc.project.roof, ...patch };
+    // A whole roof from the one over the top floor: never from `project.roof` (D54).
+    const roof = { ...topRoof(doc.project), ...patch };
     void apply(source, { type: "set_roof", roof }, (d) => {
-      d.project.roof = roof;
+      d.project = withTopRoof(d.project, roof);
       return d;
     });
   };

@@ -8,4 +8,10 @@ path: string,
 /**
  * Scale that was actually used, 1:N.
  */
-scale_denominator: number | null, };
+scale_denominator: number | null, 
+/**
+ * What the export left out and why ("P-2 PLUMBING ISOMETRIC DIAGRAMS:
+ * the model has no water, drainage or vent runs"). A printed sheet never
+ * carries such a note itself.
+ */
+notes?: Array<string>, };

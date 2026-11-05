@@ -70,16 +70,16 @@ fn happy_path_house() {
         Element::Wall(w) if w.thickness_mm == 100.0 => Some(w.id.clone()),
         _ => None,
     }).unwrap();
-    d.apply(Command::AddOpening { wall_id: partition.clone(), opening_type: OpeningType::Door, offset_mm: 3000.0, width_mm: None, height_mm: None, sill_mm: None, style: None, flip_side: None, flip_hinge: None }, Origin::User).unwrap();
+    d.apply(Command::AddOpening { wall_id: partition.clone(), opening_type: OpeningType::Door, offset_mm: 3000.0, width_mm: None, height_mm: None, sill_mm: None, style: None, flip_side: None, flip_hinge: None, type_id: None }, Origin::User).unwrap();
     assert_eq!(d.derived().totals.door_count, 1);
 
     // An opening that does not fit is refused and changes nothing.
     let before = d.project().clone();
-    let err = d.apply(Command::AddOpening { wall_id: partition.clone(), opening_type: OpeningType::Door, offset_mm: 5900.0, width_mm: Some(900.0), height_mm: None, sill_mm: None, style: None, flip_side: None, flip_hinge: None }, Origin::User);
+    let err = d.apply(Command::AddOpening { wall_id: partition.clone(), opening_type: OpeningType::Door, offset_mm: 5900.0, width_mm: Some(900.0), height_mm: None, sill_mm: None, style: None, flip_side: None, flip_hinge: None, type_id: None }, Origin::User);
     assert!(err.is_err());
     assert_eq!(d.project(), &before);
     // Overlapping the first door is refused too.
-    assert!(d.apply(Command::AddOpening { wall_id: partition, opening_type: OpeningType::Window, offset_mm: 3200.0, width_mm: Some(600.0), height_mm: None, sill_mm: None, style: None, flip_side: None, flip_hinge: None }, Origin::User).is_err());
+    assert!(d.apply(Command::AddOpening { wall_id: partition, opening_type: OpeningType::Window, offset_mm: 3200.0, width_mm: Some(600.0), height_mm: None, sill_mm: None, style: None, flip_side: None, flip_hinge: None, type_id: None }, Origin::User).is_err());
 
     // Resize the small room east by 300: its width grows by exactly 300.
     let small = d.derived().rooms.iter().min_by(|a, b| a.area_mm2.partial_cmp(&b.area_mm2).unwrap()).unwrap().room_id.clone();

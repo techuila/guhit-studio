@@ -172,7 +172,9 @@ fn a_lanai_walled_in_on_a_deck_is_a_room_but_not_floor_area() {
     assert!(near(room_area(&doc, "Lanai"), lanai), "still a room of its own size");
     let t = &doc.derived().totals;
     assert!((t.floor_area_m2 - (floor_before - lanai / M2)).abs() < 1e-6, "{} {}", t.floor_area_m2, floor_before);
-    assert!((t.gross_area_m2 - (gross_before - 12.0)).abs() < 1e-6, "{}", t.gross_area_m2);
+    // The lanai's walls stay gross area; only its clear floor comes off (GA
+    // P0-1: open slabs are clipped to the inside of the walls).
+    assert!((t.gross_area_m2 - (gross_before - lanai / M2)).abs() < 1e-6, "{}", t.gross_area_m2);
     // At grade: no railing note.
     assert!(issues_with(&doc, "slab_no_railing").is_empty());
 }
@@ -353,6 +355,11 @@ fn stair(level: &str, x: f64, y: f64, railing: Option<Railing>) -> Element {
         run_mm: 2750.0,
         riser_count: 11,
         railing,
+        shape: StairShape::Straight,
+        turn: Turn::Left,
+        first_flight_risers: None,
+        landing_mm: None,
+        well_mm: 0.0,
     })
 }
 
@@ -444,7 +451,7 @@ fn a_version_4_project_gets_the_slabs_layer_and_its_stairs_no_railing() {
     let mut v4 = serde_json::to_value(templates::sample_bungalow()).unwrap();
     v4["schema_version"] = serde_json::json!(4);
     let layers = v4["layers"].as_array_mut().unwrap();
-    layers.retain(|l| l["key"] != "slabs");
+    layers.retain(|l| !matches!(l["key"].as_str(), Some("slabs" | "grids" | "roofs")));
     assert_eq!(layers.len(), 17);
     let level = v4["levels"][0]["id"].clone();
     v4["elements"].as_array_mut().unwrap().push(serde_json::json!({
@@ -459,10 +466,15 @@ fn a_version_4_project_gets_the_slabs_layer_and_its_stairs_no_railing() {
     assert_eq!(s.railing, None);
 
     let doc = Document::new(old.clone());
-    assert_eq!(doc.project().schema_version, 5);
-    let last = doc.project().layers.last().unwrap();
-    assert_eq!((last.key, last.visible, last.locked), (LayerKey::Slabs, true, false));
-    assert_eq!(doc.project().layers.len(), 18);
+    assert_eq!(doc.project().schema_version, SCHEMA_VERSION);
+    // Slabs, then the grids and roofs layers of schema 6.
+    let added: Vec<(LayerKey, bool, bool)> =
+        doc.project().layers[17..].iter().map(|l| (l.key, l.visible, l.locked)).collect();
+    assert_eq!(
+        added,
+        vec![(LayerKey::Slabs, true, false), (LayerKey::Grids, true, false), (LayerKey::Roofs, true, false)]
+    );
+    assert_eq!(doc.project().layers.len(), 20);
     let mut twice = old;
     migrate(&mut twice);
     let once = twice.clone();
@@ -526,6 +538,7 @@ fn object(level: &str, key: &str, x: f64, y: f64) -> Element {
         light: item.light,
         links: vec![],
         circuit: String::new(),
+        built_in: None,
     })
 }
 

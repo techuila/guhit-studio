@@ -41,6 +41,16 @@ const KIND_PATH: Record<Element["kind"], string> = {
   pipe: "M3 7h7.5A3.5 3.5 0 0 1 14 10.5V17M3 11h7v6",
   // A slab edge in section: the floor plate with its depth.
   slab: "M2.5 8.5h15v3h-15zM5 11.5v4M15 11.5v4",
+  // A pitched roof over a wall line.
+  roof: "M2.5 10L10 4.5l7.5 5.5M5 8.5V16h10V8.5",
+  // Two grid lines with their bubbles.
+  grid: "M6 6.5V17.5M14 6.5V17.5M6 4.5a2 2 0 1 0 0 .01M14 4.5a2 2 0 1 0 0 .01",
+  // A section cut with its view arrow.
+  view_mark: "M3 10h14M10 10V5.5M7.5 8L10 5.5 12.5 8",
+  // A lot outline with a corner mark.
+  lot: "M3.5 4.5l12 1.5 1 10-13 1zM3.5 4.5v2.5h2.5",
+  // A play mark in a frame: a video tour.
+  tour: "M2.5 5h15v10h-15zM8.5 7.5v5l4-2.5z",
 };
 
 export const KindIcon = ({ kind }: { kind: Element["kind"] }) => <Svg d={KIND_PATH[kind]} size={14} />;

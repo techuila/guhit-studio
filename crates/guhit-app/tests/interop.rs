@@ -366,6 +366,87 @@ async fn opening_a_bundle_over_a_different_project_makes_a_new_one() {
     assert_eq!(list.len(), 2);
 }
 
+const PIXEL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+async fn capture(app: &AppService, name: &str) -> RenderRecord {
+    let camera = Camera {
+        id: String::new(),
+        name: name.into(),
+        preset: CameraPreset::Custom,
+        position: Vec3 { x: 0.0, y: -9000.0, z: 4000.0 },
+        target: Vec3 { x: 0.0, y: 0.0, z: 1000.0 },
+        fov_deg: 50.0,
+        light: None,
+    };
+    call(app, "render_capture", json!({ "camera": camera, "png": PIXEL })).await
+}
+
+#[tokio::test]
+async fn reopening_an_older_bundle_of_the_same_project_keeps_newer_visuals() {
+    // GR1 #4: render, bundle, render again, reopen the bundle.
+    let dir = TempDir::new("bundle-older");
+    let app = AppService::new(dir.path().to_path_buf());
+    let id = bundled_project(&app, "Reyes Residence").await;
+    let first = capture(&app, "First").await;
+    let renders = dir.path().join("projects").join(&id).join("renders");
+    // The agents' image count lives beside the records.
+    std::fs::write(renders.join("ai-usage.json"), br#"{"day":"2026-11-05","agent_images":2}"#).unwrap();
+    let saved: ExportResult = call(&app, "bundle_save", json!({})).await;
+    let bytes = std::fs::read(&saved.path).unwrap();
+
+    let second = capture(&app, "Second").await;
+    let third = capture(&app, "Third").await;
+    std::fs::write(renders.join("ai-usage.json"), br#"{"day":"2026-11-05","agent_images":3}"#).unwrap();
+    let before = file_map(&dir.path().join("projects").join(&id));
+
+    let opened: DocState = call(
+        &app,
+        "bundle_open",
+        json!({ "file_name": "reyes.guhit", "data": data_url("application/zip", &bytes) }),
+    )
+    .await;
+    assert_eq!(opened.project.id, id, "the same project");
+    let records: Vec<RenderRecord> = call(&app, "render_list", json!({})).await;
+    let ids: Vec<&str> = records.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids, [third.id.as_str(), second.id.as_str(), first.id.as_str()], "every record stays");
+    for r in &records {
+        assert!(std::path::Path::new(&r.image_path).is_file(), "{} lost its image", r.id);
+    }
+    assert_eq!(
+        std::fs::read(renders.join("ai-usage.json")).unwrap(),
+        br#"{"day":"2026-11-05","agent_images":3}"#,
+        "the agents' count is not set back"
+    );
+    assert_eq!(file_map(&dir.path().join("projects").join(&id)), before, "nothing was written");
+}
+
+#[tokio::test]
+async fn a_bundle_adds_visuals_and_never_brings_the_agents_image_count() {
+    let source_dir = TempDir::new("bundle-usage-src");
+    let source = AppService::new(source_dir.path().to_path_buf());
+    let id = bundled_project(&source, "Reyes Residence").await;
+    let first = capture(&source, "First").await;
+    let renders = source_dir.path().join("projects").join(&id).join("renders");
+    std::fs::write(renders.join("ai-usage.json"), br#"{"day":"2026-11-05","agent_images":20}"#).unwrap();
+    let saved: ExportResult = call(&source, "bundle_save", json!({})).await;
+    let bytes = std::fs::read(&saved.path).unwrap();
+
+    // A computer that has never seen the project.
+    let target_dir = TempDir::new("bundle-usage-dst");
+    let target = AppService::new(target_dir.path().to_path_buf());
+    let _: DocState = call(
+        &target,
+        "bundle_open",
+        json!({ "file_name": "reyes.guhit", "data": data_url("application/zip", &bytes) }),
+    )
+    .await;
+    let records: Vec<RenderRecord> = call(&target, "render_list", json!({})).await;
+    assert_eq!(records.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), [first.id.as_str()]);
+    let theirs = target_dir.path().join("projects").join(&id).join("renders");
+    assert!(theirs.join(format!("{}.png", first.id)).is_file());
+    assert!(!theirs.join("ai-usage.json").exists(), "the count is that computer's own");
+}
+
 #[tokio::test]
 async fn a_bundle_cannot_write_outside_the_project_folder() {
     let dir = TempDir::new("zip-slip");
@@ -407,6 +488,82 @@ async fn a_bundle_cannot_write_outside_the_project_folder() {
     }
     assert!(!dir.path().join("escaped.txt").exists());
     assert!(!dir.path().parent().unwrap().join("escaped.txt").exists());
+}
+
+#[tokio::test]
+async fn a_bundle_cannot_plant_files_the_app_does_not_write() {
+    // A real bundle, then the same files plus what a stranger could add.
+    let source_dir = TempDir::new("plant-src");
+    let source = AppService::new(source_dir.path().to_path_buf());
+    let id = bundled_project(&source, "Reyes Residence").await;
+    let saved: ExportResult = call(&source, "bundle_save", json!({})).await;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(std::fs::read(&saved.path).unwrap())).unwrap();
+
+    let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let opts = zip::write::SimpleFileOptions::default();
+    for i in 0..archive.len() {
+        let mut f = archive.by_index(i).unwrap();
+        let mut buf = vec![];
+        std::io::Read::read_to_end(&mut f, &mut buf).unwrap();
+        w.start_file(f.name().to_string(), opts).unwrap();
+        w.write_all(&buf).unwrap();
+    }
+    let mp4 = [b"\0\0\0\x18ftypisom".as_slice(), &[0u8; 64][..]].concat();
+    let planted: [(&str, &[u8]); 9] = [
+        ("renders/evil.app/Contents/MacOS/evil", b"#!/bin/sh\necho owned\n"),
+        ("renders/evil.app/Contents/Info.plist", b"<plist/>"),
+        ("renders/run.command", b"#!/bin/sh\necho owned\n"),
+        ("renders/fake.mp4", b"#!/bin/sh\necho owned\n"),
+        ("renders/x.app/frame-000001.png", b"\x89PNG\r\n\x1a\n"),
+        ("models/tool.exe", b"MZ"),
+        ("underlays/plan.svg", b"<svg onload='x()'/>"),
+        ("install.sh", b"#!/bin/sh\n"),
+        ("Library/LaunchAgents/evil.plist", b"<plist/>"),
+    ];
+    for (name, bytes) in planted {
+        w.start_file(name.to_string(), opts).unwrap();
+        w.write_all(bytes).unwrap();
+    }
+    // What the app does write goes in: a tour video and its frames.
+    let kept: [(&str, &[u8]); 2] = [
+        ("renders/0b7c.mp4", &mp4),
+        ("renders/0b7c/frame-000001.png", b"\x89PNG\r\n\x1a\n"),
+    ];
+    for (name, bytes) in kept {
+        w.start_file(name.to_string(), opts).unwrap();
+        w.write_all(bytes).unwrap();
+    }
+    let bytes = w.finish().unwrap().into_inner();
+
+    let target_dir = TempDir::new("plant-dst");
+    let target = AppService::new(target_dir.path().to_path_buf());
+    let opened: DocState = call(
+        &target,
+        "bundle_open",
+        json!({ "file_name": "reyes.guhit", "data": data_url("application/zip", &bytes) }),
+    )
+    .await;
+    assert_eq!(opened.project.id, id);
+    assert_eq!(opened.derived.rooms.len(), 2, "the project itself came across");
+
+    let project = target_dir.path().join("projects").join(&id);
+    let landed: Vec<String> = file_map(&project).into_iter().map(|(n, _)| n.replace('\\', "/")).collect();
+    for (name, _) in planted {
+        assert!(!landed.iter().any(|n| n == name), "{name} was planted: {landed:?}");
+    }
+    assert!(!project.join("renders").join("evil.app").exists());
+    assert!(!project.join("renders").join("x.app").exists());
+    assert!(!project.join("Library").exists());
+    for (name, _) in kept {
+        assert!(landed.iter().any(|n| n == name), "{name} is the app's own: {landed:?}");
+    }
+    // Everything the app saved itself is still there, byte for byte.
+    let from = file_map(&source_dir.path().join("projects").join(&id));
+    let to: Vec<(String, Vec<u8>)> = file_map(&project)
+        .into_iter()
+        .filter(|(n, _)| !kept.iter().any(|(k, _)| n.replace('\\', "/") == *k))
+        .collect();
+    assert_eq!(from, to);
 }
 
 #[tokio::test]
@@ -515,6 +672,58 @@ async fn setting_and_clearing_the_converter_path_works() {
 
     let cleared: DwgConverterStatus = call(&app, "dwg_set_path", json!({ "path": "" })).await;
     assert!(!cleared.configured);
+}
+
+#[tokio::test]
+async fn the_dwg_holds_every_level() {
+    let dir = TempDir::new("dwg-levels");
+    let app = AppService::new(dir.path().to_path_buf());
+
+    // Stand in for the converter: it copies each DXF it is handed to a .dwg
+    // of the same name, so the "DWG" is the DXF the app handed over.
+    let fake = dir.path().join("ODAFileConverter");
+    std::fs::write(
+        &fake,
+        "#!/bin/sh\n# <in> <out> <version> <type> <recurse> <audit> <filter>\n\
+         for f in \"$1\"/*.dxf; do\n  [ -f \"$f\" ] && cp \"$f\" \"$2/$(basename \"$f\" .dxf).dwg\"\ndone\nexit 0\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    if std::process::Command::new(&fake).spawn().is_err() {
+        // Windows cannot run a shell script.
+        return;
+    }
+    let _: DwgConverterStatus = call(&app, "dwg_set_path", json!({ "path": fake.to_string_lossy() })).await;
+
+    // The sample bungalow and a second floor with walls of its own.
+    let _: DocState = call(&app, "hub_create", json!({ "name": "Two storeys", "template": "sample-bungalow" })).await;
+    let add = Command::AddLevel { name: Some("Second Floor".into()), elevation_mm: None, height_mm: None };
+    let applied: ApplyResult = call(&app, "doc_apply", json!({ "command": add })).await;
+    let upper = applied.state.project.levels.iter().find(|l| l.name == "Second Floor").unwrap().id.clone();
+    let walls = Command::AddWallChain {
+        points: vec![
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 8000.0, y: 0.0 },
+            Point { x: 8000.0, y: 6000.0 },
+            Point { x: 0.0, y: 6000.0 },
+        ],
+        closed: true,
+        thickness_mm: Some(150.0),
+        level_id: Some(upper),
+        role: None,
+    };
+    let _: ApplyResult = call(&app, "doc_apply", json!({ "command": walls })).await;
+
+    let out: ExportResult = call(&app, "export_model", json!({ "format": "dwg" })).await;
+    assert!(out.path.ends_with(".dwg"), "{}", out.path);
+    let dxf = std::fs::read_to_string(&out.path).unwrap();
+    assert!(dxf.contains("AC1027"), "the converter got DXF 2013");
+    assert!(dxf.contains("GROUND FLOOR PLAN"), "the ground floor is in it");
+    assert!(dxf.contains("SECOND FLOOR PLAN"), "and the second floor");
 }
 
 // -------------------------------------------------------------- model export

@@ -372,6 +372,24 @@ impl<'a> Scope<'a> {
             Command::DeleteLevel { .. } => Err(whole("Deleting a level")),
             Command::SetLayer { .. } => Err(whole("Changing a layer")),
             Command::UpsertMaterial { .. } => Err(whole("Adding or changing a material")),
+            // Wave 2 (D54). Roof posts stand under the roof they name.
+            Command::AddRoofPosts { roof_id, .. } => self.targets(std::slice::from_ref(roof_id)),
+            // Tours are views, like cameras: always allowed.
+            Command::MakeTour { .. } => Ok(()),
+            // Types, grids, automatic dimensions, the lot, the title block,
+            // the signatory and sheets act like settings.
+            Command::UpsertOpeningSpec { .. }
+            | Command::DeleteOpeningSpecs { .. }
+            | Command::AssignOpeningTypes { .. } => Err(whole("Changing door and window types")),
+            Command::AddGridSystem { .. } => Err(whole("Adding grid lines")),
+            Command::AutoDimension { .. } => Err(whole("Adding automatic dimensions")),
+            Command::SetLotFromSurvey { .. } => Err(whole("Setting the lot")),
+            Command::SetTitleBlock { .. } | Command::SetSignatory { .. } => Err(whole("Changing the title block")),
+            Command::UpsertSheet { .. }
+            | Command::DeleteSheets { .. }
+            | Command::MakeSheetSet { .. }
+            | Command::UpsertRevision { .. }
+            | Command::DeleteRevision { .. } => Err(whole("Changing the sheets")),
         }
     }
 
@@ -393,6 +411,11 @@ impl<'a> Scope<'a> {
         let mut outside: Vec<&Element> = vec![];
         for id in ids {
             let el = self.element(id)?;
+            // The roof over the top floor and the lot act like settings,
+            // selected or not (plan 1.8).
+            if let Some(what) = settings_like(el) {
+                return Err(whole(what));
+            }
             if !self.reach.contains(id) && !outside.iter().any(|o| o.id() == id) {
                 outside.push(el);
             }
@@ -507,9 +530,14 @@ impl<'a> Scope<'a> {
     }
 
     fn new_element(&self, element: &Element) -> Result<(), CoreError> {
+        if let Some(what) = settings_like(element) {
+            return Err(whole(what));
+        }
         match element {
             // A view changes no part of the plan.
-            Element::Camera(_) => Ok(()),
+            el if el.is_view() => Ok(()),
+            // A grid line holds on every level.
+            Element::Grid(_) => Err(whole("Adding a grid line")),
             Element::Opening(o) => self.new_opening(
                 &o.wall_id,
                 o.offset_mm,
@@ -565,7 +593,7 @@ impl<'a> Scope<'a> {
         {
             let what = format!("The copy of {}", label(el));
             match el {
-                Element::Camera(_) => {}
+                el if el.is_view() => {}
                 Element::Opening(o) => {
                     if ids.contains(&o.wall_id) {
                         continue;
@@ -646,6 +674,16 @@ fn out(message: String, element_ids: Vec<Id>) -> CoreError {
     CoreError::invalid_for("out_of_scope", message, element_ids)
 }
 
+/// The roof over the top floor and the lot belong to the whole project:
+/// what changing one is called. None for any other element.
+fn settings_like(el: &Element) -> Option<&'static str> {
+    match el {
+        Element::Roof(r) if r.outline == RoofOutline::TopFootprint => Some("Changing the roof over the top floor"),
+        Element::Lot(_) => Some("Changing the lot"),
+        _ => None,
+    }
+}
+
 fn whole(what: &str) -> CoreError {
     CoreError::invalid(
         "out_of_scope",
@@ -663,9 +701,15 @@ const AGENT_IDS_OUTSIDE: &str = "outside the elements this agent is limited to."
 
 /// Ok when `command` stays inside an agent's limit (DECISIONS D47): only the
 /// levels, the elements (with the reach of D30) and the kinds `limit` names.
-/// An empty list limits nothing. Under a level or kind limit, roof, levels,
-/// layers, settings and materials are refused, as D30 refuses them; a camera
-/// is a view and never refused.
+/// An empty list limits nothing. Under a level or kind limit, levels,
+/// layers, settings, materials, the lot, sheets, the title block and
+/// revisions are refused, as D30 refuses them; cameras and tours are views
+/// and never refused. Grid lines are on no level: they pass level limits
+/// and kind limits decide (P1-3). The roof over the top floor is a roof on
+/// the topmost level with a building (`top_floor`), so a level limit lets
+/// an agent edit it only when it includes that level, and a kinds-only
+/// limit with roofs always does. A door or window type change touches each
+/// opening it rewrites, so an openings-only agent can define one.
 ///
 /// `base` is the project the command runs on, `derived` its derived data,
 /// and `staged` the project after the command (`base` again for a check
@@ -690,10 +734,13 @@ pub fn check_limit(
     touches_of(base, staged, command, &mut touches);
     let levels = |level: &Id| limit.level_ids.is_empty() || limit.level_ids.contains(level);
     let kinds = |kind: ElementKind| limit.kinds.is_empty() || limit.kinds.contains(&kind);
+    // The roof over the top floor, and posts under it, reach this level.
+    let top = top_floor(base, derived);
     for touch in &touches {
         match touch {
             Touch::Target { el, kind, level } => {
                 let ids = vec![el.id().clone()];
+                let level = level.or(if is_top_roof(el) { top } else { None });
                 if let Some(level) = level.filter(|l| !levels(l)) {
                     let message = format!("{} is on {}, {AGENT_OUTSIDE}", label(el), level_name(staged, level));
                     return Err(out(message, ids));
@@ -703,8 +750,9 @@ pub fn check_limit(
                     return Err(out(message, ids));
                 }
             }
-            Touch::New { level, kind, what } => {
-                if let Some(level) = level.as_ref().filter(|l| !levels(l)) {
+            Touch::New { level, kind, what, top_floor } => {
+                let level = level.as_ref().or(if *top_floor { top } else { None });
+                if let Some(level) = level.filter(|l| !levels(l)) {
                     let message = format!("{what} would be on {}, {AGENT_OUTSIDE}", level_name(staged, level));
                     return Err(out(message, vec![]));
                 }
@@ -835,7 +883,7 @@ pub fn work_area(project: &Project, ids: &[Id]) -> Option<WorkArea> {
     let mut levels: Vec<(&Id, usize, Vec<Point>)> = vec![];
     let mut seen: BTreeSet<&Id> = BTreeSet::new();
     for el in ids.iter().filter(|id| seen.insert(*id)).filter_map(|id| find(project, id)) {
-        if matches!(el, Element::Camera(_)) {
+        if el.is_view() {
             continue;
         }
         let Some(level) = level_of(project, el) else { continue };
@@ -865,17 +913,21 @@ pub fn work_area(project: &Project, ids: &[Id]) -> Option<WorkArea> {
 /// What one command touches, for agents' limits and claims.
 enum Touch<'a> {
     /// An element it changes, moves or removes, its kind for a kind limit,
-    /// and its level (None for a camera).
+    /// and its level (None for a grid line and for the roof over the top
+    /// floor, which a level limit places with `top_floor`).
     Target {
         el: &'a Element,
         kind: ElementKind,
         level: Option<&'a Id>,
     },
     /// An element it makes: its level when known, kind and words for it.
+    /// `top_floor`: on no level, but a level limit places it on the topmost
+    /// level with a building, as the roof over the top floor and its posts.
     New {
         level: Option<Id>,
         kind: ElementKind,
         what: String,
+        top_floor: bool,
     },
     /// A change to the whole project.
     Whole(&'static str),
@@ -892,8 +944,20 @@ fn touches_of<'a>(base: &'a Project, staged: &'a Project, command: &Command, out
     let get = |id: &str| find(base, id).map(|el| (el, base)).or_else(|| find(staged, id).map(|el| (el, staged)));
     let target = |id: &str, out: &mut Vec<Touch<'a>>| {
         if let Some((el, project)) = get(id) {
-            if !matches!(el, Element::Camera(_)) {
+            if matches!(el, Element::Lot(_)) {
+                out.push(Touch::Whole("Changing the lot"));
+            } else if !el.is_view() {
                 out.push(Touch::Target { el, kind: el.kind(), level: level_of(project, el) });
+            }
+        }
+    };
+    // Every opening of these types, each on its wall's level.
+    let typed = |type_ids: &[&Id], out: &mut Vec<Touch<'a>>| {
+        for el in &base.elements {
+            if let Element::Opening(o) = el {
+                if o.type_id.as_ref().is_some_and(|t| type_ids.contains(&t)) {
+                    out.push(Touch::Target { el, kind: ElementKind::Opening, level: level_of(base, el) });
+                }
             }
         }
     };
@@ -902,6 +966,7 @@ fn touches_of<'a>(base: &'a Project, staged: &'a Project, command: &Command, out
         level: resolve_level(staged, level_id).ok(),
         kind,
         what: what.to_string(),
+        top_floor: false,
     };
     match command {
         Command::Batch { commands, .. } => {
@@ -922,6 +987,7 @@ fn touches_of<'a>(base: &'a Project, staged: &'a Project, command: &Command, out
             level: wall_level(wall_id),
             kind: ElementKind::Opening,
             what: format!("The new {}", opening_noun(*opening_type)),
+            top_floor: false,
         }),
         // A resize moves the room's walls: a kind limit needs walls.
         Command::ResizeRoom { room_id, .. } => {
@@ -930,16 +996,19 @@ fn touches_of<'a>(base: &'a Project, staged: &'a Project, command: &Command, out
             }
         }
         Command::AddElement { element } => match element {
-            Element::Camera(_) => {}
+            el if el.is_view() => {}
+            Element::Lot(_) => out.push(Touch::Whole("Setting the lot")),
             Element::Opening(o) => out.push(Touch::New {
                 level: wall_level(&o.wall_id),
                 kind: ElementKind::Opening,
                 what: format!("The new {}", opening_noun(o.opening_type)),
+                top_floor: false,
             }),
             other => out.push(Touch::New {
                 level: level_of(staged, other).cloned(),
                 kind: other.kind(),
                 what: format!("The new {}", noun(other)),
+                top_floor: is_top_roof(other),
             }),
         },
         Command::UpdateElement { element } => {
@@ -947,12 +1016,12 @@ fn touches_of<'a>(base: &'a Project, staged: &'a Project, command: &Command, out
             // Moved to another level or wall: where it goes counts too.
             let level = match element {
                 Element::Opening(o) => wall_level(&o.wall_id),
-                Element::Camera(_) => None,
+                el if el.is_view() => None,
                 other => level_of(staged, other).cloned(),
             };
             if let Some((current, _)) = get(element.id()) {
                 if level.is_some() {
-                    out.push(Touch::New { level, kind: element.kind(), what: label(current) });
+                    out.push(Touch::New { level, kind: element.kind(), what: label(current), top_floor: false });
                 }
             }
         }
@@ -990,7 +1059,17 @@ fn touches_of<'a>(base: &'a Project, staged: &'a Project, command: &Command, out
         | Command::SetPipeSlope { pipe_id, .. }
         | Command::InsertPipePoint { pipe_id, .. }
         | Command::RemovePipePoint { pipe_id, .. } => target(pipe_id, out),
-        Command::SetRoof { .. } => out.push(Touch::Whole("Changing the roof")),
+        // The roof over the top floor is a roof on no level that reaches the
+        // topmost level with a building (P1-3, `top_floor`).
+        Command::SetRoof { .. } => match base.elements.iter().find(|e| is_top_roof(e)) {
+            Some(el) => out.push(Touch::Target { el, kind: ElementKind::Roof, level: None }),
+            None => out.push(Touch::New {
+                level: None,
+                kind: ElementKind::Roof,
+                what: "The new roof over the top floor".into(),
+                top_floor: true,
+            }),
+        },
         Command::SetProjectSettings { .. } => out.push(Touch::Whole("Changing the project settings")),
         Command::SetLayer { .. } => out.push(Touch::Whole("Changing a layer")),
         Command::UpsertMaterial { .. } => out.push(Touch::Whole("Adding or changing a material")),
@@ -1001,6 +1080,49 @@ fn touches_of<'a>(base: &'a Project, staged: &'a Project, command: &Command, out
         Command::DeleteLevel { level_id } => {
             out.push(Touch::Level { level_id: Some(level_id.clone()), what: "Deleting a level" })
         }
+        // Wave 2 (D54, P1-3).
+        Command::UpsertOpeningSpec { spec } => typed(&[&spec.id], out),
+        Command::DeleteOpeningSpecs { ids } => typed(&ids.iter().collect::<Vec<_>>(), out),
+        Command::AssignOpeningTypes { level_id } => {
+            for el in &base.elements {
+                if let Element::Opening(o) = el {
+                    let level = level_of(base, el);
+                    if o.type_id.is_none() && (level_id.is_none() || level == level_id.as_ref()) {
+                        out.push(Touch::Target { el, kind: ElementKind::Opening, level });
+                    }
+                }
+            }
+        }
+        Command::AddGridSystem { .. } => out.push(Touch::New {
+            level: None,
+            kind: ElementKind::Grid,
+            what: "The new grid lines".into(),
+            top_floor: false,
+        }),
+        Command::AutoDimension { level_id, .. } => out.push(Touch::New {
+            level: Some(level_id.clone()),
+            kind: ElementKind::Dimension,
+            what: "The new dimensions".into(),
+            top_floor: false,
+        }),
+        Command::AddRoofPosts { roof_id, .. } => {
+            target(roof_id, out);
+            let roof = get(roof_id);
+            out.push(Touch::New {
+                level: roof.and_then(|(el, project)| level_of(project, el)).cloned(),
+                kind: ElementKind::Column,
+                what: "The new roof posts".into(),
+                top_floor: roof.is_some_and(|(el, _)| is_top_roof(el)),
+            });
+        }
+        Command::MakeTour { .. } => {}
+        Command::SetLotFromSurvey { .. } => out.push(Touch::Whole("Setting the lot")),
+        Command::SetTitleBlock { .. } | Command::SetSignatory { .. } => out.push(Touch::Whole("Changing the title block")),
+        Command::UpsertSheet { .. }
+        | Command::DeleteSheets { .. }
+        | Command::MakeSheetSet { .. }
+        | Command::UpsertRevision { .. }
+        | Command::DeleteRevision { .. } => out.push(Touch::Whole("Changing the sheets")),
     }
 }
 
@@ -1014,6 +1136,27 @@ fn level_name(project: &Project, level_id: &str) -> String {
         .filter(|name| !name.is_empty())
         .unwrap_or("another level")
         .to_string()
+}
+
+/// The roof over the top floor (`RoofOutline::TopFootprint`).
+fn is_top_roof(el: &Element) -> bool {
+    matches!(el, Element::Roof(r) if r.outline == RoofOutline::TopFootprint)
+}
+
+/// The level the roof over the top floor reaches under a level limit: the
+/// topmost level with a building, where `roofs::derived_outlines` puts it,
+/// or the highest level while no level has a building yet. `derived` is
+/// `compute_derived(project)`.
+fn top_floor<'a>(project: &'a Project, derived: &Derived) -> Option<&'a Id> {
+    let built = |l: &&Level| derived.footprints.iter().any(|f| f.level_id == l.id && !f.polygon.is_empty());
+    let highest = |a: &&Level, b: &&Level| a.elevation_mm.total_cmp(&b.elevation_mm);
+    project
+        .levels
+        .iter()
+        .filter(built)
+        .max_by(highest)
+        .or_else(|| project.levels.iter().max_by(highest))
+        .map(|l| &l.id)
 }
 
 /// "a door", "an object": what `el` is, for a kind refusal.
@@ -1090,7 +1233,10 @@ fn room_reach(project: &Project, derived: &Derived, room: &Room, reach: &mut BTr
             Element::Room(_)
             | Element::Underlay(_)
             | Element::Linework(_)
-            | Element::ReferenceModel(_) => false,
+            | Element::ReferenceModel(_)
+            | Element::Tour(_)
+            | Element::Grid(_)
+            | Element::Lot(_) => false,
             other => {
                 level_of(project, other) == Some(level)
                     && anchor(other).is_some_and(|a| a.within(inside))
@@ -1186,6 +1332,14 @@ fn extent(project: &Project, el: &Element) -> Vec<Point> {
         Element::Linework(l) => l.polylines.iter().flatten().copied().collect(),
         Element::ReferenceModel(m) => vec![m.position],
         Element::Pipe(p) => p.points.iter().map(|v| pt(v.x, v.y)).collect(),
+        Element::Roof(r) => match &r.outline {
+            RoofOutline::Polygon { points } => points.clone(),
+            _ => vec![],
+        },
+        Element::Grid(g) => vec![g.start, g.end],
+        Element::ViewMark(m) => vec![m.start, m.end],
+        Element::Lot(l) => l.corners.clone(),
+        Element::Tour(_) => vec![],
     }
 }
 
@@ -1230,8 +1384,10 @@ impl Anchor {
     }
 }
 
-/// Openings stand on their wall, cameras are views, and underlays, linework
-/// and reference models are tracing references: none has an anchor.
+/// Openings stand on their wall, cameras and tours are views, underlays,
+/// linework and reference models are tracing references, and grids, the
+/// lot and roofs over a derived outline belong to no area: none has an
+/// anchor.
 fn anchor(el: &Element) -> Option<Anchor> {
     Some(match el {
         Element::Wall(w) => Anchor::Path(vec![w.start, w.end]),
@@ -1243,8 +1399,16 @@ fn anchor(el: &Element) -> Option<Anchor> {
         Element::Dimension(d) => Anchor::Points(vec![d.a, d.b]),
         Element::Pipe(p) => Anchor::Path(p.points.iter().map(|v| pt(v.x, v.y)).collect()),
         Element::Slab(s) => Anchor::Points(s.polygon.clone()),
+        Element::ViewMark(m) => Anchor::Path(vec![m.start, m.end]),
+        Element::Roof(r) => match &r.outline {
+            RoofOutline::Polygon { points } => Anchor::Points(points.clone()),
+            _ => return None,
+        },
         Element::Opening(_)
         | Element::Camera(_)
+        | Element::Tour(_)
+        | Element::Grid(_)
+        | Element::Lot(_)
         | Element::Underlay(_)
         | Element::Linework(_)
         | Element::ReferenceModel(_) => return None,
@@ -1292,24 +1456,13 @@ fn on_wall(w: &Wall, offset_mm: f64) -> Option<Point> {
     unit(sub(w.end, w.start)).map(|d| add(w.start, scale(d, offset_mm)))
 }
 
-/// The level an element stands on. Openings are on their wall's level;
-/// cameras have none.
+/// The level an element stands on (`Element::level_id`), and an opening's
+/// wall's level. Cameras, tours, grids, the lot and the roof over the top
+/// floor have none.
 fn level_of<'a>(project: &'a Project, el: &'a Element) -> Option<&'a Id> {
     match el {
-        Element::Wall(e) => Some(&e.level_id),
-        Element::Room(e) => Some(&e.level_id),
-        Element::Column(e) => Some(&e.level_id),
-        Element::Stair(e) => Some(&e.level_id),
-        Element::Asset(e) => Some(&e.level_id),
-        Element::Annotation(e) => Some(&e.level_id),
-        Element::Dimension(e) => Some(&e.level_id),
-        Element::Underlay(e) => Some(&e.level_id),
-        Element::Linework(e) => Some(&e.level_id),
-        Element::ReferenceModel(e) => Some(&e.level_id),
-        Element::Pipe(e) => Some(&e.level_id),
-        Element::Slab(e) => Some(&e.level_id),
         Element::Opening(o) => host(project, o).map(|w| &w.level_id),
-        Element::Camera(_) => None,
+        other => other.level_id(),
     }
 }
 
@@ -1370,6 +1523,19 @@ fn label(el: &Element) -> String {
             SlabKind::Void => "Floor void",
         }
         .to_string(),
+        Element::Roof(r) if r.outline == RoofOutline::TopFootprint => "Roof over the top floor".to_string(),
+        Element::Roof(_) => "Roof".to_string(),
+        Element::Grid(g) => format!("Grid line {}", g.label.trim()),
+        Element::ViewMark(m) => format!(
+            "{} mark {}",
+            match m.mark_kind {
+                MarkKind::Section => "Section",
+                MarkKind::Elevation => "Elevation",
+            },
+            m.label.trim()
+        ),
+        Element::Lot(_) => "Lot".to_string(),
+        Element::Tour(t) => format!("Tour {}", t.name.trim()),
     }
 }
 

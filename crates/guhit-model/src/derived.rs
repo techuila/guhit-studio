@@ -36,6 +36,238 @@ pub struct Derived {
     /// draw these and never work out open edges themselves.
     #[serde(default)]
     pub railings: Vec<RailingRun>,
+    /// Every stair's flights, landings, nosings, floor opening and walk
+    /// line. The plan, the 3D view, walk mode, railings, IFC, elevations,
+    /// sections, review and tours use this, never their own stair math.
+    #[serde(default)]
+    pub stairs: Vec<StairGeometry>,
+    /// Every roof's planes, lines, gable-end infill and eaves, in the order
+    /// of the roof elements. Replaces the three Wave 1 copies of roof math
+    /// (core pipes, export model3d, TS roofMesh).
+    #[serde(default)]
+    pub roofs: Vec<RoofGeometry>,
+    /// The door and window schedule and each opening's mark (DECISIONS D53).
+    #[serde(default)]
+    pub opening_schedule: OpeningSchedule,
+    /// The room and finish schedule, one row per room with a polygon.
+    #[serde(default)]
+    pub room_schedule: Vec<RoomRow>,
+    /// Areas per level, exactly as `Totals` counts them. `Query::ProjectSummary`
+    /// and `Query::LevelAreas` read these.
+    #[serde(default)]
+    pub level_areas: Vec<LevelAreas>,
+    /// The lot's derived geometry. None without a lot.
+    #[serde(default)]
+    pub site: Option<Box<SiteGeometry>>,
+}
+
+// ----------------------------------------------------------------- stairs
+
+/// A stair as every consumer draws and walks it. Plan x and y in mm; z is
+/// height above the floor of `level_id`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct StairGeometry {
+    pub stair_id: Id,
+    pub level_id: Id,
+    /// The level whose floor is within 300 mm of the stair's top.
+    pub arrives_at: Option<Id>,
+    /// Going of one tread and height of one riser, mm.
+    pub tread_mm: f64,
+    pub riser_mm: f64,
+    /// One for a straight stair, two for an L or U, in walking order.
+    pub flights: Vec<Flight>,
+    pub landings: Vec<Landing>,
+    /// The hole it makes in the floor it arrives at, counter-clockwise.
+    /// Empty when it arrives nowhere.
+    pub opening: Vec<Point>,
+    /// The walking line from the bottom to the top; z is the walking
+    /// surface. Walk mode, tours and headroom follow it.
+    pub walk_line: Vec<Vec3>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Flight {
+    /// Plan outline, counter-clockwise.
+    pub outline: Vec<Point>,
+    /// The front edge of each tread, bottom first; z is the tread's top.
+    pub nosings: Vec<Nosing>,
+    /// Plan unit vector pointing up the flight.
+    pub up: Point,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Nosing {
+    pub a: Point,
+    pub b: Point,
+    pub z: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Landing {
+    /// Plan outline, counter-clockwise.
+    pub polygon: Vec<Point>,
+    /// Its top.
+    pub z: f64,
+}
+
+// ------------------------------------------------------------------ roofs
+
+/// A roof as every consumer draws it. Plan x and y in mm; z is height above
+/// the floor of `level_id`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RoofGeometry {
+    pub roof_id: Id,
+    /// The level whose walls carry it: its own, or for a `TopFootprint`
+    /// roof the topmost level with a building.
+    pub level_id: Id,
+    /// The top surface of each plane, counter-clockwise from above. The
+    /// underside is `vertical_mm` straight below.
+    pub planes: Vec<Vec<Vec3>>,
+    /// The roof's thickness measured vertically.
+    pub vertical_mm: f64,
+    /// Ridges, hips, valleys, eaves and rakes.
+    pub lines: Vec<RoofLine>,
+    /// The vertical gable-end walls between the wall tops and the roof
+    /// underside that the 3D view and the sections fill, each a polygon.
+    pub infill: Vec<Vec<Vec3>>,
+    /// Fascia and gutter runs along the eaves, each an open polyline.
+    pub eaves: Vec<Vec<Vec3>>,
+    /// Plan area covered, eaves included, and the sloped surface area.
+    pub plan_area_m2: f64,
+    pub surface_area_m2: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RoofLine {
+    pub kind: RoofLineKind,
+    pub a: Vec3,
+    pub b: Vec3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum RoofLineKind {
+    Ridge,
+    Hip,
+    Valley,
+    Eave,
+    /// The sloping edge of a gable end.
+    Rake,
+}
+
+// -------------------------------------------------------------- schedules
+
+/// The door and window schedule (DECISIONS D53).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpeningSchedule {
+    /// One row per mark, in mark order; then untyped openings grouped by
+    /// opening type, style, size and sill, with an empty mark.
+    pub rows: Vec<OpeningRow>,
+    /// Every typed opening's mark, for the tags on plans and elevations.
+    pub marks: Vec<OpeningMark>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpeningRow {
+    /// Empty for untyped openings.
+    pub mark: String,
+    pub type_id: Option<Id>,
+    pub opening_type: OpeningType,
+    pub style: OpeningStyle,
+    pub width_mm: f64,
+    pub height_mm: f64,
+    /// None: the openings differ in sill.
+    pub sill_mm: Option<f64>,
+    pub material_id: Option<Id>,
+    pub description: String,
+    pub per_level: Vec<LevelCount>,
+    pub total: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LevelCount {
+    pub level_id: Id,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpeningMark {
+    pub opening_id: Id,
+    pub mark: String,
+}
+
+/// One room of the room and finish schedules, with both of its areas.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RoomRow {
+    pub room_id: Id,
+    pub level_id: Id,
+    pub name: String,
+    pub usage: RoomUsage,
+    /// Inside the walls, less what a void on its level takes:
+    /// `RoomGeometry::area_mm2`.
+    pub net_area_m2: f64,
+    /// What counts as floor area, exactly as `Totals::floor_area_m2` sums
+    /// it: also less balconies and decks, so a walled lanai on a deck has
+    /// none. The rows add up to `Totals::floor_area_m2`.
+    pub floor_area_m2: f64,
+    pub perimeter_m: f64,
+    /// The room's own; under a void in the floor above, the ceiling of the
+    /// level the void opens into; else its level's ceiling.
+    pub ceiling_height_mm: f64,
+    pub floor_material_id: Option<Id>,
+    pub finishes: RoomFinishes,
+}
+
+/// A level's areas, as `Totals` counts them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LevelAreas {
+    pub level_id: Id,
+    /// Room floor area, less voids, balconies and decks.
+    pub net_m2: f64,
+    /// Footprints plus floor slabs past them, less voids, balconies and decks.
+    pub gross_m2: f64,
+    /// Balconies and decks: open floor, not floor area.
+    pub open_m2: f64,
+    pub void_m2: f64,
+}
+
+// ------------------------------------------------------------------- site
+
+/// The lot, worked out from `Lot`. Facts only, never a code check.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SiteGeometry {
+    pub lot_id: Id,
+    pub area_m2: f64,
+    /// One per lot side, in order.
+    pub sides: Vec<LotSideGeometry>,
+    /// The lot shrunk by each side's setback. Empty when no side has one.
+    pub setback_outline: Vec<Point>,
+    /// Ground floor footprint over lot area, percent. A fact, never a check.
+    pub coverage_pct: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LotSideGeometry {
+    pub length_mm: f64,
+    /// Quadrant bearing relative to true north, "N 45°30' E".
+    pub bearing: String,
+    /// The nearest building face, mm. None without a building.
+    pub clearance_mm: Option<f64>,
 }
 
 /// One continuous rail: a straight or bent run along open edges.

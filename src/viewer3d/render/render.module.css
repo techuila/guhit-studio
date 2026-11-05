@@ -788,3 +788,438 @@
     transform: none;
   }
 }
+
+/* ------------------------------------------------------- AI render v2 (L6) */
+
+/* Price line: the amount bumps in when it changes (rule 3: it answers input). */
+.price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-out),
+    opacity var(--dur-hover) var(--ease-out);
+}
+
+.price[data-pro] {
+  border-color: color-mix(in srgb, var(--ai) 35%, var(--line));
+  background: color-mix(in srgb, var(--ai-soft) 55%, var(--surface));
+}
+
+.price[data-loading] {
+  opacity: 0.7;
+}
+
+.priceAmount {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  animation: priceIn var(--dur-base) var(--ease-spring);
+}
+
+@keyframes priceIn {
+  from {
+    opacity: 0.35;
+    transform: translateY(3px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.priceModel {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.proPill {
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--ai);
+  color: #fff;
+  font-size: var(--text-xs);
+  animation: pillIn var(--dur-base) var(--ease-spring);
+}
+
+.priceNote {
+  flex-basis: 100%;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+@keyframes pillIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Maps: chips rise in one after the other (30 ms apart, rule 8). */
+.maps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mapsHead {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mapsNote {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.mapRow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.mapChip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  cursor: pointer;
+  animation: mapIn var(--dur-base) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 30ms);
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.mapChip:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-1);
+}
+
+.mapChip:active {
+  transform: scale(var(--press-scale));
+}
+
+.mapChip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.mapChip[data-active] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  color: var(--accent-strong);
+}
+
+.mapGhost {
+  cursor: default;
+}
+
+@keyframes mapIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.mapThumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.mapThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  animation: fadeIn var(--dur-base) var(--ease-out);
+}
+
+/* A calm sweep while a map draws or loads. */
+.mapWait {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 70%, transparent), transparent);
+  transform: translateX(-100%);
+  animation: renderSweep 1.6s var(--ease-in-out) infinite;
+}
+
+.mapLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The project look. */
+.lookPill {
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  animation: pillIn var(--dur-base) var(--ease-spring);
+}
+
+.lookRow {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.lookThumb {
+  display: block;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-md);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.lookThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  animation: fadeIn var(--dur-base) var(--ease-out);
+}
+
+.lookMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+}
+
+.lookSwitch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+}
+
+/* The drift warning rises in from below and leaves faster (rules 6 and 7). */
+.drift {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--warn) 9%, var(--surface));
+  transition:
+    opacity var(--dur-panel) var(--ease-out),
+    transform var(--dur-panel) var(--ease-out);
+}
+
+.drift[data-stage="enter"] {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.drift[data-stage="exit"] {
+  opacity: 0;
+  transform: translateY(4px);
+  transition-duration: calc(var(--dur-panel) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.driftHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: color-mix(in srgb, var(--warn) 80%, var(--ink));
+  font-size: var(--text-md);
+}
+
+.driftNote {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.driftMeter,
+.capMeter {
+  position: relative;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.driftMeter span,
+.capMeter span {
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  transform-origin: left center;
+  transform: scaleX(var(--share, 0));
+  transition: transform var(--dur-panel) var(--ease-out);
+}
+
+.driftMeter span {
+  background: var(--warn);
+  animation: meterIn var(--dur-scene) var(--ease-out);
+}
+
+@keyframes meterIn {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.driftActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.driftSpacer {
+  flex: 1;
+}
+
+/* The drift overlay: the model's unmatched edges over the AI image. */
+.compareOverlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+
+.compareOverlay[data-on] {
+  opacity: 1;
+}
+
+/* Agents' cap: the meter fills along its track as images are used. */
+.capMeter span {
+  background: var(--accent);
+}
+
+[data-full] > .capMeter span {
+  background: var(--warn);
+}
+
+.capRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.capLine {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  animation: fadeIn var(--dur-hover) var(--ease-out);
+}
+
+.capFull {
+  color: color-mix(in srgb, var(--warn) 80%, var(--ink));
+  font-weight: 600;
+}
+
+/* Badges and gallery pills for the look and the drift check. */
+.badgeLook {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.badgeDrift {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  color: color-mix(in srgb, var(--warn) 80%, var(--ink));
+}
+
+.badgeMatch {
+  color: var(--ok);
+}
+
+.cardPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.cardPill {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: var(--text-xs);
+  animation: pillIn var(--dur-base) var(--ease-spring);
+}
+
+.cardPill[data-tone="video"] {
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cardPill[data-tone="drift"] {
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  color: color-mix(in srgb, var(--warn) 80%, var(--ink));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .priceAmount,
+  .proPill,
+  .lookPill,
+  .cardPill,
+  .mapChip,
+  .driftMeter span,
+  .capLine {
+    animation: none;
+  }
+
+  .mapWait {
+    animation: none;
+    transform: none;
+    opacity: 0.4;
+  }
+}

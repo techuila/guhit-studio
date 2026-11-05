@@ -23,4 +23,12 @@ flip_side: boolean,
  * Which jamb carries the hinge. false: the jamb nearer the wall start.
  * true: the jamb nearer the wall end.
  */
-flip_hinge: boolean, material_id: string | null, };
+flip_hinge: boolean, material_id: string | null, 
+/**
+ * Its door or window type (`Project::opening_types`), DECISIONS D53.
+ * None: untyped, no mark. A typed opening's style, size and sill are
+ * its type's. Editing one of them moves it to the type that matches,
+ * or to a new type with the next free mark, in the same step. Left out
+ * of the JSON when None, so older commands seed the same ids.
+ */
+type_id?: string | null, };
