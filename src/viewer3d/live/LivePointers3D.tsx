@@ -14,9 +14,10 @@
 // Agents (DECISIONS D47) show here too, with or without a live session: a
 // diamond with the AI mark in their color, their name and status line, at
 // the point they work on. Their point moves once per call, seconds apart,
-// so it glides over `--dur-scene`.
+// so it glides over `--dur-scene`. The agent of a swarm part (D56) follows
+// the swarm's reveal instead, each move as long as the reveal's segment.
 
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Vec3 } from "../../contract/bindings";
 import { AiMark } from "../../live/AgentAvatar";
@@ -24,6 +25,9 @@ import { agentById, agentPointerIds, statusText } from "../../live/agents";
 import { useAgents } from "../../live/agentsStore";
 import { participant, peerVar } from "../../live/format";
 import { useLive } from "../../live/liveStore";
+import { useApp } from "../../state/store";
+import { followSwarmCursor, pointIn3d, swarmAgents, swarmCursorAgents, transitionOf } from "../../swarm/cursors";
+import { useRevealNow, useSwarm } from "../../swarm/swarmStore";
 import { labelFlip } from "../../live/placement";
 import { cx } from "../../ui/controls";
 import { useLastTruthy } from "../../ui/motionDom";
@@ -134,7 +138,16 @@ export function LivePointers3D({ engine }: { engine: ViewerEngine }) {
 
   const ids = useLive(useShallow((st) => pointerIds(st.status, st.peers)));
   const rows = useListPresence(ids, (id) => id, "base");
-  const agentIds = useAgents(useShallow((st) => agentPointerIds(st.views, Date.now())));
+  const presenceAgentIds = useAgents(useShallow((st) => agentPointerIds(st.views, Date.now())));
+  // Swarm parts show where their reveal cursor is, on any level.
+  const swarm = useSwarm((st) => st.status);
+  const tick = useRevealNow();
+  const agentIds = useMemo(() => {
+    const bound = swarmAgents(swarm);
+    const out = presenceAgentIds.filter((id) => !bound.has(id));
+    for (const id of swarmCursorAgents(swarm, null, Math.max(tick, performance.now()))) if (!out.includes(id)) out.push(id);
+    return out;
+  }, [presenceAgentIds, swarm, tick]);
   const agentRows = useListPresence(agentIds, (id) => id, "base");
   // Reconnecting: the markers show where people were, not where they are.
   const stale = useLive((st) => st.status.mode === "reconnecting");
@@ -163,14 +176,18 @@ function AgentMarker({ id, board, entering, leaving }: { id: string; board: Poin
   });
   const shownName = useLastTruthy(name) ?? "";
   const shownColor = useLastTruthy(color) ?? 0;
-  const shownLine = useLastTruthy(line);
+  const [swarmLine, setSwarmLine] = useState<string | null>(null);
+  const [swarmMoving, setSwarmMoving] = useState(false);
+  const shownLine = useLastTruthy(swarmLine ?? line);
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     // Agents and people have different ids, so they share the board.
     board.add(id, el);
+    let swarm = false;
     const apply = () => {
+      if (swarm) return;
       const p = agentById(useAgents.getState().views, id)?.presence.pointer_3d;
       if (p) board.move(id, p);
     };
@@ -178,8 +195,31 @@ function AgentMarker({ id, board, entering, leaving }: { id: string; board: Poin
     const stop = useAgents.subscribe((st, prev) => {
       if (st.views !== prev.views) apply();
     });
+    // A swarm part's marker follows the reveal. The CSS keeps which property
+    // glides and drops the glide while the camera moves (data-snap); the
+    // reveal sets how long and how.
+    const stopSwarm = followSwarmCursor(id, (t) => {
+      if (!t) {
+        if (!swarm) return;
+        swarm = false;
+        el.style.transitionDuration = "";
+        el.style.transitionTimingFunction = "";
+        setSwarmLine(null);
+        setSwarmMoving(false);
+        apply();
+        return;
+      }
+      swarm = true;
+      const tr = transitionOf(t);
+      el.style.transitionDuration = tr.duration;
+      el.style.transitionTimingFunction = tr.easing;
+      board.move(id, pointIn3d(t.at, t.levelId, useApp.getState().doc));
+      setSwarmLine(t.label || null);
+      setSwarmMoving(t.ms > 0);
+    });
     return () => {
       stop();
+      stopSwarm();
       board.remove(id, el);
     };
   }, [board, id]);
@@ -192,7 +232,7 @@ function AgentMarker({ id, board, entering, leaving }: { id: string; board: Poin
       data-snap="true"
       data-off="true"
       data-hidden="false"
-      data-activity={activity ?? undefined}
+      data-activity={swarmMoving ? "working" : (activity ?? undefined)}
       data-testid={`live-agent-3d-${id}`}
     >
       <div className={cx(s.body, entering && s.enter, leaving && s.leave)}>

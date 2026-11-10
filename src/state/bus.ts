@@ -37,6 +37,10 @@ export interface BusEvents {
   open_view: { view: ViewRef };
   /** Play a tour in the 3D view (viewer3d/tour/player.ts), from its first shot. */
   play_tour: { tour_id: string };
+  /** Show the swarm (DECISIONS D56): open the AI dock on its Swarm tab, at
+   * this part's row when `part` is a part key. Sent by the draft bar, the
+   * main-lock banner and `swarm_running` refusal toasts; src/swarm answers. */
+  swarm: { part: string | null };
 }
 
 type Handler<K extends keyof BusEvents> = (payload: BusEvents[K]) => void;

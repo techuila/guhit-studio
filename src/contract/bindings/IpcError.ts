@@ -10,6 +10,13 @@ export type IpcError = {
  * "forbidden", "other_author" (undo or redo of someone else's step in a
  * live session without `force`), "not_live", "host_only",
  * "live_refused", "live_unreachable", "live_pin" (the host's certificate
- * does not match the invite), "live_lost", "no_window".
+ * does not match the invite), "live_lost", "no_window". Swarms
+ * (docs/CONTRACT.md "Swarms"): "swarm_running" (a write to the model
+ * while a swarm draft is open), "draft_open" (a second swarm),
+ * "live_session" (a swarm in a live session), "part_stopped" (a call
+ * of a stopped part's agent), "draft_view" (a window-backed output for
+ * an agent drawing in a draft), "people_only" (an agent tried to
+ * accept a draft), "cross_part" (a step that would make two parts
+ * depend on each other).
  */
 code: string, message: string, element_ids: Array<string>, };

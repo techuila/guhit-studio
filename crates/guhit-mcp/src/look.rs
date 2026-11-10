@@ -18,10 +18,10 @@ use resvg::usvg;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::agent::CallContext;
 use crate::draft::element_level;
 use crate::fail::ToolFail;
 use crate::geo::{self, pt};
-use crate::stage;
 use crate::tools::{Output, Picture};
 use crate::translate::{self, parse};
 
@@ -89,10 +89,10 @@ pub async fn look(app: &AppService, args: &Value, ctx: &crate::agent::CallContex
     let width = i.width_px.unwrap_or(PLAN_PX).clamp(400, crate::visuals::PICTURE_MAX_PX);
     match mode {
         "plan" => {}
-        "elevation" | "section" => return Box::pin(mark_drawing(app, &i, mode, width)).await,
-        "sheet" => return Box::pin(sheet_picture(app, &i, width)).await,
-        "schedule" => return Box::pin(schedule_picture(app, &i, width)).await,
-        "tour" => return Box::pin(tour_frame(app, &i)).await,
+        "elevation" | "section" => return Box::pin(mark_drawing(app, &i, mode, width, ctx)).await,
+        "sheet" => return Box::pin(sheet_picture(app, &i, width, ctx)).await,
+        "schedule" => return Box::pin(schedule_picture(app, &i, width, ctx)).await,
+        "tour" => return Box::pin(tour_frame(app, &i, ctx)).await,
         "3d" => {
             if i.show.is_some() || i.bbox.is_some() || i.overlay.is_some() {
                 return Err(ToolFail::args("show, bbox and overlay are for mode plan"));
@@ -130,11 +130,8 @@ pub async fn look(app: &AppService, args: &Value, ctx: &crate::agent::CallContex
         .unwrap_or_else(|| ["dims", "labels", "furniture", "scale_bar"].iter().map(|s| s.to_string()).collect());
     let has = |s: &str| show.iter().any(|x| x == s);
 
-    let (project, derived, revision) = {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
-        (doc.project().clone(), doc.derived().clone(), doc.revision())
-    };
+    let in_draft = crate::view::draft_of(app, ctx).is_some();
+    let (project, derived, revision) = crate::view::snapshot(app, ctx).await?;
     let level = match i.level.as_deref() {
         Some(l) => translate::find_level(&project, l)?.clone(),
         None => project.levels.first().cloned().ok_or_else(|| ToolFail::new("invalid", "the project has no level"))?,
@@ -184,6 +181,9 @@ pub async fn look(app: &AppService, args: &Value, ctx: &crate::agent::CallContex
     if drawing.empty {
         json["empty"] = json!(true);
         json["note"] = json!("Nothing is drawn on this level yet.");
+    }
+    if in_draft {
+        json["draft"] = json!(true);
     }
     let picture = crate::visuals::fit_picture(&png, "image/png")?;
     Ok(Output::Rich { json, images: vec![Picture { base64: picture.base64, mime: picture.mime }] })
@@ -556,26 +556,23 @@ fn drawing_output(svg: &str, width: u32, json: Value) -> Result<Output, ToolFail
     Ok(Output::Rich { json, images: vec![Picture { base64: picture.base64, mime: picture.mime }] })
 }
 
-/// `view_svg` of a view, as the app draws it for sheets.
-async fn view_drawing(app: &AppService, view: &ViewRef, scale: Option<u32>) -> Result<SvgDrawing, ToolFail> {
-    let v = app.handle("view_svg", json!({"view": view, "scale": scale})).await.map_err(|e| {
-        let not_built = e.code == "not_built";
-        let f = ToolFail::from(e);
-        if not_built {
+/// A view as sheets draw it, of what the call reads (`view::view_svg`).
+async fn view_drawing(app: &AppService, view: &ViewRef, scale: Option<u32>, ctx: &CallContext) -> Result<SvgDrawing, ToolFail> {
+    crate::view::view_svg(app, ctx, view, scale).await.map_err(|f| {
+        if f.code == "not_built" {
             f.with_hint("That drawing is not built in this version yet. look mode plan per level, mode 3d from a saved view, and measure height show the same model.")
         } else {
             f
         }
-    })?;
-    serde_json::from_value(v).map_err(|e| ToolFail::new("io", e.to_string()))
+    })
 }
 
 /// look mode elevation or section: the drawing of a mark.
-async fn mark_drawing(app: &AppService, i: &LookIn, mode: &str, width: u32) -> Result<Output, ToolFail> {
+async fn mark_drawing(app: &AppService, i: &LookIn, mode: &str, width: u32, ctx: &CallContext) -> Result<Output, ToolFail> {
     let kind = if mode == "section" { MarkKind::Section } else { MarkKind::Elevation };
     let (mark, revision) = {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+        let r = crate::view::read(app, ctx).await;
+        let doc = r.doc()?;
         let marks: Vec<&ViewMark> = doc
             .project()
             .elements
@@ -604,7 +601,7 @@ async fn mark_drawing(app: &AppService, i: &LookIn, mode: &str, width: u32) -> R
         ((*found).clone(), doc.revision())
     };
     let view = if kind == MarkKind::Section { ViewRef::Section { mark_id: mark.id.clone() } } else { ViewRef::Elevation { mark_id: mark.id.clone() } };
-    let drawing = view_drawing(app, &view, i.scale).await.map_err(|f| {
+    let drawing = view_drawing(app, &view, i.scale, ctx).await.map_err(|f| {
         if f.message.contains("nothing") {
             f.with_hint("A mark looks to the left going start to end: set flip with modify (set {flip: true}), or move it so the building is in front of it.")
         } else {
@@ -625,9 +622,9 @@ async fn mark_drawing(app: &AppService, i: &LookIn, mode: &str, width: u32) -> R
 
 /// look mode sheet: a permit sheet as an agent may see it (D53: license
 /// numbers masked).
-async fn sheet_picture(app: &AppService, i: &LookIn, width: u32) -> Result<Output, ToolFail> {
+async fn sheet_picture(app: &AppService, i: &LookIn, width: u32, ctx: &CallContext) -> Result<Output, ToolFail> {
     let wanted = i.sheet.as_deref().ok_or_else(|| ToolFail::args("mode sheet needs sheet: its number (A-1) or id; sheets action \"list\" shows them"))?;
-    let (svg, meta) = crate::documents::sheet_svg_for_agent(app, wanted).await?;
+    let (svg, meta) = crate::documents::sheet_svg_for_agent(app, wanted, ctx).await?;
     drawing_output(
         &svg,
         width,
@@ -640,11 +637,11 @@ async fn sheet_picture(app: &AppService, i: &LookIn, width: u32) -> Result<Outpu
 
 /// look mode schedule: the schedule as drawn on a sheet, and its rows as
 /// data. The data comes back even when the drawing cannot be made.
-async fn schedule_picture(app: &AppService, i: &LookIn, width: u32) -> Result<Output, ToolFail> {
+async fn schedule_picture(app: &AppService, i: &LookIn, width: u32, ctx: &CallContext) -> Result<Output, ToolFail> {
     let schedule = i.schedule.ok_or_else(|| ToolFail::args("mode schedule needs schedule: doors_windows, rooms, finishes or areas"))?;
     let (data, revision) = {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+        let r = crate::view::read(app, ctx).await;
+        let doc = r.doc()?;
         let q = match schedule {
             ScheduleKind::DoorsWindows => Query::OpeningSchedule,
             ScheduleKind::Rooms | ScheduleKind::Finishes => Query::RoomSchedule,
@@ -653,7 +650,7 @@ async fn schedule_picture(app: &AppService, i: &LookIn, width: u32) -> Result<Ou
         (doc.query(&q).map_err(ToolFail::from)?, doc.revision())
     };
     let json = json!({"mode": "schedule", "schedule": schedule, "revision": revision, "rows": data, "note": "The numbers are the engine's; schedules are data, never a compliance check."});
-    match view_drawing(app, &ViewRef::Schedule { schedule }, i.scale).await {
+    match view_drawing(app, &ViewRef::Schedule { schedule }, i.scale, ctx).await {
         Ok(drawing) => drawing_output(&drawing.svg, width, json),
         Err(f) if f.code == "not_built" => {
             let mut json = json;
@@ -682,15 +679,15 @@ fn frame_camera(frame: &Value, name: &str) -> Option<Camera> {
 
 /// look mode tour: the frame at `at_s`, captured in the window from the
 /// camera the engine works out for it (the same an export uses).
-async fn tour_frame(app: &AppService, i: &LookIn) -> Result<Output, ToolFail> {
+async fn tour_frame(app: &AppService, i: &LookIn, ctx: &CallContext) -> Result<Output, ToolFail> {
     let wanted = i.tour.as_deref().ok_or_else(|| ToolFail::args("mode tour needs tour: its id or name"))?;
     let at = i.at_s.unwrap_or(0.0);
     if !(at.is_finite() && at >= 0.0) {
         return Err(ToolFail::args("at_s is 0 or more"));
     }
     let (tour, frames) = {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+        let r = crate::view::read(app, ctx).await;
+        let doc = r.doc()?;
         let tour = crate::tours::find_tour(doc.project(), wanted)?.clone();
         let v = doc.query(&Query::TourFrames { tour_id: tour.id.clone(), fps: None }).map_err(ToolFail::from)?;
         (tour, v["frames"].as_array().cloned().unwrap_or_default())
@@ -731,12 +728,8 @@ async fn tour_frame(app: &AppService, i: &LookIn) -> Result<Output, ToolFail> {
 
 /// The engine-drawn plan of a level as SVG, for the resource
 /// `guhit://project/levels/{level}/plan.svg`.
-pub(crate) async fn plan_svg(app: &AppService, level: &str) -> Result<String, ToolFail> {
-    let (project, derived) = {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
-        (doc.project().clone(), doc.derived().clone())
-    };
+pub(crate) async fn plan_svg(app: &AppService, level: &str, ctx: &CallContext) -> Result<String, ToolFail> {
+    let (project, derived, _) = crate::view::snapshot(app, ctx).await?;
     let level = translate::find_level(&project, level)?.clone();
     let show: Vec<String> = ["dims", "ids", "grid", "scale_bar", "labels", "furniture"].iter().map(|s| s.to_string()).collect();
     Ok(draw_plan(&project, &derived, &level, &DrawOptions { show: &show, bbox: None, width_px: PLAN_PX, underlays: &[] }).svg)
@@ -861,10 +854,10 @@ fn parallel(a: &Wall, b: &Wall) -> bool {
     d.min(std::f64::consts::PI - d) < 0.5_f64.to_radians()
 }
 
-pub async fn measure(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+pub async fn measure(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let i: MeasureIn = parse(args)?;
-    let s = app.session.lock().await;
-    let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+    let gate = crate::view::read(app, ctx).await;
+    let doc = gate.doc()?;
     let project = doc.project();
     let derived = doc.derived();
     let ids = i.ids.clone().unwrap_or_default();

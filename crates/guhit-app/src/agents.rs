@@ -122,6 +122,8 @@ impl AppService {
         // A refused call is news too: a stopped agent that keeps trying stays
         // on the list, so the user can see it and resume it.
         let call = self.agents.call(hint, tool, kind, &owner, project_id);
+        // A swarm part's handle binds the agent to that part (D56).
+        let call = call.and_then(|mut call| crate::swarm::on_call(self, hint, &mut call).map(|()| call));
         self.agents.start_ticking();
         self.agents.publish();
         call
@@ -148,6 +150,10 @@ impl AppService {
         T: Send,
         E: From<IpcError> + Send,
     {
+        // An agent drawing a swarm part writes into the draft (D57).
+        if self.swarm.part_of(&call.id).is_some() {
+            return crate::swarm::draft_edit(self, call, build).await;
+        }
         let (project, derived, revision, guest) = {
             let s = self.session.lock().await;
             let doc = s.open_doc()?;
@@ -194,7 +200,8 @@ impl AppService {
             other => vec![other.clone()],
         };
         let batch = matches!(command, Command::Batch { .. });
-        if batch {
+        // An agent drawing a swarm part writes into the draft (D57).
+        if batch || self.swarm.part_of(&call.id).is_some() {
             let (result, ()) = self
                 .agent_edit(call, |project: &Project, _: &Derived| {
                     Staging::rebuilt(project, &label, &commands).map(|st| (st, ())).map_err(IpcError::from)
@@ -237,6 +244,10 @@ impl AppService {
     /// pass once the user confirmed (DECISIONS D29). A step that changed the
     /// signing architect is refused (`forbidden`) even with `force`.
     pub async fn agent_undo(&self, call: &AgentCall, redo: bool, force: bool) -> Result<DocState, IpcError> {
+        // A swarm part's agent undoes its own draft steps, never the model.
+        if self.swarm.part_of(&call.id).is_some() {
+            return crate::swarm::draft_undo(self, call, redo, force).await;
+        }
         self.agents.check_edit(&call.id, self.agents.now())?;
         let mut s = self.session.lock().await;
         same_project(call, s.open_doc()?)?;
@@ -296,9 +307,14 @@ impl AppService {
     /// at, when `looked_at` names anything in the plan.
     pub async fn agent_done(&self, call: &AgentCall, looked_at: &[Id]) {
         if !looked_at.is_empty() {
-            let s = self.session.lock().await;
-            if let Some(doc) = s.doc.as_ref() {
-                self.agents.place(&call.id, doc.project(), looked_at);
+            // A swarm part's agent looks at the draft.
+            if let Some(view) = self.swarm.view_for(&call.id) {
+                self.agents.place(&call.id, view.project(), looked_at);
+            } else {
+                let s = self.session.lock().await;
+                if let Some(doc) = s.doc.as_ref() {
+                    self.agents.place(&call.id, doc.project(), looked_at);
+                }
             }
         }
         self.agents.publish();
@@ -325,8 +341,14 @@ impl AppService {
             let s = self.session.lock().await;
             let doc = s.open_doc()?;
             same_project(call, doc)?;
-            let (levels, ids) = claim_targets(doc.project(), &level_ids, &ids)?;
-            self.agents.claim(&call.id, doc.project(), doc.derived(), levels, ids)?
+            // A swarm part's agent claims on the draft it draws in.
+            let view = self.swarm.view_for(&call.id);
+            let (project, derived) = match &view {
+                Some(v) => (v.project(), v.derived()),
+                None => (doc.project(), doc.derived()),
+            };
+            let (levels, ids) = claim_targets(project, &level_ids, &ids)?;
+            self.agents.claim(&call.id, project, derived, levels, ids)?
         };
         self.agents.publish();
         Ok(claim)
@@ -369,7 +391,10 @@ impl AppService {
         }
         inbox.drain(..inbox.len().saturating_sub(MAX_INBOX));
         let mut nearby: Vec<NearbyNote> = vec![];
-        if let Some((levels, ids)) = claim {
+        if self.swarm.part_of(&call.id).is_some() {
+            // A swarm part hears of the other parts, not the model's history.
+            nearby = crate::swarm::nearby(self, call);
+        } else if let Some((levels, ids)) = claim {
             let s = self.session.lock().await;
             if let Some(doc) = s.doc.as_ref() {
                 let history = self.live.history(doc, s.live_copy.as_ref());
@@ -812,6 +837,24 @@ impl AgentsState {
 
     pub(crate) fn participant(&self, id: &str, owner: &Owner) -> Option<Participant> {
         lock(&self.reg).agents.iter().find(|a| a.id == id).map(|a| a.participant(owner))
+    }
+
+    /// Show an agent as the swarm part it draws (DECISIONS D56): the part's
+    /// name and color, on the list, its cursor and its history steps. Kept
+    /// in memory only, never saved as a rename.
+    pub(crate) fn show_as(&self, id: &str, name: &str, color: u8) {
+        let owner = self.owner();
+        let participant = {
+            let mut reg = lock(&self.reg);
+            let Some(agent) = reg.agents.iter_mut().find(|a| a.id == id) else { return };
+            if agent.name == name && agent.color == color {
+                return;
+            }
+            agent.name = name.to_string();
+            agent.color = color;
+            agent.participant(&owner)
+        };
+        self.remember(&participant, &owner);
     }
 
     // --------------------------------------------------------------- rules
@@ -1729,7 +1772,7 @@ fn clean_hint(raw: &Option<String>) -> Option<String> {
 }
 
 /// "Ground Floor", "ground_floor" and "ground-floor" are one handle.
-fn handle_of(text: &str) -> String {
+pub(crate) fn handle_of(text: &str) -> String {
     let mut out = String::new();
     for c in text.chars().flat_map(char::to_lowercase) {
         if c.is_alphanumeric() {

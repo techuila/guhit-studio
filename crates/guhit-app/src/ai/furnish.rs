@@ -207,6 +207,11 @@ fn propose(doc: &Document, plan: &mut FurnishPlan, scope: Option<&[Id]>) -> Resu
 /// `AiTask::Furnish`: one proposal per room (D8). `room_ids` empty
 /// furnishes every closed room on the active level.
 pub async fn run(app: &AppService, request: &AiRequest, room_ids: &[Id], style: &str) -> Result<AiTurn, IpcError> {
+    // The model is locked while a swarm draft is open (D57): nothing is
+    // asked, so nothing is spent.
+    if app.swarm.is_open() {
+        return Err(crate::swarm::swarm_running());
+    }
     let scope: Option<&[Id]> = request.scope.as_ref().map(|s| s.ids.as_slice());
     if scope.is_some_and(|ids| ids.is_empty()) {
         return Err(IpcError::new("bad_args", "scope has no ids: limit the turn to a selection, or send no scope"));
@@ -394,19 +399,26 @@ pub async fn run(app: &AppService, request: &AiRequest, room_ids: &[Id], style: 
 /// objects and raises no placement review item, else it is stale.
 pub async fn resolve(app: &AppService, proposal_id: &str, accept: bool) -> Option<Result<AiResolveResult, IpcError>> {
     let key = service_key(app);
-    let queued = {
+    let (queued, at) = {
         let mut q = queue().lock().ok()?;
         let list = q.get_mut(&key)?;
         let at = list.iter().position(|x| x.proposal.id == proposal_id)?;
-        list.remove(at)
+        // Locked by a swarm draft (D57): the room stays queued, so it can
+        // still be applied once the draft is accepted or discarded.
+        if accept && app.swarm.is_open() {
+            return Some(Err(crate::swarm::swarm_running()));
+        }
+        (list.remove(at), at)
     };
-    {
+    let was_pending = {
         // The hub's pending slot may hold the same proposal.
         let mut slot = app.ai.pending.lock().await;
-        if slot.as_ref().is_some_and(|p| p.proposal.id == proposal_id) {
+        let here = slot.as_ref().is_some_and(|p| p.proposal.id == proposal_id);
+        if here {
             *slot = None;
         }
-    }
+        here
+    };
     let outcome = |o: &str| json!({"proposal_id": proposal_id, "outcome": o, "room_id": queued.room_id});
     if !accept {
         log::append(queued.log_dir.as_deref(), "outcome", outcome("rejected")).await;
@@ -436,6 +448,20 @@ pub async fn resolve(app: &AppService, proposal_id: &str, accept: bool) -> Optio
         doc.revision()
     };
     let committed = app.commit_if_revision(queued.proposal.command.clone(), Origin::Ai, revision).await;
+    if committed.as_ref().is_err_and(|e| e.code == "swarm_running") {
+        // A draft opened meanwhile: the room goes back where it was.
+        if was_pending {
+            let mut slot = app.ai.pending.lock().await;
+            if slot.is_none() {
+                *slot = Some(Pending { proposal: queued.proposal.clone(), project_id: queued.project_id.clone(), log_dir: queued.log_dir.clone() });
+            }
+        }
+        if let Ok(mut q) = queue().lock() {
+            let list = q.entry(key).or_default();
+            list.insert(at.min(list.len()), queued);
+        }
+        return Some(Err(crate::swarm::swarm_running()));
+    }
     log::append(queued.log_dir.as_deref(), "outcome", outcome(if committed.is_ok() { "accepted" } else { "failed" })).await;
     Some(committed.map(|applied| AiResolveResult { applied: Some(applied) }))
 }

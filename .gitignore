@@ -34,5 +34,6 @@ dist-ssr
 # Confidential source document, kept locally only
 /docs/market-research-2026.pdf
 
-# Screenshots of scripts/live-check.mjs
+# Screenshots of scripts/live-check.mjs and scripts/swarm-check.mjs
 /live-check/
+/swarm-check/

@@ -163,7 +163,7 @@ pub async fn call(app: &AppService, name: &str, args: &Value, ctx: &CallContext)
         }
         "render" => render(app, args, ctx).await,
         "set_look" => crate::visuals::set_look(app, args).await,
-        "export_tour" => crate::tours::export_tour(app, args).await,
+        "export_tour" => crate::tours::export_tour(app, args, ctx).await,
         "set_status" => crate::agent::set_status(app, ctx, args).await,
         "import_underlay" => import_underlay(app, args, ctx).await,
         "import_dxf" => import_dxf(app, args, ctx).await,
@@ -233,7 +233,7 @@ async fn read_file(app: &AppService, path: &str, max: usize) -> Result<(String, 
         return Err(ToolFail::args("path must be an absolute file path"));
     }
     if !app.reads_external_paths() {
-        let data_dir = app.session.lock().await.data_dir.clone();
+        let data_dir = crate::view::data_dir(app).await;
         if !target.starts_with(&data_dir) {
             return Err(ToolFail::new("forbidden", format!("this service only reads inside {}; pass data instead", data_dir.display())));
         }
@@ -301,8 +301,8 @@ async fn import_underlay(app: &AppService, args: &Value, ctx: &CallContext) -> R
         None => Point { x: 0.0, y: 0.0 },
     };
     let level_id = {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+        let r = crate::view::read(app, ctx).await;
+        let doc = r.doc()?;
         translate::pick_level(doc.project(), i.level.as_deref(), &stage::first_level(doc.project())?)?
     };
     let url = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes));
@@ -369,8 +369,8 @@ async fn import_dxf(app: &AppService, args: &Value, ctx: &CallContext) -> Result
                 ToolFail::args("commit needs mm_per_unit: 1 for a drawing in mm, 1000 in m. inspect suggests one; confirm it with the user")
             })?;
             let level_id = {
-                let s = app.session.lock().await;
-                let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+                let r = crate::view::read(app, ctx).await;
+                let doc = r.doc()?;
                 translate::pick_level(doc.project(), i.level.as_deref(), &stage::first_level(doc.project())?)?
             };
             let offset = match &i.offset {

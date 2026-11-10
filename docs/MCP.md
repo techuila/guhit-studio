@@ -434,7 +434,7 @@ deliberate choice, not a missing setting.
   setting: Claude Code permissions, Codex `default_tools_approval_mode`,
   Gemini CLI trust, Kiro `autoApprove`, Cline `autoApprove`, Copilot CLI
   `--allow-tool`.
-- Guhit lists 26 core tools, 45 with every toolset on (see "Toolsets"
+- Guhit lists 27 core tools, 46 with every toolset on (see "Toolsets"
   under "The tools"). Cursor warns above about 40 tools in total and Windsurf
   (Devin Desktop) allows 100 across all servers, so add only the toolsets you
   need. Small local models do best with the core list and a 32k context.
@@ -476,7 +476,7 @@ cargo run -p guhit-mcp --bin guhit-mcp-stdio -- --port 1631
 
 ## The tools
 
-MCP v2 (DECISIONS D42): a core toolset of 26 workflow tools that drafts and
+MCP v2 (DECISIONS D42): a core toolset of 27 workflow tools that drafts and
 checks a whole house, its PH permit drawings included (D53, D54), plus seven
 opt-in toolsets. Every length in every
 argument and every result is millimeters. Areas come back in square metres.
@@ -487,7 +487,7 @@ The plan is +x east, +y north; angles are degrees, counter-clockwise.
 | Tool | What it does |
 |---|---|
 | `project` | `action` list, open (`id`), create (`name`, `template` blank, sample-bungalow or plumbing-demo), close, save_version (`label`). In a live session open, create and close need `force` after the user confirms |
-| `get_guide` | `topic` conventions, workflows (drafting and the verify loop), ph_defaults or catalog, the same text as the doc resources |
+| `get_guide` | `topic` conventions, workflows (drafting and the verify loop), ph_defaults, catalog, the same text as the doc resources, or swarm (several agents at once, see "Swarms") |
 | `query` | `what` summary, levels, rooms, elements (`kind`, `level`, `ids`; kinds include roof, grid, view_mark, lot, tour), describe (`ids`), selection, schedules (the door and window schedule by mark, room and finish rows, areas per level, from the engine), schedule (device counts), site (the lot: area, bearings, setbacks, coverage), takeoff, catalog (`search`, `usage`), placements (free spots for a `catalog_key` in a `room`), tour (the camera at every frame, paged), materials, history. Compact rows by default; `format` full or `fields` for more; `page`, `page_size` |
 | `look` | `mode` plan: the level drawn by the engine with no window, `show` dims (wall lengths), ids (short ids mapped to full ids in the result), grid, scale_bar, labels, furniture; `bbox` crops; `overlay` underlay; the result maps pixels to mm. `source` window uses the app's canvas. `mode` elevation and section: the drawing of a `mark` (id or label), hidden lines removed, `scale`. `mode` sheet: a permit `sheet` (A-1 or id) with the license numbers masked. `mode` schedule: doors_windows, rooms, finishes or areas, drawn and as rows. `mode` 3d: the 3D view or a saved `view` from that view's own camera, through the window (D31); the result's `camera` says whether the picture came from it. `mode` tour: a `tour` frame at `at_s`, through the window. Drawings are rasterized here with resvg, no window needed |
 | `measure` | `kind` distance (points or ids), clear_width (two parallel walls face to face, a room, a door), height (levels, walls, openings, stairs with riser, tread and the treads of each flight), area (rooms: net and floor area; slabs, a polygon), clearance (the gap between two outlines; a stair's are its flights and landings) |
@@ -512,6 +512,7 @@ The plan is +x east, +y north; angles are degrees, counter-clockwise.
 | `set_project` | `roof`, `site` (latitude, longitude, time zone), `north_angle_deg`, `settings` (client, designer, location, default wall thickness, scale, paper, grid) |
 | `history` | `action` list (who made each step, when), undo, redo (`steps`), undo_to (`index`); someone else's step needs `force` after the user confirms |
 | `export` | `format` pdf, svg or dxf of a `level` or `level` "all" (empty levels are skipped and named), dxf3d and ifc of the whole model, guhit (the bundle); glb answers `unavailable` (the window's exporter) |
+| `swarm` | Several agents drawing one building at once into a draft a person accepts (D56, D57, see "Swarms"): `action` start (`brief`, `summary`, `setup`, `parts`; the caller leads and gets a handle per part), status, milestone (`name`), wait (`for`, `timeout_s` up to 60), finish (`summary`), discard (the lead, with `force`); accept is always refused `people_only` |
 
 Every editing tool takes `scope` (see "The selection and `scope`"); every
 tool takes `agent` (see "Agents").
@@ -634,8 +635,11 @@ callers (tests) pass no hint and commit as before.
 | `guhit://project/levels/{level}/plan.svg` (template) | A level drawn by the engine as SVG, with wall lengths, short ids, a grid and a scale bar |
 
 Prompts: `draft_from_brief` (`brief`, `lot`), `model_from_plan_image`
-(`image_path`, `known_dimension`, `level`), `verify_model` (`level`, `brief`)
-and `client_render_pack` (`views`). Each spells out the verify loop.
+(`image_path`, `known_dimension`, `level`), `verify_model` (`level`, `brief`),
+`client_render_pack` (`views`) and `swarm_from_brief` (`brief`, `lot`: the
+same house drawn by a swarm of sub-agents). Each spells out the verify loop.
+While a swarm draft is open, an agent drawing a part reads the draft in
+`guhit://project/current`, `guhit://history` and the plan template too.
 
 ### v1 tool names
 
@@ -705,6 +709,71 @@ the user confirms and the agent passes `force`. `project` open, create and
 close end a session this computer hosts, for everyone, and refuse with
 `live_session` until `force`. `send_chat_message` posts as the agent, marked
 as sent by AI.
+
+### Swarms
+
+One brief, several agents drawing it at once (DECISIONS D56, D57, the
+`swarm` core tool, `crates/guhit-mcp/src/swarm.rs`). The lead splits the
+brief into parts, its sub-agents draw the parts into a draft, and a person
+accepts all of it, or part by part, or discards it in the window. Nothing
+reaches the model before a person accepts; no agent can (`accept` answers
+`people_only`). `get_guide` topic "swarm" and the `swarm_from_brief` prompt
+teach it to the model; `docs/skills/guhit-swarm/SKILL.md` teaches Claude Code
+when to use it.
+
+**Starting.** `swarm` action start with `brief`, `summary`, `setup` {levels:
+[{name, height_mm}]} (the storeys to add, as the lead's first draft step)
+and 1 to 6 `parts`, each {key, name, role, instructions, scope {levels,
+kinds}, after [{part, milestone}], milestones}. Levels are named by id or
+name, setup levels included; an empty list means all. The app checks the
+plan (`bad_args` says what to change): two parts never draw the same kind on
+the same level, every wait names a declared milestone or "done", no circle
+of waits, one part can start at once. The caller becomes the lead and gets a
+`handle` and a `url` per part, plus `how_to` for its sub-agents. Refused
+`draft_open` while a draft is open and `live_session` in a live session.
+
+**Sub-agents.** A handle is `sw-<16 hex digits>-<key>`, 64 random bits,
+never issued twice. A sub-agent on the lead's connection (Claude Code's
+Task agents) passes `agent: "<handle>"` on every call; an agent in its own
+process (Codex, another terminal) connects to the part's `url`,
+`/mcp/agent/<handle>`. Either way the app binds it to the part on its first
+call and shows it with the part's name and color. A call of the lead's
+connection that names no handle is the lead's. A handle of a swarm that has
+ended is refused `part_stopped`.
+
+**Reading and writing.** Every read of a bound agent goes through one gate
+(`crates/guhit-mcp/src/view.rs`): `query`, `look` (plan, elevation,
+section, sheet, schedule), `measure`, `check`, `levels` list, `types` list,
+the title block, sheets and marks lists, dry runs, the v1 read aliases and
+the resources read the draft, which holds every part's work, so siblings
+read each other. A test reads the sources and fails if a tool reads the
+model around the gate. Edits land in the draft, inside the part's scope
+(`out_of_scope` names the part, its levels and kinds). What the window draws
+or what is written from the model shows the model, so a bound agent is
+refused it as `draft_view`: `look` mode 3d, mode tour and source window,
+`get_plan_image`, `capture_view`, `render` start, `visualize_render`,
+`export_tour`, `export`, `sheets` export and saved versions. `history` list
+shows the draft's steps; undo, redo and undo_to take back only the agent's
+own draft steps (`other_author` for another part's), never the model's.
+
+**Order and the end.** `milestone` (`name`, one the part declares) tells the
+parts that wait for it; `wait` long-polls, at most 60 s a call, until `for`
+{part, milestone} is reached (milestone "done" when that part finishes), or
+without `for` until what the caller's part comes after is reached, or for
+the lead until every part is done. It answers `reached` false with
+`timed_out` when time runs out, and `ended` when the swarm is over.
+`finish` (`summary`) marks the part done; the lead's finish marks the draft
+ready for review. `status` lists each part (state, steps, milestones, what
+it waits for, what it drew by kind) and the draft's counts. `discard` drops
+the draft: only the lead, only with `force` after the user agrees
+(`needs_force` without it).
+
+**The lock.** While a draft is open the model is locked for everyone else:
+another agent's edit, undo and redo are refused `swarm_running`, and so are
+`project` open (of another project), create and close. Every swarm refusal
+has its own hint (`swarm_running`, `draft_open`, `part_stopped`,
+`draft_view`, `people_only`), never the live session's advice to pass
+`force`.
 
 ## Safety
 

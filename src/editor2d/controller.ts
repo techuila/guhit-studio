@@ -81,6 +81,8 @@ import {
 import type { ElementStyle, Palette, RenderContext } from "./render";
 import { DEFAULT_PALETTE, drawElement, drawFlash, drawGrid, drawHighlight, drawModel, drawOrigin, drawPeerOutline, labelHeightMm, readPalette } from "./render";
 import type { PipePick } from "./pipePick";
+import { draftBounds, draftBusy, drawDraftPass, unionRect, watchDraft } from "../swarm/draw2d";
+import { useSwarm } from "../swarm/swarmStore";
 import type { PlanToolHost } from "./planTool";
 import { usePipePick } from "./pipePick";
 import {
@@ -654,6 +656,9 @@ export class PlanController {
       }),
     );
     this.cleanups.push(onStairGhost(() => this.invalidate()));
+    // A swarm draft (D56): redrawn when it changes and at each reveal boundary,
+    // and kept in view while it grows, until the user moves the view.
+    this.cleanups.push(watchDraft(() => this.invalidate(), () => this.followDraft()));
     useApp.getState().registerCapturePlan((levelId) => this.capturePlan(levelId));
     // Dev only hook so scripted UI checks can map model points to the screen.
     if (import.meta.env.DEV) (window as unknown as { __planController?: PlanController }).__planController = this;
@@ -1002,7 +1007,26 @@ export class PlanController {
   zoomToFit(animated = true): void {
     if (!this.index || this.width === 0) return;
     this.autoFit = true;
-    this.setView(fitRect(modelBounds(this.index), this.width, this.height, 70), animated ? dur("scene") : 0);
+    // A swarm draft on show fits with the model (D56): a fresh plan finds what the swarm drew.
+    const sw = useSwarm.getState();
+    const bounds = sw.showDraft ? unionRect(modelBounds(this.index), draftBounds(sw.draft, this.index.levelId)) : modelBounds(this.index);
+    this.setView(fitRect(bounds, this.width, this.height, 70), animated ? dur("scene") : 0);
+  }
+
+  /**
+   * A swarm draft that grows out of view: while the view still fits the
+   * model (nobody panned or zoomed), it eases to fit the model and the draft.
+   */
+  private followDraft(): void {
+    if (!this.index || this.width === 0 || !this.autoFit) return;
+    const draft = draftBounds(useSwarm.getState().draft, this.index.levelId);
+    if (rectIsEmpty(draft)) return;
+    const a = toWorld(this.view, { x: 0, y: this.height });
+    const b = toWorld(this.view, { x: this.width, y: 0 });
+    if (draft.minX >= a.x && draft.minY >= a.y && draft.maxX <= b.x && draft.maxY <= b.y) return;
+    const all = unionRect(modelBounds(this.index), draft);
+    const pad = 1500;
+    this.setView(fitRect({ minX: all.minX - pad, minY: all.minY - pad, maxX: all.maxX + pad, maxY: all.maxY + pad }, this.width, this.height, 70), dur("scene"));
   }
 
   focusElements(ids: string[], animated = true): void {
@@ -1231,13 +1255,14 @@ export class PlanController {
 
   /**
    * One requestAnimationFrame loop, render on demand: it only runs while the
-   * canvas is dirty, something is animating, or an AI preview is breathing.
+   * canvas is dirty, something is animating, an AI preview is breathing, or
+   * a swarm draft element is drawing in.
    */
   private loop = (now: number): void => {
     this.raf = 0;
     if (this.disposed) return;
     const running = this.anim.tick(now);
-    const looping = this.breathing();
+    const looping = this.breathing() || draftBusy();
     if (this.returning && !this.anim.has(K.back)) this.returning = null;
     if (this.fading.length > 0) this.dropFinishedFades();
     if (this.fadingLinks.length > 0) this.fadingLinks = this.fadingLinks.filter((f) => this.anim.has(`${K.linkGone}${f.key}`));
@@ -1323,6 +1348,8 @@ export class PlanController {
         if (el) drawElement(rc, el, { color: this.palette.preview, alpha: breath, dashed: true, hollow: true }, this.realIndex);
       }
     }
+    // A swarm draft over the model, never in place of it (D56).
+    drawDraftPass(rc, this.realIndex ?? this.index);
 
     // Elements a command removed, still drawn from the geometry they had.
     for (const f of this.fading) {

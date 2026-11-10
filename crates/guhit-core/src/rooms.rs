@@ -201,7 +201,8 @@ pub fn reconcile(before: &Project, project: &mut Project, ids: &mut IdGen) -> Re
             if taken.contains(&(li, fi)) {
                 continue;
             }
-            let id = ids.next_id();
+            // Keyed by the face, so a replayed swarm step finds its room (D57).
+            let id = ids.next_keyed(crate::ids::Slot::room(&level.level_id, &f.wall_ids));
             let name = next_room_name(project);
             project.elements.push(Element::Room(Room {
                 id: id.clone(),

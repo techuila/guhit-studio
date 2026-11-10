@@ -532,11 +532,9 @@ pub(crate) async fn run(
     let build = |project: &Project, derived: &Derived| {
         stage_all(project, derived, &steps, asked, &window, &opts.label, per_step)
     };
-    let snapshot = || async {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(no_document)?;
-        Ok::<_, ToolFail>((doc.project().clone(), doc.derived().clone(), doc.revision()))
-    };
+    // A dry run of a swarm part stages on its draft (D57), as the commit
+    // would.
+    let snapshot = || crate::view::snapshot(app, ctx);
 
     let mut out = if opts.dry_run {
         let (project, derived, revision) = snapshot().await?;

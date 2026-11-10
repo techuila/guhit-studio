@@ -60,6 +60,8 @@ How to draft:
   it reshaped that the call did not name). Tell the user about them.
 - With other agents on the project, claim your level first (`set_status`
   claim) and read the `inbox` in results.
+- A whole building (2+ levels, about 30+ elements) can be a `swarm`: sub-agents \
+  draw parts into a draft only a person accepts (get_guide topic \"swarm\").
 - Permit set: `types` (D1, W1 marks), `add_grid`, `annotate` (dimension strings, \
   notes), `add_roof`; toolset documents: `set_lot` from the TCT, `sheets` make and \
   export. `look` shows elevations, sections, sheets and schedules.
@@ -210,6 +212,10 @@ with the user's own key: it costs money, only when they ask, and is labelled
 \"tour\" with `at_s` shows a frame; `edit_tour` changes shots; `export_tour`
 renders the video in the window (a job id: call again with it to wait).
 
+## Swarms
+Several sub-agents draw one building at once into a draft, and a person
+accepts it in the window: `get_guide` topic \"swarm\" has the whole of it.
+
 ## Errors
 Every failure has `code`, `message`, `element_ids`, `location_mm`, `step`,
 `ref` and a `hint` naming the tool and argument that fixes it. A tool name
@@ -222,6 +228,80 @@ from an earlier version still works; an unknown one answers with the nearest.
   tools return; never estimate them yourself.
 - A failed edit returns the engine's exact message. Fix the arguments rather
   than working around it.";
+
+/// `get_guide` topic "swarm" (DECISIONS D56, D57): the lead's and the
+/// sub-agents' parts of a swarm, and what a draft refuses.
+pub const SWARM: &str = "\
+# Swarms: several agents drawing at once
+
+Use a swarm for a whole building: two or more levels, or about 30 elements or
+more. For one room or a fix, work alone. Every length is millimeters.
+
+## The lead (you, when the user asks for a building)
+1. `project` action \"open\" or \"create\". Read the brief.
+2. Split it into at most 6 parts:
+   - Several storeys: one part per level (`scope.levels`), every kind.
+   - One storey: by trade on that level. Shell (kinds wall, column), then
+     rooms and openings (room, opening), then roof and stairs (roof, stair,
+     slab), then furnishing and notes (asset, annotation, dimension).
+   - Two parts never draw the same kind on the same level: give each its own
+     levels or its own kinds. An empty list means all of them.
+   - Order parts with milestones: shell declares `milestones: [\"walls\"]`, and
+     rooms comes `after: [{\"part\": \"shell\", \"milestone\": \"walls\"}]`.
+     \"done\" is every part's last milestone.
+3. `swarm` action \"start\" with `brief`, `summary`, `setup` {levels: [{name,
+   height_mm}]} for the storeys to add (levels go here, never in a part) and
+   `parts`, each {key, name, role, instructions, scope: {levels, kinds}, after,
+   milestones}. For example:
+   {\"action\": \"start\", \"brief\": \"Two storey house, 3 bedrooms\",
+    \"setup\": {\"levels\": [{\"name\": \"Second Floor\", \"height_mm\": 3000}]},
+    \"parts\": [
+     {\"key\": \"ground\", \"name\": \"Ground floor\", \"scope\": {\"levels\": [\"Ground Floor\"], \"kinds\": [\"wall\", \"room\", \"opening\", \"column\", \"stair\"]}, \"milestones\": [\"walls\"], \"instructions\": \"...\"},
+     {\"key\": \"upper\", \"name\": \"Upper floor\", \"scope\": {\"levels\": [\"Second Floor\"], \"kinds\": [\"wall\", \"room\", \"opening\", \"slab\"]}, \"after\": [{\"part\": \"ground\", \"milestone\": \"walls\"}], \"instructions\": \"...\"},
+     {\"key\": \"furnish\", \"name\": \"Furnishing\", \"scope\": {\"kinds\": [\"asset\"]}, \"after\": [{\"part\": \"ground\", \"milestone\": \"done\"}, {\"part\": \"upper\", \"milestone\": \"done\"}], \"instructions\": \"...\"}]}
+4. The answer has a `handle` and a `url` per part. Start one sub-agent per
+   part (Claude Code: one Task each, on this connection; Codex or another
+   terminal: the part's url). Give each its handle, its instructions and the
+   answer's `how_to`.
+5. `swarm` action \"wait\" without `for` waits for every part, 60 s at a time;
+   \"status\" shows each part, its milestones and what it drew.
+6. When every part is done, check the whole draft: `look` mode plan per
+   level, `measure`, `check`. Then `swarm` action \"finish\" with a summary:
+   the draft is ready for review.
+7. Tell the user what was drawn, with the numbers the tools returned, and ask
+   them to review it in Guhit Studio and press Accept (everything, or part by
+   part) or Discard. You never accept: action \"accept\" is refused
+   `people_only`.
+8. Discard only when the user asks for it: action \"discard\" with force true.
+
+## A sub-agent (you were given a handle)
+- Pass `agent: \"<handle>\"` on every tool call, or use the url you were
+  given. A call without it is not part of the swarm.
+- When your part comes after another, call `swarm` action \"wait\" first;
+  without `for` it waits for what your part comes after.
+- Draw only your part's levels and kinds: anything else is refused
+  `out_of_scope`. One `build` per level works well.
+- You read the draft: what the other parts drew is there for `query`, `look`
+  and `measure`. Nothing is in the model until a person accepts.
+- Report each milestone when you reach it: `swarm` action \"milestone\" with
+  `name` (\"walls\" once your walls close). Parts waiting on it start then.
+- Check your work with `look` mode plan, `measure` and `check`.
+- `history` undo takes back only your own draft steps.
+- End with `swarm` action \"finish\" and a one-line summary, then stop.
+
+## What a draft refuses
+- 3D, renders, AI images, tour frames and videos, exports and saved versions
+  show the model, not the draft: they are refused `draft_view` to a part.
+  Use `look` (plan, elevation, section, sheet, schedule), `query`, `measure`
+  and `check`.
+- While a draft is open the model is locked for everyone else: their writes
+  are refused `swarm_running`, and so are `project` open, create and close.
+- `part_stopped`: the user stopped your part, or the swarm ended. Stop and
+  tell the user.
+- One draft at a time (`draft_open`), and none in a live session.
+
+Review items in a draft are suggestions to check, as anywhere: never code
+compliance or permit approval.";
 
 /// `guhit://docs/conventions`.
 pub const CONVENTIONS: &str = "\
@@ -386,7 +466,7 @@ pub struct PromptText {
     pub body: &'static str,
 }
 
-pub const PROMPTS: [PromptText; 4] = [
+pub const PROMPTS: [PromptText; 5] = [
     PromptText {
         name: "draft_from_brief",
         title: "Draft a house from a brief",
@@ -451,5 +531,22 @@ Work like this:\n\
 4. export format pdf with level \"all\", and ifc for the consultants.\n\
 5. Only call visualize_render when the user asks: it costs them money, and its images are labelled AI visualization.\n\
 6. List the files and saved visuals for the user.",
+    },
+    PromptText {
+        name: "swarm_from_brief",
+        title: "Draft a building with a swarm",
+        description: "Split a brief into parts and draw them with several sub-agents at once, into a draft the user accepts in Guhit Studio.",
+        args: &[
+            ("brief", "What the client wants: rooms, storeys, style, lot size.", true),
+            ("lot", "The lot, for example \"12 x 20 m, road on the south\".", false),
+        ],
+        body: "Draft this building in Guhit Studio with a swarm of sub-agents.\n\nBrief: {brief}\nLot: {lot}\n\n\
+1. Read get_guide topic \"swarm\", then \"workflows\" and \"conventions\". Every length is millimeters, +x east, +y north.\n\
+2. project action \"create\" (template blank), or open the user's project.\n\
+3. Split the brief into at most 6 parts: one per level for several storeys, else by trade (shell, rooms and openings, roof and stairs, furnishing). No two parts draw the same kind on the same level. Order them with milestones.\n\
+4. swarm action \"start\" with the brief, a summary, setup levels for the storeys to add, and the parts. You are the lead.\n\
+5. Start one sub-agent per handle. Tell each: its handle, passed as agent on every call; its part's instructions; to wait first when its part comes after another; to draw only its levels and kinds, check with look and measure, report its milestones, and end with swarm action \"finish\".\n\
+6. swarm action \"wait\" until every part is done, then look, measure and check the whole draft, and call swarm action \"finish\".\n\
+7. Tell the user what was drawn, with the numbers the tools returned, and ask them to review the draft in Guhit Studio and press Accept or Discard. Never accept it yourself; discard only when the user asks, with force. Review items are suggestions to check, never code compliance or permit approval.",
     },
 ];

@@ -8,6 +8,7 @@ use crate::command::{Command, Origin};
 use crate::derived::*;
 use crate::live::*;
 use crate::model::*;
+use crate::swarm::SwarmStatus;
 
 /// Full document state. Sent to the frontend after every change. Projects are
 /// small (hundreds of elements), so there is no partial sync.
@@ -108,7 +109,14 @@ pub struct IpcError {
     /// "forbidden", "other_author" (undo or redo of someone else's step in a
     /// live session without `force`), "not_live", "host_only",
     /// "live_refused", "live_unreachable", "live_pin" (the host's certificate
-    /// does not match the invite), "live_lost", "no_window".
+    /// does not match the invite), "live_lost", "no_window". Swarms
+    /// (docs/CONTRACT.md "Swarms"): "swarm_running" (a write to the model
+    /// while a swarm draft is open), "draft_open" (a second swarm),
+    /// "live_session" (a swarm in a live session), "part_stopped" (a call
+    /// of a stopped part's agent), "draft_view" (a window-backed output for
+    /// an agent drawing in a draft), "people_only" (an agent tried to
+    /// accept a draft), "cross_part" (a step that would make two parts
+    /// depend on each other).
     pub code: String,
     pub message: String,
     pub element_ids: Vec<Id>,
@@ -796,6 +804,12 @@ pub enum AppEvent {
     /// moved, changed its status, was paused or stopped (DECISIONS D47). The
     /// full list, newest first.
     Agents { agents: Vec<AgentSummary> },
+    /// The swarm changed: it started, a step landed in its draft, a part
+    /// changed state, or it ended (None) after an accept or a discard
+    /// (DECISIONS D56, D57, docs/CONTRACT.md "Swarms"). Status only: the
+    /// window fetches the draft with `swarm_draft` when `draft_revision`
+    /// moves.
+    Swarm { swarm: Option<SwarmStatus> },
 }
 
 // ---------------------------------------------------------- window requests

@@ -575,12 +575,12 @@ async fn toolsets_errors_and_agents_over_http() {
     let info = rpc(&base, init).await;
     assert!(info["result"]["capabilities"]["prompts"].is_object());
     let list = |url: String| async move { rpc(&url, json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).await["result"]["tools"].as_array().unwrap().len() };
-    assert_eq!(list(base.clone()).await, 26);
-    assert_eq!(list(format!("{base}?toolsets=visuals,live")).await, 32);
-    assert_eq!(list(format!("{base}?toolsets=all")).await, 45);
+    assert_eq!(list(base.clone()).await, 27);
+    assert_eq!(list(format!("{base}?toolsets=visuals,live")).await, 33);
+    assert_eq!(list(format!("{base}?toolsets=all")).await, 46);
     // The setting is the default when the URL names none.
     app.handle("mcp_set_toolsets", json!({"toolsets": ["services"]})).await.unwrap();
-    assert_eq!(list(base.clone()).await, 29);
+    assert_eq!(list(base.clone()).await, 30);
 
     // A labelled URL names the agent; a failure is isError with structure.
     let call = |url: String, name: &str, args: Value| {
@@ -621,7 +621,7 @@ async fn toolsets_errors_and_agents_over_http() {
 
     // Prompts, resources and the plan template.
     let prompts = rpc(&base, json!({"jsonrpc": "2.0", "id": 4, "method": "prompts/list"})).await;
-    assert_eq!(prompts["result"]["prompts"].as_array().unwrap().len(), 4);
+    assert_eq!(prompts["result"]["prompts"].as_array().unwrap().len(), 5);
     let templates = rpc(&base, json!({"jsonrpc": "2.0", "id": 5, "method": "resources/templates/list"})).await;
     assert_eq!(templates["result"]["resourceTemplates"][0]["uriTemplate"], "guhit://project/levels/{level}/plan.svg");
     let svg = rpc(&base, json!({"jsonrpc": "2.0", "id": 6, "method": "resources/read", "params": {"uri": "guhit://project/levels/Ground%20Floor/plan.svg"}})).await;

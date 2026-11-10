@@ -336,6 +336,15 @@
   transform: scale(var(--press-scale));
 }
 
+/* Off while a swarm draft is open (D57). */
+.railButton:disabled,
+.railButton:disabled:hover {
+  background: transparent;
+  color: var(--chrome-muted);
+  opacity: 0.4;
+  transform: none;
+}
+
 /* The sliding pill (.railPill) supplies the background; this only carries
    the icon color and keeps hover from painting a second background under it. */
 .railButtonOn,

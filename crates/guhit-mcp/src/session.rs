@@ -77,7 +77,7 @@ pub fn definitions() -> Vec<ToolDef> {
 
 pub async fn call(app: &AppService, name: &str, args: &Value, ctx: &crate::agent::CallContext) -> Option<Result<Output, ToolFail>> {
     Some(match name {
-        "get_selection" => get_selection(app).await,
+        "get_selection" => get_selection(app, ctx).await,
         "get_session" => get_session(app, ctx).await,
         "send_chat_message" => send_chat_message(app, args, ctx).await,
         _ => return None,
@@ -99,12 +99,11 @@ fn level_brief(project: &Project, id: Option<&Id>) -> Value {
         .unwrap_or(Value::Null)
 }
 
-async fn get_selection(app: &AppService) -> Result<Output, ToolFail> {
+async fn get_selection(app: &AppService, ctx: &crate::agent::CallContext) -> Result<Output, ToolFail> {
     let presence = app.local_presence();
-    let s = app.session.lock().await;
-    let doc = s
-        .doc
-        .as_ref()
+    let r = crate::view::read(app, ctx).await;
+    let doc = r
+        .get()
         .ok_or_else(|| ToolFail::msg("no_document: no project is open. Call create_project or open_project first"))?;
     let project = doc.project();
     let selected = briefs(project, &presence.selection);
@@ -181,8 +180,8 @@ async fn get_session(app: &AppService, ctx: &crate::agent::CallContext) -> Resul
     let presences: Vec<PresenceEntry> = serde_json::from_value(app.handle("presence_list", json!({})).await?)
         .map_err(|e| ToolFail::msg(format!("io: {e}")))?;
     let chat = app.chat_list().await.unwrap_or_default();
-    let s = app.session.lock().await;
-    let project = s.doc.as_ref().map(|d| d.project());
+    let s = crate::view::read(app, ctx).await;
+    let project = s.get().map(|d| d.project());
     let participants: Vec<Value> = status
         .participants
         .iter()

@@ -19,6 +19,8 @@ import { historyTintOf, peerTints, sameTint, sameTints, type Tint } from "./live
 import { CAPTURE_SIZE, useLiveView } from "./render/liveView";
 import { VIEW_HELD_NOTE, viewHeld } from "./tour/tourStore";
 import { RenderButton } from "./render/RenderButton";
+import { connectDraft3D } from "../swarm/view3d";
+import { useSwarm } from "../swarm/swarmStore";
 // Loads the render queue, which answers `bus.emit("render", ...)`.
 import "./render/renderQueue";
 import styles from "./Viewer3D.module.css";
@@ -251,6 +253,8 @@ export function Viewer3D() {
   const [contextLost, setContextLost] = useState(false);
   const [activePreset, setActivePreset] = useState<PresetKind | null>("exterior_corner");
   const [empty, setEmpty] = useState(true);
+  // A swarm drawing on an empty model: the draft is something to show.
+  const draftShows = useSwarm((st) => st.showDraft && !!st.draft?.parts.some((p) => p.ids.length > 0));
   const [saving, setSaving] = useState(false);
   // The canvas fades in once the first frame is on screen, so a pane that
   // just appeared never shows empty sky before the model.
@@ -374,6 +378,12 @@ export function Viewer3D() {
 
   // Walk settings, the wheel's speed, the walker's level and switch clicks (walk/useWalkSync.ts).
   useWalkSync(engineRef);
+
+  // A swarm draft (D56): its own group beside the model, shown as the reveal reaches each element.
+  useEffect(() => {
+    if (!engineState) return;
+    return connectDraft3D(engineState, () => useApp.getState().doc);
+  }, [engineState]);
 
   // A proposal's removed elements are gone from `doc` (the preview state).
   // Draw them from the committed project so a delete is visible in 3D.
@@ -578,7 +588,7 @@ export function Viewer3D() {
         </div>
       </div>
 
-      {doc && empty && !contextLost && !walking && (
+      {doc && empty && !draftShows && !contextLost && !walking && (
         <div className={styles.notice}>
           <strong>Nothing to show yet</strong>
           <span>Draw walls in the plan and they appear here right away.</span>

@@ -12,9 +12,11 @@ pub mod defaults;
 pub mod derived;
 pub mod live;
 pub mod model;
+pub mod swarm;
 
 pub use api::*;
 pub use command::*;
 pub use derived::*;
 pub use live::*;
 pub use model::*;
+pub use swarm::*;

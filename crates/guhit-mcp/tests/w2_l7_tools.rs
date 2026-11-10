@@ -1,4 +1,5 @@
-//! Lane L7, MCP v2 for Wave 2 (DECISIONS D53, D54): the 26 core tools, the
+//! Lane L7, MCP v2 for Wave 2 (DECISIONS D53, D54): the core tools (27 with
+//! the swarm tool, D56), the
 //! documents and tours toolsets, the new look and query modes, and the rules
 //! every tool keeps: review items in each edit result, a hint on each
 //! failure, v1 names still answered.
@@ -75,16 +76,16 @@ async fn works_or_not_built(app: &AppService, name: &str, args: Value) -> Option
 }
 
 #[test]
-fn the_core_toolset_has_26_tools_and_two_new_toolsets() {
+fn the_core_toolset_has_27_tools_and_two_new_toolsets() {
     let core = Toolsets::core().tools();
-    assert_eq!(core.len(), 26);
+    assert_eq!(core.len(), 27);
     for t in ["add_grid", "annotate", "add_roof", "types"] {
         assert!(core.contains(&t), "{t} is a core tool");
     }
     assert_eq!(toolsets::tools_of("documents"), ["title_block", "sheets", "view_marks", "set_lot"]);
     assert_eq!(toolsets::tools_of("tours"), ["make_tour", "edit_tour", "export_tour"]);
     assert!(toolsets::tools_of("visuals").contains(&"set_look"));
-    assert_eq!(Toolsets::all().tools().len(), 45);
+    assert_eq!(Toolsets::all().tools().len(), 46);
     let defs = tools::definitions();
     let look = defs.iter().find(|d| d.name == "look").unwrap();
     assert_eq!(look.schema["properties"]["mode"]["enum"], json!(["plan", "3d", "elevation", "section", "sheet", "schedule", "tour"]));

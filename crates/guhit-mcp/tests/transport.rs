@@ -218,7 +218,7 @@ async fn with_the_app_down_the_proxy_answers_the_handshake_itself() {
     );
     assert_eq!(by_id(&lines, 3)["result"], json!({}));
     assert_eq!(by_id(&lines, 4)["result"]["resources"].as_array().unwrap().len(), guhit_mcp::resource_list().len());
-    assert_eq!(by_id(&lines, 5)["result"]["prompts"].as_array().unwrap().len(), 4, "the prompts answer with the app closed");
+    assert_eq!(by_id(&lines, 5)["result"]["prompts"].as_array().unwrap().len(), 5, "the prompts answer with the app closed");
     for id in [6, 7] {
         let result = &by_id(&lines, id)["result"];
         assert_eq!(result["isError"], true, "{result}");

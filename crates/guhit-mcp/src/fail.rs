@@ -250,6 +250,13 @@ pub fn standard_hint(code: &str) -> Option<&'static str> {
         "out_of_scope" => "Change only what is in scope (query what \"selection\" shows it), or ask the user to widen the selection.",
         "live_session" => "Ask the user first, then call again with force true.",
         "other_author" => "Someone else made that step. Ask the user, then history action \"undo\" with force true.",
+        // Swarms (D56, D57): their own advice, never the live session's.
+        "swarm_running" => "A swarm draft is open, so the model waits: a person accepts or discards it in Guhit Studio. swarm action \"status\" shows it. A sub-agent drawing a part passes its handle as agent.",
+        "draft_open" => "One swarm at a time: a person accepts or discards the open draft in Guhit Studio first. swarm action \"status\" shows it.",
+        "part_stopped" => "Stop working on this part and tell the user. Its steps stay in the draft for a person to accept or discard.",
+        "draft_view" => "In a swarm draft, check your work with look (plan, elevation, section, sheet, schedule), query, measure and check. 3D, renders, exports and versions show the model: they work once a person accepts the draft.",
+        "people_only" => "Only a person accepts a swarm draft. Tell the user it is ready and ask them to press Accept in Guhit Studio.",
+        "needs_force" => "Ask the user first; call again with force true only after they agree.",
         "no_window" => "Ask the user to open the Guhit Studio window on this project. look mode \"plan\" works without a window.",
         "not_live" => "There is no live session. The user starts one with Share in the app.",
         "unknown_level" | "bad_level" => "levels action \"list\" shows the levels; levels action \"add\" makes one.",

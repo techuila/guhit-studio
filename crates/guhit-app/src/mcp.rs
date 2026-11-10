@@ -204,6 +204,10 @@ impl AppService {
         derived: &Derived,
         staging: &guhit_core::Staging,
     ) -> Result<(), IpcError> {
+        // An agent drawing a swarm part is checked as its draft edit is.
+        if self.swarm.part_of(&call.id).is_some() {
+            return crate::swarm::check_draft_edit(self, call, derived, staging);
+        }
         self.agents.check_edit(&call.id, self.agents.now())?;
         self.agents.check_reach(&call.id, staging.base(), derived, staging.project(), &staging.command())
     }

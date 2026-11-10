@@ -53,6 +53,11 @@ import type {
   Signatory,
   SnapshotMeta,
   SvgDrawing,
+  SwarmAcceptResult,
+  SwarmCost,
+  SwarmDraftReply,
+  SwarmRequest,
+  SwarmStatus,
   VideoInfo,
   ViewRef,
 } from "./bindings";
@@ -360,6 +365,51 @@ export const ipc = {
   agentStop: (id: string | null) => call<AgentSummary[]>("agent_stop", { id }),
   /** Ends a pause or a stop. `id` null: every agent. */
   agentResume: (id: string | null) => call<AgentSummary[]>("agent_resume", { id }),
+
+  // Agent swarms (DECISIONS D56, D57, docs/CONTRACT.md "Swarms"). Changes
+  // arrive as the `swarm` app event (status only); fetch the draft with
+  // `swarmDraft` when `draft_revision` moves. While a draft is open every
+  // write to the model is refused `swarm_running`. A live session guest is
+  // refused every call (`live_session`). Until a lane builds a call it
+  // answers `not_built`.
+  /** What a swarm would cost: a low and a high figure. Spends nothing. */
+  swarmEstimate: (request: SwarmRequest) => call<SwarmCost>("swarm_estimate", { request }),
+  /** Starts an in-app swarm: the lead plans, then the parts draw into a draft. */
+  swarmStart: (request: SwarmRequest) => call<SwarmStatus>("swarm_start", { request }),
+  /** The swarm, or null when none is open. */
+  swarmStatus: () => call<SwarmStatus | null>("swarm_status"),
+  /**
+   * The draft view and its diff against the model, with the steps after `sinceStep`. Null without a draft.
+   * `drawn`: the revision of swarm `swarmId` the window has drawn; when the draft has not moved since,
+   * only `SwarmDraftCurrent` (the status) comes back, not the view.
+   */
+  swarmDraft: (sinceStep: number | null = null, drawn: { draftRevision: number; swarmId: string } | null = null) =>
+    call<SwarmDraftReply | null>(
+      "swarm_draft",
+      drawn ? { since_step: sinceStep, draft_revision: drawn.draftRevision, swarm_id: drawn.swarmId } : { since_step: sinceStep },
+    ),
+  /** Holds every part, or one, before its next request. A paused swarm spends nothing. */
+  swarmPause: (part: string | null = null) => call<SwarmStatus>("swarm_pause", { part }),
+  swarmResume: (part: string | null = null) => call<SwarmStatus>("swarm_resume", { part }),
+  /** Ends every part, or one, after its current request. Its steps stay in the draft. */
+  swarmStop: (part: string | null = null) => call<SwarmStatus>("swarm_stop", { part }),
+  /** Drops one part's steps, and with `withDependents` the parts that depend on it. Null when the draft is left empty. */
+  swarmPartDiscard: (part: string, withDependents: boolean) =>
+    call<SwarmStatus | null>("swarm_part_discard", { part, with_dependents: withDependents }),
+  /** What accepting these parts (null: all) would apply, leave out, and take with it. Changes nothing. */
+  swarmCheck: (parts: string[] | null = null) => call<SwarmAcceptResult>("swarm_check", { parts }),
+  /**
+   * Accepts the draft (`parts` null: all of it), each part one undo step with its agent as author.
+   * `reviewed` maps each part key to the `last_seq` the person saw: a part that wrote since is `stale`.
+   * Steps that no longer apply refuse it `steps_skipped`, unless `acceptRest`: then they stay in the
+   * draft as conflicts and the rest goes in.
+   */
+  swarmAccept: (swarmId: string, parts: string[] | null, reviewed: Record<string, number>, acceptRest = false) =>
+    call<SwarmAcceptResult>("swarm_accept", { swarm_id: swarmId, parts, reviewed, accept_rest: acceptRest }),
+  /** Drops the whole draft and unlocks the model. */
+  swarmDiscard: (swarmId: string) => call<null>("swarm_discard", { swarm_id: swarmId }),
+  /** The spending cap in US dollars for the running swarm. */
+  swarmSetCap: (capUsd: number) => call<SwarmStatus>("swarm_set_cap", { cap_usd: capUsd }),
 
   // AI visualization (Tier 2). Every result is labelled and tied to its source capture.
   renderAiSettingsGet: () => call<RenderAiSettings>("render_ai_settings_get"),

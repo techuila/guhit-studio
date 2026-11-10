@@ -576,6 +576,10 @@ pub(crate) async fn guest_route(app: &AppService, cmd: &str, args: &Value) -> Op
             guest::leave(app, &guest).await;
             Some(Ok(Value::Null))
         }
+        // No swarms in a live session (D57): the draft stays on one computer.
+        // The window still asks what is running, and the answer is nothing.
+        "swarm_status" | "swarm_draft" => Some(Ok(Value::Null)),
+        c if crate::swarm::OWNS.contains(&c) => Some(Err(crate::swarm::live_session())),
         _ => None,
     }
 }

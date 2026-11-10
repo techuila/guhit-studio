@@ -11,6 +11,8 @@ import { DEVICE_LABEL, hpLabel, mountRef, mountingHeight } from "./devices";
 import { StairToolOptions } from "../editor2d/StairToolOptions";
 import { PipeOptions } from "./PipeOptions";
 import { useShell } from "./shellStore";
+import { useSwarmLocked } from "../swarm/swarmStore";
+import { LOCK_HINT } from "../swarm/view";
 import s from "./chrome.module.css";
 
 const CATEGORY_LABEL: Record<AssetCategory, string> = {
@@ -276,6 +278,15 @@ export function ToolRail() {
   const railRef = useRef<HTMLElement>(null);
   const activeButtonRef = useRef<HTMLButtonElement>(null);
   const pill = useSlidingIndicator(railRef, activeButtonRef, [tool]);
+  // A swarm draft is open (D57): only looking and selecting stay on.
+  const swarmLocked = useSwarmLocked();
+  const setTool = useApp((st) => st.setTool);
+  const lockedOut = (t: ToolDef) => swarmLocked && t.tool !== "select" && t.tool !== "pan";
+  useEffect(() => {
+    if (swarmLocked && tool !== "select" && tool !== "pan") setTool("select");
+    // Only when the lock comes on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [swarmLocked]);
 
   // Leaving a tool by any route (shortcut, Escape) closes its flyout.
   useEffect(() => {
@@ -312,7 +323,8 @@ export function ToolRail() {
             className={cx(s.railButton, tool === t.tool && s.railButtonOn)}
             aria-label={t.label}
             aria-pressed={tool === t.tool}
-            data-tip={t.key ? `${t.label} (${t.key})` : t.label}
+            disabled={lockedOut(t)}
+            data-tip={lockedOut(t) ? LOCK_HINT : t.key ? `${t.label} (${t.key})` : t.label}
             data-tip-side="right"
             data-tip-off={flyout === t.flyout && t.flyout ? "true" : undefined}
             onClick={() => click(t)}
