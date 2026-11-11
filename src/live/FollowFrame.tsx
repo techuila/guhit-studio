@@ -57,7 +57,7 @@ export function FollowFrame() {
   return (
     <div className={s.root} data-stage={presence.stage} style={peerStyle(shown.color)}>
       <div className={s.frame} aria-hidden />
-      <div className={s.pill} role="status" aria-label={`Following ${name}. Press Escape to stop`}>
+      <div className={s.pill} role="status" aria-label={`Following ${name}. Press Esc to stop`}>
         {shown.agent ? <AgentAvatar name={shown.name} color={shown.color} activity={agentActivity} size={20} ring="var(--peer)" /> : <Avatar p={shown} size={20} />}
         <span className={s.text}>
           <span className={s.title}>Following {name}</span>

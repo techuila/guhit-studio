@@ -1,6 +1,9 @@
-/* Update notice. One calm card in the bottom right corner, above everything
-   except dialogs. Enters and leaves through usePresence (docs/MOTION.md rules
-   6 and 7: it rises from its own edge and leaves faster than it arrives). */
+/* Update notice. One calm card, above everything except dialogs: in the
+   bottom right of the project list, and in the editor at the bottom left of
+   the canvas, clear of the copilot's composer in the dock. Enters and leaves
+   through usePresence (docs/MOTION.md rules 6 and 7: it rises from its own
+   edge and leaves faster than it arrives). A full hairline and the teal icon
+   mark it; no coloured edge. */
 
 .card {
   position: fixed;
@@ -13,7 +16,6 @@
   gap: 10px;
   padding: 12px 13px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-2);
@@ -24,6 +26,13 @@
   transition:
     opacity var(--dur-panel) var(--ease-out),
     transform var(--dur-panel) var(--ease-out);
+}
+
+/* Over the canvas: past the tool rail, above the status bar. */
+.cardEditor {
+  right: auto;
+  left: calc(var(--rail-w) + 12px);
+  bottom: calc(var(--statusbar-h) + 12px);
 }
 
 .card[data-stage="enter"] {
@@ -86,34 +95,29 @@
 .track {
   flex: 1;
   height: 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-3);
   overflow: hidden;
 }
 
+/* The fill grows by scaleX, never width (MOTION.md rule 5). The track's
+   radius rounds it. */
 .bar {
   display: block;
+  width: 100%;
   height: 100%;
-  width: 0;
-  border-radius: 999px;
   background: var(--accent);
-  transition: width var(--dur-base) var(--ease-out);
+  transform: scaleX(var(--p, 0));
+  transform-origin: left center;
+  transition: transform var(--dur-base) var(--ease-out);
 }
 
-/* No content length in the response: a slow indeterminate sweep instead of a
-   fake percentage. */
+/* No content length in the response: a calm indeterminate sweep (the shared
+   ui-sweep, --dur-loop) instead of a fake percentage. */
 .barUnknown {
-  width: 40%;
-  animation: update-sweep 1.4s var(--ease-in-out) infinite;
-}
-
-@keyframes update-sweep {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(250%);
-  }
+  background: linear-gradient(90deg, transparent 30%, var(--accent) 30% 70%, transparent 70%);
+  transform: none;
+  animation: global(ui-sweep) var(--dur-loop) var(--ease-in-out) infinite;
 }
 
 .pct {

@@ -80,7 +80,7 @@ export function panelStates(now = Date.now()): Record<string, SwarmStatus | null
     conflicts: mockStatus({
       state: "ready",
       parts: running.parts.map((p) => ({ ...p, state: "done", steps: Math.max(p.steps, 3) })),
-      conflicts: [{ part: "rooms", step: 9, label: "Add door", code: "changed_on_main", message: "Wall 4000 mm changed in the model since the draft.", element_ids: [] }],
+      conflicts: [{ part: "rooms", step: 9, label: "Add door", code: "changed_on_main", message: "Wall 4000 mm changed in the plan since the draft.", element_ids: [] }],
     }),
     mcp: mockStatus({
       source: { type: "mcp", client: "Claude Code" },

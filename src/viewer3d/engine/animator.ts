@@ -6,7 +6,11 @@
 //
 // Durations come from src/ui/motion.ts (`dur`), never from raw numbers, and
 // `motion` is `motionOK` by default: with reduced motion every track jumps
-// straight to its target and a looping track holds a steady value.
+// straight to its target.
+//
+// No track loops: every one lands, so the frame loop always comes to rest
+// (docs/MOTION.md rule 11). The AI preview's breath is a finite track
+// (engine/breath.ts).
 
 import { ease, motionOK } from "../../ui/motion";
 
@@ -18,11 +22,6 @@ export interface TrackOptions {
   easing?: Easing;
   /** Wait this long before the value starts moving. For staggered entrances. */
   delay?: number;
-  /**
-   * Swings between `from` and `to` forever, one period being `duration * 2`.
-   * Reserved for the AI preview breathing: the only looping motion in 3D.
-   */
-  loop?: boolean;
   /** Fires once when the track lands. Not called on a jump-free cancel. */
   onDone?: () => void;
 }
@@ -34,7 +33,6 @@ interface Track {
   duration: number;
   delay: number;
   easing: Easing;
-  loop: boolean;
   value: number;
   running: boolean;
   /** Parked at a value by `hold`. `finish` still lands it. */
@@ -69,7 +67,6 @@ export class Animator {
       duration: 0,
       delay: 0,
       easing: ease.out,
-      loop: false,
       value,
       running: false,
       held: false,
@@ -102,9 +99,8 @@ export class Animator {
     if (prev?.running) this.running--;
     const duration = Math.max(opts.duration, 0);
     const reduced = !this.motion();
-    if (reduced || (duration <= 0 && !opts.loop)) {
-      // Reduced motion: the end state right away. A looping track holds its
-      // target so the tint is steady instead of absent.
+    if (reduced || duration <= 0) {
+      // Reduced motion: the end state right away.
       const value = target;
       this.tracks.set(key, {
         from: value,
@@ -113,7 +109,6 @@ export class Animator {
         duration: 0,
         delay: 0,
         easing: opts.easing ?? ease.out,
-        loop: false,
         value,
         running: false,
         held: false,
@@ -128,7 +123,6 @@ export class Animator {
       duration,
       delay: Math.max(opts.delay ?? 0, 0),
       easing: opts.easing ?? ease.out,
-      loop: opts.loop === true,
       value: from,
       running: true,
       held: false,
@@ -151,12 +145,7 @@ export class Animator {
       if (elapsed < 0) continue; // still in its stagger delay
       const raw = t.duration <= 0 ? 1 : elapsed / t.duration;
       let next: number;
-      if (t.loop) {
-        // Ping-pong: 0 -> 1 -> 0, one full swing every `duration * 2`.
-        const phase = raw % 2;
-        const k = phase <= 1 ? phase : 2 - phase;
-        next = t.from + (t.to - t.from) * t.easing(k);
-      } else if (raw >= 1) {
+      if (raw >= 1) {
         next = t.to;
         t.running = false;
         this.running--;

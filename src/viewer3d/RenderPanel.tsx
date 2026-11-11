@@ -8,19 +8,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { RenderAiSettings, RenderRecord, RenderStyle } from "../contract/bindings";
+import type { Camera, RenderAiSettings, RenderRecord, RenderStyle } from "../contract/bindings";
 import { ipc, isTauri, toIpcError } from "../contract/ipc";
 import { bus } from "../state/bus";
+import { showInFolder } from "../shell/reveal";
 import { useShell } from "../shell/shellStore";
 import { useApp } from "../state/store";
 import { usePresence } from "../ui/motion";
 import { collapseOut } from "../ui/motionWaapi";
 import { captureInfo, queueMapsFor } from "./render/conditioning";
+import { useLiveView } from "./render/liveView";
 import { RenderLightbox } from "./render/RenderLightbox";
 import { RenderSection } from "./render/RenderSection";
 import { ShadowStudyDialog } from "./render/ShadowStudyDialog";
 // Loads the render queue, which answers `bus.emit("render", ...)`.
 import "./render/renderQueue";
+import { NO_AI_RENDER } from "./render/renderMeta";
 import { RenderStudio } from "./render/RenderStudio";
 import { formatResolution, useRenderUi } from "./render/renderStore";
 import { useViewer } from "./viewerStore";
@@ -51,6 +54,29 @@ async function openVideo(r: RenderRecord): Promise<void> {
   } catch (e) {
     app.toast("error", `Could not open the video: ${toIpcError(e).message || String(e)}`);
   }
+}
+
+/**
+ * Flies the 3D view to a camera once a 3D view is there to take it. From the
+ * plan alone the view mounts first (it is loaded lazily), so this waits for
+ * its engine instead of guessing a frame: the 3D frame loop invariant keeps
+ * every requestAnimationFrame in `ViewerEngine.schedule()` (AGENTS.md).
+ */
+function applyCameraWhenShown(camera: Camera): void {
+  if (useLiveView.getState().engine) {
+    bus.emit("apply_camera", camera);
+    return;
+  }
+  let timer = 0;
+  const off = useLiveView.subscribe((st) => {
+    if (!st.engine) return;
+    off();
+    window.clearTimeout(timer);
+    // The view registers its engine before it listens for cameras, in the
+    // same effect: send it once that effect has run.
+    queueMicrotask(() => bus.emit("apply_camera", camera));
+  });
+  timer = window.setTimeout(off, 10_000);
 }
 
 function fileName(r: RenderRecord): string {
@@ -173,11 +199,7 @@ export function RenderPanel() {
         if (!alive.current) return;
         const err = toIpcError(e);
         setSettings(null);
-        setSettingsError(
-          err.code === "unknown_command"
-            ? "This build's backend has no AI rendering yet. Captures and comparing still work."
-            : err.message,
-        );
+        setSettingsError(err.code === "unknown_command" ? NO_AI_RENDER : err.message);
       });
   }, []);
 
@@ -236,7 +258,7 @@ export function RenderPanel() {
     if (app.activeCameraId) app.setActiveCamera(null);
     useRenderUi.getState().setFullOpen(false);
     useRenderUi.getState().setLightboxId(null);
-    requestAnimationFrame(() => bus.emit("apply_camera", r.camera));
+    applyCameraWhenShown(r.camera);
   }, []);
 
   const download = useCallback(
@@ -254,7 +276,7 @@ export function RenderPanel() {
           if (!path) return; // cancelled
         }
         const result = await ipc.exportImage(png, fileName(r), path);
-        app.toast("success", `Image saved to ${result.path}`);
+        app.toast("success", `Image saved to ${result.path}`, showInFolder(result.path));
       } catch (e) {
         app.reportError(e);
       }

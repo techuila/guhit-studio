@@ -15,6 +15,7 @@ import { Dialog } from "../../ui/Dialog";
 import { Button, IconButton, Segmented, Select, Spinner } from "../../ui/controls";
 import { Presence } from "../../ui/motionDom";
 import { editSheet } from "../commitLatest";
+import { showInFolder } from "../reveal";
 import { RevisionsTab } from "./RevisionsTab";
 import { SheetList } from "./SheetList";
 import { SheetPreview } from "./SheetPreview";
@@ -90,7 +91,7 @@ function Panel({ selected, onSelect, onClose }: { selected: string | null; onSel
     setBusy("export");
     try {
       const r = await exportPermitSet([]);
-      if (r) toast("success", `Exported the permit set to ${r.path}`);
+      if (r) toast("success", `Exported the permit set to ${r.path}`, showInFolder(r.path));
     } catch (e) {
       reportError(e);
     } finally {
@@ -113,7 +114,7 @@ function Panel({ selected, onSelect, onClose }: { selected: string | null; onSel
           </Button>
         </span>
         <Button variant="primary" icon="export" disabled={busy !== null} onClick={() => void exportSet()}>
-          {busy === "export" ? "Exporting" : "Export PDF"}
+          {busy === "export" ? "Exporting" : "Export permit set"}
         </Button>
         <IconButton icon="close" label="Close" tip="Close (Esc)" tipSide="bottom-end" onClick={onClose} />
       </header>

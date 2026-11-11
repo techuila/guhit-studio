@@ -8,6 +8,7 @@ import { Icon } from "../ui/icons";
 import type { PresenceStage } from "../ui/motion";
 import { Presence, useLastTruthy } from "../ui/motionDom";
 import { relativeTime } from "../ui/units";
+import { nextVersionLabel } from "./actions";
 import s from "./overlays.module.css";
 
 function exactTime(iso: string): string {
@@ -20,7 +21,6 @@ export function VersionsPanel({ onClose, stage }: { onClose: () => void; stage?:
   const setDoc = useApp((st) => st.setDoc);
   const toast = useApp((st) => st.toast);
   const reportError = useApp((st) => st.reportError);
-  const revision = useApp((st) => st.doc?.revision ?? 0);
 
   const [list, setList] = useState<SnapshotMeta[] | null>(null);
   const [error, setError] = useState<IpcError | null>(null);
@@ -45,7 +45,7 @@ export function VersionsPanel({ onClose, stage }: { onClose: () => void; stage?:
   }, [refresh]);
 
   const create = async () => {
-    const name = label.trim() || `Version at revision ${revision}`;
+    const name = label.trim() || nextVersionLabel(list?.length ?? 0);
     setSaving(true);
     try {
       const meta = await ipc.snapshotCreate(name);

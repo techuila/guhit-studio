@@ -4,7 +4,7 @@
 // Arrow keys with Alt move the selected sheet one place.
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Sheet } from "../../contract/bindings";
-import { cx } from "../../ui/controls";
+import { cx, useRovingGroup } from "../../ui/controls";
 import { Icon } from "../../ui/icons";
 import { play } from "../../ui/motionWaapi";
 import { dropIndex, shiftFor } from "./sheetModel";
@@ -55,6 +55,12 @@ export function SheetList({
   }, [sheets]);
 
   const target = drag && drag.moved ? dropIndex(drag.from, drag.dy, ROW_STEP, sheets.length) : null;
+  // One tab stop for the list; Up, Down, Home and End pick a sheet (WAI-ARIA listbox).
+  const roving = useRovingGroup({
+    active: sheets.findIndex((sh) => sh.id === selected),
+    orientation: "vertical",
+    onMove: (_el, i) => onSelect(sheets[i].id),
+  });
 
   const down = (e: ReactPointerEvent<HTMLDivElement>, id: string, index: number) => {
     if (e.button !== 0) return;
@@ -90,7 +96,7 @@ export function SheetList({
   };
 
   return (
-    <div role="listbox" aria-label="Sheets in set order">
+    <div role="listbox" aria-label="Sheets in set order" onKeyDown={roving.onKeyDown}>
       {sheets.map((sheet, i) => {
         const dragging = drag?.moved && drag.id === sheet.id;
         const shift = drag && target !== null && !dragging ? shiftFor(i, drag.from, target) * ROW_STEP : 0;
@@ -104,7 +110,8 @@ export function SheetList({
             }}
             role="option"
             aria-selected={sheet.id === selected}
-            tabIndex={0}
+            tabIndex={roving.tabIndexFor(i)}
+            data-roving=""
             className={cx(s.row, sheet.id === selected && s.rowOn, dragging && s.rowDragging)}
             style={{ marginBottom: 4, transform: ty ? `translateY(${ty}px)` : undefined }}
             onPointerDown={(e) => down(e, sheet.id, i)}
@@ -116,7 +123,9 @@ export function SheetList({
                 e.preventDefault();
                 onSelect(sheet.id);
               } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+                // Alt moves the sheet; the list's plain arrows only pick one.
                 e.preventDefault();
+                e.stopPropagation();
                 const to = Math.max(0, Math.min(sheets.length - 1, i + (e.key === "ArrowUp" ? -1 : 1)));
                 if (to !== i) {
                   settle.current = { id: sheet.id, offset: (i - to) * ROW_STEP };

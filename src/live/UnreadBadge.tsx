@@ -1,5 +1,6 @@
 // Messages from others that arrived while the Chat tab was not on screen.
-// Pops in, bumps on each new message, and shrinks away once read.
+// Fades in from 0.9, bumps once on each new message, and shrinks away once
+// read. The only filled count in the app (V28).
 import { usePresence } from "../ui/motion";
 import { useLastTruthy } from "../ui/motionDom";
 import { useLive } from "./liveStore";

@@ -59,7 +59,7 @@ function AiRenderingSection() {
         const err = toIpcError(e);
         setLoadError(
           err.code === "unknown_command"
-            ? "This build's backend has no AI rendering yet."
+            ? "AI rendering is not in this version yet."
             : err.message,
         );
       });
@@ -116,7 +116,7 @@ function AiRenderingSection() {
     <Section title="AI rendering" icon="visuals" open={open} onToggle={toggle}>
       <div className={s.settingsSection} ref={bodyRef} data-testid="settings-ai-render">
         <p className={s.exportNote}>
-          AI visualizations come from Google's Gemini image models with your own Google AI Studio key (DECISIONS D17).
+          AI visualizations come from Google's Gemini image models with your own Google AI Studio key.
           The key is kept in the app's data folder, readable only by your user account, and it is never shown again
           here or written into a project.
         </p>
@@ -168,8 +168,8 @@ function AiRenderingSection() {
           </>
         )}
         <p className={s.exportNote}>
-          Every image carries an invisible SynthID watermark from Google and is labelled "AI visualization" in the app.
-          The images are for discussion, not construction documents, and they never change the model.{" "}
+          Every image carries an invisible SynthID watermark from Google and is labeled "AI visualization" in the app.
+          The images are for discussion, not construction documents, and they never change the plan.{" "}
           <a href={GOOGLE_KEY_URL} target="_blank" rel="noreferrer">
             Get a Google AI Studio key
           </a>
@@ -235,8 +235,8 @@ export function SettingsDialog({ onClose, stage }: { onClose: () => void; stage?
       <Section title="Interchange" icon="import" open={open} onToggle={toggle}>
         <div className={s.settingsSection}>
           <p className={s.exportNote}>
-            DWG import and export go through the free ODA File Converter (DECISIONS D16), which this app detects on your
-            computer. DXF, IFC, glTF, OBJ and Collada work without it.
+            DWG import and export go through the free ODA File Converter, which Guhit Studio finds on your computer. DXF,
+            IFC, glTF, OBJ and Collada work without it.
           </p>
           <Field label="Converter" hint="Path to the ODA File Converter">
             <div className={s.settingsPathRow}>

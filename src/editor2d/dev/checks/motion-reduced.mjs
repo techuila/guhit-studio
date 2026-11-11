@@ -40,9 +40,9 @@ export default async (page, shot) => {
   await page.waitForTimeout(80);
   const sel = await page.evaluate(() => window.__app.getState().selection[0]);
   a = await anim(page);
-  log("select", { sel, count: a.count, outline: a.keys[`sel:${sel}`], grips: [a.keys["grip:0"], a.keys["grip:1"], a.keys["grip:2"]] });
-  expect("the selection outline and every grip are fully drawn at once", a.keys[`sel:${sel}`] === 1 && a.keys["grip:0"] === 1 && a.keys["grip:2"] === 1, a.keys);
-  expect("no stagger is left running", a.count === 0 && a.idle, { count: a.count, idle: a.idle });
+  log("select", { sel, count: a.count, outline: a.keys[`sel:${sel}`], grips: a.keys.grip });
+  expect("the selection outline and every grip are fully drawn at once", a.keys[`sel:${sel}`] === 1 && a.keys.grip === 1, a.keys);
+  expect("nothing is left running", a.count === 0 && a.idle, { count: a.count, idle: a.idle });
   await shot("r01-select-no-motion");
 
   // ---------------------------------------------------------------- snapping

@@ -3,7 +3,7 @@
 // it refines, the time left and the GPU in use. A finished render is in the
 // gallery below; "Visualize with AI" opens the studio on it (D17).
 
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type CSSProperties } from "react";
 import { bus } from "../../state/bus";
 import { useApp } from "../../state/store";
 import { Segmented } from "../../ui/controls";
@@ -103,13 +103,13 @@ export function RenderSection({ canRender }: { canRender: boolean }) {
             <small>
               {last.kind === "path_traced"
                 ? `${last.samples} samples in ${Math.round(last.seconds)} s, denoised`
-                : `${last.note} A refined raster image, labelled Enhanced capture.`}
+                : `${last.note} A refined raster image, labeled Enhanced capture.`}
             </small>
           </span>
           <span className={s.actions}>
             <button
               type="button"
-              className={`${s.btn} ${s.ai}`}
+              className={s.btn}
               data-testid="render-visualize"
               title="Open the render studio on this render to make an AI visualization of it"
               onClick={() => {
@@ -170,7 +170,7 @@ function RenderProgressView({ stage }: { stage: string }) {
           {p?.note ? <span className={s.previewNote}>{p.note}</span> : null}
         </div>
         <div className={s.bar} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(done * 100)}>
-          <span className={s.fill} data-indeterminate={!determinate} style={{ width: `${Math.round(done * 100)}%` }} />
+          <span className={s.fill} data-indeterminate={!determinate} style={{ "--p": done } as CSSProperties} />
         </div>
         <div className={s.stats}>
           <span data-testid="render-phase">

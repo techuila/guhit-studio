@@ -26,6 +26,25 @@ svg {
   outline-offset: 1px;
 }
 
+/* On the navy chrome the teal ring is too faint (3.6:1), so dark surfaces use
+   the light ring. Mark a dark container with data-tone="chrome". */
+[data-tone="chrome"] :focus-visible {
+  outline-color: var(--focus-chrome);
+}
+
+/* Links read as the app's teal, not browser blue. */
+a {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition: color var(--dur-hover) var(--ease-out);
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
 ::selection {
   background: var(--accent-soft);
 }
@@ -43,7 +62,11 @@ svg {
 }
 
 [data-tip]::after {
+  /* The tip is for sight only. Browsers count generated text in a button's
+     name, so a folded "Import" read as "Import Import". The empty alt text
+     keeps it out of the name; an engine without the syntax keeps the first. */
   content: attr(data-tip);
+  content: attr(data-tip) / "";
   position: absolute;
   z-index: 900;
   top: calc(100% + 7px);
@@ -51,8 +74,8 @@ svg {
   transform: translate(-50%, -2px);
   padding: 4px 8px;
   border-radius: var(--radius-sm);
-  background: #0c1a2b;
-  color: #eef3f8;
+  background: var(--tip-bg);
+  color: var(--on-dark);
   font-size: var(--text-xs);
   font-weight: 500;
   line-height: 1.35;
@@ -107,7 +130,14 @@ svg {
 [data-tip]:hover::after,
 [data-tip]:focus-visible::after {
   opacity: 1;
-  transition-delay: 350ms;
+  transition-delay: var(--tip-delay);
+}
+
+/* Warm-up: once a tooltip has shown, the next one shows at once while the
+   pointer slides along a row of buttons (src/ui/tips.ts sets the attribute). */
+:root[data-tips-warm] [data-tip]:hover::after {
+  transition-delay: 0ms;
+  transition-duration: var(--dur-press);
 }
 
 [data-tip]:hover::after,
@@ -145,10 +175,11 @@ svg {
   }
 }
 
+/* Something that arrives (a toast, a note): fade, 4 px rise, a hint of scale. */
 @keyframes ui-pop-in {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.985);
+    transform: translateY(4px) scale(0.985);
   }
   to {
     opacity: 1;
@@ -206,11 +237,13 @@ svg {
   }
 }
 
-/* First-appearance list stagger (cards, palette groups): fade + 6px rise. */
+/* The one shared rise, for things that arrive: a list as one block, a new
+   row, a note (MOTION.md rule 12). Content that swaps in place uses
+   ui-fade-in instead. */
 @keyframes ui-rise-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -218,11 +251,28 @@ svg {
   }
 }
 
+/* Indeterminate progress sweep (a bar while something renders or downloads).
+   Time it with --dur-loop. Put it on a full-width child of an overflow-hidden
+   track; it moves by transform only. Stopped under reduced motion. */
+@keyframes ui-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Reduced motion turns motion off (D11, MOTION.md rule 9). A loop with a
+   1 ms period would strobe, so every animation also runs once, with no delay:
+   staggered rows appear together and spinners stop on their first frame. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
     transition-duration: 1ms !important;
   }
 }

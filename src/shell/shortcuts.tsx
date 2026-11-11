@@ -93,6 +93,59 @@ interface NudgeBurst {
   timer: number | null;
 }
 
+/** What a MOD shortcut does (docs/SHORTCUTS.md). */
+export type ModAction =
+  | "render"
+  | "undo"
+  | "redo"
+  | "export"
+  | "version"
+  | "select-all"
+  | "duplicate"
+  | "fit"
+  | "zoom-in"
+  | "zoom-out"
+  | "settings"
+  | "copilot";
+
+/**
+ * The MOD shortcuts, as a pure lookup. MOD+, is Settings, as in every Mac
+ * app; the copilot moved to MOD+J. Shift+MOD+S keeps opening Export, which
+ * opens on the permit set once the project has one (ExportDialog).
+ */
+export function modShortcut(key: string, code: string, shift: boolean, alt: boolean): ModAction | null {
+  // Alt changes e.key on macOS (Option+R is "®"), so match the physical key.
+  if (alt && code === "KeyR") return "render";
+  switch (key) {
+    case "z":
+      return shift ? "redo" : "undo";
+    case "y":
+      return "redo";
+    case "e":
+      return "export";
+    case "s":
+      return shift ? "export" : "version";
+    case "a":
+      return "select-all";
+    case "d":
+      return "duplicate";
+    case "0":
+      return "fit";
+    case "=":
+    case "+":
+      return "zoom-in";
+    case "-":
+    case "_":
+      return "zoom-out";
+    case ",":
+      return "settings";
+    case "j":
+      return "copilot";
+    default:
+      return null;
+  }
+}
+
 export function useGlobalShortcuts() {
   // A held arrow key accumulates one delta and is committed as a single
   // `move_elements` command (one undo step) on keyup or after a short
@@ -161,44 +214,22 @@ export function useGlobalShortcuts() {
       if (isModalOpen() || isTyping(e.target)) return;
 
       if (mod) {
-        // Alt changes e.key on macOS (Option+R is "®"), so match the physical key.
-        if (e.altKey && e.code === "KeyR") {
-          e.preventDefault();
+        const action = modShortcut(key, e.code, e.shiftKey, e.altKey);
+        if (!action) return;
+        e.preventDefault();
+        if (action === "render") {
           if (!e.repeat) void renderViews("current");
-          return;
-        }
-        if (key === "z") {
-          e.preventDefault();
-          void (e.shiftKey ? app.redo() : app.undo());
-        } else if (key === "y") {
-          e.preventDefault();
-          void app.redo();
-        } else if (key === "e") {
-          e.preventDefault();
-          shell.open("export");
-        } else if (key === "s") {
-          e.preventDefault();
-          if (e.shiftKey) shell.open("export");
-          else void quickSaveVersion();
-        } else if (key === "a") {
-          e.preventDefault();
-          selectAllOnLevel();
-        } else if (key === "d") {
-          e.preventDefault();
-          duplicateSelection();
-        } else if (key === "0") {
-          e.preventDefault();
-          bus.emit("zoom_to_fit");
-        } else if (key === "=" || key === "+") {
-          e.preventDefault();
-          getActiveController()?.zoomStep(1);
-        } else if (key === "-" || key === "_") {
-          e.preventDefault();
-          getActiveController()?.zoomStep(-1);
-        } else if (key === ",") {
-          e.preventDefault();
-          shell.setDockTab("copilot");
-        }
+        } else if (action === "undo") void app.undo();
+        else if (action === "redo") void app.redo();
+        else if (action === "export") shell.open("export");
+        else if (action === "version") void quickSaveVersion();
+        else if (action === "select-all") selectAllOnLevel();
+        else if (action === "duplicate") duplicateSelection();
+        else if (action === "fit") bus.emit("zoom_to_fit");
+        else if (action === "zoom-in") getActiveController()?.zoomStep(1);
+        else if (action === "zoom-out") getActiveController()?.zoomStep(-1);
+        else if (action === "settings") shell.open("settings");
+        else if (action === "copilot") shell.setDockTab("copilot");
         return;
       }
 
@@ -326,6 +357,10 @@ export function useGlobalShortcuts() {
   }, []);
 }
 
+/** A modifier pressed on its own, as the cheat sheet names it. */
+const SHIFT_KEY = MOD === "⌘" ? "⇧" : "Shift";
+const ALT_KEY = MOD === "⌘" ? "⌥" : "Alt";
+
 const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
   {
     title: "Draw",
@@ -350,7 +385,7 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
   {
     title: "Services tool, pointer on the plan",
     rows: [
-      ["PgUp / PgDn", "Run height in 100 mm steps, Shift for 10"],
+      ["PgUp / PgDn", `Run height in 100 mm steps, ${SHIFT_KEY} for 10`],
       ["H", "Type the height"],
       ["Enter", "Finish the run"],
     ],
@@ -359,9 +394,9 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
     title: "Selected run, on the plan",
     rows: [
       ["Click again", "Pick a segment, or a point handle"],
-      ["PgUp / PgDn", "Move it up or down 100 mm, Shift for 10"],
+      ["PgUp / PgDn", `Move it up or down 100 mm, ${SHIFT_KEY} for 10`],
       ["H", "Type its height"],
-      ["Alt", "Break the joins while dragging"],
+      [ALT_KEY, "Break the joins while dragging"],
       ["Esc", "Back to the whole run"],
     ],
   },
@@ -415,7 +450,7 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
     rows: [
       [`${SHIFT}W`, "Walk through the building"],
       ["W A S D", "Move while walking, or the arrows"],
-      [MOD === "⌘" ? "⇧" : "Shift", "Run"],
+      [SHIFT_KEY, "Run"],
       ["F", "Switch walk and fly"],
       ["E / Q", "Up and down while flying"],
       ["X", "Building solid, X-ray, hidden"],
@@ -453,7 +488,7 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
       [`${SHIFT}R`, "Rotate the selection 90°"],
       ["↑ ↓ ← →", "Nudge the selection by the grid step"],
       [`${SHIFT}↑ ↓ ← →`, "Nudge by 10x the grid step"],
-      ["Alt+↑ ↓ ← →", "Nudge by 1 mm"],
+      [`${ALT}↑ ↓ ← →`, "Nudge by 1 mm"],
     ],
   },
   {
@@ -463,8 +498,9 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
       [`${MOD}E`, "Export"],
       [`${MOD}S`, "Save a version"],
       [`${SHIFT}${MOD}S`, "Export to PDF"],
+      [`${MOD},`, "Settings"],
+      [`${MOD}J`, "Ask the copilot"],
       ["?", "This list"],
-      [`${MOD},`, "Copilot panel"],
     ],
   },
 ];

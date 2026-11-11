@@ -132,8 +132,28 @@ const TOOL_LABEL: Record<string, string> = {
   delete_level: "Delete level",
 };
 
+/** A tool's readable name. One without a label reads as words: "get_plan" is "Get plan". */
 export function toolLabel(name: string): string {
-  return TOOL_LABEL[name] ?? name;
+  return TOOL_LABEL[name] ?? name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
+/**
+ * A model id as people read it: "claude-opus-5-5" is "Claude Opus 5.5", and a
+ * dated id drops its date. An id that is not dash-separated words and
+ * numbers comes back as it is. Null when there is no id.
+ */
+export function modelLabel(id: string | null | undefined): string | null {
+  const raw = id?.trim() ?? "";
+  if (!raw) return null;
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/i.test(raw)) return raw;
+  const parts = raw.split("-").filter((p, i, all) => !(i === all.length - 1 && i > 0 && /^\d{8}$/.test(p)));
+  const words: string[] = [];
+  for (const p of parts) {
+    const prev = words[words.length - 1];
+    if (/^\d+$/.test(p) && prev !== undefined && /^\d+(\.\d+)*$/.test(prev)) words[words.length - 1] = `${prev}.${p}`;
+    else words.push(/^[a-z]/.test(p) ? p[0].toUpperCase() + p.slice(1) : p);
+  }
+  return words.join(" ");
 }
 
 export interface Suggestion {

@@ -5,11 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useApp } from "../state/store";
 import { acceptAll, acceptPart, confirmAsk, discardAll, discardPart } from "./actions";
 import { setSwarmApi } from "./api";
-import { DraftBar, SwarmOverlayView, pickBar } from "./DraftBar";
+import { DraftBar, LockBanner, SwarmOverlayView, pickBar } from "./DraftBar";
 import { mockApi, mockStatus, panelStates } from "./mock";
 import { SwarmPanelView, pickPanel } from "./SwarmPanel";
 import { reveal, useSwarm } from "./swarmStore";
 import type { SwarmStatus } from "./types";
+import { LOCK_HINT } from "./view";
 
 function show(status: SwarmStatus | null, more: Partial<ReturnType<typeof useSwarm.getState>> = {}): void {
   reveal.reset();
@@ -29,20 +30,33 @@ afterEach(() => {
 describe("swarm panel states", () => {
   const states = panelStates(Date.parse("2026-11-10T03:00:00Z"));
 
-  it("idle: the prompt, Start, the estimate line and the cap", () => {
+  it("idle: the prompt, Start swarm, the estimate line and the cap", () => {
     show(null, { brief: "A bungalow" });
     const html = panel();
     expect(html).toContain('aria-label="Brief for the swarm"');
-    expect(html).toContain("Start");
-    expect(html).toContain("nothing enters the model until you accept");
+    expect(html).toContain(">Start swarm<");
+    // The shortcut is in the button's tip.
+    expect(html).toMatch(/data-testid="swarm-start"[^>]*data-tip="[^"]*Enter starts the swarm"/);
+    expect(html).toContain("<span>Nothing goes into the project until you accept it</span>");
     expect(html).toContain('aria-label="Spending cap in US dollars"');
     expect(html).not.toContain("Pause all");
+    // Sentence-case labels, no slogan eyebrow, no middle dots.
+    expect(html).toContain(">Brief<");
+    expect(html).not.toContain("One prompt, several agents");
+    expect(html).not.toContain("·");
+  });
+
+  it("idle: a Start swarm that is off says why in its tip", () => {
+    show(null, { brief: "" });
+    expect(panel()).toMatch(/data-testid="swarm-start"[^>]*data-tip="Write a brief first"/);
+    show(null, { brief: "A bungalow" });
+    expect(panel(false)).toMatch(/data-testid="swarm-start"[^>]*data-tip="Add a Claude API key in the copilot settings"/);
   });
 
   it("idle: the estimate names the model, and an unpriced model says it is billed at the highest rate", () => {
     const estimate = { model: "claude-opus-5-5", model_label: "Claude Opus 5.5", low_usd: 0.76, high_usd: 2.42, spent_usd: 0, cap_usd: 3, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 };
     show(null, { brief: "A bungalow", estimate });
-    expect(panel()).toContain("Agents on Claude Opus 5.5 · about US$0.76 to $2.42 on your Claude key (estimate)");
+    expect(panel()).toContain("<span>Agents on Claude Opus 5.5</span><span>About US$0.76 to US$2.42 on your Claude key (estimate)</span>");
     expect(panel()).not.toContain('data-testid="swarm-price-note"');
     show(null, { brief: "A bungalow", estimate: { ...estimate, model: "claude-opus-5-5-20260401", model_label: "claude-opus-5-5-20260401", price_note: "Billed at the highest rate: price unknown" } });
     const html = panel();
@@ -74,10 +88,12 @@ describe("swarm panel states", () => {
     expect(html).not.toContain('data-testid="swarm-start"');
   });
 
-  it("running: the lead row, a row per part with its pill and Stop, the feed, spend", () => {
+  it("running: the lead row, a row per part with its state and Stop, the feed, spend", () => {
     show(states.running);
     const html = panel();
     for (const key of ["lead", "shell", "rooms", "roof"]) expect(html).toContain(`data-testid="swarm-part-${key}"`);
+    // Every row is an agent: no "AI" tag on any of them.
+    expect(html).not.toContain(">AI<");
     expect(html).toContain("Waiting for Shell");
     expect(html).toContain('data-testid="swarm-stop-shell"');
     expect(html).not.toContain('data-testid="swarm-stop-lead"');
@@ -110,17 +126,39 @@ describe("swarm panel states", () => {
     expect(html).toContain("one undo step, with its agent as the author");
   });
 
+  it("the whole draft: Accept all and Discard all in the panel too, as on the draft bar", () => {
+    show(states.ready);
+    const html = panel();
+    expect(html).toMatch(/data-testid="swarm-panel-accept-all"[^>]*>Accept all</);
+    expect(html).toMatch(/data-testid="swarm-discard"[^>]*>Discard all</);
+    // A part's own buttons keep the short words.
+    expect(html).toMatch(/data-testid="swarm-discard-rooms"[^>]*>Discard</);
+    // Before a swarm there is no draft to accept.
+    show(null, { brief: "A bungalow" });
+    expect(panel()).not.toContain('data-testid="swarm-panel-accept-all"');
+  });
+
   it("an MCP swarm shows who drives it in place of the prompt", () => {
     show(states.mcp);
     const html = panel();
     expect(html).toContain("Claude Code is driving 3 sub-agents");
+    expect(html).toContain(">Run by your own agent<");
     expect(html).not.toContain('aria-label="Brief for the swarm"');
-    expect(html).toContain("Runs on your own AI plan");
+    expect(html).toContain("Runs on your own AI plan. Nothing goes into the project until you accept it");
   });
 
-  it("failed: the part's pill says so", () => {
+  it("failed: the part's state says so", () => {
     show(states.failed);
     expect(panel()).toContain(">Failed<");
+  });
+
+  it("Done and Working differ in shape: a check for finished work, a dot for work in hand", () => {
+    show(states.running);
+    const html = panel();
+    const stateOf = (key: string) => new RegExp(`data-testid="swarm-part-${key}"[\\s\\S]*?data-state="[a-z]+">([\\s\\S]*?)</span>`).exec(html)?.[1] ?? "";
+    // The lead is done, Shell is working (mock.ts).
+    expect(stateOf("lead")).toMatch(/^<svg[\s\S]*<\/svg>Done$/);
+    expect(stateOf("shell")).toMatch(/^<i aria-hidden="true"><\/i>Working$/);
   });
 
   it("an accepted part leaves the review list", () => {
@@ -140,12 +178,12 @@ describe("swarm panel states", () => {
 });
 
 describe("draft bar and lock banner", () => {
-  it("says what the draft holds, with Accept all, Discard and Show draft", () => {
+  it("says what the draft holds, with Accept all, Discard all and Show draft", () => {
     show(mockStatus());
     const html = bar(mockStatus());
     expect(html).toContain("The swarm drew 23 elements in a draft");
     expect(html).toContain("Accept all");
-    expect(html).toContain('data-testid="swarm-bar-discard"');
+    expect(html).toMatch(/data-testid="swarm-bar-discard"[^>]*>Discard all</);
     expect(html).toContain('aria-pressed="true"');
     expect(html).not.toContain("Ready for review");
     expect(html).not.toContain('data-testid="swarm-conflicts"');
@@ -157,12 +195,19 @@ describe("draft bar and lock banner", () => {
     expect(bar(st)).toContain("Ready for review");
   });
 
-  it("conflicts: the badge with the count", () => {
+  it("conflicts: a button with the count that opens their list under the bar, for the keyboard too", () => {
     const st = panelStates().conflicts as SwarmStatus;
     show(st);
-    const html = bar(st);
-    expect(html).toContain("1 conflict");
-    expect(html).toContain("changed in the model since the draft");
+    const shut = bar(st);
+    expect(shut).toContain("1 conflict");
+    // A real button, closed by default, its list in the page but hidden from readers.
+    expect(shut).toMatch(/<button[^>]*aria-expanded="false"[^>]*data-testid="swarm-conflicts"/);
+    expect(shut).toMatch(/aria-hidden="true" data-testid="swarm-conflict-list"/);
+    // Each conflict names its part.
+    expect(shut).toContain("<li>Rooms: Wall 4000 mm changed in the plan since the draft.</li>");
+    const open = renderToStaticMarkup(<DraftBar {...pickBar(useSwarm.getState())} status={st} conflictsOpen />);
+    expect(open).toMatch(/<button[^>]*aria-expanded="true"[^>]*data-testid="swarm-conflicts"/);
+    expect(open).toMatch(/aria-hidden="false" data-testid="swarm-conflict-list"/);
   });
 
   it("the draft hidden: the eye says so", () => {
@@ -175,9 +220,17 @@ describe("draft bar and lock banner", () => {
     show(mockStatus());
     const html = overlay();
     expect(html).toContain('data-testid="swarm-draft-bar"');
-    expect(html).toContain("A swarm is drafting. Accept or discard to edit");
+    expect(html).toContain(LOCK_HINT);
     show(null);
     expect(overlay()).toBe("");
+  });
+
+  it("the lock banner stays a button; a separate hidden status line says the lock", () => {
+    const html = renderToStaticMarkup(<LockBanner />);
+    // The button keeps its role (it opens the swarm); the live region is its own element.
+    expect(html).toMatch(/<button type="button"[^>]*data-testid="swarm-lock">/);
+    expect(html).not.toMatch(/<button[^>]*role="status"/);
+    expect(html).toMatch(/<span[^>]*role="status"/);
   });
 });
 
@@ -243,6 +296,15 @@ describe("what the buttons do", () => {
     await confirmAsk(ask!);
     expect(calls).toEqual(["discard"]);
     expect(useSwarm.getState().status).toBeNull();
+    expect(useApp.getState().toasts.slice(-1)[0]?.message).toBe("Draft discarded. The project is as it was.");
+  });
+
+  it("Discard all in the panel asks there, under its buttons", () => {
+    discardAll("panel");
+    const html = panel();
+    expect(html).toContain('data-testid="swarm-ask"');
+    expect(html).toContain("Discard the whole draft? Nothing was added to the project");
+    expect(bar(current)).not.toContain('data-testid="swarm-ask"');
   });
 
   it("Accept asks first, listing them, when the engine says elements would come out differently", async () => {

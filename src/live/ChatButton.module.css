@@ -9,13 +9,13 @@
   transition:
     opacity var(--dur-base) var(--ease-in),
     transform var(--dur-base) var(--ease-in);
-  /* The session started: the button pops in. */
-  animation: chat-in var(--dur-base) var(--ease-spring);
+  /* The session started: the button fades in from 0.9. */
+  animation: chat-in var(--dur-base) var(--ease-out);
 }
 
 .leaving {
   opacity: 0;
-  transform: scale(0.6);
+  transform: scale(0.9);
   pointer-events: none;
   transition-duration: calc(var(--dur-base) * 0.7);
 }
@@ -23,11 +23,13 @@
 @keyframes chat-in {
   from {
     opacity: 0;
-    transform: scale(0.6);
+    transform: scale(0.9);
   }
 }
 
-/* The count sits on the button's top right corner, ringed in the bar's color. */
+/* The count sits on the button's top right corner, ringed in the bar's
+   color. Its fill and figures are UnreadBadge's own (live.module.css
+   .unread), the same as on the dock's Chat tab: one badge style. */
 .badge {
   position: absolute;
   top: -3px;

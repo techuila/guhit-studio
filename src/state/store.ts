@@ -82,6 +82,13 @@ export interface Toast {
   id: number;
   kind: "info" | "success" | "error";
   message: string;
+  /** One button on the toast, such as "Show in folder" or "Undo". Clicking it runs `run`, then dismisses the toast. */
+  action?: ToastAction;
+}
+
+export interface ToastAction {
+  label: string;
+  run: () => void;
 }
 
 /** A capture of the live 3D view, registered by Viewer3D. */
@@ -193,7 +200,7 @@ export interface AppState {
   createProject: (name: string, template?: string) => Promise<void>;
   closeProject: () => Promise<void>;
   loadCatalog: () => Promise<void>;
-  toast: (kind: Toast["kind"], message: string) => void;
+  toast: (kind: Toast["kind"], message: string, action?: ToastAction) => void;
   dismissToast: (id: number) => void;
   reportError: (e: unknown) => IpcError;
   registerCaptureView: (fn: CaptureView | null) => void;
@@ -391,8 +398,8 @@ export const useApp = create<AppState>((set, get) => ({
     }
   },
 
-  toast: (kind, message) =>
-    set((s) => ({ toasts: [...s.toasts, { id: toastSeq++, kind, message }] })),
+  toast: (kind, message, action) =>
+    set((s) => ({ toasts: [...s.toasts, action ? { id: toastSeq++, kind, message, action } : { id: toastSeq++, kind, message }] })),
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   reportError: (e) => {

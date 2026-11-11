@@ -129,7 +129,7 @@ export const dimStringTool: PlanTool = {
     if (phase === "offset") return "Move to set where the line goes, or type the offset, then click or press Enter. Esc drops it";
     if (points.length === 0) return "Click the points to measure, in order. E dimensions this level's outside walls automatically";
     if (points.length === 1) return "Click the next point";
-    return "Click the next point, or press Enter (or right click) to place the line";
+    return "Click the next point, or press Enter (or right-click) to place the line";
   },
 
   hover(host, world) {

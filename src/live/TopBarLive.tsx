@@ -4,8 +4,9 @@
 // someone who follows you wears an eye mark.
 //
 // After the people, the agents working on the project (DECISIONS D47), with
-// or without a live session: rounded squares with the AI mark and a status
-// dot. Clicking one follows it too. The last button opens the Agents panel.
+// or without a live session: rounded squares with a status dot (the shape
+// tells them from people). Clicking one follows it too. The last button,
+// with the agent mark, opens the Agents panel.
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useApp } from "../state/store";
@@ -13,7 +14,7 @@ import { Button, cx } from "../ui/controls";
 import { Icon } from "../ui/icons";
 import { useListPresence } from "../ui/useListPresence";
 import { openAgents } from "./agentActions";
-import { AgentAvatar, AiMark, agentStyle } from "./AgentAvatar";
+import { AgentAvatar, agentStyle } from "./AgentAvatar";
 import { agentTip, onBar, type AgentView } from "./agents";
 import { useAgents } from "./agentsStore";
 import { Avatar, peerStyle } from "./Avatar";
@@ -155,7 +156,7 @@ function AgentAvatars() {
         data-testid="agents-panel-button"
         onClick={() => (panelOpen ? useAgents.getState().closePanel() : openAgents())}
       >
-        <AiMark size={11} />
+        <Icon name="agent" size={14} />
         {compact && list.length > 0 ? (
           <span className={a.miniStack} aria-hidden>
             {list.slice(0, MAX_AGENTS).map((x) => (
@@ -245,6 +246,8 @@ export function ShareButton() {
       className={cx(s.share, mode !== "off" && s.shareLive)}
       data-tip={tip}
       data-tip-side="bottom-end"
+      // The label folds away on a narrow bar: the name stays (WCAG 4.1.2).
+      aria-label={SHARE_LABEL[mode]}
       disabled={!hasDoc}
       onClick={() => openShare()}
     >

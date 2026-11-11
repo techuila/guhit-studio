@@ -4,19 +4,23 @@
    docs/MOTION.md: tokens only, exits faster than entrances, nothing under
    reduced motion (the tokens drop to ~0). */
 
-/* Minimap: click a spot to glide there. */
-.map {
+/* Minimap: click a spot to glide there. Solid, never frosted: a blur
+   re-composites on every 3D frame. (`[data-tip]` would make it relative.) */
+.map,
+.map[data-tip] {
   position: absolute;
+}
+
+.map {
   left: 12px;
   bottom: 12px;
   width: 208px;
   height: 152px;
   pointer-events: auto;
-  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-1);
-  backdrop-filter: blur(6px);
   transition:
     border-color var(--dur-hover) var(--ease-out),
     box-shadow var(--dur-hover) var(--ease-out);
@@ -78,14 +82,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   pointer-events: none;
-  animation: levelIn var(--dur-base) var(--ease-out);
-}
-
-@keyframes levelIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out);
 }
 
 /* The key hint sits between the minimap and the buttons. */
@@ -232,9 +229,10 @@
   box-shadow: var(--shadow-1);
   pointer-events: none;
   opacity: 1;
+  /* It answers a click or an arrow key, so it starts at once. */
   transition:
-    transform var(--dur-base) var(--ease-in-out),
-    width var(--dur-base) var(--ease-in-out),
+    transform var(--dur-base) var(--ease-out),
+    width var(--dur-base) var(--ease-out),
     opacity var(--dur-hover) var(--ease-out);
 }
 
@@ -382,10 +380,9 @@
   place-items: center;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-1);
-  backdrop-filter: blur(6px);
   touch-action: none;
   cursor: pointer;
   transition:

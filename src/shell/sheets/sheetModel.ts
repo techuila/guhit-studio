@@ -178,8 +178,8 @@ export function projectViews(doc: Doc): ViewChoice[] {
   const out: ViewChoice[] = [];
   for (const l of doc.project.levels) out.push({ group: "Plans", label: l.name || "Level", view: { type: "plan", level_id: l.id, sheet: "plan" } });
   for (const l of doc.project.levels) out.push({ group: "Ceiling plans", label: l.name || "Level", view: { type: "plan", level_id: l.id, sheet: "reflected_ceiling" } });
-  for (const m of marks(doc, "elevation")) out.push({ group: "Elevations", label: viewTitle(doc, { type: "elevation", mark_id: m.id }), view: { type: "elevation", mark_id: m.id } });
-  for (const m of marks(doc, "section")) out.push({ group: "Sections", label: viewTitle(doc, { type: "section", mark_id: m.id }), view: { type: "section", mark_id: m.id } });
+  for (const m of marks(doc, "elevation")) out.push({ group: "Elevations", label: viewLabel(doc, { type: "elevation", mark_id: m.id }), view: { type: "elevation", mark_id: m.id } });
+  for (const m of marks(doc, "section")) out.push({ group: "Sections", label: viewLabel(doc, { type: "section", mark_id: m.id }), view: { type: "section", mark_id: m.id } });
   out.push({ group: "Roof and site", label: "Roof plan", view: { type: "roof_plan" } });
   out.push({ group: "Roof and site", label: "Site development plan", view: { type: "site_plan" } });
   for (const s of SCHEDULES) out.push({ group: "Schedules", label: s.label, view: { type: "schedule", schedule: s.kind } });
@@ -229,6 +229,23 @@ export function defaultSetCommand(doc: Doc, paper: PaperSize): Command {
 export function sentenceCase(t: string): string {
   const lower = t.toLowerCase();
   return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+/**
+ * A view's name in a list beside level names: sentence case, with a mark
+ * kept as drawn ("Section A-A", "North elevation"). On paper the title stays
+ * uppercase (`viewTitle`), as drawings are titled.
+ */
+export function viewLabel(doc: Doc, view: ViewRef): string {
+  const words = viewTitle(doc, view).split(" ");
+  return words
+    .map((w, i) => {
+      // A section mark (A-A, 1-1, B2-B2) or a word with a digit stays as it is.
+      if (/^[A-Z0-9]+(-[A-Z0-9]+)+$/.test(w) || /\d/.test(w)) return w;
+      const lower = w.toLowerCase();
+      return i === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower;
+    })
+    .join(" ");
 }
 
 /** The next free revision mark: "1", "2", ... */

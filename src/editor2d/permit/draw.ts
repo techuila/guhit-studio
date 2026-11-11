@@ -433,7 +433,6 @@ export function drawDimensionString(rc: RenderContext, d: Dimension, style: Elem
     ctx.rotate((-t.rot * Math.PI) / 180);
     const tw = ctx.measureText(t.text).width;
     ctx.save();
-    ctx.globalAlpha *= 0.85;
     ctx.fillStyle = palette.paper;
     ctx.fillRect(-tw / 2 - 3 * k, -10 * k, tw + 6 * k, 12 * k);
     ctx.restore();

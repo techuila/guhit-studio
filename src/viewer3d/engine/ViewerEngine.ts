@@ -52,6 +52,7 @@ import { walkWorldsFor } from "../walk/entry";
 import type { WalkWorlds } from "../walk/worlds";
 import type { NavMode, ShellMode } from "../viewerStore";
 import { Animator } from "./animator";
+import { BREATH_KEY, holdBreath, PREVIEW_OPACITY, PreviewBreath } from "./breath";
 import { poseCamera } from "./viewCamera";
 import { Environment, TONE_EXPOSURE, TONE_MAPPING } from "./environment";
 import { LightRig } from "../light/LightRig";
@@ -172,12 +173,6 @@ interface FadeJob {
   lift: number;
 }
 
-/** Breathing AI preview: opacity 0.55 to 0.85 over 1.6 s (docs/MOTION.md). */
-const BREATH_LOW = 0.55;
-const BREATH_HIGH = 0.85;
-const BREATH_MS = 1600;
-/** Resting opacity of a preview tint when it is not breathing. */
-const PREVIEW_OPACITY = 0.78;
 /** How far a new element rises into place, and a removed one sinks. */
 const ENTER_LIFT_M = 0.06;
 const EXIT_SINK_M = 0.08;
@@ -264,7 +259,8 @@ export class ViewerEngine {
 
   private highlights: Highlights = { selection: [], hoverId: null, previewIds: [] };
   private live = new Map<string, Highlight>();
-  private breathRunning = false;
+  /** The AI preview's breath: twice per new proposal, then a hold (engine/breath.ts). */
+  private breath = new PreviewBreath();
   private edgeCache = new Map<string, LineSegmentsGeometry>();
   private fades: FadeJob[] = [];
   private fadeSeq = 0;
@@ -439,7 +435,7 @@ export class ViewerEngine {
       compileTargets: () => [this.built?.root, this.refs.root, ...this.env.compileTargets()].filter((o): o is THREE.Object3D => !!o),
     });
     this.anim.set("shadow", 1);
-    this.anim.set("breath", PREVIEW_OPACITY);
+    holdBreath(this.anim);
     // 1 is "the HDRI look, fully applied". It only takes effect once the HDRI
     // is actually on the scene; until then `applyBlend` holds the sky values.
     this.anim.set("env", 1);
@@ -713,7 +709,7 @@ export class ViewerEngine {
     const meshes = meshesUnder(mount);
     if (meshes.length === 0) return;
     const key = `enter:${this.fadeSeq++}`;
-    this.pushFade(key, new MeshFade(meshes), ENTER_LIFT_M, 0, 1, dur("base"), ease.spring);
+    this.pushFade(key, new MeshFade(meshes), ENTER_LIFT_M, 0, 1, dur("base"), ease.out);
   }
 
   /** What the built scene depends on. The cutaway part is what is baked in,
@@ -916,7 +912,7 @@ export class ViewerEngine {
     for (const id of ids) for (const top of this.topFor(built, id)) meshes.push(...meshesUnder(top));
     if (meshes.length === 0) return;
     const key = `enter:${this.fadeSeq++}`;
-    this.pushFade(key, new MeshFade(meshes), ENTER_LIFT_M, 0, 1, dur("base"), ease.spring, undefined, now);
+    this.pushFade(key, new MeshFade(meshes), ENTER_LIFT_M, 0, 1, dur("base"), ease.out, undefined, now);
   }
 
   /**
@@ -957,7 +953,7 @@ export class ViewerEngine {
     buckets.forEach((meshes, i) => {
       if (meshes.length === 0) return;
       const key = `enter:${this.fadeSeq++}`;
-      this.pushFade(key, new MeshFade(meshes), ENTER_LIFT_M, 0, 1, dur("base"), ease.spring, undefined, now, i * STAGGER_MS);
+      this.pushFade(key, new MeshFade(meshes), ENTER_LIFT_M, 0, 1, dur("base"), ease.out, undefined, now, i * STAGGER_MS);
     });
   }
 
@@ -1075,7 +1071,7 @@ export class ViewerEngine {
     const draft = this.draft;
     if (!draft) return;
     const fresh = draft.show(this.draftShown);
-    if (fresh.length > 0 && motionOK()) this.pushFade(`draft:${this.fadeSeq++}`, new MeshFade(fresh), ENTER_LIFT_M, 0, 1, dur("base"), ease.spring);
+    if (fresh.length > 0 && motionOK()) this.pushFade(`draft:${this.fadeSeq++}`, new MeshFade(fresh), ENTER_LIFT_M, 0, 1, dur("base"), ease.out);
     const hidden = this.hideUnderDraft();
     if (changed || fresh.length > 0 || hidden) this.invalidate();
   }
@@ -1153,8 +1149,8 @@ export class ViewerEngine {
         this.live.get(id)?.release();
         this.live.delete(id);
         this.anim.remove(`hl:${id}`);
-        // The last breathing tint just left: stop the breath, or the frame
-        // loop would run on forever for nothing.
+        // The last preview tint just left: drop its breath, so the next
+        // proposal breathes from the start.
         this.syncBreath(performance.now());
         this.invalidate();
       };
@@ -1239,27 +1235,15 @@ export class ViewerEngine {
   }
 
   /**
-   * The purple AI preview is the only looping motion in 3D. It starts when a
-   * preview tint is on screen and stops the moment it clears, so the frame
-   * loop stops with it. Reduced motion holds a steady tint.
+   * The purple AI preview breathes twice when a proposal arrives, then holds
+   * at PREVIEW_OPACITY (engine/breath.ts). The breath is a finite track, so
+   * the frame loop stops once it lands and nothing draws while the proposal
+   * waits. Reduced motion holds the steady tint from the start.
    */
   private syncBreath(now: number): void {
     let breathing = false;
     for (const hl of this.live.values()) if (spec(hl.state).breathes) breathing = true;
-    if (!breathing) {
-      // Stops the only looping animation in 3D, so the frame loop stops too.
-      this.breathRunning = false;
-      this.anim.set("breath", PREVIEW_OPACITY);
-      return;
-    }
-    if (this.breathRunning) return;
-    if (!motionOK()) {
-      this.anim.set("breath", BREATH_HIGH);
-      return;
-    }
-    this.breathRunning = true;
-    this.anim.set("breath", BREATH_LOW);
-    this.anim.to("breath", BREATH_HIGH, now, { duration: BREATH_MS / 2, easing: ease.inOut, loop: true });
+    this.breath.sync(this.anim, breathing ? this.highlights.previewIds.join(",") : null, now);
   }
 
   private edgesFor(mesh: THREE.Mesh): LineSegmentsGeometry {
@@ -1281,8 +1265,7 @@ export class ViewerEngine {
   private releaseHighlights(): void {
     for (const hl of this.live.values()) hl.release();
     this.live.clear();
-    this.breathRunning = false;
-    if (this.anim.has("breath")) this.anim.set("breath", PREVIEW_OPACITY);
+    this.breath.reset(this.anim);
   }
 
   // ------------------------------------------------------------ roof, cut, sun
@@ -2724,7 +2707,7 @@ export class ViewerEngine {
       if (job.lift !== 0) job.fade.setLift((v - 1) * job.lift);
     }
     if (this.live.size > 0) {
-      const breath = this.anim.value("breath", PREVIEW_OPACITY);
+      const breath = this.anim.value(BREATH_KEY, PREVIEW_OPACITY);
       for (const [id, hl] of this.live) hl.apply(this.anim.value(`hl:${id}`, 1), breath);
     }
     // X-ray and hidden fade the sun shadow instead of redrawing the shadow map.

@@ -6,13 +6,14 @@
 // and nothing is an undo step. The U and I keys are bound by the shell and
 // land in the same store.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { SkyKind } from "../../contract/bindings";
+import { SHIFT } from "../../shell/actions";
 import { siteLabel, siteOf } from "../../shell/site";
 import { sunPresets, type SunPreset } from "../../shell/sun";
 import { bus } from "../../state/bus";
 import { useApp } from "../../state/store";
-import { Segmented, Switch } from "../../ui/controls";
+import { Segmented, Switch, useRovingGroup } from "../../ui/controls";
 import { useSlidingIndicator } from "../../ui/motionDom";
 import { usePresence } from "../../ui/motion";
 import { useViewer, type LampMode } from "../viewerStore";
@@ -24,6 +25,9 @@ import s from "./SunControl.module.css";
 /** The time slider's range: 5:00 to 20:00. */
 const SLIDER_MIN = 5 * 60;
 const SLIDER_MAX = 20 * 60;
+/** The popover's left edge from its button's (SunControl.module.css `.popover`), and its least gap to the view's edge, px. */
+const POPOVER_LEFT = -4;
+const POPOVER_MARGIN = 12;
 
 interface DateChip {
   key: string;
@@ -48,7 +52,7 @@ const SKY_OPTIONS: Array<{ value: SkyKind; label: string; tip: string }> = [
 
 const LAMP_OPTIONS: Array<{ value: LampMode; label: string; tip: string }> = [
   { value: "auto", label: "Auto", tip: "Fixtures light up after sunset" },
-  { value: "on", label: "On", tip: "Fixtures lit at any time (Shift+N)" },
+  { value: "on", label: "On", tip: `Fixtures lit at any time (${SHIFT}N)` },
   { value: "off", label: "Off", tip: "Fixtures off" },
 ];
 
@@ -129,8 +133,9 @@ export function SunControl({ lockedEv }: SunControlProps) {
         data-active={open}
         aria-expanded={open}
         aria-haspopup="dialog"
+        aria-label={`Sun and light, ${clockLabel(light.minutes)}`}
         data-testid="sun-control"
-        title="Sun and light: time, date, sky, lamps and shadows (U and I move the sun)"
+        data-tip={open ? "" : "Sun and light: time, date, sky, lamps and shadows (U and I move the sun)"}
         onClick={() => setOpen((o) => !o)}
       >
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" className={s.sunIcon} data-night={night}>
@@ -183,13 +188,41 @@ function SunPopover(props: {
   const rowRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
   const pill = useSlidingIndicator(rowRef, activeRef, [active?.id ?? "", presets.length]);
+  const roving = useRovingGroup({
+    active: presets.findIndex((p) => p.id === active?.id),
+    onMove: (_el, i) => setLight({ minutes: presets[i].minutes, lamps: presets[i].lamps }),
+  });
 
-  const pct = (m: number) => `${((Math.min(Math.max(m, SLIDER_MIN), SLIDER_MAX) - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100}%`;
+  /** Where a time sits along the slider, 0 to 1. */
+  const at = (m: number) => (Math.min(Math.max(m, SLIDER_MIN), SLIDER_MAX) - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN);
   const auto = light.exposureEv === null;
   const ev = light.exposureEv ?? 0;
 
+  // The button sits near the right of the toolbar: the popover moves left
+  // just enough to stay inside the 3D view instead of running off its edge.
+  const popRef = useRef<HTMLDivElement>(null);
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    const el = popRef.current;
+    const anchor = el?.offsetParent;
+    const view = el?.closest<HTMLElement>('[data-testid="viewer3d"]');
+    if (!el || !anchor || !view) return;
+    const left = anchor.getBoundingClientRect().left + POPOVER_LEFT;
+    const box = view.getBoundingClientRect();
+    const over = left + el.offsetWidth - (box.right - POPOVER_MARGIN);
+    setShift(Math.max(0, Math.min(over, left - (box.left + POPOVER_MARGIN))));
+  }, []);
+
   return (
-    <div className={s.popover} data-stage={props.stage} role="dialog" aria-label="Sun and light" data-testid="sun-popover">
+    <div
+      ref={popRef}
+      className={s.popover}
+      data-stage={props.stage}
+      role="dialog"
+      aria-label="Sun and light"
+      data-testid="sun-popover"
+      style={shift > 0 ? { left: POPOVER_LEFT - shift, transformOrigin: `${28 + shift}px -8px` } : undefined}
+    >
       <div className={s.head}>
         <span className={s.clock}>{clockLabel(light.minutes)}</span>
         <span className={s.where}>
@@ -206,7 +239,7 @@ function SunPopover(props: {
           : `Sun down, ${Math.round(-props.sunAlt)} degrees below the horizon`}
       </div>
 
-      <div className={s.presets} ref={rowRef} role="radiogroup" aria-label="Presets">
+      <div className={s.presets} ref={rowRef} role="radiogroup" aria-label="Presets" onKeyDown={roving.onKeyDown}>
         <span
           aria-hidden="true"
           className={s.presetPill}
@@ -214,17 +247,20 @@ function SunPopover(props: {
           data-instant={pill.instant}
           style={pill.style}
         />
-        {presets.map((p) => (
+        {presets.map((p, i) => (
           <button
             key={p.id}
             ref={p.id === active?.id ? activeRef : undefined}
             type="button"
             role="radio"
             aria-checked={p.id === active?.id}
+            tabIndex={roving.tabIndexFor(i)}
+            data-roving=""
             className={s.preset}
             data-active={p.id === active?.id}
             data-testid={`sun-preset-${p.id}`}
-            title={p.id === "dusk" ? "Twenty minutes after sunset, lamps on" : `${p.label}, ${clockLabel(p.minutes)} (Shift+U, Shift+I)`}
+            data-tip={p.id === "dusk" ? "Twenty minutes after sunset, lamps on" : `${p.label}, ${clockLabel(p.minutes)} (${SHIFT}U, ${SHIFT}I)`}
+            data-tip-side={i === 0 ? "bottom-start" : i === presets.length - 1 ? "bottom-end" : "bottom"}
             onClick={() => setLight({ minutes: p.minutes, lamps: p.lamps })}
           >
             {p.label}
@@ -249,14 +285,16 @@ function SunPopover(props: {
             onChange={(e) => setLight({ minutes: Number(e.target.value) })}
             onKeyDown={(e) => e.stopPropagation()}
           />
+          {/* Each mark moves by transform (SunControl.module.css), so a new
+              date slides it without laying the popover out again. */}
           {times.sunrise !== null && (
-            <span className={s.tick} style={{ left: pct(times.sunrise) }}>
-              Sunrise
+            <span className={s.tick} style={{ "--at": at(times.sunrise) } as CSSProperties}>
+              <span>Sunrise</span>
             </span>
           )}
           {times.sunset !== null && (
-            <span className={s.tick} style={{ left: pct(times.sunset) }}>
-              Sunset
+            <span className={s.tick} style={{ "--at": at(times.sunset) } as CSSProperties}>
+              <span>Sunset</span>
             </span>
           )}
         </div>
@@ -275,7 +313,8 @@ function SunPopover(props: {
                 className={s.chip}
                 data-active={on}
                 aria-pressed={on}
-                title={c.tip}
+                data-tip={c.tip}
+                data-tip-side={c.key === "today" ? "bottom-start" : c.key === "dec" ? "bottom-end" : "bottom"}
                 data-testid={`sun-date-${c.key}`}
                 onClick={() => setLight({ month: m, day: d })}
               >
@@ -340,7 +379,7 @@ function SunPopover(props: {
           Sun path
           <Switch label="Sun path" checked={sunPath} onChange={() => toggleSunPath()} />
         </label>
-        <label className={s.row} title="When the camera rests, soften shadows and edges, then stop drawing">
+        <label className={s.row} data-tip="When the camera rests, soften shadows and edges, then stop drawing" data-tip-side="top-start">
           Refine when still
           <Switch label="Refine when still" checked={refine} onChange={(next) => setRefine(next)} />
         </label>

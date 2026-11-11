@@ -9,7 +9,7 @@ import { ipc } from "../../contract/ipc";
 import { useApp } from "../../state/store";
 import { Spinner, cx } from "../../ui/controls";
 import { play } from "../../ui/motionWaapi";
-import { droppedPosition, parseSheetSvg, viewTitle, type SheetLayout, type ViewportBox } from "./sheetModel";
+import { droppedPosition, parseSheetSvg, viewLabel, type SheetLayout, type ViewportBox } from "./sheetModel";
 import s from "./sheets.module.css";
 
 interface Drag {
@@ -158,7 +158,7 @@ export function SheetPreview({
   const titleOf = (id: string) => {
     const vp = sheet.viewports.find((v) => v.id === id);
     if (!vp || !doc) return "";
-    return vp.title?.trim() || viewTitle(doc, vp.view);
+    return vp.title?.trim() || viewLabel(doc, vp.view);
   };
 
   return (

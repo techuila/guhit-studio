@@ -26,6 +26,7 @@
 import { EncodedPacket, EncodedVideoPacketSource, Mp4OutputFormat, Output, StreamTarget, type StreamTargetChunk } from "mediabunny";
 import type { IpcError, RenderSize, VideoInfo, WindowReply } from "../../contract/bindings";
 import { ipc } from "../../contract/ipc";
+import { showInFolder } from "../../shell/reveal";
 import { useApp } from "../../state/store";
 import type { ViewerEngine } from "../engine/ViewerEngine";
 import { TourJob, TOUR_SAMPLES } from "../render/tourJob";
@@ -398,7 +399,7 @@ export async function exportTour(tourId: string, size: RenderSize, opts: ExportO
     const dropped = data.frame_count - packets;
     const lost = dropped > 0 ? ` The encoder dropped ${dropped} frame${dropped === 1 ? "" : "s"}.` : "";
     const note = `Exported "${data.name}": ${info.seconds.toFixed(1)} s, ${data.frame_count} frames at ${width} x ${height}, as ${what}, in ${secs} s. Saved to Visuals.${lost}`;
-    useApp.getState().toast(chosen.codec === "png" ? "info" : "success", note);
+    useApp.getState().toast(chosen.codec === "png" ? "info" : "success", note, showInFolder(record.video?.path));
     return { render_ids: [record.id], image: poster || null, note };
   } catch (e) {
     if (uploadId) await ipc.videoAbort(uploadId).catch(() => null);

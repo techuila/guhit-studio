@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { isTypingTarget, planKeyBlocked, selectionKey } from "./keys";
+import { isTypingTarget, keyNames, planKeyBlocked, selectionKey } from "./keys";
+
+describe("key names in the plan's hints", () => {
+  it("uses the Mac symbols, like the shell's tooltips", () => {
+    const k = keyNames(true);
+    expect(`hold ${k.held.alt}`).toBe("hold ⌥");
+    expect(`${k.combo.mod}V`).toBe("⌘V");
+  });
+
+  it("spells the keys out elsewhere, with a plus only in a combination", () => {
+    const k = keyNames(false);
+    expect(`hold ${k.held.alt}`).toBe("hold Alt");
+    expect(`${k.combo.mod}V`).toBe("Ctrl+V");
+  });
+});
 
 const el = (tagName: string, o: { editable?: boolean; inside?: string } = {}) => ({
   tagName,

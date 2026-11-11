@@ -8,6 +8,11 @@ import { useEffect, useRef, useState } from "react";
 export const DUR = { press: 80, hover: 120, base: 180, panel: 240, scene: 360 } as const;
 export type DurKey = keyof typeof DUR;
 
+/** --dur-loop: the period of indeterminate progress. Not shortened under reduced motion: such loops stop instead. */
+export const LOOP_MS = 1600;
+/** --tip-delay: hover intent before a tooltip shows. Kept under reduced motion. */
+export const TIP_DELAY_MS = 350;
+
 const reduced =
   typeof window !== "undefined" && typeof window.matchMedia === "function"
     ? window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -42,17 +47,45 @@ function bezier(x1: number, y1: number, x2: number, y2: number) {
   };
 }
 
+/**
+ * The stops of --ease-spring (`linear(...)` in tokens.css) as [x, y]. The JS
+ * spring follows the same line, so canvas, 3D and CSS springs overshoot
+ * alike (6%). A test checks these against the token.
+ */
+export const SPRING_STOPS: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [0.12, 0.35],
+  [0.24, 0.72],
+  [0.36, 0.96],
+  [0.48, 1.06],
+  [0.58, 1.05],
+  [0.72, 1.01],
+  [0.86, 0.995],
+  [1, 1],
+];
+
+function piecewiseLinear(stops: ReadonlyArray<readonly [number, number]>) {
+  return (x: number) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    for (let i = 1; i < stops.length; i++) {
+      const [x1, y1] = stops[i];
+      if (x <= x1) {
+        const [x0, y0] = stops[i - 1];
+        return y0 + ((y1 - y0) * (x - x0)) / (x1 - x0);
+      }
+    }
+    return 1;
+  };
+}
+
 /** JS twins of the CSS easing tokens, for canvas and three.js animation. */
 export const ease = {
   out: bezier(0.22, 1, 0.36, 1),
   in: bezier(0.55, 0, 0.8, 0.3),
   inOut: bezier(0.65, 0, 0.35, 1),
-  /** Small settle overshoot, for things that land. */
-  spring: (x: number) => {
-    if (x <= 0) return 0;
-    if (x >= 1) return 1;
-    return 1 - Math.exp(-6.5 * x) * Math.cos(9 * x);
-  },
+  /** Small settle overshoot, for things the user just placed or toggled. Never for status pills or mesh enters. */
+  spring: piecewiseLinear(SPRING_STOPS),
 } as const;
 
 export interface Tween {
@@ -123,8 +156,16 @@ export function usePresence(open: boolean, exit: DurKey = "base") {
       setMounted(true);
       setStage("enter");
       // Two frames so the enter styles are committed before switching to idle.
-      const id = requestAnimationFrame(() => requestAnimationFrame(() => setStage("idle")));
-      return () => cancelAnimationFrame(id);
+      // Both frames are cancelled: an open and close within one frame must not
+      // land on "idle" after "exit".
+      let inner = 0;
+      const outer = requestAnimationFrame(() => {
+        inner = requestAnimationFrame(() => setStage("idle"));
+      });
+      return () => {
+        cancelAnimationFrame(outer);
+        cancelAnimationFrame(inner);
+      };
     }
     setStage("exit");
     timer.current = window.setTimeout(() => setMounted(false), Math.round(dur(exit) * 0.7));

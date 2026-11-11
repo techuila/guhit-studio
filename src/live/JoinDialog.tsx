@@ -37,7 +37,7 @@ export function JoinDialog({ stage }: { stage?: PresenceStage }) {
   const join = async () => {
     if (busy) return;
     if (!info) {
-      setError(typed ? `This is not a Guhit invite. Guhit invites start with "${INVITE_PREFIX}".` : "Paste the invite the host sent you.");
+      setError(typed ? `This is not a Guhit Studio invite. Invites start with "${INVITE_PREFIX}".` : "Paste the invite the host sent you.");
       inviteRef.current?.focus();
       return;
     }

@@ -44,18 +44,19 @@
 }
 
 .v_primary {
-  background: var(--accent);
+  background: var(--accent-strong);
   border-color: var(--accent-strong);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .v_primary:hover:not(:disabled) {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .v_primary:active:not(:disabled) {
-  background: #085a5e;
+  background: var(--accent-active);
+  border-color: var(--accent-active);
 }
 
 .v_ghost {
@@ -79,7 +80,7 @@
 .v_danger:hover:not(:disabled) {
   background: var(--danger);
   border-color: var(--danger);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .v_chrome {
@@ -96,7 +97,11 @@
 }
 
 .v_chrome:active:not(:disabled) {
-  background: #24405f;
+  background: var(--chrome-hover);
+}
+
+.v_chrome:focus-visible {
+  outline-color: var(--focus-chrome);
 }
 
 .iconButton {
@@ -142,16 +147,20 @@
 
 .iconChrome:hover:not(:disabled) {
   background: var(--chrome-2);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .iconChrome:active:not(:disabled) {
-  background: #24405f;
+  background: var(--chrome-hover);
+}
+
+.iconChrome:focus-visible {
+  outline-color: var(--focus-chrome);
 }
 
 .iconChrome.iconActive {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* segmented */
@@ -245,11 +254,19 @@
 }
 
 .segChrome .segment:hover {
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .segChrome .segmentOn {
-  color: #fff;
+  color: var(--on-accent);
+}
+
+.segChrome .segment:focus-visible {
+  outline-color: var(--focus-chrome);
+}
+
+.segment:focus-visible {
+  outline-offset: -1px;
 }
 
 /* switch */
@@ -259,10 +276,17 @@
   height: 16px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-pill);
   background: var(--line-strong);
   cursor: default;
   transition: background var(--dur-base) var(--ease-out), transform var(--dur-press) var(--ease-out);
+}
+
+/* The track stays 28 x 16; the hit area reaches 36 x 24. */
+.switch::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
 }
 
 .switch:active:not(:disabled) {
@@ -280,7 +304,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--on-accent);
   box-shadow: 0 1px 1px rgba(20, 40, 63, 0.3);
   transition: transform var(--dur-base) var(--ease-spring);
 }
@@ -314,9 +338,9 @@
   height: 16px;
   margin-top: 1px;
   border: 1px solid var(--line-strong);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
-  color: #fff;
+  color: var(--on-accent);
   transition:
     background var(--dur-hover) var(--ease-out),
     border-color var(--dur-hover) var(--ease-out),
@@ -397,7 +421,7 @@
 .select:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .selectChevron {
@@ -446,7 +470,7 @@ textarea.input {
 .input:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .numberWrap {
@@ -469,7 +493,7 @@ textarea.input {
 
 .numberWrap:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .numberDisabled {
@@ -484,7 +508,7 @@ textarea.input {
   border: 0;
   background: transparent;
   color: var(--ink);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   cursor: text;
@@ -515,12 +539,12 @@ textarea.input {
 .inputInvalid:focus-within {
   border-color: var(--danger);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 18%, transparent);
-  animation: global(ui-shake) 320ms var(--ease-out);
+  animation: global(ui-shake) var(--dur-panel) var(--ease-out);
 }
 
 /* A committed number field flashes teal briefly (MOTION.md, Inspector row). */
 .numberFlash {
-  animation: global(ui-commit-flash) 500ms var(--ease-out);
+  animation: global(ui-commit-flash) var(--dur-panel) var(--ease-out);
 }
 
 /* field rows */
@@ -556,7 +580,7 @@ textarea.input {
 
 .readOnly {
   color: var(--ink);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
@@ -605,17 +629,38 @@ textarea.input {
   transform: rotate(90deg);
 }
 
-.sectionCount {
-  min-width: 17px;
-  height: 17px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--surface-3);
+/* Shared type styles. Compose them from any module:
+     .myLabel { composes: sectionLabel from "../ui/controls.module.css"; }
+   or use sectionLabelClass / countClass from controls.tsx. */
+
+/* A section heading inside a panel: sentence case, never tracked caps.
+   Titles on paper (sheets, view titles on drawings) stay uppercase. */
+.sectionLabel {
+  margin: 0;
   color: var(--ink-2);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
   font-weight: 600;
-  line-height: 17px;
-  text-align: center;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* A count after a label: a plain tabular number, no fill. Only unread chat
+   keeps a filled badge. */
+.count {
+  margin-left: 4px;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.sectionCount {
+  composes: count;
+  /* The toggle already has a 6 px gap. */
+  margin-left: -2px;
 }
 
 .sectionReveal {
@@ -640,6 +685,15 @@ textarea.input {
   padding: 2px 12px 12px;
 }
 
+/* Indeterminate progress: the one kind of loop the app allows (rule 11). */
 .spinner {
-  animation: global(ui-spin) 900ms linear infinite;
+  animation: global(ui-spin) var(--dur-loop) linear infinite;
+}
+
+/* Reduced motion: a still ring. It always sits beside text ("Saving"). */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+    opacity: 0.7;
+  }
 }

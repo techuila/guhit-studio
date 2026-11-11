@@ -1,7 +1,9 @@
 /* Permit fields (lane L1): type marks, automatic dimension pills, the lot's
    sides, the technical description box and the schedules' live numbers.
-   Motion per docs/MOTION.md: tokens only, pills pop with the spring, rows
-   rise in, reveals open by grid rows, numbers that change bump once. */
+   Motion per docs/MOTION.md: tokens only, pills fade in from 0.9 with
+   --ease-out (rule 4: the spring is for things placed), rows rise in once as
+   one block (rule 8), reveals open by grid rows, numbers that change bump
+   once. */
 
 .markPill {
   display: inline-flex;
@@ -11,14 +13,14 @@
   height: 20px;
   padding: 0 7px;
   border: 1px solid var(--ink-2);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink);
   font-family: var(--font-ui);
   font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
-  animation: pill-pop var(--dur-base) var(--ease-spring);
+  animation: pill-pop var(--dur-base) var(--ease-out);
 }
 
 .markWindow {
@@ -27,7 +29,7 @@
 
 @keyframes pill-pop {
   from {
-    transform: scale(0.6);
+    transform: scale(0.9);
     opacity: 0;
   }
   to {
@@ -46,9 +48,10 @@
   line-height: 1.4;
 }
 
-/* The rule, or "Moved from D1 to D3" after an edit moved the opening: fades in with a 4 px rise. */
+/* The rule, or "Moved from D1 to D3" after an edit moved the opening: it
+   arrives, so it fades in with the shared small rise. */
 .typeNote {
-  animation: row-in var(--dur-base) var(--ease-out);
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out);
 }
 
 .autoPill {
@@ -57,12 +60,12 @@
   gap: 5px;
   height: 20px;
   padding: 0 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent-soft);
   color: var(--accent-strong);
   font-size: var(--text-xs);
   font-weight: 600;
-  animation: pill-pop var(--dur-base) var(--ease-spring);
+  animation: pill-pop var(--dur-base) var(--ease-out);
 }
 
 .autoWhat {
@@ -85,21 +88,10 @@
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--ink);
-  font-family: var(--font-mono);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
-  animation: row-in var(--dur-base) var(--ease-out) both;
-}
-
-@keyframes row-in {
-  from {
-    transform: translateY(4px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  /* The segments rise in together as one block (MOTION.md rule 8). */
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out);
 }
 
 /* ------------------------------------------------------------ the lot */
@@ -166,28 +158,29 @@
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   color: var(--ink-2);
-  font-family: var(--font-mono);
   font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 
+/* Bearings and lengths: the UI face with tabular figures (mono is for code
+   and coordinates). */
 .sideBearing {
   overflow: hidden;
-  font-family: var(--font-mono);
   font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .sideLength {
   color: var(--ink-2);
-  font-family: var(--font-mono);
   font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .roleTag {
   margin-left: 6px;
   color: var(--ink-3);
-  font-family: var(--font-ui);
 }
 
 .sideReveal {
@@ -239,7 +232,7 @@
 .paste:focus {
   border-color: var(--accent);
   outline: none;
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .error {
@@ -247,8 +240,10 @@
   color: var(--danger);
   font-size: var(--text-xs);
   line-height: 1.4;
+  /* It arrives, then shakes 4 px once (the shake moves `translate`, so it
+     composes with the rise's `transform`). */
   animation:
-    row-in var(--dur-base) var(--ease-out),
+    global(ui-rise-in) var(--dur-base) var(--ease-out),
     shake var(--dur-panel) var(--ease-out);
 }
 
@@ -265,16 +260,17 @@
   }
 }
 
-/* A number that changed: a teal wash and a small bump, once. */
+/* A number that changed: a teal wash and a small bump, once (from 1.12,
+   MOTION.md rule 4). */
 .bump {
   display: inline-block;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   animation: num-bump var(--dur-panel) var(--ease-out);
 }
 
 @keyframes num-bump {
   0% {
-    transform: scale(1.18);
+    transform: scale(1.12);
     background: var(--accent-soft);
     color: var(--accent-strong);
   }

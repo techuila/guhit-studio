@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DocState, Element } from "../../contract/bindings";
-import { defaultSetCommand, droppedPosition, dropIndex, nextRevisionMark, parseSheetSvg, projectViews, shiftFor, today, viewTitle } from "./sheetModel";
+import { defaultSetCommand, droppedPosition, dropIndex, nextRevisionMark, parseSheetSvg, projectViews, shiftFor, today, viewLabel, viewTitle } from "./sheetModel";
 
 const SVG = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="420mm" height="297mm" viewBox="0 0 420 297">
@@ -73,6 +73,15 @@ describe("views and the default set", () => {
     expect(groups.filter((g) => g === "Plans")).toHaveLength(2);
     expect(groups.filter((g) => g === "Elevations")).toHaveLength(3);
     expect(groups.filter((g) => g === "Schedules")).toHaveLength(4);
+  });
+
+  it("names views in lists in sentence case, keeping a section's marks (paper titles stay uppercase)", () => {
+    const labels = projectViews(d).map((v) => v.label);
+    expect(labels).toContain("North elevation");
+    expect(labels).toContain("Section A-A");
+    expect(labels.some((l) => l === l.toUpperCase() && /[A-Z]{3}/.test(l))).toBe(false);
+    expect(viewLabel(d, { type: "section", mark_id: "s1" })).toBe("Section A-A");
+    expect(viewTitle(d, { type: "section", mark_id: "s1" })).toBe("SECTION A-A");
   });
 
   it("makes plans per level, elevations two to a sheet, the roof and the schedules", () => {

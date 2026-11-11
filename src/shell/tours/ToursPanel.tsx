@@ -4,7 +4,7 @@
 // the tours section. Playing is the `play_tour` bus event, which the 3D view
 // answers (viewer3d/tour/player.ts). While open, the tour's camera path shows
 // in 3D (viewer3d/tour/pathPreview.ts).
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { AutoTour, Ease, RenderSize, Shot, TransitionKind } from "../../contract/bindings";
 import { useApp } from "../../state/store";
 import { Button, IconButton, NumberField, Select, Switch, TextField } from "../../ui/controls";
@@ -60,8 +60,11 @@ function Panel({ stage }: { stage: PresenceStage }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const panelRef = useRef<HTMLElement>(null);
+  useToastLift(panelRef, stage !== "exit");
+
   return (
-    <section className={s.panel} data-stage={stage} aria-label="Tours" data-testid="tours-panel">
+    <section ref={panelRef} className={s.panel} data-stage={stage} aria-label="Tours" data-testid="tours-panel">
       <header className={s.head}>
         <h2 className={s.title}>Tours</h2>
         {tour && tours.length > 1 ? (
@@ -104,6 +107,30 @@ function Panel({ stage }: { stage: PresenceStage }) {
       </div>
     </section>
   );
+}
+
+/**
+ * While the panel is open, toasts rise above it: the toast stack reads
+ * `--toast-lift` on :root (ui/feedback.module.css). Cleared as the panel
+ * starts to close, so a toast never floats over empty canvas.
+ */
+function useToastLift(ref: RefObject<HTMLElement | null>, on: boolean): void {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const root = document.documentElement;
+    if (!el || !on) {
+      root.style.removeProperty("--toast-lift");
+      return;
+    }
+    const lift = () => root.style.setProperty("--toast-lift", `${Math.round(el.offsetHeight) + 8}px`);
+    lift();
+    const ro = new ResizeObserver(lift);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty("--toast-lift");
+    };
+  }, [ref, on]);
 }
 
 /** Keeps the 3D path preview on the open tour while the panel shows. */

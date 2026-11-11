@@ -3,7 +3,7 @@
 // With several agents (DECISIONS D47): who is connected now, with a link to
 // the Agents panel, and "Add another agent", a labelled URL per agent
 // (`/mcp/agent/<label>`) with the toolsets it asks for.
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { toIpcError } from "../../contract/ipc";
 import { openAgents } from "../../live/agentActions";
@@ -11,7 +11,7 @@ import { AgentAvatar } from "../../live/AgentAvatar";
 import { agentTitle, onBar, statusText } from "../../live/agents";
 import { useAgents } from "../../live/agentsStore";
 import { copyText } from "../../ui/clipboard";
-import { Button, Switch, cx } from "../../ui/controls";
+import { Button, Switch, cx, useRovingGroup } from "../../ui/controls";
 import { Dialog } from "../../ui/Dialog";
 import type { PresenceStage } from "../../ui/motion";
 import { relativeTime } from "../../ui/units";
@@ -42,6 +42,9 @@ import {
 import { dotState, useConnect, useMcpPolling } from "./connectStore";
 import { openClaudeDesktopBundle, openErrorText, openLink } from "./open";
 import s from "./connect.module.css";
+
+/** "Free and local models" to "free-and-local-models", for element ids. */
+const slugOf = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
 function Mark({ agent, big }: { agent: AgentDef; big?: boolean }) {
   return (
@@ -348,7 +351,6 @@ function ConnectedNow() {
             className={cx(s.connectedItem, row.entering && s.connectedIn, row.leaving && s.connectedOut)}
             data-tip={`${agentTitle(row.item)}: ${statusText(row.item)}`}
             data-tip-side="bottom"
-            style={{ "--i": 0 } as CSSProperties}
           >
             <AgentAvatar name={row.item.name} color={row.item.color} activity={row.item.activity} size={20} ring="var(--surface-2)" />
             <span className={s.connectedName}>{row.item.name}</span>
@@ -384,7 +386,7 @@ function StatusLine() {
       ? "Agents are off"
       : status.listening
         ? "Ready for agents"
-        : `Not listening: port ${port} is taken`;
+        : `Not listening: another app uses port ${port}. Quit it, then turn Allow agents off and on.`;
   const last = status?.last_client;
   const lastText = !status
     ? ""
@@ -434,6 +436,13 @@ export function ConnectDialog({ stage }: { stage?: PresenceStage }) {
   const [picked, setPicked] = useState<string | null>(null);
   const inUse = agentForClient(status?.last_client?.name);
   const selected = agentById(picked ?? inUse ?? "claude-code");
+  // The agent list is one listbox across its groups: one tab stop, the arrows pick.
+  const order = GROUPS.flatMap((g) => AGENTS.filter((a) => a.group === g));
+  const roving = useRovingGroup({
+    active: order.findIndex((a) => a.id === selected.id),
+    orientation: "vertical",
+    onMove: (el) => setPicked(el.dataset.agent ?? null),
+  });
   const ctx: SetupContext = {
     url: status?.url ?? FALLBACK_URL,
     stdioCommand: status?.stdio_command ?? null,
@@ -448,28 +457,33 @@ export function ConnectDialog({ stage }: { stage?: PresenceStage }) {
       onClose={() => useConnect.getState().closeDialog()}
       footer={
         <div className={s.foot}>
-          <span>Your agent's own subscription or local model does the thinking. Guhit never sees a key. Every change is one undo step.</span>
+          <span>Your agent's own subscription or local AI model does the thinking. Guhit Studio never sees a key. Every change is one undo step.</span>
           <a className={s.docsLink} href={DOCS_URL} target="_blank" rel="noreferrer">
             Setup for every agent
           </a>
         </div>
       }
     >
+      {/* The task first: pick the agent, copy its setup. Who is working and
+          the tools they get come after it. */}
       <div className={s.frame}>
         <StatusLine />
-        <ConnectedNow />
-        <ToolsetsSection />
         <div className={s.split}>
-          <div className={s.agents} role="listbox" aria-label="Agents">
+          <div className={s.agents} role="listbox" aria-label="Agents" onKeyDown={roving.onKeyDown}>
             {GROUPS.map((g) => (
-              <div key={g} className={s.group}>
-                <div className={s.groupName}>{g}</div>
+              <div key={g} className={s.group} role="group" aria-labelledby={`connect-group-${slugOf(g)}`}>
+                <div className={s.groupName} id={`connect-group-${slugOf(g)}`}>
+                  {g}
+                </div>
                 {AGENTS.filter((a) => a.group === g).map((a) => (
                   <button
                     key={a.id}
                     type="button"
                     role="option"
                     aria-selected={a.id === selected.id}
+                    tabIndex={roving.tabIndexFor(order.indexOf(a))}
+                    data-roving=""
+                    data-agent={a.id}
                     className={s.agent}
                     onClick={() => setPicked(a.id)}
                   >
@@ -483,6 +497,8 @@ export function ConnectDialog({ stage }: { stage?: PresenceStage }) {
           </div>
           <Detail agent={selected} ctx={ctx} />
         </div>
+        <ConnectedNow />
+        <ToolsetsSection />
       </div>
     </Dialog>
   );

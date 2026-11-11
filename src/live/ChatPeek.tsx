@@ -73,12 +73,12 @@ function Card({ card, entering, leaving }: { card: PeekCard; entering: boolean; 
           <div className={s.head}>
             <span className={s.name}>{card.name}</span>
             {card.viaAi ? (
-              <span className={s.aiTag} title="Sent by an AI client on their behalf">
+              <span className={s.aiTag} title="Sent by their AI agent">
                 AI
               </span>
             ) : null}
             {pill ? (
-              // Keyed by the count, so each new message pops it once.
+              // Keyed by the count, so it fades in again with each new message.
               <span key={card.count} className={s.count}>
                 {pill}
               </span>

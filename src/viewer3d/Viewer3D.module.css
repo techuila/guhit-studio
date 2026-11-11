@@ -61,11 +61,11 @@
   display: flex;
   gap: 1px;
   padding: 3px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  /* Solid, never frosted: a blur re-composites on every 3D frame. */
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-1);
-  backdrop-filter: blur(6px);
   pointer-events: auto;
 }
 
@@ -73,7 +73,8 @@
   margin-left: auto;
 }
 
-/* One pill slides between camera presets instead of the background jumping. */
+/* One pill slides between camera presets instead of the background jumping.
+   It answers a click or a key (X), so it starts at once (--ease-out). */
 .indicator {
   position: absolute;
   left: 0;
@@ -83,8 +84,8 @@
   background: var(--accent-soft);
   pointer-events: none;
   transition:
-    transform var(--dur-base) var(--ease-in-out),
-    width var(--dur-base) var(--ease-in-out);
+    transform var(--dur-base) var(--ease-out),
+    width var(--dur-base) var(--ease-out);
 }
 
 .btn {
@@ -134,10 +135,6 @@
 
 .btn[data-active="true"] {
   color: var(--accent-strong);
-}
-
-
-.btn[data-active="true"] {
   background: var(--accent-soft);
 }
 
@@ -145,14 +142,6 @@
    itself stays clear and only one thing moves. */
 .group[data-slider="true"] .btn[data-active="true"] {
   background: transparent;
-}
-
-.btn svg {
-  transition: transform var(--dur-hover) var(--ease-out);
-}
-
-.btn:hover:not(:disabled) svg {
-  transform: translateY(-1px);
 }
 
 .dot {
@@ -196,7 +185,7 @@
   color: var(--ink-2);
   font-size: var(--text-sm);
   line-height: 1.45;
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-2);
@@ -204,10 +193,11 @@
   animation: noticeIn var(--dur-panel) var(--ease-out);
 }
 
+/* The shared 4 px rise, kept local because the notice is centred by its transform. */
 @keyframes noticeIn {
   from {
     opacity: 0;
-    transform: translate(-50%, calc(-50% + 8px));
+    transform: translate(-50%, calc(-50% + 4px));
   }
 }
 
@@ -304,8 +294,15 @@
   height: 2px;
 }
 
+/* A list of keys and what they do, a gap between pairs (no separators). */
 .walkHint {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px 12px;
+  margin: 0;
   padding: 5px 10px;
+  list-style: none;
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--chrome) 86%, transparent);
   color: var(--chrome-text);
@@ -325,14 +322,18 @@
   transition-timing-function: var(--ease-in);
 }
 
+.walkKey {
+  white-space: nowrap;
+}
+
 .walkHint kbd {
   display: inline-block;
   min-width: 16px;
   margin: 0 1px;
   padding: 0 4px;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.16);
-  font: 600 10.5px/16px var(--font-mono);
+  background: color-mix(in srgb, var(--on-dark) 16%, transparent);
+  font: 600 var(--text-xs) / 16px var(--font-ui);
   text-align: center;
 }
 

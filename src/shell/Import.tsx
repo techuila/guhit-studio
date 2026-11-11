@@ -36,6 +36,19 @@ type CadUnit = (typeof CAD_UNITS)[number]["value"];
 
 const MODEL_SCALE_DEFAULT: Record<string, number> = { glb: 1000, gltf: 1000, obj: 1 };
 
+/** Why a drawing could not be read. Settings can only help when the DWG converter is the cause. */
+export interface CadError {
+  message: string;
+  converter: boolean;
+}
+
+/** A DWG that failed in or before the ODA File Converter: the one case Settings can fix. */
+export function cadErrorOf(source: FileSource, message: string): CadError {
+  const name = "path" in source ? source.path : source.file_name;
+  const dwg = /\.dwg$/i.test(name.trim());
+  return { message, converter: dwg && /converter|ODA/i.test(message) };
+}
+
 interface CadState {
   source: FileSource;
   inspection: ImportInspection;
@@ -56,7 +69,7 @@ export function ImportController() {
   const reportError = useApp((st) => st.reportError);
 
   const [cad, setCad] = useState<CadState | null>(null);
-  const [cadError, setCadError] = useState<string | null>(null);
+  const [cadError, setCadError] = useState<CadError | null>(null);
   const [model, setModel] = useState<ModelState | null>(null);
   /** Asking before a bundle ends the live session this computer hosts. */
   const [askBundle, setAskBundle] = useState(false);
@@ -72,7 +85,7 @@ export function ImportController() {
       const inspection = await ipc.importInspect(source);
       setCad({ source, inspection });
     } catch (e) {
-      setCadError(toIpcError(e).message);
+      setCadError(cadErrorOf(source, toIpcError(e).message));
     } finally {
       useApp.setState({ busy: false });
     }
@@ -93,7 +106,7 @@ export function ImportController() {
   };
 
   const openBundle = async (source: FileSource) => {
-    setBusyLabel("Opening the bundle");
+    setBusyLabel("Opening the project file");
     useApp.setState({ busy: true });
     try {
       const state = await ipc.bundleOpen(source);
@@ -136,7 +149,7 @@ export function ImportController() {
     }
     if (isTauri) {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const picked = await open({ multiple: false, filters: [{ name: "Guhit project bundle", extensions: ["guhit"] }] });
+      const picked = await open({ multiple: false, filters: [{ name: "Guhit Studio project file", extensions: ["guhit"] }] });
       if (typeof picked === "string") void openBundle({ path: picked });
     } else {
       bundleInputRef.current?.click();
@@ -198,7 +211,7 @@ export function ImportController() {
       <Presence open={cad !== null || cadError !== null} exit="panel">
         {(stage) =>
           cadError ? (
-            <CadErrorDialog message={cadError} onClose={() => setCadError(null)} stage={stage} />
+            <CadErrorDialog error={cadError} onClose={() => setCadError(null)} stage={stage} />
           ) : lastCad ? (
             <CadImportDialog cad={lastCad} onClose={() => setCad(null)} stage={stage} />
           ) : null
@@ -233,10 +246,10 @@ function BundleEndsSession({ onConfirm, onCancel, stage }: { onConfirm: () => vo
       title="End the live session?"
       message={
         count > 0
-          ? `Opening a bundle ends the live session for ${count === 1 ? "the other person" : `the other ${count} people`}. This project stays on this computer.`
-          : "Opening a bundle ends the live session. This project stays on this computer."
+          ? `Opening a .guhit file ends the live session for ${count === 1 ? "the other person" : `the other ${count} people`}. This project stays on this computer.`
+          : "Opening a .guhit file ends the live session. This project stays on this computer."
       }
-      confirmLabel="Open a bundle"
+      confirmLabel="Open the file"
       danger
       onCancel={onCancel}
       onConfirm={onConfirm}
@@ -245,7 +258,7 @@ function BundleEndsSession({ onConfirm, onCancel, stage }: { onConfirm: () => vo
   );
 }
 
-function CadErrorDialog({ message, onClose, stage }: { message: string; onClose: () => void; stage?: PresenceStage }) {
+function CadErrorDialog({ error, onClose, stage }: { error: CadError; onClose: () => void; stage?: PresenceStage }) {
   return (
     <Dialog
       title="Could not read the file"
@@ -253,22 +266,28 @@ function CadErrorDialog({ message, onClose, stage }: { message: string; onClose:
       width={420}
       stage={stage}
       footer={
-        <>
-          <Button onClick={onClose}>Close</Button>
-          <Button
-            variant="primary"
-            data-autofocus
-            onClick={() => {
-              onClose();
-              useShell.getState().open("settings");
-            }}
-          >
-            Open Settings
+        error.converter ? (
+          <>
+            <Button onClick={onClose}>Close</Button>
+            <Button
+              variant="primary"
+              data-autofocus
+              onClick={() => {
+                onClose();
+                useShell.getState().open("settings");
+              }}
+            >
+              Open Settings
+            </Button>
+          </>
+        ) : (
+          <Button variant="primary" data-autofocus onClick={onClose}>
+            Close
           </Button>
-        </>
+        )
       }
     >
-      <p className={s.importError}>{message}</p>
+      <p className={s.importError}>{error.message}</p>
     </Dialog>
   );
 }

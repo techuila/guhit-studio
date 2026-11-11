@@ -295,7 +295,7 @@ async function swarmRun(browser) {
   await page.click(`[aria-label="Open ${name}"]`);
   await page.waitForSelector('nav[aria-label="Drawing tools"]');
   // The dock (lazy) listens for the swarm: wait for it, so the window watches the swarm start.
-  await page.waitForSelector('[aria-label="Copilot chat or agent swarm"]');
+  await page.waitForSelector('[aria-label="Ask the copilot or run a swarm"]');
   const before = await ipc("doc_state");
 
   // ---- The lead starts the swarm with 3 parts.

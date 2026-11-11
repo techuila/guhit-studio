@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { DisplayUnit } from "../contract/bindings";
 import { Icon, type IconName } from "./icons";
+import { DUR } from "./motion";
 import { useFlash, useSlidingIndicator } from "./motionDom";
 import { lengthToInput, numberToInput, parseLength, parseNumber } from "./units";
 import s from "./controls.module.css";
@@ -16,6 +17,11 @@ import s from "./controls.module.css";
 export function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
 }
+
+/** Sentence-case section heading inside a panel (replaces tracked caps eyebrows). */
+export const sectionLabelClass = s.sectionLabel;
+/** A plain tabular count after a label, in ink-3, no fill. */
+export const countClass = s.count;
 
 // ---------------------------------------------------------------- buttons
 
@@ -71,6 +77,108 @@ export function IconButton({
   );
 }
 
+// ---------------------------------------------------------------- roving focus
+
+export type RovingOrientation = "horizontal" | "vertical" | "both";
+
+/**
+ * The index a key moves to in a group of `count` items (WAI-ARIA roving
+ * tabindex), or null when the key does not move. Arrows wrap; Home and End go
+ * to the ends.
+ */
+/** Which way a key moves in a group: one step on, one step back, to an end, or not at all. */
+function rovingStep(key: string, orientation: RovingOrientation): 1 | -1 | "home" | "end" | null {
+  const nextKeys = orientation === "vertical" ? ["ArrowDown"] : orientation === "horizontal" ? ["ArrowRight"] : ["ArrowRight", "ArrowDown"];
+  const prevKeys = orientation === "vertical" ? ["ArrowUp"] : orientation === "horizontal" ? ["ArrowLeft"] : ["ArrowLeft", "ArrowUp"];
+  if (nextKeys.includes(key)) return 1;
+  if (prevKeys.includes(key)) return -1;
+  if (key === "Home") return "home";
+  if (key === "End") return "end";
+  return null;
+}
+
+export function rovingNext(key: string, index: number, count: number, orientation: RovingOrientation = "both"): number | null {
+  if (count <= 0) return null;
+  const step = rovingStep(key, orientation);
+  if (step === null) return null;
+  if (step === "home") return 0;
+  if (step === "end") return count - 1;
+  if (index < 0 || index >= count) return step === 1 ? 0 : count - 1;
+  return (index + step + count) % count;
+}
+
+/**
+ * `rovingNext` over a full list where some items are disabled: `index` and
+ * the result are indices into the full list, and disabled items are skipped.
+ * From a disabled or unknown index, the arrows go to the nearest enabled item
+ * in their direction.
+ */
+export function rovingNextEnabled(key: string, index: number, enabled: boolean[], orientation: RovingOrientation = "both"): number | null {
+  const ok = enabled.flatMap((on, i) => (on ? [i] : []));
+  if (ok.length === 0) return null;
+  const step = rovingStep(key, orientation);
+  if (step === null) return null;
+  if (step === "home") return ok[0];
+  if (step === "end") return ok[ok.length - 1];
+  const pos = ok.indexOf(index);
+  if (pos >= 0) return ok[(pos + step + ok.length) % ok.length];
+  // From a disabled or unknown item: the nearest enabled one that way, wrapping.
+  const found = step === 1 ? ok.find((i) => i > index) : [...ok].reverse().find((i) => i < index);
+  return found ?? (step === 1 ? ok[0] : ok[ok.length - 1]);
+}
+
+/**
+ * The tab stop of item `i`: only the active item is reachable with Tab, or the
+ * first enabled item when nothing (or a disabled item) is active.
+ */
+export function rovingTabIndex(i: number, active: number, isDisabled?: (i: number) => boolean): 0 | -1 {
+  const off = isDisabled ?? (() => false);
+  if (active >= 0 && !off(active)) return i === active ? 0 : -1;
+  let first = 0;
+  while (first < 256 && off(first)) first++;
+  return i === first ? 0 : -1;
+}
+
+/**
+ * One tab stop for a radio group, tab list or option row; the arrow keys,
+ * Home and End move between its items and skip disabled ones. Mark each
+ * item with `data-roving` and give it `tabIndex={roving.tabIndexFor(i)}`;
+ * put `onKeyDown` on the group. Every index (`active`, `tabIndexFor`,
+ * `onMove`, `isDisabled`) is an index into the full list of `data-roving`
+ * items, disabled ones included, so `options[index]` is always the right
+ * option. `onMove` gets the item that took focus: a radio group selects it
+ * (arrows select, per WAI-ARIA), a tab list opens it.
+ */
+export function useRovingGroup({
+  active,
+  onMove,
+  orientation = "both",
+  isDisabled,
+}: {
+  active: number;
+  onMove: (el: HTMLElement, index: number) => void;
+  orientation?: RovingOrientation;
+  /** Which items are disabled, so the tab stop never lands on one. */
+  isDisabled?: (index: number) => boolean;
+}) {
+  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    const items = [...e.currentTarget.querySelectorAll<HTMLElement>("[data-roving]")];
+    const enabled = items.map(
+      (el) => !(el as HTMLButtonElement).disabled && el.getAttribute("aria-disabled") !== "true",
+    );
+    const from = items.indexOf(document.activeElement as HTMLElement);
+    const next = rovingNextEnabled(e.key, from >= 0 ? from : active, enabled, orientation);
+    if (next === null) return;
+    e.preventDefault();
+    // Arrows here must not also nudge the selection on the plan.
+    e.stopPropagation();
+    const el = items[next];
+    el.focus();
+    onMove(el, next);
+  };
+  return { onKeyDown, tabIndexFor: (i: number) => rovingTabIndex(i, active, isDisabled) };
+}
+
 // ---------------------------------------------------------------- segmented
 
 export interface SegmentedOption<T extends string> {
@@ -102,10 +210,23 @@ export function Segmented<T extends string>({
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
   const thumb = useSlidingIndicator(containerRef, activeRef, [value, options.length]);
+  const roving = useRovingGroup({
+    active: options.findIndex((o) => o.value === value),
+    onMove: (el) => {
+      const next = options.find((o) => o.value === el.dataset.value);
+      if (next && next.value !== value) onChange(next.value);
+    },
+  });
   return (
-    <div ref={containerRef} role="radiogroup" aria-label={label} className={cx(s.segmented, tone === "chrome" && s.segChrome, stretch && s.segStretch)}>
+    <div
+      ref={containerRef}
+      role="radiogroup"
+      aria-label={label}
+      className={cx(s.segmented, tone === "chrome" && s.segChrome, stretch && s.segStretch)}
+      onKeyDown={roving.onKeyDown}
+    >
       {thumb.visible ? <span aria-hidden className={cx(s.segThumb, thumb.instant && s.segThumbInstant)} style={thumb.style} /> : null}
-      {options.map((o) => (
+      {options.map((o, i) => (
         <button
           key={o.value}
           ref={o.value === value ? activeRef : undefined}
@@ -113,6 +234,9 @@ export function Segmented<T extends string>({
           role="radio"
           aria-checked={o.value === value}
           aria-label={iconOnly ? o.label : undefined}
+          tabIndex={roving.tabIndexFor(i)}
+          data-roving=""
+          data-value={o.value}
           data-tip={o.tip}
           className={cx(s.segment, o.value === value && s.segmentOn)}
           onClick={() => onChange(o.value)}
@@ -365,7 +489,7 @@ export function NumberField({
     return v;
   };
   // A committed value flashes teal briefly (MOTION.md, Inspector row).
-  const flash = useFlash(500);
+  const flash = useFlash(DUR.panel);
   const send = (n: number) => {
     const v = clamp(n);
     if (mixed || Math.abs(v - value) > 1e-6) {

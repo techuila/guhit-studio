@@ -1,7 +1,7 @@
 // The Agents panel (DECISIONS D47): every agent working on the project, with
 // its name (rename in place), client, owner, status and steps, its limit as
 // chips (levels, the selection, kinds of element), and Pause, Stop, Resume,
-// Follow, "Show its steps" and "Show its work". Pause all and Stop all sit
+// Follow, "Steps in History" and "Show on plan". Pause all and Stop all sit
 // on top. A second tab, "What they changed", is the review (AgentChanges.tsx).
 //
 // Not modal: it floats at the top right under the top bar, so the plan and
@@ -9,7 +9,7 @@
 // it; a click on the plan does not. Opened from the top bar's agents button,
 // the Connect agent dialog and the command palette. Mounted by LiveRoot.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentLimit, ElementKind } from "../contract/bindings";
 import { useConnect } from "../shell/connect/connectStore";
 import { useApp } from "../state/store";
@@ -22,7 +22,7 @@ import { relativeTime } from "../shell/history";
 import { useListPresence } from "../ui/useListPresence";
 import { AgentChanges } from "./AgentChanges";
 import { limitAgent, pauseAgent, renameAgent, resumeAgent, showSteps, showWork, stopAgent } from "./agentActions";
-import { AgentAvatar, AiMark, StatusDot, agentStyle } from "./AgentAvatar";
+import { AgentAvatar, StatusDot, agentStyle } from "./AgentAvatar";
 import {
   KIND_LABEL,
   LIMIT_KINDS,
@@ -42,9 +42,6 @@ import { useAgents, type AgentsTab } from "./agentsStore";
 import { toggleFollow } from "./follow";
 import { useLive } from "./liveStore";
 import s from "./AgentsPanel.module.css";
-
-/** Rows that stagger in when the panel opens (docs/MOTION.md rule 8). */
-const STAGGERED = 8;
 
 /** One empty list, so a store selector without a project returns the same value each time. */
 const NO_LEVELS: never[] = [];
@@ -106,15 +103,14 @@ function AgentsPanel({ stage }: { stage: PresenceStage }) {
       }}
     >
       <header className={s.head}>
-        <span className={s.headMark} aria-hidden>
-          <AiMark size={13} />
-        </span>
+        <Icon name="agent" size={16} className={s.headMark} />
         <h2 className={s.title}>Agents</h2>
         <div className={s.tabs}>
           <Segmented label="Agents panel" options={TABS} value={lastTab.current} onChange={(v) => useAgents.getState().openPanel(v)} />
         </div>
         <IconButton icon="close" label="Close agents" tip="Close (Esc)" tipSide="bottom-end" size={15} className={s.close} onClick={() => closeAndRefocus(before.current)} />
       </header>
+      {/* A tab change cross-fades the content in place (opacity only). */}
       <div className={s.body} key={lastTab.current}>
         {lastTab.current === "agents" ? <AgentsList /> : <AgentChanges />}
       </div>
@@ -174,9 +170,8 @@ function AgentsList() {
   const views = useAgents((st) => st.views);
   const available = useAgents((st) => st.available);
   const local = useMemo(() => views.filter((a) => a.local), [views]);
+  // The rows show as one block when the panel opens (MOTION.md rule 8); an agent that comes later rises alone.
   const rows = useListPresence(views, (a) => a.id, "base");
-  const intro = useRef<Set<string> | null>(null);
-  if (intro.current === null) intro.current = new Set(views.slice(0, STAGGERED).map((a) => a.id));
   const canPause = local.some((a) => controlsFor(a).pause);
   const canStop = local.some((a) => controlsFor(a).stop);
   const canResume = local.some((a) => controlsFor(a).resume);
@@ -185,7 +180,7 @@ function AgentsList() {
     return (
       <div className={s.empty}>
         <span className={s.emptyMark} aria-hidden>
-          <AiMark size={22} />
+          <Icon name="agent" size={22} />
         </span>
         <p className={s.emptyTitle}>No agents yet</p>
         <p className={s.emptyText}>
@@ -194,7 +189,7 @@ function AgentsList() {
             : "This app does not report agents. Update Guhit Studio to see agents here."}
         </p>
         <Button variant="primary" size="sm" icon="link" onClick={() => useConnect.getState().openDialog()}>
-          Connect an agent
+          Connect agent
         </Button>
       </div>
     );
@@ -208,7 +203,7 @@ function AgentsList() {
             <PauseGlyph />
             Pause all
           </Button>
-          <Button size="sm" disabled={!canStop} onClick={() => void stopAgent(null)} data-tip="Every call is refused until you resume them" data-tip-side="bottom">
+          <Button size="sm" disabled={!canStop} onClick={() => void stopAgent(null)} data-tip="They cannot read or edit until you resume them" data-tip-side="bottom">
             <StopGlyph />
             Stop all
           </Button>
@@ -224,12 +219,12 @@ function AgentsList() {
         </div>
       ) : null}
       <ul className={s.list} aria-label="Agents">
-        {rows.map((row, i) => (
-          <AgentRow key={row.key} agent={row.item} entering={row.entering} leaving={row.leaving} delay={intro.current?.has(row.key) ? Math.min(i, STAGGERED - 1) : 0} />
+        {rows.map((row) => (
+          <AgentRow key={row.key} agent={row.item} leaving={row.leaving} />
         ))}
       </ul>
       <p className={s.foot}>
-        Agents work through MCP with their own subscription or model. Each edit is one undo step with the agent as its author. A version is saved before agents start.
+        Agents use their own subscription or AI model. Each edit is one undo step with the agent as its author. A version is saved before agents start.
       </p>
     </>
   );
@@ -259,7 +254,7 @@ function PlayGlyph() {
   );
 }
 
-function AgentRow({ agent, entering, leaving, delay }: { agent: AgentView; entering: boolean; leaving: boolean; delay: number }) {
+function AgentRow({ agent, leaving }: { agent: AgentView; leaving: boolean }) {
   const selfId = useLive((st) => st.status.self_id);
   const following = useLive((st) => st.following === agent.id);
   const levels = useApp((st) => st.doc?.project.levels ?? null);
@@ -279,8 +274,8 @@ function AgentRow({ agent, entering, leaving, delay }: { agent: AgentView; enter
   const steps = stepsText(agent.steps);
   return (
     <li
-      className={cx(s.row, entering && s.rowEnter, leaving && s.rowLeave)}
-      style={{ ...agentStyle(agent.color), "--i": delay } as CSSProperties}
+      className={cx(s.row, leaving && s.rowLeave)}
+      style={agentStyle(agent.color)}
       data-activity={agent.activity}
       data-testid={`agent-row-${agent.id}`}
       inert={leaving}
@@ -313,15 +308,18 @@ function AgentRow({ agent, entering, leaving, delay }: { agent: AgentView; enter
           </span>
           {when || steps ? (
             <span className={s.statusMeta}>
-              {[when, steps].filter(Boolean).join(" · ")}
+              {when ? <span>{when}</span> : null}
+              {steps ? <span>{steps}</span> : null}
             </span>
           ) : null}
         </div>
         {chips.length > 0 || agent.local ? (
           <div className={s.limits}>
             {chips.map((c) => (
-              <span key={c.key} className={s.limitChip} data-tip={c.tip} data-tip-side="top">
+              // Focusable, so the keyboard shows the tip too; the tip is also in the text for screen readers.
+              <span key={c.key} className={s.limitChip} data-tip={c.tip} data-tip-side="top" tabIndex={0}>
                 {c.label}
+                <span className={s.srOnly}>. {c.tip}</span>
                 {agent.local ? (
                   <button type="button" className={s.limitRemove} aria-label={`Remove the limit ${c.label}`} onClick={() => void limitAgent(agent.id, withoutPart(agent.limit, c.key))}>
                     <Icon name="close" size={10} />
@@ -353,7 +351,7 @@ function AgentRow({ agent, entering, leaving, delay }: { agent: AgentView; enter
             </Button>
           ) : null}
           {controls.stop ? (
-            <Button size="sm" variant="ghost" onClick={() => void stopAgent(agent.id)} data-tip="Every call is refused until you resume it" data-tip-side="top">
+            <Button size="sm" variant="ghost" onClick={() => void stopAgent(agent.id)} data-tip="It cannot read or edit until you resume it" data-tip-side="top">
               <StopGlyph />
               Stop
             </Button>
@@ -361,10 +359,10 @@ function AgentRow({ agent, entering, leaving, delay }: { agent: AgentView; enter
           {!agent.local ? <span className={s.remote}>Only its owner can pause it</span> : null}
           <span className={s.actionsEnd}>
             <button type="button" className={s.linkButton} onClick={() => showSteps(agent.id)}>
-              Show its steps
+              Steps in History
             </button>
             <button type="button" className={s.linkButton} onClick={() => void showWork(agent.id)}>
-              Show its work
+              Show on plan
             </button>
           </span>
         </div>
@@ -500,7 +498,7 @@ function LimitEditor({ agent, open }: { agent: AgentView; open: boolean }) {
             </div>
           </div>
           <p className={s.limitHint}>
-            The engine refuses an edit outside the limit and tells the agent why, like "Only the selection". Nothing picked: it can change anything.
+            An edit outside the limit is refused, and the agent is told why, such as "Only the selection". With nothing picked, it can change anything.
             {limit ? (
               <>
                 {" "}

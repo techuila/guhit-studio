@@ -1,9 +1,10 @@
 // Over the canvas while a swarm draft is open (DECISIONS D56, D57): the draft
 // bar at the top centre ("The swarm drew 48 elements in a draft", Accept all,
-// Discard, Show draft, "Ready for review", a conflicts badge) and, under it,
-// the lock's quiet banner. Mounted once over the plan and 3D panes
-// (`SwarmOverlay`). Motion: docs/MOTION.md, "Swarm".
+// Discard all, Show draft, "Ready for review", a conflicts button that opens
+// their list) and, under it, the lock's quiet banner. Mounted once over the
+// plan and 3D panes (`SwarmOverlay`). Motion: docs/MOTION.md, "Swarm".
 
+import { useEffect, useId, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { bus } from "../state/bus";
 import { Icon } from "../ui/icons";
@@ -14,7 +15,7 @@ import { acceptAll, discardAll } from "./actions";
 import { AskRow } from "./SwarmPanel";
 import { useSwarm, type SwarmUiState } from "./swarmStore";
 import type { SwarmStatus } from "./types";
-import { LOCK_HINT, draftLine, isOpen, workersOf } from "./view";
+import { LOCK_HINT, conflictLine, draftLine, hasDraftWork } from "./view";
 import s from "./swarm.module.css";
 
 /** What the bar draws from the store. */
@@ -41,11 +42,17 @@ export function SwarmOverlayView(state: BarState) {
   );
 }
 
-export function DraftBar({ status, showDraft, acting, ask }: BarState & { status: SwarmStatus }) {
+/** The conflicts listed under the bar: at most 3, then how many more. */
+const CONFLICTS_SHOWN = 3;
+
+export function DraftBar({ status, showDraft, acting, ask, conflictsOpen = false }: BarState & { status: SwarmStatus; conflictsOpen?: boolean }) {
   const mine = ask && ask.origin !== "panel" ? ask : null;
   const ready = status.state === "ready";
   const conflicts = status.conflicts.length;
-  const anything = status.added + status.modified + status.removed > 0 || workersOf(status).some(isOpen);
+  // The conflicts are words a keyboard user needs too: a button opens them under the bar.
+  const [listOpen, setListOpen] = useState(conflictsOpen);
+  const listId = useId();
+  const open = listOpen && conflicts > 0;
   return (
     <div className={s.bar} role="region" aria-label="Swarm draft" data-testid="swarm-draft-bar">
       <div className={s.barRow}>
@@ -58,17 +65,18 @@ export function DraftBar({ status, showDraft, acting, ask }: BarState & { status
           </span>
         ) : null}
         {conflicts > 0 ? (
-          <span
-            className={s.conflicts}
-            data-tip={status.conflicts
-              .slice(0, 3)
-              .map((c) => c.message)
-              .join(" ")}
+          <button
+            type="button"
+            className={cx(s.conflicts, open && s.conflictsOn)}
+            aria-expanded={open}
+            aria-controls={listId}
+            onClick={() => setListOpen((v) => !v)}
             data-testid="swarm-conflicts"
           >
             <Icon name="warning" size={12} />
             {conflicts} {conflicts === 1 ? "conflict" : "conflicts"}
-          </span>
+            <Icon name="chevronDown" size={12} className={s.conflictsChevron} />
+          </button>
         ) : null}
         <button
           type="button"
@@ -81,24 +89,52 @@ export function DraftBar({ status, showDraft, acting, ask }: BarState & { status
         >
           <Icon name={showDraft ? "eye" : "eyeOff"} size={15} />
         </button>
-        <button type="button" className={cx(s.btn, s.small, s.primary)} disabled={acting !== null || !anything} onClick={() => void acceptAll()} data-testid="swarm-accept-all">
+        <button type="button" className={cx(s.btn, s.small, s.primary)} disabled={acting !== null || !hasDraftWork(status)} onClick={() => void acceptAll()} data-testid="swarm-accept-all">
           {acting === "accept" ? "Accepting" : "Accept all"}
         </button>
         <button type="button" className={cx(s.btn, s.small)} disabled={acting !== null} onClick={() => discardAll("bar")} data-testid="swarm-bar-discard">
-          Discard
+          Discard all
         </button>
       </div>
+      {conflicts > 0 ? (
+        // Opens by height like an ask. The words stay in the page while closed, hidden from readers.
+        <div className={cx(s.ask, open && s.askOpen)} id={listId} aria-hidden={!open} data-testid="swarm-conflict-list">
+          <div className={s.askInner}>
+            <ul className={s.conflictList}>
+              {status.conflicts.slice(0, CONFLICTS_SHOWN).map((c, i) => (
+                <li key={`${c.part}-${c.step}-${i}`}>{conflictLine(status, c)}</li>
+              ))}
+              {conflicts > CONFLICTS_SHOWN ? <li>And {conflicts - CONFLICTS_SHOWN} more.</li> : null}
+            </ul>
+          </div>
+        </div>
+      ) : null}
       <AskRow ask={mine} acting={acting} compact />
     </div>
   );
 }
 
-/** The lock (D57): quiet, under the bar, while a draft is open. It opens the swarm. */
+/**
+ * The lock (D57): quiet, under the bar, while a draft is open. It is a
+ * button that opens the swarm; a hidden status line says the lock once,
+ * after it comes on, for a screen reader.
+ */
 export function LockBanner() {
+  const [said, setSaid] = useState("");
+  useEffect(() => {
+    // A live region speaks a change, not what it holds when it mounts.
+    const t = window.setTimeout(() => setSaid(LOCK_HINT), 100);
+    return () => window.clearTimeout(t);
+  }, []);
   return (
-    <button type="button" className={s.lock} role="status" onClick={() => bus.emit("swarm", { part: null })} data-testid="swarm-lock">
-      <Icon name="lock" size={12} />
-      <span>{LOCK_HINT}</span>
-    </button>
+    <>
+      <button type="button" className={s.lock} onClick={() => bus.emit("swarm", { part: null })} data-testid="swarm-lock">
+        <Icon name="lock" size={12} />
+        <span>{LOCK_HINT}</span>
+      </button>
+      <span className={s.srOnly} role="status">
+        {said}
+      </span>
+    </>
   );
 }

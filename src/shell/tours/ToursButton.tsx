@@ -11,7 +11,7 @@ export function ToursButton() {
   const label = pct !== null ? `Tours, exporting a video: ${pct}%` : "Tours";
   return (
     <span className={s.buttonWrap}>
-      <IconButton icon="camera" tone="chrome" label={label} tip={label} active={open} onClick={() => useTours.getState().setOpen(!open)} data-testid="tours-button" />
+      <IconButton icon="tours" tone="chrome" label={label} tip={label} active={open} onClick={() => useTours.getState().setOpen(!open)} data-testid="tours-button" />
       {pct !== null ? (
         <span className={s.buttonPct} aria-hidden>
           {pct}%

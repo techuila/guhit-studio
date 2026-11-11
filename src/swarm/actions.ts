@@ -33,7 +33,7 @@ async function run<T>(acting: string, what: string, fn: () => Promise<T>): Promi
   }
 }
 
-/** Starts Guhit's own swarm from the brief in the panel. */
+/** Starts Guhit Studio's own swarm from the brief in the panel. */
 export async function startSwarm(): Promise<void> {
   const sw = useSwarm.getState();
   const brief = sw.brief.trim();
@@ -262,7 +262,7 @@ export async function confirmAsk(ask: Ask): Promise<void> {
   });
   if (!done) return;
   useSwarm.getState().applyStatus(null, true);
-  useApp.getState().toast("info", "Draft discarded. The model is as it was.");
+  useApp.getState().toast("info", "Draft discarded. The project is as it was.");
 }
 
 export function cancelAsk(): void {

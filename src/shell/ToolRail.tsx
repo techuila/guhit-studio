@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AssetCategory, CatalogItem, WallRole } from "../contract/bindings";
+import type { AssetCategory, CatalogItem } from "../contract/bindings";
 import { useApp } from "../state/store";
 import { cx } from "../ui/controls";
+import { isModalOpen } from "../ui/Dialog";
 import { Icon } from "../ui/icons";
 import { Presence, useSlidingIndicator } from "../ui/motionDom";
 import { formatLength } from "../ui/units";
@@ -10,6 +11,7 @@ import { DOOR_STYLES, SLAB_KINDS, TOOLS, WINDOW_STYLES, activateTool, type ToolD
 import { DEVICE_LABEL, hpLabel, mountRef, mountingHeight } from "./devices";
 import { StairToolOptions } from "../editor2d/StairToolOptions";
 import { PipeOptions } from "./PipeOptions";
+import { STAYS_OPEN, WALL_PRESETS, WALL_ROLES, railClick } from "./railFlyout";
 import { useShell } from "./shellStore";
 import { useSwarmLocked } from "../swarm/swarmStore";
 import { LOCK_HINT } from "../swarm/view";
@@ -47,21 +49,6 @@ function itemMeta(item: CatalogItem, unit: DisplayUnit): string {
   return `${Math.round(item.width_mm)} x ${Math.round(item.depth_mm)}`;
 }
 
-/** Common Philippine wall builds. null keeps the project default. */
-/** Building walls make rooms; site walls are the lot fence and boundary
- * walls (`WallRole`): 1800 mm high, on the site layer, never a room. */
-const WALL_ROLES: Array<{ role: WallRole; label: string; hint: string }> = [
-  { role: "building", label: "Building wall", hint: "rooms and area" },
-  { role: "site", label: "Fence or site wall", hint: "1800 mm" },
-];
-
-const WALL_PRESETS: Array<{ mm: number | null; label: string; hint: string }> = [
-  { mm: null, label: "Project default", hint: "" },
-  { mm: 100, label: "100 mm", hint: "4 in CHB, interior" },
-  { mm: 150, label: "150 mm", hint: "6 in CHB, exterior" },
-  { mm: 200, label: "200 mm", hint: "8 in CHB or firewall" },
-];
-
 function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; stage: "enter" | "idle" | "exit" }) {
   const ref = useRef<HTMLDivElement>(null);
   const toolOptions = useApp((st) => st.toolOptions);
@@ -71,14 +58,17 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
   const settings = useApp((st) => st.doc?.project.settings);
   const [query, setQuery] = useState("");
 
+  // An outside press closes it (the wall flyout stays open after a pick, so
+  // this and Esc, handled by the rail, are its way out).
   useEffect(() => {
+    if (stage === "exit") return;
     const down = (e: MouseEvent) => {
       const anchor = ref.current?.parentElement;
       if (anchor && !anchor.contains(e.target as Node)) onClose();
     };
     window.addEventListener("mousedown", down, true);
     return () => window.removeEventListener("mousedown", down, true);
-  }, [onClose]);
+  }, [onClose, stage]);
 
   // A tall flyout (pipe, objects) low on the rail would run off a short
   // window: lift it by the overflow, before the first paint.
@@ -103,6 +93,10 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
   }, [catalog, query]);
 
   const unit = settings?.display_unit ?? "mm";
+  // The wall flyout stays open after a pick, so thickness and type take one trip.
+  const picked = () => {
+    if (!tool.flyout || !STAYS_OPEN.has(tool.flyout)) onClose();
+  };
 
   return (
     <div
@@ -111,12 +105,6 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
       data-stage={stage}
       role="dialog"
       aria-label={`${tool.label} options`}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          e.stopPropagation();
-          onClose();
-        }
-      }}
     >
       {tool.flyout === "wall" ? (
         <>
@@ -125,10 +113,11 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
             <button
               key={String(p.mm)}
               type="button"
+              aria-pressed={toolOptions.wallThicknessMm === p.mm}
               className={cx(s.flyoutItem, toolOptions.wallThicknessMm === p.mm && s.flyoutItemOn)}
               onClick={() => {
                 setTool("wall", { wallThicknessMm: p.mm });
-                onClose();
+                picked();
               }}
             >
               <span>{p.mm === null && settings ? `Project default, ${formatLength(settings.default_wall_thickness_mm, unit)}` : p.label}</span>
@@ -144,7 +133,7 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
               className={cx(s.flyoutItem, toolOptions.wallRole === r.role && s.flyoutItemOn)}
               onClick={() => {
                 setTool("wall", { wallRole: r.role });
-                onClose();
+                picked();
               }}
             >
               <span>{r.label}</span>
@@ -161,10 +150,11 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
             <button
               key={o.value}
               type="button"
+              aria-pressed={toolOptions.openingStyle === o.value}
               className={cx(s.flyoutItem, toolOptions.openingStyle === o.value && s.flyoutItemOn)}
               onClick={() => {
                 setTool(tool.tool, { openingStyle: o.value });
-                onClose();
+                picked();
               }}
             >
               <span>{o.label}</span>
@@ -184,7 +174,7 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
               className={cx(s.flyoutItem, toolOptions.slabKind === k.value && s.flyoutItemOn)}
               onClick={() => {
                 setTool("slab", { slabKind: k.value });
-                onClose();
+                picked();
               }}
             >
               <span>{k.label}</span>
@@ -200,7 +190,7 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
               className={cx(s.flyoutItem, toolOptions.slabRailing === on && s.flyoutItemOn)}
               onClick={() => {
                 setTool("slab", { slabRailing: on });
-                onClose();
+                picked();
               }}
             >
               <span>{on ? "Railing on" : "No railing"}</span>
@@ -210,7 +200,7 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
         </>
       ) : null}
 
-      {tool.flyout === "stair" ? <StairToolOptions onPicked={onClose} /> : null}
+      {tool.flyout === "stair" ? <StairToolOptions onPicked={picked} /> : null}
 
       {tool.flyout === "pipe" ? <PipeOptions /> : null}
 
@@ -252,7 +242,7 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
                       className={cx(s.flyoutItem, toolOptions.assetKey === item.key && s.flyoutItemOn)}
                       onClick={() => {
                         setTool("asset", { assetKey: item.key });
-                        onClose();
+                        picked();
                       }}
                     >
                       <span>{item.name}</span>
@@ -269,12 +259,30 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
   );
 }
 
+/**
+ * Whether an open flyout takes this Esc: pressed in the flyout or the rail,
+ * on what opened it, or on the plan (or nowhere) with no field focused.
+ * Anywhere else (the copilot's composer, a popover, a field) it is theirs.
+ */
+export function flyoutOwnsEscape(target: EventTarget | null, rail: Pick<Element, "contains"> | null, opener: Pick<Element, "contains"> | null): boolean {
+  const el = target as (Pick<Element, "closest" | "tagName"> & { isContentEditable?: boolean }) | null;
+  // The window, the document or the body: nothing has focus.
+  if (!el || typeof el.closest !== "function" || el.tagName === "BODY" || el.tagName === "HTML") return true;
+  if (rail?.contains(el as unknown as Node) || opener?.contains(el as unknown as Node)) return true;
+  const typing = !!el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName);
+  return !typing && el.closest("[data-plan-area]") !== null;
+}
+
 export function ToolRail() {
   const tool = useApp((st) => st.tool);
   const assetKey = useApp((st) => st.toolOptions.assetKey);
   const openPalette = useShell((st) => st.open);
   const flyoutRequest = useShell((st) => st.flyoutRequest);
   const [flyout, setFlyout] = useState<ToolDef["flyout"] | null>(null);
+  // After Esc closes a flyout, focus goes back to its button: its tooltip
+  // stays hidden until the pointer moves or focus leaves, so it does not pin
+  // itself over the plan.
+  const [tipOff, setTipOff] = useState<ToolDef["tool"] | null>(null);
   const railRef = useRef<HTMLElement>(null);
   const activeButtonRef = useRef<HTMLButtonElement>(null);
   const pill = useSlidingIndicator(railRef, activeButtonRef, [tool]);
@@ -293,27 +301,55 @@ export function ToolRail() {
     setFlyout((f) => (f && TOOLS.find((t) => t.flyout === f)?.tool !== tool ? null : f));
   }, [tool]);
 
-  // A keyboard shortcut (O for objects) asking to open a flyout it cannot
-  // reach the local state for directly.
+  // What opened the flyout (its rail button, or the status bar's style
+  // button): Esc gives focus back to it.
+  const opener = useRef<HTMLElement | null>(null);
+
+  // A keyboard shortcut (O for objects) or the status bar asking to open a
+  // flyout it cannot reach the local state for directly.
   useEffect(() => {
-    if (flyoutRequest) setFlyout(flyoutRequest.flyout);
+    if (!flyoutRequest) return;
+    const from = document.activeElement;
+    opener.current = from instanceof HTMLElement && from !== document.body ? from : null;
+    setFlyout(flyoutRequest.flyout);
   }, [flyoutRequest]);
 
-  const click = (t: ToolDef) => {
-    if (t.flyout === "asset") {
-      // The asset tool needs a chosen object before it can place anything.
-      if (assetKey) activateTool("asset");
-      setFlyout((f) => (f === "asset" ? null : "asset"));
-      return;
-    }
-    const wasActive = tool === t.tool;
-    activateTool(t.tool);
-    if (t.flyout) setFlyout((f) => (f === t.flyout ? null : wasActive || t.flyout !== "wall" ? t.flyout! : null));
-    else setFlyout(null);
+  // The first click activates the tool; a click on the active tool or its
+  // corner mark opens its options (railFlyout.ts).
+  const click = (t: ToolDef, button: HTMLElement, corner: boolean) => {
+    const next = railClick(t, { tool, open: flyout ?? null, assetKey }, corner);
+    if (next.activate) activateTool(t.tool);
+    if (next.flyout) opener.current = button;
+    setFlyout(next.flyout);
   };
 
+  // Esc closes an open flyout first and keeps the tool; the next Esc goes
+  // back to Select. Registered when the rail mounts, so it runs before the
+  // plan's own Esc (which returns to Select), registered later by PlanCanvas.
+  // It takes Esc only from the flyout, the rail, what opened it, or the plan
+  // with nothing typed in: the composer, a popover or a field keep theirs.
+  const open = useRef(flyout);
+  open.current = flyout;
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const def = open.current ? TOOLS.find((x) => x.flyout === open.current) : undefined;
+      if (e.key !== "Escape" || !def || e.defaultPrevented || isModalOpen()) return;
+      if (!flyoutOwnsEscape(e.target, railRef.current, opener.current)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setFlyout(null);
+      const railButton = railRef.current?.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(def.label)}"]`) ?? null;
+      const back = opener.current?.isConnected ? opener.current : railButton;
+      if (back === railButton) setTipOff(def.tool);
+      back?.focus({ preventScroll: true });
+      opener.current = null;
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+  }, []);
+
   return (
-    <nav ref={railRef} className={s.rail} aria-label="Drawing tools">
+    <nav ref={railRef} className={s.rail} aria-label="Drawing tools" onPointerMove={tipOff ? () => setTipOff(null) : undefined}>
       {pill.visible ? <span aria-hidden className={cx(s.railPill, pill.instant && s.instant)} style={pill.style} /> : null}
       {TOOLS.map((t, i) => (
         <div key={t.tool} className={cx(s.railSlot, i > 0 && TOOLS[i - 1].group !== t.group && s.railGap)}>
@@ -323,14 +359,17 @@ export function ToolRail() {
             className={cx(s.railButton, tool === t.tool && s.railButtonOn)}
             aria-label={t.label}
             aria-pressed={tool === t.tool}
+            aria-haspopup={t.flyout ? "dialog" : undefined}
+            aria-expanded={t.flyout ? flyout === t.flyout : undefined}
             disabled={lockedOut(t)}
             data-tip={lockedOut(t) ? LOCK_HINT : t.key ? `${t.label} (${t.key})` : t.label}
             data-tip-side="right"
-            data-tip-off={flyout === t.flyout && t.flyout ? "true" : undefined}
-            onClick={() => click(t)}
+            data-tip-off={(flyout === t.flyout && t.flyout) || tipOff === t.tool ? "true" : undefined}
+            onBlur={tipOff === t.tool ? () => setTipOff(null) : undefined}
+            onClick={(e) => click(t, e.currentTarget, (e.target as HTMLElement).closest("[data-rail-corner]") !== null)}
           >
             <Icon name={t.icon} size={20} />
-            {t.flyout ? <span className={s.railCorner} aria-hidden /> : null}
+            {t.flyout ? <span className={s.railCorner} data-rail-corner aria-hidden /> : null}
           </button>
           {t.flyout ? (
             <Presence open={flyout === t.flyout} exit="base">

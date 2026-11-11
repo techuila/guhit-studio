@@ -31,7 +31,7 @@ function SaveStatus() {
         <Spinner size={13} className={cx(s.savedIconLayer, saving && s.savedIconOn)} />
         <Icon name="check" size={13} className={cx(s.savedIconLayer, !saving && s.savedIconOn)} />
       </span>
-      {saving ? "Saving" : "Saved"}
+      <span className={s.savedWord}>{saving ? "Saving" : "Saved"}</span>
     </span>
   );
 }
@@ -53,7 +53,7 @@ function ImportMenu() {
             items={[
               { key: "cad", label: "DXF or DWG", icon: "layers", onSelect: () => requestImport("cad") },
               { key: "model", label: "3D model (glTF, GLB, OBJ)", icon: "model", onSelect: () => requestImport("model") },
-              { key: "bundle", label: "Open .guhit bundle", icon: "folder", onSelect: () => requestImport("bundle") },
+              { key: "bundle", label: "Open .guhit file", icon: "folder", onSelect: () => requestImport("bundle") },
             ]}
           />
         )}
@@ -63,25 +63,100 @@ function ImportMenu() {
 }
 
 /**
- * Folds the right group's words away one step at a time, only when they do
- * not fit (chrome.module.css, data-fold): first the palette button, then
- * Versions and Import, then Connect agent and Share. Measured again on
- * resize and when people or agents come or go.
+ * The steps the bar takes when it runs out of room, in order (chrome.module.css).
+ * `fold` is on the right group: 1 the palette button's words, 2 also Versions
+ * and Import, 3 also Connect agent and Share. `squeeze` is on the bar: 1 the
+ * view mode shows its icons only, 2 the right group takes the width it needs
+ * and the middle group moves left of centre, 3 tighter gaps and "Saved" keeps
+ * only its mark. Every folded word stays its button's accessible name.
  */
-function useFoldToFit(ref: RefObject<HTMLDivElement | null>, key: string): void {
+export const FOLD_STEPS: ReadonlyArray<{ fold: number; squeeze: number }> = [
+  { fold: 0, squeeze: 0 },
+  { fold: 1, squeeze: 0 },
+  { fold: 2, squeeze: 0 },
+  { fold: 3, squeeze: 0 },
+  { fold: 3, squeeze: 1 },
+  { fold: 3, squeeze: 2 },
+  { fold: 3, squeeze: 3 },
+];
+
+/**
+ * When no step fits, the bar stays here: the right group overflows its own
+ * column, which is how the live agents (TopBarLive `useCompact`) see that
+ * they must fold into the Agents button. Then the bar measures again.
+ */
+const LAST_RESORT = 4;
+
+/** The least room kept between the left group's words and the middle group. */
+const MIN_GAP = 8;
+
+/** Where the bar's groups end, in px from the window's left. */
+export interface BarEdges {
+  /** Right edge of the left group's last item. */
+  leftEnd: number;
+  centerStart: number;
+  centerEnd: number;
+  /** Left edge of the right group's first item, and of the group's own box. */
+  rightStart: number;
+  rightBox: number;
+  /** Right edge of the right group's last item, and of the bar's content box. */
+  rightEnd: number;
+  barEnd: number;
+}
+
+/** True when nothing in the bar overlaps or spills out: the right group fits its column and the groups keep apart. */
+export function barFits(b: BarEdges): boolean {
+  const e = 0.5;
+  return b.rightStart >= b.rightBox - e && b.leftEnd + MIN_GAP <= b.centerStart + e && b.centerEnd <= b.rightStart + e && b.rightEnd <= b.barEnd + e;
+}
+
+function edges(bar: HTMLElement, left: HTMLElement, center: HTMLElement, right: HTMLElement): BarEdges {
+  const box = (el: Element | null) => (el ?? right).getBoundingClientRect();
+  const barBox = bar.getBoundingClientRect();
+  const pad = parseFloat(getComputedStyle(bar).paddingRight) || 0;
+  const c = center.getBoundingClientRect();
+  return {
+    leftEnd: box(left.lastElementChild).right,
+    centerStart: c.left,
+    centerEnd: c.right,
+    rightStart: box(right.firstElementChild).left,
+    rightBox: right.getBoundingClientRect().left,
+    rightEnd: box(right.lastElementChild).right,
+    barEnd: barBox.right - pad,
+  };
+}
+
+/**
+ * Takes the steps above one at a time, only as far as needed, so nothing in
+ * the bar overlaps. Measured again on resize, when web fonts load and when
+ * people or agents come or go.
+ */
+function useFoldToFit(
+  refs: { bar: RefObject<HTMLElement | null>; left: RefObject<HTMLDivElement | null>; center: RefObject<HTMLDivElement | null>; right: RefObject<HTMLDivElement | null> },
+  key: string,
+): void {
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+    const bar = refs.bar.current;
+    const left = refs.left.current;
+    const center = refs.center.current;
+    const right = refs.right.current;
+    if (!bar || !left || !center || !right) return;
+    const apply = (i: number) => {
+      right.dataset.fold = String(FOLD_STEPS[i].fold);
+      bar.dataset.squeeze = String(FOLD_STEPS[i].squeeze);
+    };
     const fit = () => {
-      for (const level of ["0", "1", "2", "3"]) {
-        el.dataset.fold = level;
-        const first = el.firstElementChild;
-        if (!first || first.getBoundingClientRect().left >= el.getBoundingClientRect().left - 0.5) return;
+      for (let i = 0; i < FOLD_STEPS.length; i++) {
+        apply(i);
+        if (barFits(edges(bar, left, center, right))) return;
       }
+      apply(LAST_RESORT);
     };
     fit();
+    // The bar for the window's width, the right group for what comes and goes in it.
     const ro = new ResizeObserver(fit);
-    ro.observe(el);
+    ro.observe(bar);
+    ro.observe(right);
     // Web fonts change the words' widths without resizing the group.
     let alive = true;
     void document.fonts?.ready.then(() => alive && fit());
@@ -89,7 +164,7 @@ function useFoldToFit(ref: RefObject<HTMLDivElement | null>, key: string): void 
       alive = false;
       ro.disconnect();
     };
-  }, [ref, key]);
+  }, [refs.bar, refs.left, refs.center, refs.right, key]);
 }
 
 export function TopBar() {
@@ -106,15 +181,19 @@ export function TopBar() {
   const viewMode = useApp((st) => st.viewMode);
   const setViewMode = useApp((st) => st.setViewMode);
   const open = useShell((st) => st.open);
+  const barRef = useRef<HTMLElement>(null);
+  const leftRef = useRef<HTMLDivElement>(null);
+  const centerRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
-  const liveKey = useLive((st) => `${st.status.mode}:${st.status.participants.length}`);
+  const liveKey = useLive((st) => `${st.status.mode}:${st.status.participants.length}:${st.unread > 0}`);
   // Agents take room in the bar too (DECISIONS D47): measure again when they come or go.
   const agentCount = useAgents((st) => st.views.length);
-  useFoldToFit(rightRef, `${liveKey}:${agentCount}`);
+  const [refs] = useState(() => ({ bar: barRef, left: leftRef, center: centerRef, right: rightRef }));
+  useFoldToFit(refs, `${liveKey}:${agentCount}`);
 
   return (
-    <header className={s.topbar}>
-      <div className={s.topLeft}>
+    <header className={s.topbar} ref={barRef}>
+      <div className={s.topLeft} ref={leftRef}>
         <button type="button" className={s.backButton} onClick={() => void leaveEditor()} data-tip="Back to all projects" data-tip-side="bottom-start" aria-label="Back to all projects">
           <Icon name="back" size={16} />
           <BrandMark size={20} />
@@ -126,13 +205,12 @@ export function TopBar() {
         <SaveStatus />
       </div>
 
-      <div className={s.topCenter}>
+      <div className={s.topCenter} ref={centerRef}>
         <div className={s.history}>
           <IconButton
             icon="undo"
             tone="chrome"
             label="Undo"
-            className={s.historyButton}
             tip={canUndo ? `Undo ${undoLabel ?? ""}${undoBy ? `, by ${undoBy}` : ""} (${MOD}Z)`.replace("  ", " ") : "Nothing to undo"}
             disabled={!canUndo}
             onClick={() => void undo()}
@@ -141,7 +219,6 @@ export function TopBar() {
             icon="redo"
             tone="chrome"
             label="Redo"
-            className={s.historyButton}
             tip={canRedo ? `Redo ${redoLabel ?? ""}${redoBy ? `, by ${redoBy}` : ""} (${SHIFT}${MOD}Z)`.replace("  ", " ") : "Nothing to redo"}
             disabled={!canRedo}
             onClick={() => void redo()}
@@ -162,11 +239,13 @@ export function TopBar() {
           Versions
         </Button>
         <ImportMenu />
-        <IconButton icon="settings" tone="chrome" label="Settings" tip="Settings" onClick={() => open("settings")} />
+        <IconButton icon="settings" tone="chrome" label="Settings" tip={`Settings (${MOD},)`} onClick={() => open("settings")} />
+        <span className={s.topRule} aria-hidden />
         <LiveAvatars />
         <ChatButton />
         <ConnectButton variant="chrome" tipSide="bottom" />
         <ShareButton />
+        <span className={s.topRule} aria-hidden />
         <ToursButton />
         <SheetsButton />
         <Button variant="primary" size="md" icon="export" className={s.exportButton} onClick={() => open("export")}>

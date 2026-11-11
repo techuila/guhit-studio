@@ -1,15 +1,16 @@
 // Copilot dock. A calm chat panel: the user asks, the copilot answers from
-// model data or proposes typed edits. A proposal shows as a ghost in the 2D
-// and 3D views (store.preview) and commits only when the user applies it.
-// The Chat | Swarm switch shows the swarm panel instead (src/swarm, D56);
-// the chat keeps its state while the swarm shows.
+// the plan or proposes typed edits. A proposal shows as a ghost in the 2D
+// and 3D views (store.preview) and commits only when the user applies it
+// (D8). The Ask | Swarm switch shows the swarm panel instead (src/swarm,
+// D56); the conversation keeps its state while the swarm shows.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AiProposal } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
+import { MOD, SHIFT } from "../shell/actions";
 import { ConnectLink } from "../shell/connect/ConnectButton";
 import { useShell } from "../shell/shellStore";
 import { useApp } from "../state/store";
-import { Segmented, Switch } from "../ui/controls";
+import { Segmented, Switch, cx } from "../ui/controls";
 import { SwarmPanel } from "../swarm/SwarmPanel";
 import { swarmLocked, useSwarm, useSwarmLocked, type DockMode } from "../swarm/swarmStore";
 import { startSwarmWiring } from "../swarm/wiring";
@@ -18,17 +19,15 @@ import { Icon } from "../ui/icons";
 import { dur, ease, motionOK, tween, usePresence } from "../ui/motion";
 import { collapseOut, growIn, play, settled } from "../ui/motionWaapi";
 import { STALE_TEXT, applyProposal } from "./apply";
-import { composerGate, pendingItem, toHistory, useCopilot, type ChatItem } from "./copilotStore";
-import { affectedRows, selectionLabel, suggestionsFor, toolLabel, type Suggestion } from "./describe";
+import { composerGate, logFollower, pendingItem, proposalKey, scrollToEnd, toHistory, useCopilot, type ChatItem } from "./copilotStore";
+import { affectedRows, modelLabel, selectionLabel, suggestionsFor, toolLabel, type Suggestion } from "./describe";
 import { requestFurnish, retireFurnish, roomsToFurnish, turnRooms } from "./furnish";
 import { FurnishBar, FurnishCards } from "./FurnishPanel";
 import { SettingsPopover } from "./SettingsPopover";
 import { DrawnCheck, GearIcon, KindIcon, SendIcon, StopIcon } from "./icons";
 import s from "./AiDock.module.css";
 
-function cx(...parts: Array<string | false | null | undefined>): string {
-  return parts.filter(Boolean).join(" ");
-}
+const MAC = MOD === "⌘";
 
 /** Drop a proposal on the backend. Failing here is harmless: a new chat turn replaces it anyway. */
 function dropProposal(id: string) {
@@ -112,14 +111,6 @@ export function AiDock() {
       dropProposal(open.proposal.id);
     };
   }, []);
-
-  // The list follows the newest message instead of jumping to it.
-  useLayoutEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-    if (typeof el.scrollTo === "function") el.scrollTo({ top: el.scrollHeight, behavior: motionOK() ? "smooth" : "auto" });
-    else el.scrollTop = el.scrollHeight;
-  }, [items, busy]);
 
   const retirePending = useCallback((note: string) => {
     const st = useCopilot.getState();
@@ -244,7 +235,22 @@ export function AiDock() {
     dropProposal(proposal.id);
   }, []);
 
+  // Mod+Enter applies and Esc discards the pending proposal, from the empty
+  // composer or from the card (U19). Only Apply still commits (D8).
+  const onProposalKey = (e: KeyboardEvent<HTMLElement>, text: string): boolean => {
+    if (e.nativeEvent.isComposing) return false;
+    const open = pendingItem(useCopilot.getState().items);
+    const what = proposalKey(e, { pending: open?.proposalStatus === "pending" && !!open.proposal, draft: text, mac: MAC });
+    if (!what || !open?.proposal) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    if (what === "apply") apply(open, open.proposal);
+    else discard(open, open.proposal);
+    return true;
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (onProposalKey(e, draft)) return;
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       if (!locked) submitRef.current(draft);
@@ -267,8 +273,34 @@ export function AiDock() {
   // mounted long enough to leave.
   const settings0 = usePresence(settingsOpen, "base");
   const working = usePresence(busy, "hover");
-  const chipsOpen = !noKey && items.length > 0 && !busy && !pending && draft === "";
+
+  // The list follows its newest line instead of jumping to it: a new or
+  // changed message, and the busy line, which mounts a render after `busy`
+  // turns on (keyed on `busy` alone, it stayed below the fold while cards
+  // waited for Apply).
+  const [follows] = useState(logFollower);
+  useLayoutEffect(() => {
+    if (follows(items, working.mounted)) scrollToEnd(listRef.current, motionOK());
+  });
+
+  // The chips give way to a proposal or Furnish cards that wait for Apply, so the card has the room.
+  const furnishWaiting = items.some((m) => m.furnish?.some((r) => r.status === "pending" || r.status === "applying"));
+  const chipsOpen = !noKey && items.length > 0 && !busy && !pending && !furnishWaiting && draft === "";
   const chipRow = usePresence(chipsOpen, "hover");
+
+  // The composer is one line until it is used.
+  const [composing, setComposing] = useState(false);
+  const model = modelLabel(settings?.model);
+  const headMeta =
+    mode === "swarm"
+      ? swarmParts > 0
+        ? `${swarmParts} ${swarmParts === 1 ? "agent" : "agents"}`
+        : null
+      : selection.length === 0
+        ? null
+        : scoped
+          ? `Limited to ${selection.length} selected`
+          : `${selection.length} selected`;
 
   // The arrow slides out of the send button when a message goes.
   const sendIconRef = useRef<HTMLSpanElement>(null);
@@ -295,38 +327,29 @@ export function AiDock() {
 
   return (
     <div className={s.dock}>
+      {/* The Copilot tab already says this is the AI: no tag here, and the AI model's name lives in the gear's tip. */}
       <header className={s.head}>
-        <span className={s.aiTag}>AI</span>
         <Segmented<DockMode>
-          label="Copilot chat or agent swarm"
+          label="Ask the copilot or run a swarm"
           value={mode}
           onChange={(m) => useSwarm.getState().setMode(m)}
           options={[
-            { value: "chat", label: "Chat", tip: "Ask the copilot; edits wait for Apply" },
+            { value: "chat", label: "Ask", tip: "Ask the copilot. Edits wait for Apply" },
             { value: "swarm", label: "Swarm", tip: "Several agents draw at once, into a draft you accept" },
           ]}
         />
-        {mode === "chat" ? (
-          <span className={s.headTitle} title="Model used by the copilot">
-            {settings?.model ?? "Copilot"}
-          </span>
-        ) : null}
-        <span className={s.headMeta}>
-          {mode === "swarm"
-            ? swarmParts > 0
-              ? `${swarmParts} ${swarmParts === 1 ? "agent" : "agents"}`
-              : "No swarm"
-            : selection.length === 0
-              ? "No selection"
-              : scoped
-                ? `Limited to ${selection.length} selected`
-                : `${selection.length} selected`}
+        <span className={s.headMeta} data-testid="ai-head-meta">
+          {headMeta}
         </span>
         <button
           type="button"
           className={cx(s.iconBtn, settingsOpen && s.iconBtnOn)}
           aria-label="Copilot settings"
           aria-expanded={settingsOpen}
+          data-tip={noKey ? "Copilot settings: add an API key" : model ? `Copilot settings. AI model: ${model}` : "Copilot settings"}
+          data-tip-side="bottom-end"
+          // The tip would draw over the open popover.
+          data-tip-off={settingsOpen ? "true" : undefined}
           onClick={() => setSettingsOpen((v) => !v)}
         >
           <GearIcon />
@@ -356,12 +379,11 @@ export function AiDock() {
             ) : null}
 
             {items.map((m) => (
-              <Message key={m.id} item={m} onApply={apply} onDiscard={discard} />
+              <Message key={m.id} item={m} onApply={apply} onDiscard={discard} onKey={(e) => onProposalKey(e, "")} />
             ))}
 
             {working.mounted ? (
               <div className={s.working} data-stage={working.stage} data-testid="ai-busy" role="status">
-                <span className={s.aiTag}>AI</span>
                 <span className={s.workingText}>Working on it</span>
                 <span className={s.dots} aria-hidden>
                   <i />
@@ -382,13 +404,13 @@ export function AiDock() {
 
           {scopeRow.mounted ? (
             <div className={cx(s.scopeRow, aiScope && s.scopeRowOn)} data-stage={scopeRow.stage} data-testid="ai-scope">
-              <span className={s.scopeWhat} title={`Selected: ${scopeText.current}`}>
+              <span className={s.scopeWhat}>
                 <Icon name="select" size={12} />
                 <b>{scopeText.current}</b>
               </span>
               <span
                 className={s.scopeLabel}
-                data-tip="The copilot and MCP clients may change only the selection and what stands in a selected room. The engine refuses anything else."
+                data-tip="The copilot and your agents change only the selection and what stands in a selected room"
                 data-tip-side="top-end"
                 onClick={() => setAiScope(!aiScope)}
               >
@@ -404,28 +426,35 @@ export function AiDock() {
             <textarea
               ref={inputRef}
               className={s.input}
-              rows={2}
+              rows={composing || draft !== "" || locked ? 2 : 1}
               value={draft}
-              placeholder={noKey ? "Add an API key to start" : locked ? LOCK_HINT : scoped ? "Describe a change to the selection" : "Ask about the plan or describe a change"}
+              placeholder={noKey ? "Add an API key to start" : locked ? LOCK_HINT : scoped ? (composing ? "Describe a change to the selection" : "Describe a change") : composing ? "Ask about the plan or describe a change" : "Ask or describe a change"}
               disabled={!doc || noKey}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={onKeyDown}
+              onFocus={() => setComposing(true)}
+              onBlur={() => setComposing(false)}
               aria-label="Message to the copilot"
             />
             {busy ? (
-              <button type="button" className={cx(s.sendBtn, s.stopBtn)} onClick={stop} aria-label="Stop waiting">
+              <button type="button" className={cx(s.sendBtn, s.stopBtn)} onClick={stop} aria-label="Stop waiting" data-tip="Stop waiting" data-tip-side="top-end">
                 <StopIcon />
               </button>
             ) : (
-              <button type="button" className={s.sendBtn} disabled={!canSend} onClick={() => submit(draft)} aria-label="Send" data-tip={gate.tip ?? undefined}>
+              <button
+                type="button"
+                className={s.sendBtn}
+                disabled={!canSend}
+                onClick={() => submit(draft)}
+                aria-label="Send"
+                data-tip={gate.tip ?? `Enter to send, ${SHIFT}Enter for a new line`}
+                data-tip-side="top-end"
+              >
                 <span className={s.sendIcon} ref={sendIconRef}>
                   <SendIcon />
                 </span>
               </button>
             )}
-          </div>
-          <div className={s.foot}>
-            <span>Enter to send, Shift+Enter for a new line</span>
           </div>
         </>
       ) : null}
@@ -467,8 +496,8 @@ function EmptyState({ suggestions, onPick, disabled, hasSelection }: { suggestio
     <div className={s.empty}>
       <p className={s.emptyTitle}>Ask about the plan, or describe a change.</p>
       <p className={s.emptyText}>
-        Answers come from the model data. Edits show as a preview first and are applied only when you approve.
-        English, Filipino and Taglish all work.
+        Answers are read from the plan, not guessed. Edits show as a preview first and change nothing until you
+        click Apply. English, Filipino and Taglish all work.
       </p>
       <p className={s.emptyLabel}>{hasSelection ? "For the selection" : "Try"}</p>
       <div className={s.chips}>
@@ -502,7 +531,15 @@ function NoKeyCard({ onOpenSettings }: { onOpenSettings: () => void }) {
   );
 }
 
-function Message({ item, onApply, onDiscard }: { item: ChatItem; onApply: (item: ChatItem, p: AiProposal) => void; onDiscard: (item: ChatItem, p: AiProposal) => void }) {
+interface MessageProps {
+  item: ChatItem;
+  onApply: (item: ChatItem, p: AiProposal) => void;
+  onDiscard: (item: ChatItem, p: AiProposal) => void;
+  /** Mod+Enter and Esc on a pending card. */
+  onKey: (e: KeyboardEvent<HTMLElement>) => void;
+}
+
+function Message({ item, onApply, onDiscard, onKey }: MessageProps) {
   if (item.role === "user") {
     return (
       <div className={cx(s.msg, s.msgUser)}>
@@ -513,15 +550,17 @@ function Message({ item, onApply, onDiscard }: { item: ChatItem; onApply: (item:
   if (item.role === "note") {
     return <div className={cx(s.note, item.tone === "error" && s.noteError)}>{item.text}</div>;
   }
-  const readTools = item.proposal ? [] : item.toolsUsed;
+  // Every answer here is the copilot's: no "AI" tag. What it read says where the answer came from.
+  const readTools = item.proposal ? "" : item.toolsUsed.map(toolLabel).join(", ");
   return (
     <div className={cx(s.msg, s.msgAi)}>
-      <div className={s.msgHead}>
-        <span className={s.aiTag}>AI</span>
-        {readTools.length > 0 ? <span className={s.grounded}>From model data: {readTools.map(toolLabel).join(", ")}</span> : null}
-      </div>
+      {readTools ? (
+        <div className={s.msgHead}>
+          <span className={s.grounded}>Read from the plan: {readTools}</span>
+        </div>
+      ) : null}
       <div className={s.bubbleAi}>{item.text}</div>
-      {item.proposal ? <ProposalCard item={item} proposal={item.proposal} onApply={onApply} onDiscard={onDiscard} /> : null}
+      {item.proposal ? <ProposalCard item={item} proposal={item.proposal} onApply={onApply} onDiscard={onDiscard} onKey={onKey} /> : null}
       {item.furnish && item.furnish.length > 0 ? <FurnishCards item={item} /> : null}
     </div>
   );
@@ -529,7 +568,7 @@ function Message({ item, onApply, onDiscard }: { item: ChatItem; onApply: (item:
 
 const CHANGE_LABEL = { added: "Added", changed: "Changed", removed: "Removed" } as const;
 
-function ProposalCard({ item, proposal, onApply, onDiscard }: { item: ChatItem; proposal: AiProposal; onApply: (item: ChatItem, p: AiProposal) => void; onDiscard: (item: ChatItem, p: AiProposal) => void }) {
+function ProposalCard({ item, proposal, onApply, onDiscard, onKey }: Omit<MessageProps, "item"> & { item: ChatItem; proposal: AiProposal }) {
   const doc = useApp((st) => st.doc);
   const hoverId = useApp((st) => st.hoverId);
   const setHover = useApp((st) => st.setHover);
@@ -585,8 +624,18 @@ function ProposalCard({ item, proposal, onApply, onDiscard }: { item: ChatItem; 
     };
   }, [live, resolved, applied]);
 
+  // Only the counts that are not zero, in ink: "2 added", "1 changed".
+  const counts = (
+    [
+      ["added", diff.added.length],
+      ["changed", diff.modified.length],
+      ["removed", diff.removed.length],
+    ] as const
+  ).filter(([, n]) => n > 0);
+  const tools = item.toolsUsed.map(toolLabel).join(", ");
+
   return (
-    <section className={cx(s.card, !live && s.cardDone)} ref={cardRef} aria-label="Proposed change">
+    <section className={cx(s.card, !live && s.cardDone)} ref={cardRef} aria-label="Proposed change" onKeyDown={live ? onKey : undefined}>
       <header className={s.cardHead}>
         <span className={s.cardTitle}>{live ? "Proposed change" : "Proposal"}</span>
         <span key={item.proposalStatus ?? "none"} className={s.cardState} data-state={item.proposalStatus ?? undefined}>
@@ -600,17 +649,15 @@ function ProposalCard({ item, proposal, onApply, onDiscard }: { item: ChatItem; 
 
       <p className={s.cardSummary}>{diff.summary}</p>
 
-      <div className={s.counts}>
-        <span className={s.count} data-kind="added">
-          <Count value={diff.added.length} /> added
-        </span>
-        <span className={s.count} data-kind="changed">
-          <Count value={diff.modified.length} /> changed
-        </span>
-        <span className={s.count} data-kind="removed">
-          <Count value={diff.removed.length} /> removed
-        </span>
-      </div>
+      {counts.length > 0 ? (
+        <p className={s.counts}>
+          {counts.map(([kind, n]) => (
+            <span key={kind} className={s.count} data-kind={kind}>
+              <Count value={n} /> {kind}
+            </span>
+          ))}
+        </p>
+      ) : null}
 
       {rows.length > 0 ? (
         <ul className={s.rows} onMouseLeave={() => live && setHover(null)}>
@@ -633,21 +680,30 @@ function ProposalCard({ item, proposal, onApply, onDiscard }: { item: ChatItem; 
       )}
 
       <p className={s.cardTools}>
-        {steps} staged {steps === 1 ? "edit" : "edits"}. Tools: {item.toolsUsed.map(toolLabel).join(", ")}
+        {steps} {steps === 1 ? "edit" : "edits"}
+        {tools ? `: ${tools}` : ""}
       </p>
 
       {!resolved ? (
         <div className={s.cardActions} ref={actionsRef}>
+          {/* The word and the check share one grid cell, so the button keeps its width as it turns
+              into a check. While it applies, the card's state says "Applying". */}
           <button
             type="button"
             className={cx(s.applyBtn, applied && s.applyBtnDone)}
             data-testid="proposal-apply"
             disabled={applying || applied}
             onClick={() => onApply(item, proposal)}
+            aria-label={applied ? "Applied" : undefined}
+            data-tip={live && !applying ? `Apply (${MOD}Enter)` : undefined}
+            data-tip-side="top-start"
           >
-            {applied ? <DrawnCheck className={s.checkPath} /> : applying ? "Applying" : "Apply"}
+            <span className={s.applyFace} data-on={!applied} aria-hidden={applied}>
+              Apply
+            </span>
+            {applied ? <DrawnCheck className={s.checkPath} /> : null}
           </button>
-          <button type="button" className={s.discardBtn} disabled={applying || applied} onClick={() => onDiscard(item, proposal)}>
+          <button type="button" className={s.discardBtn} disabled={applying || applied} onClick={() => onDiscard(item, proposal)} data-tip={live && !applying ? "Discard (Esc)" : undefined} data-tip-side="top">
             Discard
           </button>
           <span className={s.cardHint}>One undo reverts it</span>

@@ -1,18 +1,50 @@
 .toasts {
   position: fixed;
   z-index: 800;
-  /* Bottom left of the canvas, above the hint pills the 2D and 3D views draw. */
-  left: calc(var(--rail-w) + 14px);
-  bottom: calc(var(--statusbar-h) + 48px);
+  /* Bottom centre of the canvas area, 12 px above the status bar. The shell
+     can set --toast-right (the inspector and dock width) and --toast-lift
+     (an open bottom panel such as the Tours timeline) on :root. */
+  left: var(--toast-left, var(--rail-w));
+  right: var(--toast-right, var(--inspector-w));
+  bottom: calc(var(--statusbar-h) + 12px);
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   pointer-events: none;
+  /* An open bottom panel lifts the stack by transform, never by bottom
+     (MOTION.md rule 5). */
+  transform: translateY(calc(-1 * var(--toast-lift, 0px)));
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
+/* While a modal is open the stack sits inside the top modal's area, at its
+   bottom centre and above its footer, so a toast never straddles the modal's
+   edge or covers its buttons. Dialog.tsx publishes the area. */
+:global(:root[data-modal-open]) .toasts {
+  left: var(--modal-toast-left, 0px);
+  right: var(--modal-toast-right, 0px);
+  bottom: var(--modal-toast-bottom, 24px);
+  transform: none;
+}
+
+/* The live regions that announce toasts: in the DOM, never on screen. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .toastsHub {
-  left: 332px;
+  /* The hub's main area, right of its 300 px sidebar. */
+  left: 300px;
+  right: 0;
   bottom: 24px;
 }
 
@@ -21,11 +53,11 @@
   align-items: flex-start;
   gap: 9px;
   max-width: min(560px, 80vw);
-  padding: 9px 8px 9px 12px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid rgba(223, 231, 240, 0.14);
   border-radius: var(--radius-md);
-  border-left: 3px solid var(--chrome-muted);
-  background: #0f2034;
-  color: #eef3f8;
+  background: var(--toast-bg);
+  color: var(--on-dark);
   font-size: var(--text-md);
   line-height: 1.4;
   box-shadow: var(--shadow-2);
@@ -34,44 +66,67 @@
      transition (not a keyframe) so it can be interrupted or re-triggered. */
   animation: global(ui-pop-in) var(--dur-base) var(--ease-out);
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: translateY(0);
   transition:
-    opacity var(--dur-base) var(--ease-in),
-    transform var(--dur-base) var(--ease-in);
+    opacity calc(var(--dur-base) * 0.7) var(--ease-in),
+    transform calc(var(--dur-base) * 0.7) var(--ease-in);
 }
 
+/* Leaves faster than it came (70%), with a 4 px drop and no scale. */
 .toastLeaving {
   opacity: 0;
-  transform: translateY(6px) scale(0.98);
+  transform: translateY(4px);
   pointer-events: none;
 }
 
-.toast_success {
-  border-left-color: #3fb8a3;
-}
-
-.toast_error {
-  border-left-color: #e2695a;
-}
-
 .toastIcon {
-  margin-top: 1px;
+  margin-top: 4px;
   color: var(--chrome-muted);
 }
 
 .toast_success .toastIcon {
-  color: #5fd0bc;
+  color: var(--on-dark-ok);
 }
 
 .toast_error .toastIcon {
-  color: #f08a7c;
+  color: var(--on-dark-danger);
 }
 
 .toastText {
   flex: 1;
   min-width: 0;
+  padding: 3px 0;
   overflow-wrap: anywhere;
   user-select: text;
+}
+
+/* One action on the toast, such as "Show in folder" or "Undo". */
+.toastAction {
+  flex: none;
+  height: 24px;
+  margin-left: 4px;
+  padding: 0 8px;
+  border: 1px solid rgba(223, 231, 240, 0.24);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--on-dark);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.toastAction:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(223, 231, 240, 0.4);
+}
+
+.toastAction:active {
+  transform: scale(var(--press-scale));
 }
 
 .toastClose {
@@ -79,8 +134,8 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
@@ -89,12 +144,21 @@
   cursor: default;
   transition:
     background var(--dur-hover) var(--ease-out),
-    color var(--dur-hover) var(--ease-out);
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
 }
 
 .toastClose:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  color: var(--on-accent);
+}
+
+.toastClose:active {
+  transform: scale(var(--press-scale));
+}
+
+.toast :focus-visible {
+  outline-color: var(--focus-chrome);
 }
 
 .busy {
@@ -176,7 +240,7 @@
 }
 
 .crashDark {
-  background: #0f2034;
+  background: var(--toast-bg);
   color: var(--chrome-muted);
 }
 

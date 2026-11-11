@@ -64,14 +64,8 @@
   opacity: 0.4;
 }
 
-/* Local keyframes: CSS modules rename animation names, so the global ui-*
-   ones in global.css cannot be referenced from here. */
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-}
-
+/* The cursor's grow-in is its own; fades use global(ui-fade-in) from
+   global.css, which modules can reference. */
 @keyframes cursor-in {
   from {
     opacity: 0;
@@ -90,12 +84,13 @@
 
 .arrow path {
   fill: var(--peer);
-  stroke: #fff;
+  stroke: var(--peer-ink);
   stroke-width: 1.4;
   stroke-linejoin: round;
 }
 
-/* The name, right and below the tip; flipped at the canvas edges. */
+/* The name, right and below the tip; flipped at the canvas edges. The small
+   corner is the tail: it points at the cursor. */
 .label {
   position: absolute;
   top: 16px;
@@ -105,7 +100,7 @@
   width: max-content;
   max-width: 240px;
   padding: 2px 7px 3px;
-  border-radius: 3px 9px 9px 9px;
+  border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
   background: var(--peer);
   color: var(--peer-ink);
   font-size: var(--text-xs);
@@ -119,19 +114,19 @@
 .cursor[data-flip-x="true"] .label {
   left: auto;
   right: 8px;
-  border-radius: 9px 3px 9px 9px;
+  border-radius: var(--radius-lg) var(--radius-sm) var(--radius-lg) var(--radius-lg);
   transform-origin: top right;
 }
 
 .cursor[data-flip-y="true"] .label {
   top: auto;
   bottom: 6px;
-  border-radius: 9px 9px 9px 3px;
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm);
   transform-origin: bottom left;
 }
 
 .cursor[data-flip-x="true"][data-flip-y="true"] .label {
-  border-radius: 9px 9px 3px 9px;
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
   transform-origin: bottom right;
 }
 
@@ -139,7 +134,7 @@
 .labelBubble {
   gap: 1px;
   padding: 4px 10px 6px;
-  border-radius: 3px 12px 12px 12px;
+  border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
   white-space: normal;
 }
 
@@ -151,7 +146,7 @@
 }
 
 .labelBubble .labelName {
-  font-size: 10px;
+  font-size: var(--text-xs);
   opacity: 0.85;
 }
 
@@ -161,7 +156,7 @@
   line-height: 1.35;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  animation: fade-in var(--dur-hover) var(--ease-out);
+  animation: global(ui-fade-in) var(--dur-hover) var(--ease-out);
 }
 
 .labelTyping {
@@ -185,12 +180,12 @@
   width: max-content;
   max-width: 264px;
   padding: 6px 11px 7px;
-  border-radius: 3px 14px 14px 14px;
+  border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
   background: var(--peer);
   color: var(--peer-ink);
   font-size: var(--text-md);
   line-height: 1.4;
-  box-shadow: 0 4px 16px rgba(20, 40, 63, 0.24);
+  box-shadow: var(--shadow-2);
   transform-origin: top left;
   opacity: 1;
   transform: none;
@@ -273,8 +268,8 @@
 
 /* "/" outside a live session: the same bubble, in the chrome color. */
 .chatHint {
-  background: rgba(20, 40, 63, 0.92);
-  color: #fff;
+  background: var(--chrome);
+  color: var(--on-dark);
 }
 
 .chatHintText {

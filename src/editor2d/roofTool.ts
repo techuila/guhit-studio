@@ -135,7 +135,7 @@ function hint(): string {
   const name = ROOF_SHAPE_NAME[shape].toLowerCase();
   if (corners.length === 0) return `Click the corners of a ${name} roof, or two opposite corners for a rectangle. H hip, G gable, S shed, F flat`;
   if (corners.length === 1) return `Click the next corner of the ${name} roof. Esc drops it`;
-  if (corners.length === 2) return "Click the next corner, or double click or press Enter for the rectangle on these two";
+  if (corners.length === 2) return "Click the next corner, or double-click or press Enter for the rectangle on these two";
   return "Click the next corner, or click the first one (or press Enter) to close the roof. Backspace drops a corner";
 }
 

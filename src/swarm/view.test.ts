@@ -1,7 +1,7 @@
 // The swarm panel's words and rules (view.ts).
 import { describe, expect, it } from "vitest";
 import { mockPart, mockStatus } from "./mock";
-import { acceptAllAsk, acceptAsk, aiWaitLine, feedRows, dependents, dependsOn, discardAllAsk, discardAsk, draftLine, drivingLine, estimateLine, leadOf, nameList, pillText, pinsOf, priceNote, workersOf } from "./view";
+import { LOCK_HINT, acceptAllAsk, acceptAsk, aiWaitLine, conflictLine, feedRows, dependents, dependsOn, discardAllAsk, discardAsk, draftLine, drivingLine, estimateParts, hasDraftWork, leadOf, nameList, pillText, pinsOf, priceNote, startTip, workersOf } from "./view";
 
 describe("swarm panel words", () => {
   it("keeps the lead apart from the parts that draw", () => {
@@ -23,19 +23,52 @@ describe("swarm panel words", () => {
     expect(draftLine(mockStatus({ added: 10, modified: 0, removed: 2 }))).toBe("The swarm drew 10 elements in a draft, and removes 2");
   });
 
-  it("shows who drives an MCP swarm in place of the prompt", () => {
+  it("shows who drives an MCP swarm in place of the prompt, by the client's own name", () => {
     expect(drivingLine(mockStatus({ source: { type: "mcp", client: "Claude Code" } }))).toBe("Claude Code is driving 3 sub-agents");
+    // The raw client string reads the way the rest of the app names it.
+    expect(drivingLine(mockStatus({ source: { type: "mcp", client: "claude-code" } }))).toBe("Claude Code is driving 3 sub-agents");
+    expect(drivingLine(mockStatus({ source: { type: "mcp", client: "  " } }))).toBe("Your AI is driving 3 sub-agents");
     expect(drivingLine(mockStatus())).toBeNull();
   });
 
-  it("gives the estimate as a range on the model it runs on, and says nothing enters the model", () => {
+  it("gives the estimate as a range on the AI model it runs on, and says nothing goes into the project", () => {
     const cost = { model: "claude-opus-5-5", model_label: "Claude Opus 5.5", low_usd: 0.76, high_usd: 2.42, spent_usd: 0, cap_usd: 3, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 };
-    expect(estimateLine(cost, 4)).toBe("4 agents on Claude Opus 5.5 · about US$0.76 to $2.42 on your Claude key (estimate) · nothing enters the model until you accept");
+    const tail = "Nothing goes into the project until you accept it";
+    // One phrase per span, never joined by middle dots.
+    expect(estimateParts(cost, 4)).toEqual(["4 agents on Claude Opus 5.5", "About US$0.76 to US$2.42 on your Claude key (estimate)", tail]);
     // Before the lead plans, the count is not known.
-    expect(estimateLine(cost, null)).toBe("Agents on Claude Opus 5.5 · about US$0.76 to $2.42 on your Claude key (estimate) · nothing enters the model until you accept");
+    expect(estimateParts(cost, null)).toEqual(["Agents on Claude Opus 5.5", "About US$0.76 to US$2.42 on your Claude key (estimate)", tail]);
     // An engine without the label: the id.
-    expect(estimateLine({ ...cost, model_label: undefined }, null)).toBe("Agents on claude-opus-5-5 · about US$0.76 to $2.42 on your Claude key (estimate) · nothing enters the model until you accept");
-    expect(estimateLine(null, null)).toBe("Runs on your Claude key · nothing enters the model until you accept");
+    expect(estimateParts({ ...cost, model_label: undefined }, null)[0]).toBe("Agents on claude-opus-5-5");
+    expect(estimateParts(null, null)).toEqual(["Runs on your Claude key", tail]);
+    expect(estimateParts(cost, 4).join(" ")).not.toContain("·");
+  });
+
+  it("says why Start swarm is off, else its shortcut", () => {
+    const on = { hasDoc: true, hasKey: true, brief: "A bungalow" };
+    expect(startTip({ ...on, hasDoc: false }, "⌘")).toBe("Open a project first");
+    expect(startTip({ ...on, hasKey: false }, "⌘")).toBe("Add a Claude API key in the copilot settings");
+    expect(startTip({ ...on, brief: "  " }, "⌘")).toBe("Write a brief first");
+    expect(startTip(on, "⌘")).toBe("⌘Enter starts the swarm");
+    expect(startTip(on, "Ctrl+")).toBe("Ctrl+Enter starts the swarm");
+  });
+
+  it("knows when the draft has anything for Accept all", () => {
+    expect(hasDraftWork(mockStatus())).toBe(true);
+    const empty = mockStatus({ added: 0, modified: 0, removed: 0 });
+    expect(hasDraftWork({ ...empty, parts: empty.parts.map((p) => ({ ...p, steps: 0 })) })).toBe(false);
+  });
+
+  it("names the part on each conflict under the draft bar", () => {
+    const st = mockStatus();
+    const c = { part: "rooms", step: 9, label: "Add door", code: "changed_on_main", message: "Wall 4000 mm changed in the plan since the draft.", element_ids: [] };
+    expect(conflictLine(st, c)).toBe("Rooms: Wall 4000 mm changed in the plan since the draft.");
+    expect(conflictLine(st, { ...c, part: "" })).toBe("Wall 4000 mm changed in the plan since the draft.");
+  });
+
+  it("calls the building the plan or the project, never the model", () => {
+    expect(LOCK_HINT).toBe("A swarm draft is open. Accept or discard it to edit the plan");
+    expect(discardAllAsk(mockStatus()).text).toBe("Discard the whole draft? Nothing was added to the project, and the draft cannot be brought back.");
   });
 
   it("says when the model's price is unknown and the highest rate is billed", () => {

@@ -11,7 +11,7 @@ import type { Command, DocState, Element, Issue, ReviewMark } from "../contract/
 import { isView } from "../contract/elements";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
-import { Button, Section, cx } from "../ui/controls";
+import { Button, Section, cx, useRovingGroup } from "../ui/controls";
 import { Icon, type IconName } from "../ui/icons";
 import { useListPresence } from "../ui/useListPresence";
 import { play } from "../ui/motionWaapi";
@@ -41,6 +41,9 @@ const dispatch = (command: Command) => useApp.getState().dispatch(command);
 
 const SEVERITY_ICON: Record<Issue["severity"], IconName> = { info: "info", warning: "warning", error: "warning" };
 
+/** The triage keys, in the list's name and in the header's keyboard tooltip (also in Shortcuts). */
+const REVIEW_KEYS ="↑ ↓ move, S sets aside, O reopens, Enter shows";
+
 const SCOPES: Array<{ value: AsideScope; label: string }> = [
   { value: "issue", label: "This item" },
   { value: "check", label: "This check everywhere" },
@@ -50,7 +53,7 @@ const SCOPES: Array<{ value: AsideScope; label: string }> = [
 /** A row of the open list: a level heading, a room heading or an item. */
 type OpenRow =
   | { type: "level"; key: string; label: string; count: number }
-  | { type: "room"; key: string; label: string; count: number; worst: Issue["severity"] }
+  | { type: "room"; key: string; label: string; count: number }
   | { type: "item"; key: string; issue: Issue };
 
 const rowKey = (r: OpenRow) => r.key;
@@ -92,7 +95,7 @@ export function ReviewSection({ doc }: { doc: DocState }) {
       groups.flatMap((level) => [
         { type: "level" as const, key: `level:${level.key}`, label: level.label, count: level.count },
         ...level.rooms.flatMap((room) => [
-          { type: "room" as const, key: `room:${room.key}`, label: room.label, count: room.items.length, worst: room.worst },
+          { type: "room" as const, key: `room:${room.key}`, label: room.label, count: room.items.length },
           ...room.items.map((issue) => ({ type: "item" as const, key: `open:${issue.id}`, issue })),
         ]),
       ]),
@@ -233,10 +236,29 @@ export function ReviewSection({ doc }: { doc: DocState }) {
         count={count}
         open={open}
         onToggle={toggle}
-        aside={aside.length > 0 ? <span className={s.sectionAside}>{aside.length} set aside</span> : null}
+        aside={
+          aside.length > 0 || triage.length > 0 ? (
+            <span className={s.asideRow}>
+              {aside.length > 0 ? <span className={s.sectionAside}>{aside.length} set aside</span> : null}
+              {triage.length > 0 ? (
+                <span
+                  className={s.keysTip}
+                  role="note"
+                  tabIndex={0}
+                  aria-label={`Keys with the list focused: ${REVIEW_KEYS}`}
+                  data-tip={REVIEW_KEYS}
+                  data-tip-side="bottom-end"
+                  data-testid="review-keys"
+                >
+                  <Icon name="keyboard" size={14} />
+                </span>
+              ) : null}
+            </span>
+          ) : null
+        }
       >
         {empty ? <p className={s.empty}>Nothing to flag right now.</p> : null}
-        <div className={s.list} role="list" aria-label="Review items. Up and down move, S sets aside, O reopens, Enter shows." onKeyDown={onKeyDown}>
+        <div className={s.list} role="list" aria-label={`Review items. ${REVIEW_KEYS}.`} onKeyDown={onKeyDown}>
           {presentOpen.map(({ key, item: row, entering, leaving }) => (
             <div key={key} className={cx(s.row, entering && s.rowIn, leaving && s.rowOut)} inert={leaving}>
               <div className={s.rowInner}>
@@ -249,7 +271,7 @@ export function ReviewSection({ doc }: { doc: DocState }) {
                   <div className={s.roomHead}>
                     <Icon name={row.label === "Whole project" ? "folder" : "room"} size={13} />
                     <span className={s.roomName}>{row.label}</span>
-                    <span className={cx(s.roomCount, row.worst !== "info" && s.roomCountWarn)}>{row.count}</span>
+                    <span className={s.roomCount}>{row.count}</span>
                   </div>
                 ) : (
                   <OpenItem
@@ -377,11 +399,6 @@ export function ReviewSection({ doc }: { doc: DocState }) {
           </div>
         ))}
 
-        {triage.length > 0 ? (
-          <p className={s.keys}>
-            With the list focused: <kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>S</kbd> set aside, <kbd>O</kbd> reopen, <kbd>Enter</kbd> show.
-          </p>
-        ) : null}
         <p className={s.disclaimer}>
           Suggestions from a design check, for you to judge. This is not a permit, structural, plumbing, electrical or building code review.
         </p>
@@ -496,6 +513,14 @@ function AsideForm({
     play(input.current, [0, -4, 3, -2, 1, 0].map((x) => ({ transform: `translateX(${x}px)` })), "panel");
   }, [editing.invalid]);
   const scopes = SCOPES.filter((o) => o.value !== "element" || objectName !== null);
+  // One tab stop for the three scopes; the arrow keys, Home and End move the pick.
+  const roving = useRovingGroup({
+    active: scopes.findIndex((o) => o.value === editing.scope),
+    onMove: (el) => {
+      const scope = scopes.find((o) => o.value === el.dataset.value)?.value;
+      if (scope && scope !== editing.scope) onEdit({ ...editing, scope });
+    },
+  });
   const check = checkLabel(issue.code);
   const hint =
     editing.scope === "issue" ? "Only this item." : editing.scope === "check" ? `Every item of "${check}", now and later.` : `"${check}" on ${objectName ?? "this object"} only.`;
@@ -525,13 +550,16 @@ function AsideForm({
           }
         }}
       />
-      <div className={s.scopes} role="radiogroup" aria-label="Set aside">
-        {scopes.map((o) => (
+      <div className={s.scopes} role="radiogroup" aria-label="Set aside" onKeyDown={roving.onKeyDown}>
+        {scopes.map((o, i) => (
           <button
             key={o.value}
             type="button"
             role="radio"
             aria-checked={editing.scope === o.value}
+            tabIndex={roving.tabIndexFor(i)}
+            data-roving=""
+            data-value={o.value}
             className={cx(s.scope, editing.scope === o.value && s.scopeOn)}
             onClick={() => onEdit({ ...editing, scope: o.value })}
           >

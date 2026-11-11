@@ -113,6 +113,59 @@ export function composerGate(o: { hasDoc: boolean; busy: boolean; noKey: boolean
   return { canSend: can && o.text.trim() !== "", canFurnish: can, tip: o.locked ? LOCK_HINT : null };
 }
 
+/** The keys `proposalKey` reads. */
+export interface ProposalKeyEvent {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+}
+
+/**
+ * A key on a pending proposal, from the empty composer or the card itself:
+ * Mod+Enter applies and Esc discards (Mod is Cmd on a Mac, Ctrl elsewhere).
+ * Text in the composer keeps its own keys. Still only Apply commits (D8).
+ */
+export function proposalKey(e: ProposalKeyEvent, o: { pending: boolean; draft: string; mac: boolean }): "apply" | "discard" | null {
+  if (!o.pending || o.draft.trim() !== "") return null;
+  if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) return "discard";
+  const mod = o.mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+  if (e.key === "Enter" && mod && !e.shiftKey && !e.altKey) return "apply";
+  return null;
+}
+
+/**
+ * Whether the log should scroll to its end on this render: when the
+ * messages changed (a new one, or a card's state), or the busy line came or
+ * went. The busy line mounts a render after `busy` turns on, so it is its
+ * own signal. Called once per render; nothing new means no scroll.
+ */
+export function logFollower(): (items: readonly ChatItem[], busyShown: boolean) => boolean {
+  let seen: readonly ChatItem[] | null = null;
+  let busy = false;
+  return (items, busyShown) => {
+    const changed = items !== seen || busyShown !== busy;
+    seen = items;
+    busy = busyShown;
+    return changed;
+  };
+}
+
+/** The part of the message list `scrollToEnd` uses. */
+export interface LogEnd {
+  scrollHeight: number;
+  scrollTop: number;
+  scrollTo?: (options: ScrollToOptions) => void;
+}
+
+/** Scroll the log to its newest line, smoothly unless motion is off. */
+export function scrollToEnd(el: LogEnd | null, smooth: boolean): void {
+  if (!el) return;
+  if (typeof el.scrollTo === "function") el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  else el.scrollTop = el.scrollHeight;
+}
+
 /** Conversation as the backend wants it: user and assistant text only. */
 export function toHistory(items: ChatItem[]): AiMessage[] {
   return items

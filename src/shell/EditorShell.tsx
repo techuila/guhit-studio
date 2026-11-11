@@ -1,10 +1,10 @@
 // Editor frame: top bar, tool rail, canvas area (2D, split, 3D), inspector,
 // side dock (Copilot, Visuals, Chat), status bar, plus the overlays.
-import { Suspense, lazy, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ipc, onDocChanged } from "../contract/ipc";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
-import { Spinner, cx } from "../ui/controls";
+import { Spinner, cx, useRovingGroup } from "../ui/controls";
 import { PanelBoundary } from "../ui/feedback";
 import { Icon } from "../ui/icons";
 import { Presence, useLastTruthy, useSlidingIndicator } from "../ui/motionDom";
@@ -101,7 +101,7 @@ function CanvasArea() {
   const split = viewMode === "split";
 
   return (
-    <div ref={area} className={cx(s.canvasArea, drag.dragging && s.canvasDragging)}>
+    <div ref={area} className={cx(s.canvasArea, drag.dragging && s.canvasDragging)} data-plan-area>
       {show2d ? (
         <div
           className={cx(s.pane, drag.dragging && s.paneDragging)}
@@ -153,6 +153,33 @@ const DOCK_TABS: Array<{ key: DockTab; label: string; icon: "copilot" | "visuals
   { key: "chat", label: "Chat", icon: "chat" },
 ];
 
+/** Moves the dock's top edge with the arrow keys, like the split divider (2% a step). */
+export function dockRatioKey(key: string, ratio: number): number | null {
+  if (key === "ArrowUp") return ratio + 0.02;
+  if (key === "ArrowDown") return ratio - 0.02;
+  return null;
+}
+
+/**
+ * Toasts centre over the canvas, not the whole window (ui/feedback.module.css
+ * reads --toast-right): the right column's width, kept as it changes.
+ */
+function useToastRight(column: React.RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    const el = column.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const set = () => root.style.setProperty("--toast-right", `${Math.round(el.getBoundingClientRect().width)}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty("--toast-right");
+    };
+  }, [column]);
+}
+
 function RightColumn() {
   const column = useRef<HTMLDivElement>(null);
   const tab = useShell((st) => st.dockTab);
@@ -166,6 +193,13 @@ function RightColumn() {
   const tabsRef = useRef<HTMLDivElement>(null);
   const activeTabRef = useRef<HTMLButtonElement>(null);
   const tabIndicator = useSlidingIndicator(tabsRef, activeTabRef, [tab, collapsed]);
+  // One tab stop for the tabs; the arrows, Home and End move and open (WAI-ARIA tabs).
+  const roving = useRovingGroup({
+    active: DOCK_TABS.findIndex((t) => t.key === tab),
+    orientation: "horizontal",
+    onMove: (el) => setDockTab(el.dataset.tab as DockTab),
+  });
+  useToastRight(column);
 
   return (
     <aside ref={column} className={s.right}>
@@ -187,18 +221,35 @@ function RightColumn() {
             role="separator"
             aria-orientation="horizontal"
             aria-label="Resize the dock"
+            aria-valuenow={Math.round(ratio * 100)}
+            aria-valuemin={20}
+            aria-valuemax={75}
+            tabIndex={0}
+            onDoubleClick={() => setDockRatio(0.44)}
+            onKeyDown={(e) => {
+              const next = dockRatioKey(e.key, ratio);
+              if (next === null) return;
+              e.preventDefault();
+              e.stopPropagation();
+              setDockRatio(next);
+            }}
             {...drag.handlers}
           />
         )}
         <header className={s.dockHead}>
-          <div ref={tabsRef} className={s.dockTabs} role="tablist" aria-label="Dock panels">
-            {DOCK_TABS.map((t) => (
+          <div ref={tabsRef} className={s.dockTabs} role="tablist" aria-label="Dock panels" onKeyDown={roving.onKeyDown}>
+            {DOCK_TABS.map((t, i) => (
               <button
                 key={t.key}
                 ref={tab === t.key ? activeTabRef : undefined}
                 type="button"
                 role="tab"
+                id={`dock-tab-${t.key}`}
+                aria-controls={`dock-panel-${t.key}`}
                 aria-selected={!collapsed && tab === t.key}
+                tabIndex={roving.tabIndexFor(i)}
+                data-roving=""
+                data-tab={t.key}
                 className={cx(s.dockTab, !collapsed && tab === t.key && s.dockTabOn, t.key === "copilot" && s.dockTabAi)}
                 onClick={() => setDockTab(t.key)}
               >
@@ -229,17 +280,17 @@ function RightColumn() {
         </header>
         {/* Both stay mounted so a chat in progress survives a tab switch. */}
         <div className={s.dockBody} hidden={collapsed}>
-          <div className={s.dockPanel} role="tabpanel" hidden={tab !== "copilot"}>
+          <div className={s.dockPanel} role="tabpanel" id="dock-panel-copilot" aria-labelledby="dock-tab-copilot" hidden={tab !== "copilot"}>
             <Panel name="The copilot" probe="copilot">
               <AiDock />
             </Panel>
           </div>
-          <div className={s.dockPanel} role="tabpanel" hidden={tab !== "visuals"}>
+          <div className={s.dockPanel} role="tabpanel" id="dock-panel-visuals" aria-labelledby="dock-tab-visuals" hidden={tab !== "visuals"}>
             <Panel name="Visuals" probe="visuals">
               <RenderPanel />
             </Panel>
           </div>
-          <div className={s.dockPanel} role="tabpanel" hidden={tab !== "chat"}>
+          <div className={s.dockPanel} role="tabpanel" id="dock-panel-chat" aria-labelledby="dock-tab-chat" hidden={tab !== "chat"}>
             <Panel name="The chat" probe="chat">
               <ChatPanel />
             </Panel>
@@ -306,7 +357,7 @@ export function EditorShell() {
         <RightColumn />
       </div>
       <StatusBar />
-      <UpdateNotice />
+      <UpdateNotice place="editor" />
       {/* Wave 2 panels, one per lane: each opens itself on its bus event
           (open_sheets, open_view, play_tour) and renders nothing until then. */}
       <SheetsPanel />

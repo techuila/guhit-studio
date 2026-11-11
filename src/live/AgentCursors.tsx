@@ -1,7 +1,9 @@
 // Agents on the plan (DECISIONS D47), with or without a live session: each
-// agent's cursor (a diamond with the AI mark, not a person's arrow) at its
-// work point, with its name and status line, and a faint dashed frame
-// around a level it has claimed. Rendered by LiveLayer, which also outlines
+// agent's cursor (a diamond with a center dot, not a person's arrow) at its
+// work point, with its name, the "AI" tag and its status line, and a faint
+// dashed frame around a level it has claimed. A working agent's diamond
+// sends out one ring per new step, never a loop (MOTION.md rule 11).
+// Rendered by LiveLayer, which also outlines
 // what each agent works on, what it just changed (its trail) and the
 // elements it claimed (`useAgentOutlines`).
 //
@@ -15,7 +17,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { DocState } from "../contract/bindings";
+import type { AgentActivity, DocState } from "../contract/bindings";
 import { rectIsEmpty } from "../editor2d/geom";
 import { boundsOfIds, buildIndex } from "../editor2d/model";
 import { useApp } from "../state/store";
@@ -24,7 +26,6 @@ import { useRevealNow, useSwarm } from "../swarm/swarmStore";
 import { cx } from "../ui/controls";
 import { useLastTruthy } from "../ui/motionDom";
 import { useListPresence } from "../ui/useListPresence";
-import { AiMark } from "./AgentAvatar";
 import { agentById, agentCursorIds, claimLine, statusText, type AgentView } from "./agents";
 import { useAgents } from "./agentsStore";
 import { peerVar } from "./format";
@@ -120,31 +121,55 @@ function AgentCursor({ id, board, entering, leaving }: { id: string; board: Curs
     };
   }, [board, id]);
 
+  const shownActivity = swarmMoving ? "working" : activity;
+
   return (
     <div
       ref={ref}
       className={s.cursor}
       style={{ "--peer": peerVar(shownColor) } as CSSProperties}
       data-snap="true"
-      data-activity={swarmMoving ? "working" : (activity ?? undefined)}
+      data-activity={shownActivity ?? undefined}
       data-testid={`agent-cursor-${id}`}
       aria-hidden
     >
-      <div className={cx(s.cursorBody, entering && s.cursorEnter, leaving && s.cursorLeave)}>
-        <span className={s.glyph}>
-          <AiMark size={8} />
+      <AgentCursorBody name={shownName} activity={shownActivity} line={shownLine} entering={entering} leaving={leaving} />
+    </div>
+  );
+}
+
+/**
+ * What an agent's cursor shows: the diamond, the name with the "AI" tag and
+ * its status line. While it works, the diamond sends out one ring per new
+ * step: the ring is keyed by the status line, so React mounts a new one (and
+ * its one-shot animation plays) each time the line changes, and never loops.
+ */
+export function AgentCursorBody({
+  name,
+  activity,
+  line,
+  entering = false,
+  leaving = false,
+}: {
+  name: string;
+  activity: AgentActivity | null;
+  line: string | null;
+  entering?: boolean;
+  leaving?: boolean;
+}) {
+  return (
+    <div className={cx(s.cursorBody, entering && s.cursorEnter, leaving && s.cursorLeave)}>
+      <span className={s.glyph}>{activity === "working" ? <span key={line ?? ""} className={s.glyphRing} data-ring="" /> : null}</span>
+      <div className={s.label}>
+        <span className={s.labelName}>
+          {name}
+          <span className={s.aiTag}>AI</span>
         </span>
-        <div className={s.label}>
-          <span className={s.labelName}>
-            {shownName}
-            <span className={s.labelTag}>AI</span>
+        {line ? (
+          <span key={line} className={s.labelStatus}>
+            {line}
           </span>
-          {shownLine ? (
-            <span key={shownLine} className={s.labelStatus}>
-              {shownLine}
-            </span>
-          ) : null}
-        </div>
+        ) : null}
       </div>
     </div>
   );

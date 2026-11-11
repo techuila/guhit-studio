@@ -59,7 +59,8 @@ export class ToolMotion {
     this.reason = reason;
     this.anim.clear("bump");
     this.anim.clear("reason");
-    this.to("bump", 1, dur("press"), { from: 1.18, easing: ease.spring });
+    // A bump from 1.12 with ease-out: status text never springs (MOTION.md rule 4).
+    this.to("bump", 1, dur("press"), { from: 1.12, easing: ease.out });
     // Held for REASON_HOLD_MS, then faded; with reduced motion it is held and then gone.
     const fade = dur("panel");
     const hold = REASON_HOLD_MS / (REASON_HOLD_MS + fade);

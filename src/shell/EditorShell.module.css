@@ -34,11 +34,11 @@
   overflow: hidden;
   /* Panels fill this box. isolation keeps their z-indexes below the chrome. */
   isolation: isolate;
-  /* View mode change (not a drag) resizes the panes; a newly appearing pane
-     fades in on mount. Disabled during the divider drag (paneDragging), which
-     must track the pointer 1:1 with zero lag. */
-  transition: flex-basis var(--dur-panel) var(--ease-in-out);
-  animation: global(ui-fade-in) var(--dur-panel) var(--ease-out);
+  /* A view mode change (keys 1, 2, 3) gives the panes their new sizes at
+     once: animating flex-basis would resize the plan and the 3D canvas on
+     every frame (MOTION.md rule 5). The pane that appears fades in. The
+     divider drag tracks the pointer 1:1. */
+  animation: global(ui-fade-in) var(--dur-base) var(--ease-out);
 }
 
 .paneDragging {
@@ -46,7 +46,7 @@
 }
 
 .pane3d {
-  background: #e9eef3;
+  background: #e9eef3; /* the 3D view's sky floor while it loads */
 }
 
 .divider {
@@ -91,7 +91,7 @@
 
 .divider:hover .dividerGrip,
 .dividerActive .dividerGrip {
-  background: rgba(255, 255, 255, 0.85);
+  background: color-mix(in srgb, var(--on-accent) 85%, transparent);
 }
 
 .dragShield {
@@ -126,11 +126,16 @@
   min-height: 0;
   border-top: 1px solid var(--line-strong);
   background: var(--surface);
-  transition: flex-basis var(--dur-panel) var(--ease-in-out);
 }
 
-.dockDragging {
-  transition: none;
+/* Collapse and expand: the dock takes its new size at once (the inspector
+   above it would relayout every frame) and its content fades in. */
+.dockBody {
+  animation: global(ui-fade-in) var(--dur-hover) var(--ease-out);
+}
+
+.dockDragging .dockBody {
+  animation: none;
 }
 
 .dockCollapsed {
@@ -160,8 +165,13 @@
 }
 
 .dockResize:hover::after,
-.dockResize.dividerActive::after {
+.dockResize.dividerActive::after,
+.dockResize:focus-visible::after {
   background: var(--accent);
+}
+
+.dockResize:focus-visible {
+  outline-offset: -2px;
 }
 
 .dockHead {

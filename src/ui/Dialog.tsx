@@ -1,7 +1,7 @@
 // Modal dialog, confirm dialog and a small anchored menu.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PresenceStage } from "./motion";
-import { Button, IconButton, cx } from "./controls";
+import { Button, IconButton, cx, rovingNext } from "./controls";
 import { Icon, type IconName } from "./icons";
 import s from "./Dialog.module.css";
 
@@ -12,6 +12,71 @@ const FOCUSABLE =
 let openModals = 0;
 export function isModalOpen(): boolean {
   return openModals > 0;
+}
+
+/**
+ * Where toasts go while a modal is open: the top modal's area, above its
+ * footer (or its bottom edge), as distances from the window's edges. Offsets
+ * ignore the enter transform, so the place is right from the first frame.
+ */
+export function modalToastArea(
+  panel: { offsetLeft: number; offsetTop: number; offsetWidth: number; offsetHeight: number },
+  footerTop: number | null,
+  view: { width: number; height: number },
+  gap = 12,
+): { left: number; right: number; bottom: number } {
+  const edge = panel.offsetTop + (footerTop ?? panel.offsetHeight);
+  return {
+    left: Math.max(0, panel.offsetLeft),
+    right: Math.max(0, view.width - (panel.offsetLeft + panel.offsetWidth)),
+    bottom: Math.max(0, view.height - edge + gap),
+  };
+}
+
+// Open modal panels, newest last. The newest one holds the toasts.
+const modalStack: HTMLElement[] = [];
+let modalObserver: ResizeObserver | null = null;
+
+function placeToastsInModal(): void {
+  const root = document.documentElement;
+  const top = modalStack[modalStack.length - 1];
+  if (!top) {
+    root.removeAttribute("data-modal-open");
+    for (const p of ["--modal-toast-left", "--modal-toast-right", "--modal-toast-bottom"]) root.style.removeProperty(p);
+    return;
+  }
+  const footer = [...top.children].find((c): c is HTMLElement => c.tagName === "FOOTER") ?? null;
+  const area = modalToastArea(top, footer ? footer.offsetTop : null, { width: root.clientWidth, height: window.innerHeight });
+  root.style.setProperty("--modal-toast-left", `${area.left}px`);
+  root.style.setProperty("--modal-toast-right", `${area.right}px`);
+  root.style.setProperty("--modal-toast-bottom", `${area.bottom}px`);
+  root.setAttribute("data-modal-open", "");
+}
+
+function watchTopModal(): void {
+  modalObserver?.disconnect();
+  modalObserver = null;
+  const top = modalStack[modalStack.length - 1];
+  if (top && typeof ResizeObserver !== "undefined") {
+    modalObserver = new ResizeObserver(placeToastsInModal);
+    modalObserver.observe(top);
+  }
+  if (top) window.addEventListener("resize", placeToastsInModal);
+  else window.removeEventListener("resize", placeToastsInModal);
+  placeToastsInModal();
+}
+
+function registerModal(panel: HTMLElement): void {
+  if (modalStack.includes(panel)) return;
+  modalStack.push(panel);
+  watchTopModal();
+}
+
+function unregisterModal(panel: HTMLElement): void {
+  const i = modalStack.indexOf(panel);
+  if (i < 0) return;
+  modalStack.splice(i, 1);
+  watchTopModal();
 }
 
 interface DialogProps {
@@ -85,6 +150,18 @@ export function Dialog({ title, onClose, children, footer, width = 440, placemen
     [],
   );
 
+  // Toasts move into this modal's area while it is open, and back as it leaves.
+  useEffect(() => {
+    const el = panel.current;
+    if (!el) return;
+    if (stage === "exit") {
+      unregisterModal(el);
+      return;
+    }
+    registerModal(el);
+    return () => unregisterModal(el);
+  }, [stage]);
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     e.stopPropagation();
     if (e.key === "Escape") {
@@ -149,6 +226,8 @@ interface ConfirmProps {
 }
 
 export function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm, onCancel, stage }: ConfirmProps) {
+  // A destructive confirm (end the session for everyone, move to trash)
+  // starts on Cancel, so Enter alone never does it.
   return (
     <Dialog
       title={title}
@@ -157,8 +236,10 @@ export function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm,
       stage={stage}
       footer={
         <>
-          <Button onClick={onCancel}>Cancel</Button>
-          <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} data-autofocus>
+          <Button onClick={onCancel} data-autofocus={danger ? true : undefined}>
+            Cancel
+          </Button>
+          <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} data-autofocus={danger ? undefined : true}>
             {confirmLabel}
           </Button>
         </>
@@ -177,6 +258,13 @@ export interface MenuItem {
   onSelect: () => void;
 }
 
+/** The trigger a menu belongs to: the first button in its anchor that is not one of its items. */
+function menuTrigger(menu: HTMLElement | null): HTMLElement | null {
+  const anchor = menu?.parentElement;
+  if (!anchor || !menu) return null;
+  return [...anchor.querySelectorAll<HTMLElement>("button")].find((b) => !menu.contains(b)) ?? null;
+}
+
 /** A small native-feeling menu anchored under its trigger. */
 export function Menu({
   items,
@@ -190,10 +278,16 @@ export function Menu({
   stage?: PresenceStage;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [active, setActive] = useState(0);
 
+  // Roving focus: the highlighted item holds real focus, so a screen reader
+  // reads it as the arrows move.
   useEffect(() => {
-    ref.current?.focus();
+    if (stage !== "exit") itemRefs.current[active]?.focus();
+  }, [active, stage]);
+
+  useEffect(() => {
     const down = (e: MouseEvent) => {
       // The trigger lives in the same anchor element and toggles the menu itself.
       const anchor = ref.current?.parentElement ?? ref.current;
@@ -202,6 +296,12 @@ export function Menu({
     window.addEventListener("mousedown", down, true);
     return () => window.removeEventListener("mousedown", down, true);
   }, [onClose]);
+
+  // Closing from the keyboard hands focus back to the trigger, not to <body>.
+  const closeToTrigger = () => {
+    menuTrigger(ref.current)?.focus();
+    onClose();
+  };
 
   return (
     <div
@@ -213,22 +313,31 @@ export function Menu({
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         e.stopPropagation();
-        if (e.key === "Escape") onClose();
-        else if (e.key === "ArrowDown") setActive((i) => (i + 1) % items.length);
-        else if (e.key === "ArrowUp") setActive((i) => (i - 1 + items.length) % items.length);
-        else if (e.key === "Enter" || e.key === " ") {
+        if (e.key === "Escape" || e.key === "Tab") {
+          if (e.key === "Escape") e.preventDefault();
+          closeToTrigger();
+          return;
+        }
+        const next = rovingNext(e.key, active, items.length, "vertical");
+        if (next !== null) {
+          e.preventDefault();
+          setActive(next);
+        } else if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           items[active]?.onSelect();
-          onClose();
+          closeToTrigger();
         }
       }}
     >
       {items.map((item, i) => (
         <button
           key={item.key}
+          ref={(el) => {
+            itemRefs.current[i] = el;
+          }}
           type="button"
           role="menuitem"
-          tabIndex={-1}
+          tabIndex={i === active ? 0 : -1}
           className={cx(s.menuItem, i === active && s.menuItemActive, item.danger && s.menuItemDanger)}
           onMouseEnter={() => setActive(i)}
           onClick={() => {

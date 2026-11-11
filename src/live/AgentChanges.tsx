@@ -126,8 +126,8 @@ export function AgentChanges() {
         </div>
       ) : null}
       <div className={s.groups}>
-        {groups.map((g, i) => (
-          <Group key={g.key} group={g} delay={Math.min(i, 7)} now={now} listRevision={listRevision} rows={rows} />
+        {groups.map((g) => (
+          <Group key={g.key} group={g} now={now} listRevision={listRevision} rows={rows} />
         ))}
       </div>
       <p className={s.foot}>
@@ -141,7 +141,7 @@ export function AgentChanges() {
   );
 }
 
-function Group({ group, delay, now, listRevision, rows }: { group: ReviewGroup; delay: number; now: Date; listRevision: number | null; rows: readonly HistoryRow[] }) {
+function Group({ group, now, listRevision, rows }: { group: ReviewGroup; now: Date; listRevision: number | null; rows: readonly HistoryRow[] }) {
   const agent = useAgents((st) => (group.key.startsWith("name:") ? null : agentById(st.views, group.key)));
   const selfId = useLive((st) => st.status.self_id);
   const selfName = useLive((st) => st.profile?.name ?? null);
@@ -149,7 +149,8 @@ function Group({ group, delay, now, listRevision, rows }: { group: ReviewGroup; 
   const shown = all ? group.rows : group.rows.slice(0, FOLD);
   const elements = useApp((st) => st.doc?.project.elements);
   const color = group.color ?? agent?.color ?? null;
-  const style = { "--who": color === null ? "var(--ai)" : peerVar(color), "--i": delay } as CSSProperties;
+  // An agent whose color is no longer known tints neutral, never in the AI purple (R4).
+  const style = { "--who": color === null ? "var(--ink-3)" : peerVar(color) } as CSSProperties;
   const forText = forLine(group.rows[0].step, selfId, selfName);
 
   const tintIds = (ids: string[]) => {
@@ -182,8 +183,8 @@ function Group({ group, delay, now, listRevision, rows }: { group: ReviewGroup; 
             <span className={s.aiTag}>AI</span>
           </span>
           <span className={s.groupMeta}>
-            {groupLine(group)}
-            {forText ? ` · ${forText}` : ""}
+            <span>{groupLine(group)}</span>
+            {forText ? <span>{forText}</span> : null}
           </span>
         </span>
         <button type="button" className={s.groupShow} onClick={showAll} data-tip="Select and frame everything it touched" data-tip-side="left">

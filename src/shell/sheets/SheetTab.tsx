@@ -13,7 +13,7 @@ import { Icon } from "../../ui/icons";
 import { Presence } from "../../ui/motionDom";
 import { editSheet } from "../commitLatest";
 import { pickImage } from "./pickImage";
-import { PAPERS, SCALES, projectViews, viewKey, viewTitle } from "./sheetModel";
+import { PAPERS, SCALES, projectViews, viewKey, viewLabel } from "./sheetModel";
 import s from "./sheets.module.css";
 
 const KIND_LABEL: Record<ViewRef["type"], string> = {
@@ -88,10 +88,26 @@ export function SheetTab({
         {sheet.viewports.map((vp) => (
           <div key={vp.id} className={cx(s.vpRow, vp.id === selectedViewport && s.vpRowOn)} onClick={() => onSelectViewport(vp.id)}>
             <div className={s.vpRowHead}>
-              <span className={s.vpRowTitle} title={viewTitle(doc, vp.view)}>
-                {vp.title?.trim() || viewTitle(doc, vp.view)}
-              </span>
-              <span className={s.pill}>{KIND_LABEL[vp.view.type]}</span>
+              {/* The row's own button, so the keyboard can pick the view on
+                  the sheet too (Enter or Space); a click anywhere on the row
+                  still does. */}
+              <button
+                type="button"
+                className={s.vpRowTitle}
+                aria-pressed={vp.id === selectedViewport}
+                title={viewLabel(doc, vp.view)}
+                data-testid="viewport-row"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectViewport(vp.id);
+                }}
+              >
+                {vp.title?.trim() || viewLabel(doc, vp.view)}
+              </button>
+              {/* The kind, unless the title already says it ("Vicinity map", "Roof plan"). */}
+              {KIND_LABEL[vp.view.type].toLowerCase() !== (vp.title?.trim() || viewLabel(doc, vp.view)).toLowerCase() ? (
+                <span className={s.pill}>{KIND_LABEL[vp.view.type]}</span>
+              ) : null}
               {vp.view.type !== "notes" && vp.view.type !== "vicinity_map" && vp.view.type !== "perspective" ? (
                 <IconButton icon="eye" size={15} label="Open full screen" tip="Open full screen" onClick={() => bus.emit("open_view", { view: vp.view })} />
               ) : null}

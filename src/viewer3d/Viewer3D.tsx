@@ -4,8 +4,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ipc } from "../contract/ipc";
 import { useLive } from "../live/liveStore";
+import { SHIFT } from "../shell/actions";
 import { bus } from "../state/bus";
 import { useApp, useVisibleDoc, type ExportScene } from "../state/store";
+import { useRovingGroup } from "../ui/controls";
 import { isModalOpen } from "../ui/Dialog";
 import type { HiddenReason } from "./geom/walkStart";
 import { liveEngineCount, ViewerEngine, type PresetKind } from "./engine/ViewerEngine";
@@ -104,7 +106,7 @@ const NAV_OPTIONS: SegOption<NavMode>[] = [
   {
     value: "walk",
     label: "Walk",
-    title: "Walk at eye height, walls stop you (Shift+W)",
+    title: `Walk at eye height, walls stop you (${SHIFT}W)`,
     icon: (
       <>
         <circle {...stroke} cx="9" cy="2.9" r="1.4" />
@@ -521,14 +523,16 @@ export function Viewer3D() {
               style={{ transform: `translateX(${indicator.x}px)`, width: `${indicator.w}px` }}
             />
           )}
-          {PRESETS.map((p) => (
+          {PRESETS.map((p, i) => (
             <button
               key={p.kind}
               type="button"
               className={styles.btn}
               data-active={!walking && activePreset === p.kind}
               data-testid={`preset-${p.kind}`}
-              title={p.title}
+              aria-label={p.label}
+              data-tip={p.title}
+              data-tip-side={i === 0 ? "bottom-start" : "bottom"}
               onClick={() => goPreset(p)}
             >
               <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
@@ -541,7 +545,8 @@ export function Viewer3D() {
             type="button"
             className={styles.btn}
             data-testid="preset-fit"
-            title="Fit the whole model"
+            aria-label="Fit"
+            data-tip="Fit the whole model"
             onClick={() => {
               if (heldByExport()) return;
               userView();
@@ -574,7 +579,9 @@ export function Viewer3D() {
             type="button"
             className={styles.btn}
             data-testid="save-view"
-            title="Save this camera position as a view"
+            aria-label="Save view"
+            data-tip="Save this camera position as a view"
+            data-tip-side="bottom-end"
             disabled={!doc || saving}
             onClick={saveView}
           >
@@ -601,7 +608,7 @@ export function Viewer3D() {
         </div>
       )}
       <div className={styles.hint} data-hidden={walking || following}>
-        Drag to orbit. Right drag to pan. Scroll to zoom. Click to select. Shift+W to walk.
+        Drag to orbit. Right drag to pan. Scroll to zoom. Click to select. {SHIFT}W to walk.
       </div>
     </div>
   );
@@ -630,21 +637,41 @@ function Segmented<T extends string>(props: {
     return () => ro.disconnect();
   }, [props.value]);
 
+  // One tab stop; the arrow keys, Home and End pick the next option (WAI-ARIA radio group).
+  const roving = useRovingGroup({
+    active: props.options.findIndex((o) => o.value === props.value),
+    onMove: (_el, i) => {
+      const next = props.options[i];
+      if (next && next.value !== props.value) props.onChange(next.value);
+    },
+  });
+
   return (
-    <div className={styles.group} data-slider="true" role="radiogroup" aria-label={props.label} ref={ref} data-testid={`${props.testId}-group`}>
+    <div
+      className={styles.group}
+      data-slider="true"
+      role="radiogroup"
+      aria-label={props.label}
+      ref={ref}
+      data-testid={`${props.testId}-group`}
+      onKeyDown={roving.onKeyDown}
+    >
       {pill && (
         <span className={styles.indicator} aria-hidden="true" style={{ transform: `translateX(${pill.x}px)`, width: `${pill.w}px` }} />
       )}
-      {props.options.map((o) => (
+      {props.options.map((o, i) => (
         <button
           key={o.value}
           type="button"
           role="radio"
           aria-checked={props.value === o.value}
+          aria-label={o.label}
+          tabIndex={roving.tabIndexFor(i)}
+          data-roving=""
           className={styles.btn}
           data-active={props.value === o.value}
           data-testid={`${props.testId}-${o.value}`}
-          title={o.title}
+          data-tip={o.title}
           onClick={() => props.onChange(o.value)}
         >
           <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
@@ -673,7 +700,7 @@ function Toggle(props: {
       data-active={props.on}
       aria-pressed={props.on}
       disabled={props.disabled}
-      title={props.title}
+      data-tip={props.title}
       onClick={props.onClick}
     >
       <span className={styles.dot} aria-hidden="true" />

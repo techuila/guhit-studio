@@ -62,6 +62,7 @@ function Bars() {
       {row("bar-drawing", <><DraftBar status={running} showDraft acting={null} ask={null} /><LockBanner /></>)}
       {row("bar-ready", <DraftBar status={ready} showDraft acting={null} ask={null} />)}
       {row("bar-conflicts", <DraftBar status={conflicts} showDraft={false} acting={null} ask={null} />)}
+      {row("bar-conflicts-open", <DraftBar status={conflicts} showDraft={false} acting={null} ask={null} conflictsOpen />)}
       {row("bar-accept-asks", <DraftBar status={running} showDraft acting={null} ask={ask ? { ...ask, origin: "bar" } : null} />)}
       {row("bar-discard-asks", <DraftBar status={running} showDraft acting={null} ask={drop ? { ...drop, origin: "bar" } : null} />)}
       {row("bar-accept-differs", <DraftBar status={ready} showDraft acting={null} ask={differs ? { ...differs, origin: "bar" } : null} />)}

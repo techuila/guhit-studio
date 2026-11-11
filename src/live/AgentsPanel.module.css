@@ -1,7 +1,8 @@
 /* The Agents panel and its review tab (DECISIONS D47). Tokens only; motion
    per docs/MOTION.md, "Agents". --peer is a row's agent color, --who a
    review group's. No colored side borders: state shows as a tint, a pill or
-   a dot. */
+   a dot. Purple only on the "AI" author tag (R4): limits are neutral chips,
+   toggles that are on use the teal "on" style. */
 
 .panel {
   position: fixed;
@@ -54,15 +55,9 @@
   border-bottom: 1px solid var(--line);
 }
 
+/* The neutral agent mark, as on the top bar's Agents button. */
 .headMark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  background: var(--ai-soft);
-  color: var(--ai);
+  color: var(--ink-2);
 }
 
 .title {
@@ -80,7 +75,7 @@
   height: 24px;
 }
 
-/* A tab's content cross-fades in with a small rise. */
+/* A tab's content cross-fades in place: opacity only (MOTION.md rule 12). */
 .body {
   display: flex;
   flex: 1;
@@ -88,14 +83,7 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  animation: tab-in var(--dur-base) var(--ease-out);
-}
-
-@keyframes tab-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
+  animation: global(ui-fade-in) var(--dur-hover) var(--ease-out);
 }
 
 .toolbar {
@@ -139,7 +127,7 @@
 }
 
 .linkButton:hover {
-  color: var(--accent);
+  color: var(--accent-hover);
   text-decoration-color: currentColor;
 }
 
@@ -147,6 +135,16 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 2px;
+}
+
+/* Read by screen readers, not shown. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------ agent rows */
@@ -160,32 +158,21 @@
   list-style: none;
 }
 
-/* Rows rise in once when the panel opens (staggered by --i, at most 8), a
-   new agent rises alone, an agent that goes folds away. */
+/* The rows rise in once, together, when the panel opens (MOTION.md rule 8:
+   no stagger on a panel that opens many times a day). A new agent's row
+   rises alone; an agent that goes folds away. */
 .row {
   display: grid;
   grid-template-rows: 1fr;
-  animation: row-in var(--dur-base) var(--ease-out) backwards;
-  animation-delay: calc(var(--i, 0) * 30ms);
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out) backwards;
   transition:
     grid-template-rows calc(var(--dur-base) * 0.7) var(--ease-in),
     opacity calc(var(--dur-base) * 0.7) var(--ease-in);
 }
 
-.rowEnter {
-  animation-delay: 0ms;
-}
-
 .rowLeave {
   grid-template-rows: 0fr;
   opacity: 0;
-}
-
-@keyframes row-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
 }
 
 /* A hairline card; paused and stopped agents get a warm or grey tint. */
@@ -294,20 +281,21 @@
   color: inherit;
   font: inherit;
   font-weight: 600;
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
   animation: name-in var(--dur-hover) var(--ease-out);
 }
 
 @keyframes name-in {
   from {
-    box-shadow: 0 0 0 0 var(--accent-soft);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
   }
 }
 
+/* Client and owner: plain text, set apart by a gap (no pills, no dots). */
 .whoMeta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   min-width: 0;
   color: var(--ink-3);
   font-size: var(--text-xs);
@@ -315,12 +303,8 @@
 }
 
 .client {
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--surface-2);
   color: var(--ink-2);
-  font-weight: 550;
-  line-height: 16px;
+  font-weight: 500;
 }
 
 .follow {
@@ -345,17 +329,13 @@
   font-weight: 550;
   text-overflow: ellipsis;
   white-space: nowrap;
-  animation: fade-in var(--dur-hover) var(--ease-out);
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
+  animation: global(ui-fade-in) var(--dur-hover) var(--ease-out);
 }
 
 .statusMeta {
+  display: inline-flex;
   flex: none;
+  gap: 10px;
   margin-left: auto;
   color: var(--ink-3);
   font-size: var(--text-xs);
@@ -371,33 +351,41 @@
   gap: 4px;
 }
 
+/* A limit: a neutral chip that fades in from 0.9. */
 .limitChip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 22px;
-  padding: 0 4px 0 8px;
-  border: 1px solid color-mix(in srgb, var(--ai) 30%, var(--line));
-  border-radius: 999px;
-  background: var(--ai-soft);
-  color: var(--ai);
+  height: 24px;
+  padding: 0 4px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--ink-2);
   font-size: var(--text-xs);
   font-weight: 600;
-  animation: chip-in var(--dur-base) var(--ease-spring);
+  animation: chip-in var(--dur-base) var(--ease-out);
 }
 
 @keyframes chip-in {
   from {
     opacity: 0;
-    transform: scale(0.8);
+    transform: scale(0.9);
   }
 }
 
 .limitChip:not(:has(button)) {
-  padding-right: 8px;
+  padding-right: 9px;
 }
 
+.limitChip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 16 px to the eye, 24 px to the pointer (WCAG 2.5.8). */
 .limitRemove {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -414,22 +402,30 @@
     transform var(--dur-press) var(--ease-out);
 }
 
+.limitRemove::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+}
+
 .limitRemove:hover {
-  background: rgba(107, 79, 187, 0.16);
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--ink);
 }
 
 .limitRemove:active {
   transform: scale(0.88);
 }
 
+/* "Limit" or "Change limit": a quiet button, not another pill. */
 .limitAdd {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 22px;
+  height: 24px;
   padding: 0 8px;
-  border: 1px dashed var(--line-strong);
-  border-radius: 999px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink-2);
   font: inherit;
@@ -444,8 +440,7 @@
 
 .limitAdd:hover,
 .limitAddOn {
-  border-style: solid;
-  border-color: var(--line-strong);
+  border-color: var(--line);
   background: var(--surface-2);
   color: var(--ink);
 }
@@ -459,19 +454,19 @@
   font-size: var(--text-xs);
 }
 
-/* The limit editor opens by height (grid rows 0fr to 1fr, MOTION.md rule 5). */
+/* The limit editor opens by height (grid rows 0fr to 1fr, MOTION.md rule 5).
+   Only the rows move: the fixed -8px takes back the row's gap while it is
+   shut, and the editor's own 8px top margin, inside the clip, gives it back
+   as it opens. */
 .reveal {
   display: grid;
   grid-template-rows: 0fr;
   margin-top: -8px;
-  transition:
-    grid-template-rows var(--dur-base) var(--ease-out),
-    margin-top var(--dur-base) var(--ease-out);
+  transition: grid-template-rows var(--dur-base) var(--ease-out);
 }
 
 .revealOpen {
   grid-template-rows: 1fr;
-  margin-top: 0;
 }
 
 .revealClip {
@@ -480,6 +475,7 @@
 }
 
 .limitEditor {
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -497,7 +493,7 @@
 }
 
 .limitLabel {
-  padding-top: 4px;
+  padding-top: 5px;
   color: var(--ink-3);
   font-size: var(--text-xs);
   font-weight: 600;
@@ -513,10 +509,10 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 22px;
-  padding: 0 8px;
+  height: 24px;
+  padding: 0 9px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink-2);
   font: inherit;
@@ -542,11 +538,12 @@
   opacity: 0.55;
 }
 
+/* On: the teal "on" style, as every other toggle chip in the app. */
 .toggleOn,
 .toggleOn:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--ai) 40%, var(--line));
-  background: var(--ai-soft);
-  color: var(--ai);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .limitHint {
@@ -589,7 +586,7 @@
   gap: 6px;
   padding: 26px 24px 22px;
   text-align: center;
-  animation: tab-in var(--dur-base) var(--ease-out);
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out);
 }
 
 .emptyMark {
@@ -599,9 +596,9 @@
   width: 40px;
   height: 40px;
   margin-bottom: 4px;
-  border-radius: 12px;
-  background: var(--ai-soft);
-  color: var(--ai);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: var(--ink-3);
 }
 
 .emptyTitle {
@@ -651,11 +648,10 @@
   min-width: 0;
 }
 
+/* The shared count (R14): a plain tabular number in ink-3 at the label size. */
 .reviewCount {
+  composes: count from "../ui/controls.module.css";
   flex: none;
-  color: var(--ink-3);
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
 }
 
 .groups {
@@ -665,12 +661,12 @@
   padding: 4px 12px 10px;
 }
 
+/* The groups rise in once, together (no stagger, MOTION.md rule 8). */
 .group {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   overflow: hidden;
-  animation: row-in var(--dur-base) var(--ease-out) backwards;
-  animation-delay: calc(var(--i, 0) * 30ms);
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out) backwards;
 }
 
 .groupHead {
@@ -704,17 +700,22 @@
   font-weight: 600;
 }
 
+/* "AI": the author tag (R4 keeps it purple where people and AI mix). */
 .aiTag {
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--ai-soft);
   color: var(--ai);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 650;
-  line-height: 15px;
+  line-height: 16px;
 }
 
+/* What it changed and who it worked for: separate spans with a gap. */
 .groupMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
   color: var(--ink-3);
   font-size: var(--text-xs);
 }
@@ -751,8 +752,9 @@
   list-style: none;
 }
 
+/* A step that lands while the tab is open fades in where it belongs. */
 .step {
-  animation: row-in var(--dur-base) var(--ease-out) backwards;
+  animation: global(ui-fade-in) var(--dur-base) var(--ease-out) backwards;
 }
 
 .stepInner {
@@ -801,9 +803,10 @@
   white-space: nowrap;
 }
 
+/* When and what: separate spans with a gap, no middle dots. */
 .stepMeta {
   display: flex;
-  gap: 6px;
+  gap: 10px;
   min-width: 0;
   color: var(--ink-3);
   font-size: var(--text-xs);
@@ -813,12 +816,6 @@
 .stepDetail {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.stepMeta > span + span::before {
-  content: "\00b7";
-  margin-right: 6px;
-  color: var(--line-strong);
 }
 
 /* "Undo to here" slides in on hover or keyboard focus, as in History. */
@@ -886,12 +883,6 @@
   display: block;
   padding: 3px 0 3px 10px;
   font-weight: 550;
-}
-
-.askLine::before {
-  content: "\00b7";
-  margin-right: 8px;
-  color: var(--ink-3);
 }
 
 @media (prefers-reduced-motion: reduce) {

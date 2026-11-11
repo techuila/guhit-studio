@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Anim, breathe, mix, mixP, sampleTrack, trackDone } from "./anim";
+import { Anim, frameStep, ghostAlpha, ghostBreathing, mix, mixP, sampleTrack, trackDone } from "./anim";
+import { BREATHS, BREATH_HIGH, BREATH_LOW, BREATH_MS, PREVIEW_OPACITY, breathCurve } from "../viewer3d/engine/breath";
 import { ease } from "../ui/motion";
 
 const linear = (x: number): number => x;
@@ -191,21 +192,116 @@ describe("Anim", () => {
   });
 });
 
-describe("breathe", () => {
-  it("stays inside its range and returns to the middle each period", () => {
-    for (let t = 0; t < 3200; t += 37) {
-      const v = breathe(t, 1600, 0.55, 0.85);
+describe("ghostAlpha", () => {
+  const since = 1000;
+  it("starts low and breathes twice, 0.55 to 0.85, 1.6 s each, as rule 11 says", () => {
+    for (let t = since; t < since + 3200; t += 37) {
+      const v = ghostAlpha(t, since, 1600, 0.55, 0.85, 0.78);
       expect(v).toBeGreaterThanOrEqual(0.55 - 1e-9);
       expect(v).toBeLessThanOrEqual(0.85 + 1e-9);
     }
-    expect(breathe(0, 1600, 0.55, 0.85)).toBeCloseTo(0.7);
-    expect(breathe(400, 1600, 0.55, 0.85)).toBeCloseTo(0.85);
-    expect(breathe(1200, 1600, 0.55, 0.85)).toBeCloseTo(0.55);
+    expect(ghostAlpha(since, since, 1600, 0.55, 0.85, 0.78)).toBeCloseTo(0.55);
+    expect(ghostAlpha(since + 800, since, 1600, 0.55, 0.85, 0.78)).toBeCloseTo(0.85);
+    expect(ghostAlpha(since + 1600, since, 1600, 0.55, 0.85, 0.78)).toBeCloseTo(0.55);
+    // The second breath peaks again, then settles on the hold instead of falling back.
+    expect(ghostAlpha(since + 2400, since, 1600, 0.55, 0.85, 0.78)).toBeCloseTo(0.85);
+  });
+
+  it("is the 3D view's curve, so Split view breathes in step", () => {
+    for (let t = 0; t <= 3200; t += 50) {
+      const v = ghostAlpha(since + t, since, BREATH_MS, BREATH_LOW, BREATH_HIGH, PREVIEW_OPACITY, BREATHS);
+      const three = BREATH_LOW + (PREVIEW_OPACITY - BREATH_LOW) * breathCurve(t / (BREATHS * BREATH_MS));
+      expect(v).toBeCloseTo(three, 9);
+    }
+  });
+
+  it("then holds steady for good, with no jump at the hand-off", () => {
+    const end = since + 2 * 1600;
+    expect(ghostAlpha(end - 1, since, 1600, 0.55, 0.85, 0.78)).toBeCloseTo(0.78, 2);
+    expect(ghostAlpha(end, since, 1600, 0.55, 0.85, 0.78)).toBe(0.78);
+    expect(ghostAlpha(end + 60_000, since, 1600, 0.55, 0.85, 0.78)).toBe(0.78);
   });
 
   it("is a steady tint when motion is off", () => {
-    expect(breathe(0, 1600, 0.55, 0.85, false)).toBe(0.85);
-    expect(breathe(900, 1600, 0.55, 0.85, false)).toBe(0.85);
+    expect(ghostAlpha(since, since, 1600, 0.55, 0.85, 0.78, 2, false)).toBe(0.78);
+    expect(ghostAlpha(since + 400, since, 1600, 0.55, 0.85, 0.78, 2, false)).toBe(0.78);
+  });
+});
+
+describe("frameStep, the render loop's rule", () => {
+  /** Drives frames the way PlanController.loop does, recording what each one draws. */
+  function run(a: Anim, times: number[]) {
+    let wasRunning = false;
+    let scheduled = true;
+    const drawn: Array<{ t: number; v: number }> = [];
+    for (const t of times) {
+      if (!scheduled) break;
+      const running = a.tick(t);
+      const step = frameStep({ dirty: false, running, looping: false, wasRunning });
+      wasRunning = step.again;
+      if (step.draw) drawn.push({ t, v: a.value("sel:b", 0) });
+      scheduled = step.again;
+    }
+    return { drawn, scheduled };
+  }
+
+  it("draws the frame where the last track lands, so the plan rests on the end state", () => {
+    const a = new Anim();
+    a.tick(0);
+    a.to("sel:b", 1, 80, { from: 0, easing: ease.out });
+    const { drawn, scheduled } = run(a, [16, 48, 96, 112]);
+    // The 96 ms frame has nothing running any more, and it is still drawn, at 1.
+    expect(drawn[drawn.length - 1]).toEqual({ t: 96, v: 1 });
+    // And then the loop sleeps: no frame after the landing one.
+    expect(drawn.map((d) => d.t)).toEqual([16, 48, 96]);
+    expect(scheduled).toBe(false);
+  });
+
+  it("draws the frame where a fading track is dropped, so nothing of the old selection is left", () => {
+    const a = new Anim();
+    a.tick(0);
+    a.to("sel:a", 1, 0);
+    a.to("sel:a", 0, 56, { drop: true });
+    let wasRunning = false;
+    const seen: boolean[] = [];
+    for (const t of [16, 40, 64]) {
+      const running = a.tick(t);
+      const step = frameStep({ dirty: false, running, looping: false, wasRunning });
+      wasRunning = step.again;
+      seen.push(step.draw && !a.has("sel:a"));
+    }
+    expect(seen).toEqual([false, false, true]);
+  });
+
+  it("draws once more when a loop stops, then sleeps", () => {
+    expect(frameStep({ dirty: false, running: 0, looping: false, wasRunning: true })).toEqual({ draw: true, again: false });
+    expect(frameStep({ dirty: false, running: 0, looping: false, wasRunning: false })).toEqual({ draw: false, again: false });
+    expect(frameStep({ dirty: true, running: 0, looping: false, wasRunning: false })).toEqual({ draw: true, again: false });
+    expect(frameStep({ dirty: false, running: 0, looping: true, wasRunning: false })).toEqual({ draw: true, again: true });
+  });
+});
+
+describe("ghostBreathing", () => {
+  it("runs for two breaths after the proposal arrives, then stops the loop", () => {
+    expect(ghostBreathing(1000, 1000, 1600)).toBe(true);
+    expect(ghostBreathing(1000 + 3199, 1000, 1600)).toBe(true);
+    expect(ghostBreathing(1000 + 3200, 1000, 1600)).toBe(false);
+    expect(ghostBreathing(1000 + 60_000, 1000, 1600)).toBe(false);
+  });
+
+  it("stays awake on a frame clock still short of the arrival, so the breaths can start", () => {
+    expect(ghostBreathing(996, 1000, 1600)).toBe(true);
+    expect(ghostAlpha(996, 1000, 1600, 0.55, 0.85, 0.78)).toBe(0.55);
+  });
+
+  it("holds a ghost that was already showing when the canvas mounted", () => {
+    expect(ghostBreathing(5000, Number.NEGATIVE_INFINITY, 1600)).toBe(false);
+    expect(ghostAlpha(5000, Number.NEGATIVE_INFINITY, 1600, 0.55, 0.85, 0.78)).toBe(0.78);
+  });
+
+  it("never loops under reduced motion", () => {
+    expect(ghostBreathing(1000, 1000, 1600, 2, false)).toBe(false);
+    expect(ghostBreathing(1400, 1000, 1600, 2, false)).toBe(false);
   });
 });
 

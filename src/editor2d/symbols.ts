@@ -429,7 +429,7 @@ function drawBuiltIn(ctx: Ctx, key: string, w: number, d: number, px: number, p:
 export const SYMBOL_PAPER_MM = 3;
 
 /** The UI font stack (tokens.css `--font-ui`), for tags when the caller gives none. */
-const SYMBOL_FONT = '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const SYMBOL_FONT = '"Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 /** D, the device symbol size in model mm at plan scale 1:n. 300 at 1:100, 150 at 1:50. */
 export function symbolSizeMm(scaleDenominator: number): number {
