@@ -14,7 +14,7 @@
   padding: 2px 8px;
   white-space: nowrap;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink-2);
   font: inherit;
@@ -42,7 +42,7 @@ button.crumb:disabled {
 
 .crumbOn {
   border-color: var(--line);
-  background: var(--accent-soft, var(--surface-3));
+  background: var(--accent-soft);
   color: var(--ink);
 }
 
@@ -63,19 +63,13 @@ button.crumb:disabled {
   text-overflow: ellipsis;
 }
 
-/* A new part's fields cross fade in with a small rise (MOTION.md, Inspector). */
+/* A picked part's fields cross-fade in place, opacity only, at click speed
+   (MOTION.md rule 12, "2D canvas, pipe editing"). */
 .part {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  animation: partIn var(--dur-base) var(--ease-out);
-}
-
-@keyframes partIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
+  animation: global(ui-fade-in) var(--dur-press) var(--ease-out);
 }
 
 @keyframes crumbIn {

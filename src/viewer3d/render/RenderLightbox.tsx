@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import type { RenderRecord } from "../../contract/bindings";
 import { usePresence } from "../../ui/motion";
 import { CompareSlider } from "./CompareSlider";
+import { savedLabel } from "./renderMeta";
 import { providerLabel, useRenderUi } from "./renderStore";
 import s from "./render.module.css";
 
@@ -64,11 +65,14 @@ export function RenderLightbox({
         />
       </div>
       <div className={s.lightboxBar}>
-        <span>
-          <strong>{ai ? "AI visualization" : "Model view"}</strong> - {record.camera?.name || "View"} - rev {record.revision}
-          {resolution ? ` - ${resolution}` : ""}
-          {ai && record.provider ? ` - ${providerLabel(record.provider)}` : ""} - Geometry: as modelled
-          {ai ? " - carries a SynthID watermark" : ""}
+        <span className={s.lightboxMeta}>
+          <strong>{ai ? "AI visualization" : "Model view"}</strong>
+          <span>{record.camera?.name || "View"}</span>
+          <span>{savedLabel(record.created_at)}</span>
+          {resolution ? <span>{resolution}</span> : null}
+          {ai && record.provider ? <span>{providerLabel(record.provider)}</span> : null}
+          <span>Geometry: as modeled</span>
+          {ai ? <span>Carries a SynthID watermark</span> : null}
         </span>
         <span className={s.lightboxActions}>
           <button type="button" className={s.lightBtn} onClick={() => onGoToCamera(record)}>

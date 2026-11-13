@@ -72,31 +72,72 @@ export default async (page, shot) => {
   await page.waitForTimeout(20);
   const sel = await page.evaluate(() => window.__app.getState().selection[0]);
   a = await anim(page);
-  log("select keys", { id: sel, sel: keysWith(a, "sel:"), grip: keysWith(a, "grip:"), count: a.count });
-  expect("selecting fades the outline in and scales the grips in", a.keys[`sel:${sel}`] < 1 && a.keys["grip:0"] < 1 && a.count > 0, {
+  log("select keys", { id: sel, sel: keysWith(a, "sel:"), grip: keysWith(a, "grip"), count: a.count });
+  expect("selecting fades the outline in and scales the grips in", a.keys[`sel:${sel}`] !== undefined && a.keys.grip !== undefined && a.count > 0, {
     sel: a.keys[`sel:${sel}`],
-    grip0: a.keys["grip:0"],
+    grip: a.keys.grip,
   });
-  expect("grips are staggered: the second starts after the first", a.keys["grip:1"] < a.keys["grip:0"], { g0: a.keys["grip:0"], g1: a.keys["grip:1"] });
-  await page.waitForTimeout(55);
+  expect("grips scale in together from 0.6: one track, no stagger", keysWith(a, "grip:").length === 0 && a.keys.grip >= 0.6 && (a.keys.grip === 1 || a.keys.grip > a.keys[`sel:${sel}`]), {
+    grip: a.keys.grip,
+    sel: a.keys[`sel:${sel}`],
+    staggered: keysWith(a, "grip:"),
+  });
+  await page.waitForTimeout(20);
   await shot("m02-select-grips-mid");
   a = await settle(page, "select");
-  expect("selection outline and grips land at 1", a.keys[`sel:${sel}`] === 1 && a.keys["grip:0"] === 1, { sel: a.keys[`sel:${sel}`], grip0: a.keys["grip:0"] });
+  expect("selection outline and grips land at 1", a.keys[`sel:${sel}`] === 1 && a.keys.grip === 1, { sel: a.keys[`sel:${sel}`], grip: a.keys.grip });
 
   // deselect fades out
   await clickAt(page, -1500, 3000);
   await page.waitForTimeout(20);
   a = await anim(page);
   expect("deselect fades the outline out", a.keys[`sel:${sel}`] === undefined || a.keys[`sel:${sel}`] < 1, a.keys[`sel:${sel}`]);
-  expect("deselecting scales the grips back out", a.keys["grip:0"] === undefined || a.keys["grip:0"] < 1, a.keys["grip:0"]);
+  expect("deselecting scales the grips back out", a.keys.grip === undefined || a.keys.grip < 1, a.keys.grip);
   await settle(page, "deselect");
+
+  // ---------------------------------------------------------------- the plan rests on the end state
+  // Select A, then B, with the pointer still: 500 ms later nothing of A's tint
+  // or outline may be left. A fresh draw of the end state must change no pixel,
+  // and the loop must be asleep (the frame where the last track lands is drawn).
+  {
+    const corner = await at(page, -2500, 9000);
+    await page.mouse.move(corner.x, corner.y);
+    await settle(page, "pointer parked");
+    const rest = await page.evaluate(async () => {
+      const st = window.__app.getState();
+      const walls = st.doc.project.elements.filter((e) => e.kind === "wall");
+      const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+      st.select([walls[0].id]);
+      await pause(300);
+      st.select([walls[1].id]);
+      await pause(500);
+      const c = window.__planController;
+      const canvas = document.querySelector('[data-testid="plan-canvas"] canvas');
+      const ctx = canvas.getContext("2d");
+      const before = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const idle = c.animIdle();
+      const count = c.animCount();
+      const frames = c.frames;
+      c.invalidate();
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const after = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let diff = 0;
+      for (let i = 0; i < before.length; i += 4) if (before[i] !== after[i] || before[i + 1] !== after[i + 1] || before[i + 2] !== after[i + 2]) diff++;
+      return { diff, idle, count, redrawn: c.frames - frames };
+    });
+    log("rest after A then B", rest);
+    expect("500 ms after a selection change the plan rests on the end state: no leftover tint or outline", rest.diff === 0 && rest.redrawn > 0, rest);
+    expect("and the loop is asleep: nothing running, no frame scheduled", rest.idle && rest.count === 0, rest);
+    await page.evaluate(() => window.__app.getState().select([]));
+    await settle(page, "rest check");
+  }
 
   // ---------------------------------------------------------------- snapping
   await tool(page, "wall");
   await moveTo(page, 40, 5960); // wall corner: endpoint snap
   a = await anim(page);
   log("snap engage", { pop: a.keys["snap.pop"], alpha: a.keys["snap.a"] });
-  expect("a new snap pops the glyph from 0.6 and fades it in", a.keys["snap.pop"] !== undefined && a.keys["snap.a"] !== undefined, a.keys);
+  expect("a new snap pops the glyph from 0.8 and fades it in", a.keys["snap.pop"] !== undefined && a.keys["snap.a"] !== undefined, a.keys);
   await shot("m03-snap-pop-mid");
   await settle(page, "snap");
   a = await anim(page);
@@ -174,8 +215,8 @@ export default async (page, shot) => {
   await moveTo(page, 5000, 4500);
   const gp = await at(page, 5000, 4500);
   await page.mouse.click(gp.x, gp.y); // the interior partition, no openings on it
-  await page.waitForTimeout(70);
-  await shot("m08b-wall-grips-stagger-mid"); // the three grips scaling in, staggered
+  await page.waitForTimeout(30);
+  await shot("m08b-wall-grips-mid"); // the three grips scaling in together
   await settle(page, "select the partition");
   let s = await state(page);
   expect("partition selected for the drag", s.selection.length === 1, s.selection);
@@ -369,7 +410,7 @@ export default async (page, shot) => {
   expect("and it is gone once the exit has played", unmounted === false, unmounted);
   await tool(page, "select");
 
-  // ---------------------------------------------------------------- AI preview breathes, and only it loops
+  // ---------------------------------------------------------------- AI preview breathes twice, then holds
   await page.evaluate(() => {
     const app = window.__app;
     const next = structuredClone(app.getState().doc);
@@ -388,6 +429,17 @@ export default async (page, shot) => {
   log("preview breath", breath);
   expect("the AI preview keeps the loop running so it can breathe", breath.a2.frames > breath.a1.frames + 5, breath);
   await shot("m13-preview-breathing");
+  // Two breaths of 1.6 s, then the ghost holds at 0.78 and the loop stops (MOTION.md rule 11).
+  const held = await page.evaluate(async () => {
+    const c = window.__planController;
+    await new Promise((r) => setTimeout(r, 3400));
+    const f1 = c.frames;
+    await new Promise((r) => setTimeout(r, 400));
+    return { f1, f2: c.frames, idle: c.animIdle() };
+  });
+  log("preview after its two breaths", held);
+  expect("after two breaths the ghost holds and the loop stops", held.f2 === held.f1 && held.idle, held);
+  await shot("m13b-preview-held");
   await page.evaluate(() => window.__app.getState().setPreview(null));
   await page.waitForTimeout(150);
   const stopped = await page.evaluate(async () => {

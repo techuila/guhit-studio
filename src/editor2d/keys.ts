@@ -4,6 +4,23 @@
 
 import { PIPE_HEIGHT_STEP, PIPE_HEIGHT_STEP_FINE } from "./pipe";
 
+/**
+ * Key names for the plan's hints, the way the shell's tooltips write them
+ * (src/shell/actions.ts `MOD`, `SHIFT`, `ALT`, which this canvas cannot
+ * import: actions imports the controller). On a Mac the symbols, elsewhere
+ * the words. `held` names a modifier held on its own ("hold ⌥"), `combo` one
+ * pressed with another key ("⌘V", "Ctrl+V").
+ */
+export function keyNames(mac: boolean): { held: { alt: string; shift: string }; combo: { mod: string; alt: string; shift: string } } {
+  return mac
+    ? { held: { alt: "⌥", shift: "⇧" }, combo: { mod: "⌘", alt: "⌥", shift: "⇧" } }
+    : { held: { alt: "Alt", shift: "Shift" }, combo: { mod: "Ctrl+", alt: "Alt+", shift: "Shift+" } };
+}
+
+const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+/** This computer's key names (see `keyNames`). */
+export const KEYS = keyNames(MAC);
+
 /** Roles of focusable widgets that use the page, arrow and letter keys themselves. */
 const WIDGET_ROLES = '[role="slider"], [role="spinbutton"], [role="listbox"], [role="combobox"], [role="textbox"], [role="menu"], [role="menuitem"]';
 

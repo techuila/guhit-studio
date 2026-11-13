@@ -1,7 +1,7 @@
 // The Chat button in the top bar, next to the people, with the unread count
 // (DECISIONS D41). Shown while a live session runs. Opens Chat in the dock
 // and expands the dock; with Chat already on screen it puts the cursor in the
-// message field instead. The count is UnreadBadge: it pops in, bumps on each
+// message field instead. The count is UnreadBadge: it fades in, bumps on each
 // new message and shrinks away once read.
 import { useEffect, useState } from "react";
 import { useShell } from "../shell/shellStore";

@@ -65,21 +65,13 @@
 }
 
 .blockTitle {
-  margin: 0;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-2);
+  composes: sectionLabel from "../../ui/controls.module.css";
 }
 
+/* A plain tabular number after the title, no fill. The head's gap spaces it. */
 .count {
-  padding: 0 6px;
-  border-radius: 9px;
-  background: var(--surface-2);
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
+  composes: count from "../../ui/controls.module.css";
+  margin-left: 0;
 }
 
 .sourceRow {
@@ -120,23 +112,39 @@
   line-height: 1.45;
 }
 
+/* The Source picker fills its column; a name too long for it ends in an
+   ellipsis instead of a cut letter (its tip has the whole name). */
+.sourceSelect {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.sourceSelect select {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .staleNote {
   padding: 2px 7px;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--warn) 14%, var(--surface));
-  color: color-mix(in srgb, var(--warn) 80%, var(--ink));
+  color: var(--warn-text);
   font-size: var(--text-xs);
 }
 
+/* No key yet: a plain callout with a full hairline, not an AI-coloured one
+   (purple is for proposals and AI images only). */
 .noKey {
   display: flex;
   flex-direction: column;
   gap: 8px;
   align-items: flex-start;
   padding: 9px 11px;
-  border-left: 3px solid var(--ai);
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
-  background: var(--ai-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
   color: var(--ink-2);
   font-size: var(--text-sm);
   line-height: 1.5;
@@ -184,7 +192,7 @@
 .textarea:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .generate {
@@ -218,22 +226,13 @@
   overflow: hidden;
 }
 
+/* A calm indeterminate sweep: a full-width layer moved by transform, its
+   middle third filled, timed by the one loop token. */
 .progressFill {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 38%;
-  border-radius: 2px;
-  background: var(--ai);
-  animation: renderSweep 1.6s var(--ease-in-out) infinite;
-}
-
-@keyframes renderSweep {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(264%);
-  }
+  inset: 0;
+  background: linear-gradient(90deg, transparent 31%, var(--accent) 31% 69%, transparent 69%);
+  animation: global(ui-sweep) var(--dur-loop) var(--ease-in-out) infinite;
 }
 
 .progressRow {
@@ -294,25 +293,20 @@
   text-align: center;
 }
 
+/* What the image is, as one quiet meta line: plain text with a gap between
+   the parts, no pills. The image carries its own "AI visualization" badge. */
 .badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: baseline;
+  gap: 2px 12px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .badge {
-  padding: 2px 8px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface-2);
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-}
-
-.badgeAi {
-  border-color: transparent;
-  background: var(--ai);
-  color: #fff;
+  color: inherit;
 }
 
 .synthid {
@@ -373,9 +367,9 @@
   position: absolute;
   bottom: 10px;
   padding: 3px 9px;
-  border-radius: 9px;
+  border-radius: var(--radius-pill);
   background: rgba(12, 24, 38, 0.72);
-  color: #fff;
+  color: var(--on-dark);
   font-size: var(--text-xs);
   pointer-events: none;
   transition: opacity var(--dur-hover) var(--ease-out);
@@ -394,9 +388,9 @@
   right: 10px;
   top: 10px;
   padding: 2px 8px;
-  border-radius: 9px;
+  border-radius: var(--radius-pill);
   background: var(--ai);
-  color: #fff;
+  color: var(--on-accent);
   font-size: var(--text-xs);
   font-weight: 500;
   pointer-events: none;
@@ -424,11 +418,14 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   cursor: ew-resize;
   transform: translate(-50%, -50%);
-  box-shadow: 0 2px 8px rgba(12, 24, 38, 0.35);
+  /* A hairline ring keeps the white handle readable on a bright photo. */
+  box-shadow:
+    0 0 0 1px rgba(12, 24, 38, 0.18),
+    var(--shadow-1);
   transition:
     transform var(--dur-base) var(--ease-spring),
     box-shadow var(--dur-base) var(--ease-out);
@@ -442,7 +439,9 @@
 /* Pick-up: the handle lifts under the finger, fast (--dur-press). */
 .compareHandle[data-grabbed] {
   transform: translate(-50%, -50%) scale(1.06);
-  box-shadow: 0 6px 18px rgba(12, 24, 38, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(12, 24, 38, 0.18),
+    var(--shadow-2);
   transition-duration: var(--dur-press);
   transition-timing-function: var(--ease-out);
 }
@@ -484,19 +483,19 @@
   background: var(--surface);
   overflow: hidden;
   transition:
-    transform var(--dur-base) var(--ease-out),
-    box-shadow var(--dur-base) var(--ease-out),
-    border-color var(--dur-base) var(--ease-out);
+    box-shadow var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out);
 }
 
 .strip[data-size="full"] .card {
   width: 172px;
 }
 
+/* A working grid the user scans: the border and shadow answer the pointer,
+   the card itself stays put (no lift, no image zoom). */
 .card:hover {
-  transform: translateY(-2px);
   border-color: var(--line-strong);
-  box-shadow: var(--shadow-2);
+  box-shadow: var(--shadow-1);
 }
 
 .card[data-selected] {
@@ -525,16 +524,12 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform var(--dur-panel) var(--ease-out);
+  transition: transform var(--dur-press) var(--ease-out);
 }
 
-.card:hover .cardThumb img {
-  transform: scale(1.03);
-}
-
+/* Press: the picture gives a little under the pointer. */
 .cardThumb:active img {
   transform: scale(1.01);
-  transition-duration: var(--dur-press);
 }
 
 .cardThumb:focus-visible {
@@ -557,9 +552,9 @@
   left: 6px;
   top: 6px;
   padding: 1px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-pill);
   background: rgba(20, 40, 63, 0.82);
-  color: #fff;
+  color: var(--on-dark);
   font-size: var(--text-xs);
 }
 
@@ -590,7 +585,7 @@
 
 .cardStale {
   margin-top: 3px;
-  color: color-mix(in srgb, var(--warn) 80%, var(--ink));
+  color: var(--warn-text);
   font-size: var(--text-xs);
 }
 
@@ -606,7 +601,7 @@
   border: 0;
   border-radius: 50%;
   background: rgba(20, 40, 63, 0.7);
-  color: #fff;
+  color: var(--on-dark);
   opacity: 0;
   cursor: pointer;
   transition:
@@ -637,8 +632,8 @@
   display: flex;
   flex-direction: column;
   padding: 18px;
+  /* A plain scrim, never frosted. */
   background: rgba(12, 24, 38, 0.55);
-  backdrop-filter: blur(2px);
   opacity: 1;
   transition: opacity var(--dur-panel) var(--ease-out);
 }
@@ -663,7 +658,7 @@
   padding: 16px 18px 18px;
   border-radius: var(--radius-lg);
   background: var(--surface-2);
-  box-shadow: var(--shadow-2);
+  box-shadow: var(--shadow-3);
   overflow: auto;
   container-type: inline-size;
   transform: none;
@@ -736,12 +731,21 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  color: #c9d6e4;
+  color: var(--chrome-text);
   font-size: var(--text-sm);
 }
 
+/* What the image is: separate parts with a gap, no separators. */
+.lightboxMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .lightboxBar strong {
-  color: #fff;
+  color: var(--on-dark);
 }
 
 .lightboxActions {
@@ -755,7 +759,7 @@
   border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.06);
-  color: #eaf2f8;
+  color: var(--on-dark);
   font-size: var(--text-sm);
   cursor: pointer;
   transition:
@@ -774,18 +778,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* The bar holds still, faint and full: still reads as working. */
   .progressFill {
     animation: none;
-    width: 100%;
+    background: var(--accent);
     opacity: 0.45;
-  }
-
-  .card:hover {
-    transform: none;
-  }
-
-  .card:hover .cardThumb img {
-    transform: none;
   }
 }
 
@@ -807,9 +804,9 @@
     opacity var(--dur-hover) var(--ease-out);
 }
 
+/* Pro is a price tier, not an AI proposal: neutral, a stronger hairline. */
 .price[data-pro] {
-  border-color: color-mix(in srgb, var(--ai) 35%, var(--line));
-  background: color-mix(in srgb, var(--ai-soft) 55%, var(--surface));
+  border-color: var(--line-strong);
 }
 
 .price[data-loading] {
@@ -820,13 +817,14 @@
   font-size: var(--text-lg);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  animation: priceIn var(--dur-base) var(--ease-spring);
+  animation: priceIn var(--dur-base) var(--ease-out);
 }
 
+/* A new price fades in with a 3 px rise: status text never bounces. */
 @keyframes priceIn {
   from {
     opacity: 0.35;
-    transform: translateY(3px) scale(0.96);
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
@@ -841,11 +839,11 @@
 
 .proPill {
   padding: 1px 7px;
-  border-radius: 9px;
-  background: var(--ai);
-  color: #fff;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
-  animation: pillIn var(--dur-base) var(--ease-spring);
+  animation: pillIn var(--dur-base) var(--ease-out);
 }
 
 .priceNote {
@@ -854,10 +852,11 @@
   font-size: var(--text-xs);
 }
 
+/* Pills fade in from 0.9 with --ease-out (rule 4). */
 @keyframes pillIn {
   from {
     opacity: 0;
-    transform: scale(0.8);
+    transform: scale(0.9);
   }
   to {
     opacity: 1;
@@ -865,7 +864,7 @@
   }
 }
 
-/* Maps: chips rise in one after the other (30 ms apart, rule 8). */
+/* Maps: the chips rise in together as one block (rule 8). */
 .maps {
   display: flex;
   flex-direction: column;
@@ -901,8 +900,7 @@
   color: var(--ink-2);
   font: inherit;
   cursor: pointer;
-  animation: mapIn var(--dur-base) var(--ease-out) both;
-  animation-delay: calc(var(--i, 0) * 30ms);
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out) both;
   transition:
     border-color var(--dur-hover) var(--ease-out),
     box-shadow var(--dur-hover) var(--ease-out),
@@ -933,17 +931,6 @@
   cursor: default;
 }
 
-@keyframes mapIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 .mapThumb {
   position: relative;
   display: block;
@@ -958,7 +945,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  animation: fadeIn var(--dur-base) var(--ease-out);
+  animation: global(ui-fade-in) var(--dur-base) var(--ease-out);
 }
 
 /* A calm sweep while a map draws or loads. */
@@ -967,7 +954,7 @@
   inset: 0;
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 70%, transparent), transparent);
   transform: translateX(-100%);
-  animation: renderSweep 1.6s var(--ease-in-out) infinite;
+  animation: global(ui-sweep) var(--dur-loop) var(--ease-in-out) infinite;
 }
 
 .mapLabel {
@@ -978,24 +965,15 @@
   text-align: center;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 /* The project look. */
 .lookPill {
   padding: 1px 7px;
-  border-radius: 9px;
+  border-radius: var(--radius-pill);
   background: var(--accent-soft);
   color: var(--accent-strong);
   font-size: var(--text-xs);
   font-weight: 600;
-  animation: pillIn var(--dur-base) var(--ease-spring);
+  animation: pillIn var(--dur-base) var(--ease-out);
 }
 
 .lookRow {
@@ -1018,7 +996,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  animation: fadeIn var(--dur-base) var(--ease-out);
+  animation: global(ui-fade-in) var(--dur-base) var(--ease-out);
 }
 
 .lookMeta {
@@ -1066,7 +1044,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  color: color-mix(in srgb, var(--warn) 80%, var(--ink));
+  color: var(--warn-text);
   font-size: var(--text-md);
 }
 
@@ -1081,7 +1059,7 @@
 .capMeter {
   position: relative;
   height: 5px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--surface-3);
   overflow: hidden;
 }
@@ -1090,7 +1068,7 @@
 .capMeter span {
   position: absolute;
   inset: 0;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   transform-origin: left center;
   transform: scaleX(var(--share, 0));
   transition: transform var(--dur-panel) var(--ease-out);
@@ -1154,29 +1132,41 @@
 .capLine {
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
-  animation: fadeIn var(--dur-hover) var(--ease-out);
+  animation: global(ui-fade-in) var(--dur-hover) var(--ease-out);
 }
 
 .capFull {
-  color: color-mix(in srgb, var(--warn) 80%, var(--ink));
+  color: var(--warn-text);
   font-weight: 600;
 }
 
-/* Badges and gallery pills for the look and the drift check. */
+/* The meta line's states, and the gallery pills for the look and the drift
+   check. State shows by typography and colour, not by a pill. */
 .badgeLook {
-  border-color: transparent;
-  background: var(--accent-soft);
   color: var(--accent-strong);
+  font-weight: 600;
 }
 
+/* The drift result is a button: it shows what moved on the image. */
 .badgeDrift {
-  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
-  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
-  color: color-mix(in srgb, var(--warn) 80%, var(--ink));
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--warn-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--dur-hover) var(--ease-out);
+}
+
+.badgeDrift:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .badgeMatch {
-  color: var(--ok);
+  color: var(--ok-text);
 }
 
 .cardPills {
@@ -1188,11 +1178,11 @@
 
 .cardPill {
   padding: 0 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-pill);
   background: var(--accent-soft);
   color: var(--accent-strong);
   font-size: var(--text-xs);
-  animation: pillIn var(--dur-base) var(--ease-spring);
+  animation: pillIn var(--dur-base) var(--ease-out);
 }
 
 .cardPill[data-tone="video"] {
@@ -1203,7 +1193,7 @@
 
 .cardPill[data-tone="drift"] {
   background: color-mix(in srgb, var(--warn) 14%, var(--surface));
-  color: color-mix(in srgb, var(--warn) 80%, var(--ink));
+  color: var(--warn-text);
 }
 
 @media (prefers-reduced-motion: reduce) {

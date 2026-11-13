@@ -156,7 +156,7 @@ export function agentActions(): PaletteAction[] {
   const canResume = local.some((a) => controlsFor(a).resume);
   const hasDoc = useApp.getState().doc !== null;
   const out: PaletteAction[] = [
-    { id: "agents-show", title: "Show agents", group: "Panels", icon: "copilot", keywords: "agents mcp ai claude codex cursor pause stop limit participants", run: () => openAgents("agents") },
+    { id: "agents-show", title: "Show agents", group: "Panels", icon: "agent", keywords: "agents mcp ai claude codex cursor pause stop limit participants", run: () => openAgents("agents") },
     {
       id: "agents-review",
       title: "What the agents changed",

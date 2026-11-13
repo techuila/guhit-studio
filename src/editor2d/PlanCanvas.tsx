@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
 import { LiveLayer } from "../live/LiveLayer";
 import { useApp } from "../state/store";
 import { dur, motionOK, usePresence, type PresenceStage } from "../ui/motion";
+import { cssEase } from "../ui/motionWaapi";
 import { PlanController, type UiState } from "./controller";
 import { levelBelow } from "./slab";
 import { useUnderlay } from "./underlay";
@@ -205,7 +206,7 @@ function InlineEditor({
   useEffect(() => {
     const el = ref.current;
     if (!editor.errorSeq || !el || !motionOK()) return;
-    el.animate([{ translate: "0" }, { translate: "-4px" }, { translate: "3px" }, { translate: "-2px" }, { translate: "0" }], { duration: dur("panel"), easing: "ease-out" });
+    el.animate([{ translate: "0" }, { translate: "-4px" }, { translate: "3px" }, { translate: "-2px" }, { translate: "0" }], { duration: dur("panel"), easing: cssEase("out") });
   }, [editor.errorSeq]);
 
   const box = editorStyle(editor, value);

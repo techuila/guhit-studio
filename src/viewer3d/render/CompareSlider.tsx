@@ -14,6 +14,9 @@ import {
 import { clampPercent, percentFromKey, percentFromPointer } from "./renderStore";
 import s from "./render.module.css";
 
+/** The label every AI image carries (DECISIONS D8, AGENTS.md). */
+const AI_LABEL = "AI visualization";
+
 export interface CompareSliderProps {
   /** The model capture. */
   beforeSrc: string;
@@ -43,7 +46,7 @@ export function CompareSlider({
   beforeSrc,
   afterSrc,
   beforeLabel = "Model view",
-  afterLabel = "AI visualization",
+  afterLabel = AI_LABEL,
   value,
   onChange,
   mode = "compare",
@@ -61,6 +64,8 @@ export function CompareSlider({
   const [ratio, setRatio] = useState(16 / 9);
   const compare = mode === "compare" && afterSrc !== "";
   const pct = compare ? clampPercent(value) : 0;
+  // The AI side is named once: by the corner badge, unless the label says more.
+  const rightLabel = aiBadge && afterLabel === AI_LABEL ? null : afterLabel;
 
   const moveTo = useCallback(
     (clientX: number) => {
@@ -155,7 +160,7 @@ export function CompareSlider({
 
       {aiBadge && afterSrc ? (
         <span className={s.aiBadge} data-testid="ai-badge">
-          AI visualization
+          {AI_LABEL}
         </span>
       ) : null}
 
@@ -164,9 +169,11 @@ export function CompareSlider({
           <span className={s.compareLabel} data-side="left" style={{ opacity: pct < 16 ? 0 : 1 }}>
             {beforeLabel}
           </span>
-          <span className={s.compareLabel} data-side="right" style={{ opacity: pct > 84 ? 0 : 1 }}>
-            {afterLabel}
-          </span>
+          {rightLabel ? (
+            <span className={s.compareLabel} data-side="right" style={{ opacity: pct > 84 ? 0 : 1 }}>
+              {rightLabel}
+            </span>
+          ) : null}
           <div className={s.compareLine} style={{ left: `${pct}%` }} aria-hidden />
           <button
             type="button"

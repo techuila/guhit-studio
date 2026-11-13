@@ -1,5 +1,7 @@
-/* Copilot dock. Purple (--ai) marks AI-authored surfaces only: the AI tag,
-   the reply rule, the proposal card. Everything else uses the app palette. */
+/* Copilot dock. Purple (--ai) marks the proposal card only (its frame,
+   header and Apply), as it marks the ghost on the plan. The Copilot tab
+   already says the dock is the AI, so there is no tag and no rule on the
+   replies. Everything else uses the app palette: teal is "on". */
 
 .dock {
   position: relative;
@@ -25,40 +27,21 @@
   border-bottom: 1px solid var(--line);
 }
 
-.headTitle {
+/* What is selected, or how many agents a swarm has. Empty when nothing is. */
+.headMeta {
   min-width: 0;
+  margin-left: auto;
   overflow: hidden;
-  color: var(--ink-2);
-  font-family: var(--font-mono);
+  color: var(--ink-3);
   font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.headMeta {
-  margin-left: auto;
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.aiTag {
-  display: inline-flex;
-  align-items: center;
-  height: 15px;
-  padding: 0 5px;
-  border-radius: 3px;
-  background: var(--ai-soft);
-  color: var(--ai);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  line-height: 1;
-}
-
 .iconBtn {
   position: relative;
+  flex: 0 0 auto;
   display: inline-grid;
   place-items: center;
   width: 26px;
@@ -67,14 +50,21 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-2);
-  cursor: pointer;
-  transition: background 120ms var(--ease), color 120ms var(--ease);
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
 }
 
 .iconBtn:hover,
 .iconBtnOn {
   background: var(--surface-2);
   color: var(--ink);
+}
+
+.iconBtn:active {
+  transform: scale(var(--press-scale));
 }
 
 .dotWarn {
@@ -102,11 +92,12 @@
   cursor: auto;
 }
 
+/* A message arrives: it fades in with a 4 px rise (MOTION rule 12). */
 .msg {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  animation: rise var(--dur-base) var(--ease-out);
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out);
 }
 
 .msgUser {
@@ -116,9 +107,9 @@
 .bubbleUser {
   max-width: 88%;
   padding: 7px 10px;
-  border-radius: var(--radius-lg) var(--radius-lg) 3px var(--radius-lg);
-  background: var(--surface-2);
   border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.45;
@@ -128,10 +119,11 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  min-height: 15px;
+  min-width: 0;
 }
 
 .grounded {
+  min-width: 0;
   color: var(--ink-3);
   font-size: var(--text-xs);
   overflow: hidden;
@@ -139,16 +131,16 @@
   white-space: nowrap;
 }
 
+/* The copilot's answer: plain text on the panel. */
 .bubbleAi {
-  padding: 1px 0 1px 10px;
-  border-left: 2px solid var(--ai);
+  padding: 1px 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.5;
 }
 
 .note {
-  animation: rise var(--dur-base) var(--ease-out);
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out);
   align-self: center;
   max-width: 94%;
   padding: 5px 10px;
@@ -166,6 +158,9 @@
   text-align: left;
 }
 
+/* The busy line waits --dur-scene before it shows, so a fast answer never
+   flashes it, and leaves at once. Its dots are indeterminate progress, the
+   one kind of loop the app keeps (--dur-loop). */
 .working {
   display: flex;
   align-items: center;
@@ -175,14 +170,18 @@
   opacity: 1;
   transform: none;
   transition:
-    opacity var(--dur-hover) var(--ease-out),
-    transform var(--dur-hover) var(--ease-out);
+    opacity var(--dur-hover) var(--ease-out) var(--dur-scene),
+    transform var(--dur-hover) var(--ease-out) var(--dur-scene);
 }
 
 .working[data-stage="enter"],
 .working[data-stage="exit"] {
   opacity: 0;
   transform: translateY(4px);
+}
+
+.working[data-stage="exit"] {
+  transition-delay: 0ms;
 }
 
 .workingText {
@@ -194,22 +193,23 @@
   gap: 3px;
 }
 
-/* Calm staggered pulse: one period is six press beats, each dot a beat apart. */
+/* A calm staggered pulse, each dot a fifth of the loop behind the last. */
 .dots i {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--ai);
-  opacity: 0.25;
-  animation: pulse calc(var(--dur-press) * 15) infinite var(--ease-in-out);
+  background: var(--ink-3);
+  /* Never below 0.45 between pulses, so the dots stay readable on white. */
+  opacity: 0.45;
+  animation: pulse var(--dur-loop) infinite var(--ease-in-out);
 }
 
 .dots i:nth-child(2) {
-  animation-delay: calc(var(--dur-press) * 2);
+  animation-delay: calc(var(--dur-loop) * 0.2);
 }
 
 .dots i:nth-child(3) {
-  animation-delay: calc(var(--dur-press) * 4);
+  animation-delay: calc(var(--dur-loop) * 0.4);
 }
 
 /* ------------------------------------------------------------- empty state */
@@ -236,13 +236,10 @@
   line-height: 1.5;
 }
 
+/* The shared section label: sentence case, not tracked caps. */
 .emptyLabel {
-  margin: 6px 0 0;
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  composes: sectionLabel from "../ui/controls.module.css";
+  margin-top: 6px;
 }
 
 .chips {
@@ -265,7 +262,7 @@
   font-size: var(--text-sm);
   line-height: 1.35;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   transition:
     border-color var(--dur-hover) var(--ease-out),
     background var(--dur-hover) var(--ease-out),
@@ -291,15 +288,13 @@
 
 .chip:disabled {
   opacity: 0.5;
-  cursor: default;
 }
 
 .chipTag {
   flex: 0 0 auto;
   color: var(--ink-3);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-style: normal;
-  letter-spacing: 0.04em;
 }
 
 .chipRow {
@@ -327,7 +322,7 @@
   width: auto;
   max-width: 230px;
   padding: 4px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--ink-2);
   font-size: var(--text-xs);
   white-space: nowrap;
@@ -349,7 +344,7 @@
 /* ------------------------------------------------------------- AI scope */
 
 /* "Only the selection" (DECISIONS D30): what is selected, and the switch that
-   limits the copilot and MCP clients to it. Tinted with the AI color while on. */
+   limits the copilot and the agents to it. Tinted teal ("on") while on. */
 .scopeRow {
   display: flex;
   align-items: center;
@@ -377,8 +372,8 @@
 }
 
 .scopeRowOn {
-  border-color: color-mix(in srgb, var(--ai) 35%, var(--line));
-  background: color-mix(in srgb, var(--ai-soft) 60%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface));
 }
 
 .scopeWhat {
@@ -406,39 +401,43 @@
 .scopeLabel {
   flex: 0 0 auto;
   color: var(--ink-2);
-  cursor: pointer;
+  cursor: default;
   transition: color var(--dur-hover) var(--ease-out);
 }
 
 .scopeRowOn .scopeLabel {
-  color: var(--ai);
+  color: var(--accent-strong);
 }
 
 /* ---------------------------------------------------------------- composer */
 
+/* One line until it is used; two while it has focus or text. The keys are
+   in the Send button's tip, not a line under the composer. */
 .composer {
   display: flex;
   align-items: flex-end;
   gap: 6px;
   flex: 0 0 auto;
-  margin: 0 12px;
+  margin: 0 12px 10px;
   padding: 6px 6px 6px 10px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease);
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
 }
 
 .composer:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .input {
   flex: 1 1 auto;
   min-width: 0;
   max-height: 96px;
-  padding: 3px 0;
+  padding: 4px 0;
   border: 0;
   outline: none;
   resize: none;
@@ -464,10 +463,9 @@
   height: 28px;
   border: 0;
   border-radius: var(--radius-md);
-  background: var(--accent);
-  color: #fff;
-  cursor: pointer;
-  overflow: hidden;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+  cursor: default;
   transition:
     background var(--dur-hover) var(--ease-out),
     opacity var(--dur-hover) var(--ease-out),
@@ -475,23 +473,28 @@
 }
 
 .sendBtn:hover:not(:disabled) {
-  background: var(--accent-strong);
+  background: var(--accent-hover);
 }
 
 .sendBtn:active:not(:disabled) {
+  background: var(--accent-active);
   transform: scale(var(--press-scale));
 }
 
-/* The arrow slides up and out on send, then comes back from below. */
+/* The arrow slides up and out on send, then comes back from below. It is
+   clipped to the button, which keeps its own tip visible. */
 .sendIcon {
   display: inline-grid;
   place-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
 }
 
 .sendBtn:disabled {
   background: var(--surface-3);
   color: var(--ink-3);
-  cursor: default;
 }
 
 .stopBtn {
@@ -500,18 +503,6 @@
 
 .stopBtn:hover:not(:disabled) {
   background: var(--chrome-2);
-}
-
-.foot {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  flex: 0 0 auto;
-  padding: 5px 14px 8px;
-  color: var(--ink-3);
-  font-size: 10.5px;
-  white-space: nowrap;
-  overflow: hidden;
 }
 
 /* ----------------------------------------------------------- proposal card */
@@ -541,12 +532,12 @@
   gap: 8px;
 }
 
+/* Sentence case like every section label; purple marks the proposal (D8). */
 .cardTitle {
   color: var(--ai);
   font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .cardDone .cardTitle {
@@ -557,26 +548,20 @@
 .cardState {
   color: var(--ink-3);
   font-size: var(--text-xs);
-  animation: crossFade var(--dur-base) var(--ease-out);
+  animation: global(ui-fade-in) var(--dur-base) var(--ease-out);
 }
 
 .cardNote {
-  animation: crossFade var(--dur-base) var(--ease-out);
-}
-
-@keyframes crossFade {
-  from {
-    opacity: 0;
-  }
+  animation: global(ui-fade-in) var(--dur-base) var(--ease-out);
 }
 
 .cardState[data-state="applied"] {
-  color: var(--ok);
+  color: var(--ok-text);
   font-weight: 600;
 }
 
 .cardState[data-state="stale"] {
-  color: var(--warn);
+  color: var(--warn-text);
   font-weight: 600;
 }
 
@@ -587,40 +572,22 @@
   overflow-wrap: anywhere;
 }
 
+/* "2 added  1 changed": the counts that are not zero, in ink. */
 .counts {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  overflow: hidden;
-}
-
-.count {
-  padding: 5px 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0;
   color: var(--ink-2);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
-.count + .count {
-  border-left: 1px solid var(--line);
-}
-
 .count b {
-  margin-right: 3px;
+  margin-right: 2px;
   color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: var(--text-md);
+  font-size: var(--text-sm);
   font-weight: 600;
-}
-
-.count[data-kind="added"] b {
-  color: var(--ok);
-}
-
-.count[data-kind="changed"] b {
-  color: var(--blueprint);
 }
 
 .count[data-kind="removed"] b {
@@ -647,13 +614,7 @@
   font-size: var(--text-sm);
   transition:
     background var(--dur-hover) var(--ease-out),
-    color var(--dur-hover) var(--ease-out),
-    padding-left var(--dur-hover) var(--ease-out);
-}
-
-.card:not(.cardDone) .row:hover,
-.rowHover {
-  padding-left: 11px;
+    color var(--dur-hover) var(--ease-out);
 }
 
 .row + .row {
@@ -670,6 +631,7 @@
   color: var(--ink);
 }
 
+/* The name nudges 2 px toward the plan on hover, by transform, never padding. */
 .rowName {
   flex: 1 1 auto;
   min-width: 0;
@@ -677,25 +639,25 @@
   color: var(--ink);
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: transform var(--dur-hover) var(--ease-out);
 }
 
+.card:not(.cardDone) .row:hover .rowName,
+.rowHover .rowName {
+  transform: translateX(2px);
+}
+
+/* What happens to a row, as plain words. Only "Removed" takes a color. */
 .rowChange {
   flex: 0 0 auto;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-}
-
-.rowChange[data-kind="added"] {
-  color: var(--ok);
-}
-
-.rowChange[data-kind="changed"] {
-  color: var(--blueprint);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
 
 .rowChange[data-kind="removed"] {
   color: var(--danger);
+  font-weight: 600;
 }
 
 .cardEmpty,
@@ -713,11 +675,11 @@
 }
 
 .cardNote[data-state="applied"] {
-  color: var(--ok);
+  color: var(--ok-text);
 }
 
 .cardNote[data-state="stale"] {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* A user must never have to hunt for Apply/Discard: when the card is taller
@@ -727,8 +689,9 @@
    the sticky bar never shows scrolled-past content through it. */
 .cardActions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
   position: sticky;
   bottom: 0;
   margin: 4px -10px -10px;
@@ -740,7 +703,8 @@
 .cardHint {
   margin-left: auto;
   color: var(--ink-3);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 
 .applyBtn,
@@ -754,28 +718,39 @@
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
   font-weight: 600;
-  cursor: pointer;
+  cursor: default;
   transition:
     background var(--dur-base) var(--ease-out),
     border-color var(--dur-hover) var(--ease-out),
-    width var(--dur-base) var(--ease-out),
     transform var(--dur-press) var(--ease-out);
 }
 
 .applyBtn {
   background: var(--ai);
-  color: #fff;
+  color: var(--on-accent);
 }
 
-/* Apply morphs into a drawn check before the row collapses away. It reads as
+/* Apply and the check share one grid cell: the button keeps its width and
+   only its face changes (MOTION rule 5: no width animation). */
+.applyBtn > * {
+  grid-area: 1 / 1;
+}
+
+.applyFace {
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+
+.applyFace[data-on="false"] {
+  opacity: 0;
+}
+
+/* Apply turns into a drawn check before the row collapses away. It reads as
    a result, not a dead button, so it keeps full contrast while disabled. */
 .applyBtnDone,
 .applyBtnDone:disabled {
   background: var(--ok);
-  color: #fff;
+  color: var(--on-accent);
   opacity: 1;
-  padding: 0;
-  width: 28px;
 }
 
 .checkPath {
@@ -791,17 +766,21 @@
 }
 
 .applyBtn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ai) 86%, #000);
+  background: color-mix(in srgb, var(--ai) 86%, var(--ink));
 }
 
 .primaryBtn {
   align-self: flex-start;
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-strong);
+  color: var(--on-accent);
 }
 
 .primaryBtn:hover:not(:disabled) {
-  background: var(--accent-strong);
+  background: var(--accent-hover);
+}
+
+.primaryBtn:active:not(:disabled) {
+  background: var(--accent-active);
 }
 
 .discardBtn {
@@ -824,7 +803,6 @@
 .discardBtn:disabled,
 .primaryBtn:disabled {
   opacity: 0.55;
-  cursor: default;
 }
 
 /* ---------------------------------------------------------------- settings */
@@ -844,7 +822,12 @@
   overflow-y: auto;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-md);
-  background: var(--surface);
+  /* A soft shade on the bottom edge says there is more below. The cover
+     rides with the content (local) and hides the shade at the end. */
+  background:
+    linear-gradient(transparent, var(--surface) 70%) 0 100% / 100% 28px no-repeat local,
+    radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--ink) 18%, transparent), transparent) 0 100% / 100% 10px no-repeat scroll,
+    var(--surface);
   box-shadow: var(--shadow-2);
   transform-origin: top right;
   opacity: 1;
@@ -921,14 +904,16 @@
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--ink);
-  font-family: var(--font-mono);
   font-size: var(--text-sm);
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
 }
 
 .textInput:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .popText {
@@ -945,7 +930,7 @@
 }
 
 .popMessage[data-tone="ok"] {
-  color: var(--ok);
+  color: var(--ok-text);
 }
 
 .popMessage[data-tone="error"] {
@@ -961,21 +946,10 @@
   gap: 6px;
 }
 
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 @keyframes pulse {
   0%,
   100% {
-    opacity: 0.25;
+    opacity: 0.45;
   }
   40% {
     opacity: 1;
@@ -991,6 +965,11 @@
   .cardNote,
   .checkPath {
     animation: none;
+  }
+
+  /* Still dots next to "Working on it" still read as working. */
+  .dots i {
+    opacity: 0.6;
   }
 
   .checkPath {

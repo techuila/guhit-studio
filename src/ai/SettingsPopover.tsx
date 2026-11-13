@@ -1,5 +1,5 @@
-// Copilot settings: API key (write only) and model name. The key goes to the
-// backend's private key file and is never read back into the UI.
+// Copilot settings: API key (write only) and the AI model's id. The key goes
+// to the backend's private key file and is never read back into the UI.
 import { useEffect, useRef, useState } from "react";
 import type { AiSettings } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
@@ -60,7 +60,7 @@ export function SettingsPopover({ settings, loadError, stage = "idle", onClose, 
       setMessage({ tone: "info", text: "Nothing to save." });
       return;
     }
-    void run(trimmedKey || null, modelChanged ? trimmedModel : null, () => (trimmedKey ? "Key saved." : "Model saved."));
+    void run(trimmedKey || null, modelChanged ? trimmedModel : null, () => (trimmedKey ? "Key saved." : "AI model saved."));
   };
 
   const remove = () =>
@@ -102,7 +102,7 @@ export function SettingsPopover({ settings, loadError, stage = "idle", onClose, 
       </label>
 
       <label className={s.field}>
-        <span className={s.fieldLabel}>Model</span>
+        <span className={s.fieldLabel}>AI model</span>
         <input
           className={s.textInput}
           type="text"
@@ -115,18 +115,7 @@ export function SettingsPopover({ settings, loadError, stage = "idle", onClose, 
         />
       </label>
 
-      <p className={s.popText}>
-        Use a Claude API key from platform.claude.com (it starts with sk-ant-api). Claude subscription and Claude
-        Code tokens do not work. The key is kept in the app's data folder, readable only by your user account,
-        never in a project file, and it cannot be shown again here. <ConnectLink />
-      </p>
-
-      {message ? (
-        <p className={s.popMessage} data-tone={message.tone} role={message.tone === "error" ? "alert" : "status"}>
-          {message.text}
-        </p>
-      ) : null}
-
+      {/* Save sits right under the fields, so a short dock never hides it below the help text. */}
       <div className={s.popActions}>
         <button type="button" className={s.primaryBtn} disabled={saving} onClick={save}>
           {saving ? "Saving" : "Save"}
@@ -137,6 +126,23 @@ export function SettingsPopover({ settings, loadError, stage = "idle", onClose, 
           </button>
         ) : null}
       </div>
+
+      {message ? (
+        <p className={s.popMessage} data-tone={message.tone} role={message.tone === "error" ? "alert" : "status"}>
+          {message.text}
+        </p>
+      ) : null}
+
+      {/* The way out comes before the long key note, so a short dock never hides it. */}
+      <p className={s.popText}>
+        <ConnectLink />
+      </p>
+
+      <p className={s.popText}>
+        Use a Claude API key from platform.claude.com (it starts with sk-ant-api). Claude subscription and Claude
+        Code tokens do not work. The key stays in the app's data folder, readable only by your user account, never
+        in a project file, and is never shown again.
+      </p>
     </div>
   );
 }

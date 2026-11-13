@@ -78,7 +78,8 @@ function editType(base: OpeningSpec, next: OpeningSpec): void {
   });
 }
 
-function TypeRow({ t, count, on, onPick, delay }: { t: OpeningSpec; count: number; on?: boolean; onPick?: () => void; delay: number }) {
+/** One type. Rows rise in together as one block, never staggered (MOTION.md rule 8). */
+function TypeRow({ t, count, on, onPick }: { t: OpeningSpec; count: number; on?: boolean; onPick?: () => void }) {
   const door = t.opening_type === "door";
   const body = (
     <>
@@ -92,17 +93,12 @@ function TypeRow({ t, count, on, onPick, delay }: { t: OpeningSpec; count: numbe
       <span className={css.count}>{count}</span>
     </>
   );
-  const style = { animationDelay: `${Math.min(delay, 7) * 30}ms` };
   if (!onPick) {
-    return (
-      <li className={cx(css.row, css.rowStatic)} style={style}>
-        {body}
-      </li>
-    );
+    return <li className={cx(css.row, css.rowStatic)}>{body}</li>;
   }
   return (
     <li>
-      <button type="button" className={cx(css.row, on && css.rowOn)} style={style} aria-pressed={on} onClick={onPick}>
+      <button type="button" className={cx(css.row, on && css.rowOn)} aria-pressed={on} onClick={onPick}>
         {body}
       </button>
     </li>
@@ -224,7 +220,6 @@ function PanelBody({ doc }: { doc: DocState }) {
     const made = result?.state.project.opening_types.find((t) => !before.has(t.id));
     if (made) usePanel.setState({ typeId: made.id });
   };
-  let row = 0;
   const group = (kind: OpeningType, title: string) => {
     const list = types.filter((t) => t.opening_type === kind);
     return (
@@ -240,7 +235,7 @@ function PanelBody({ doc }: { doc: DocState }) {
         ) : (
           <ul className={css.list}>
             {list.map((t) => (
-              <TypeRow key={t.id} t={t} count={counts.get(t.id) ?? 0} on={t.id === typeId} delay={row++} onPick={() => usePanel.setState({ typeId: t.id === typeId ? null : t.id })} />
+              <TypeRow key={t.id} t={t} count={counts.get(t.id) ?? 0} on={t.id === typeId} onPick={() => usePanel.setState({ typeId: t.id === typeId ? null : t.id })} />
             ))}
           </ul>
         )}
@@ -295,8 +290,8 @@ export function TypesSection({ doc }: { doc: DocState }) {
     >
       {types.length > 0 ? (
         <ul className={css.sectionRows}>
-          {types.map((t, i) => (
-            <TypeRow key={t.id} t={t} count={counts.get(t.id) ?? 0} delay={i} onPick={() => openTypesPanel(t.id)} />
+          {types.map((t) => (
+            <TypeRow key={t.id} t={t} count={counts.get(t.id) ?? 0} onPick={() => openTypesPanel(t.id)} />
           ))}
         </ul>
       ) : (

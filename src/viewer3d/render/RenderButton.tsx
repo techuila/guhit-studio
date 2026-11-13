@@ -26,7 +26,9 @@ export function RenderButton({ disabled }: { disabled?: boolean }) {
       data-active={running}
       data-testid="render-button"
       disabled={disabled && !running}
-      title={running ? "Rendering: see the Visuals panel (Esc cancels)" : "Render this view with the path tracer, saved to Visuals"}
+      aria-label={running ? (pct === null ? "Rendering" : `Rendering ${pct}%`) : "Render"}
+      data-tip={running ? "Rendering: see the Visuals panel (Esc cancels)" : "Render this view with the path tracer, saved to Visuals"}
+      data-tip-side="bottom-end"
       onClick={() => {
         useShell.getState().setDockTab("visuals");
         if (!running) bus.emit("render", { views: "current" });

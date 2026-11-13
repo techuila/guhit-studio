@@ -48,6 +48,11 @@ export function CommandPalette({ onClose, stage }: { onClose: () => void; stage?
         <input
           data-autofocus
           type="text"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="palette-list"
+          aria-autocomplete="list"
+          aria-activedescendant={results[active] ? `palette-cmd-${active}` : undefined}
           value={query}
           placeholder="What do you want to do?"
           aria-label="Search commands"
@@ -72,15 +77,20 @@ export function CommandPalette({ onClose, stage }: { onClose: () => void; stage?
         />
         <kbd>Esc</kbd>
       </label>
-      <div ref={list} className={s.paletteList} role="listbox" aria-label="Commands">
+      <div ref={list} id="palette-list" className={s.paletteList} role="listbox" aria-label="Commands">
         {results.length === 0 ? (
           <div className={s.paletteEmpty}>No command matches "{query}". Try "wall", "export" or "3D".</div>
         ) : (
           results.map((action, i) => (
-            <div key={action.id}>
-              {grouped && (i === 0 || results[i - 1].group !== action.group) ? <div className={s.paletteGroup}>{action.group}</div> : null}
+            <div key={action.id} role="presentation">
+              {grouped && (i === 0 || results[i - 1].group !== action.group) ? (
+                <div className={s.paletteGroup} role="presentation">
+                  {action.group}
+                </div>
+              ) : null}
               <button
                 type="button"
+                id={`palette-cmd-${i}`}
                 role="option"
                 aria-selected={i === active}
                 aria-disabled={action.disabled}

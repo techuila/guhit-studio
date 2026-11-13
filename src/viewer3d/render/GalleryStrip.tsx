@@ -7,15 +7,9 @@ import type { RenderRecord } from "../../contract/bindings";
 import { flip, play } from "../../ui/motionWaapi";
 import { clockLabel, dateLabel } from "../light/sun";
 import { driftState } from "./aiRender";
-import { kindLabel, videoLabel } from "./renderMeta";
+import { kindLabel, savedLabel as timeLabel, videoLabel } from "./renderMeta";
 import { formatResolution, groupRenders, type RenderGroup } from "./renderStore";
 import s from "./render.module.css";
-
-function timeLabel(rfc3339: string): string {
-  const d = new Date(rfc3339);
-  if (Number.isNaN(d.getTime())) return rfc3339;
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
 
 export interface GalleryStripProps {
   records: RenderRecord[];

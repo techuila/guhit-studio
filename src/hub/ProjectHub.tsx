@@ -9,7 +9,7 @@ import { useShell } from "../shell/shellStore";
 import { UpdateNotice } from "../shell/UpdateNotice";
 import { useApp } from "../state/store";
 import { ConfirmDialog, Dialog, Menu } from "../ui/Dialog";
-import { Button, IconButton, Spinner, cx } from "../ui/controls";
+import { Button, IconButton, Spinner, cx, useRovingGroup } from "../ui/controls";
 import { setBusyLabel } from "../ui/feedback";
 import { BrandMark, Icon } from "../ui/icons";
 import type { PresenceStage } from "../ui/motion";
@@ -152,7 +152,7 @@ export function ProjectHub() {
             Join a live session
           </Button>
           <Button icon="import" onClick={() => useShell.getState().requestImport("bundle")}>
-            Open bundle
+            Open .guhit file
           </Button>
           <Button variant="primary" icon="plus" onClick={() => setCreating("blank")}>
             New project
@@ -184,7 +184,7 @@ export function ProjectHub() {
                 <Button variant="primary" icon="plus" onClick={() => setCreating("blank")}>
                   New project
                 </Button>
-                <Button onClick={() => setCreating("sample-bungalow")}>Start from the sample bungalow</Button>
+                <Button onClick={() => setCreating("sample-bungalow")}>Sample bungalow</Button>
                 <Button icon="pipe" onClick={() => setCreating("plumbing-demo")}>
                   Bungalow with services
                 </Button>
@@ -256,8 +256,8 @@ export function ProjectHub() {
               title="Move project to trash?"
               message={
                 <>
-                  <strong>{shown.name}</strong> will be moved to the trash folder inside the app data. It is not erased,
-                  so it can be recovered from there.
+                  <strong>{shown.name}</strong> moves to the Trash folder in the app's data folder. It is not erased, and
+                  you can move it back from there.
                 </>
               }
               confirmLabel="Move to trash"
@@ -273,7 +273,7 @@ export function ProjectHub() {
   );
 }
 
-interface CardProps {
+export interface CardProps {
   project: ProjectMeta;
   /** Position in the grid, for a first-appearance stagger (capped at 8 items). */
   index: number;
@@ -288,57 +288,56 @@ interface CardProps {
   onDelete: () => void;
 }
 
-function ProjectCard(p: CardProps) {
+/**
+ * One project. The open button is a real button (its hit area covers the
+ * whole card); the actions menu sits beside it, never inside it. A project
+ * never opened has no picture yet: a blank sheet, not a made-up plan.
+ */
+export function ProjectCard(p: CardProps) {
   const { project } = p;
   const closeMenu = useCallback(() => p.onMenu(false), [p]);
+  // Focus goes back to the card when a rename ends, so the keyboard keeps its place.
+  const openRef = useRef<HTMLButtonElement>(null);
+  const wasRenaming = useRef(p.renaming);
+  useEffect(() => {
+    if (wasRenaming.current && !p.renaming) openRef.current?.focus({ preventScroll: true });
+    wasRenaming.current = p.renaming;
+  }, [p.renaming]);
   return (
     <div
       className={cx(s.card, p.menuOpen && s.cardMenuOpen, p.index < 8 && s.cardRise)}
       style={p.index < 8 ? ({ "--i": p.index } as CSSProperties) : undefined}
-      role="button"
-      tabIndex={0}
-      aria-label={`Open ${project.name}`}
-      onClick={() => {
-        if (!p.renaming) p.onOpen();
-      }}
-      onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          p.onOpen();
-        } else if (e.key === "F2") {
-          p.onStartRename();
-        }
-      }}
     >
-      <div className={s.thumb}>
-        {project.thumbnail ? (
-          <img src={project.thumbnail} alt="" draggable={false} />
-        ) : (
-          <PlanSketch seed={project.id} className={s.thumbSketch} />
-        )}
-      </div>
+      <button
+        ref={openRef}
+        type="button"
+        className={s.cardOpen}
+        aria-label={`Open ${project.name}`}
+        disabled={p.renaming}
+        onClick={() => p.onOpen()}
+        onKeyDown={(e) => {
+          if (e.key === "F2") {
+            e.preventDefault();
+            p.onStartRename();
+          }
+        }}
+      >
+        <span className={s.thumb}>
+          {project.thumbnail ? <img src={project.thumbnail} alt="" draggable={false} /> : <BlankSketch className={s.thumbSketch} />}
+        </span>
+      </button>
       <div className={s.cardBody}>
         <div className={s.cardTitleRow}>
           {p.renaming ? (
             <RenameInput initial={project.name} onCommit={p.onRename} onCancel={p.onCancelRename} />
           ) : (
-            <span
-              className={s.cardName}
-              title="Double-click to rename"
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                p.onStartRename();
-              }}
-            >
-              {project.name}
-            </span>
+            <span className={s.cardName}>{project.name}</span>
           )}
-          <span className={s.cardMenuAnchor} onClick={(e) => e.stopPropagation()}>
+          <span className={s.cardMenuAnchor}>
             <IconButton
               icon="more"
               label={`Actions for ${project.name}`}
-              tip="Rename, duplicate, delete"
+              tip="Rename, duplicate, move to trash"
               tipSide="top-end"
               data-tip-off={p.menuOpen ? "true" : undefined}
               active={p.menuOpen}
@@ -442,6 +441,12 @@ function CreateDialog({
     setTemplate(t);
     if (!touched) setName(defaultName(t));
   };
+  // One tab stop for the templates; the arrows pick (WAI-ARIA radio group).
+  const roving = useRovingGroup({
+    active: TEMPLATES.findIndex((x) => x.value === template),
+    orientation: "horizontal",
+    onMove: (_el, i) => pick(TEMPLATES[i].value),
+  });
 
   return (
     <Dialog
@@ -481,14 +486,18 @@ function CreateDialog({
           }}
         />
 
-        <span className={s.createLabel}>Start from</span>
-        <div className={s.templates} role="radiogroup" aria-label="Template">
-          {TEMPLATES.map((x) => (
+        <span className={s.createLabel} id="new-project-template">
+          Start from
+        </span>
+        <div className={s.templates} role="radiogroup" aria-labelledby="new-project-template" onKeyDown={roving.onKeyDown}>
+          {TEMPLATES.map((x, i) => (
             <button
               key={x.value}
               type="button"
               role="radio"
               aria-checked={template === x.value}
+              tabIndex={roving.tabIndexFor(i)}
+              data-roving=""
               className={cx(s.template, template === x.value && s.templateOn)}
               onClick={() => pick(x.value)}
             >

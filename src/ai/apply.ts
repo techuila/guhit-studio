@@ -8,10 +8,10 @@ import { ipc, toIpcError } from "../contract/ipc";
 import { useApp } from "../state/store";
 import { useCopilot } from "./copilotStore";
 
-export const STALE_TEXT = "The plan changed after this proposal was made, so it was not applied. Ask again and I will work from the current plan.";
+export const STALE_TEXT = "The plan changed after this proposal was made, so it was not applied. Ask again to work from the current plan.";
 
 /** The toast when Apply meets the swarm lock. */
-export const LOCKED_APPLY_TEXT = "Not applied yet: a swarm is drafting. Accept or discard the draft, then apply.";
+export const LOCKED_APPLY_TEXT = "Not applied yet: a swarm draft is open. Accept or discard it, then apply.";
 
 export async function applyProposal(itemId: number, proposal: AiProposal): Promise<void> {
   const copilot = useCopilot.getState();

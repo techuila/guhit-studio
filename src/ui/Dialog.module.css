@@ -42,7 +42,7 @@
   border: 1px solid rgba(20, 40, 63, 0.14);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: 0 18px 60px rgba(12, 26, 43, 0.32);
+  box-shadow: var(--shadow-3);
   opacity: 1;
   transform: translateY(0);
   transition:
@@ -204,9 +204,14 @@
   transition: background var(--dur-press) var(--ease-out), color var(--dur-press) var(--ease-out);
 }
 
+/* White on --accent-strong is 6.1:1; on --accent it was 4.2:1. */
 .menuItemActive {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+}
+
+.menuItem:focus-visible {
+  outline: none;
 }
 
 .menuItemDanger {
@@ -215,5 +220,5 @@
 
 .menuItemDanger.menuItemActive {
   background: var(--danger);
-  color: #fff;
+  color: var(--on-accent);
 }

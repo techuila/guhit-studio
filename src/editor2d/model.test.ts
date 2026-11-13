@@ -27,6 +27,21 @@ describe("model index", () => {
     expect(b.maxX).toBeGreaterThanOrEqual(8000);
   });
 
+  it("a fit's extents take in the camera marker, so its view cone sits whole in the pane", () => {
+    const cam = doc.project.elements.find((e) => e.kind === "camera");
+    expect(cam).toBeTruthy();
+    const p = (cam as Extract<Element, { kind: "camera" }>).position;
+    const plain = modelBounds(buildIndex(doc, null));
+    const all = modelBounds(buildIndex(doc, null), true);
+    // The fixture's camera stands outside the house, below and to the left.
+    expect(p.x).toBeLessThan(plain.minX);
+    expect(all.minX).toBeLessThanOrEqual(p.x);
+    expect(all.minY).toBeLessThanOrEqual(p.y);
+    // A hidden annotations layer hides the camera, and the fit leaves it out.
+    const hidden = modelBounds(buildIndex(withLayers((k) => (k === "annotations" ? { visible: false } : {})), null), true);
+    expect(hidden.minX).toBeGreaterThan(p.x);
+  });
+
   it("hides layers and the openings of hidden walls", () => {
     const index = buildIndex(withLayers((k) => (k === "walls" ? { visible: false } : {})), null);
     expect(index.visible.some((e) => e.kind === "wall")).toBe(false);

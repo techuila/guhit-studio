@@ -12,7 +12,7 @@
 // rests, never per frame.
 //
 // Agents (DECISIONS D47) show here too, with or without a live session: a
-// diamond with the AI mark in their color, their name and status line, at
+// diamond with a center dot in their color, their name and status line, at
 // the point they work on. Their point moves once per call, seconds apart,
 // so it glides over `--dur-scene`. The agent of a swarm part (D56) follows
 // the swarm's reveal instead, each move as long as the reveal's segment.
@@ -20,7 +20,6 @@
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Vec3 } from "../../contract/bindings";
-import { AiMark } from "../../live/AgentAvatar";
 import { agentById, agentPointerIds, statusText } from "../../live/agents";
 import { useAgents } from "../../live/agentsStore";
 import { participant, peerVar } from "../../live/format";
@@ -164,7 +163,7 @@ export function LivePointers3D({ engine }: { engine: ViewerEngine }) {
   );
 }
 
-/** An agent's point in 3D: a diamond with the AI mark, its name and what it is doing. */
+/** An agent's point in 3D: a diamond with a center dot (the agent icon's shape), its name and what it is doing. */
 function AgentMarker({ id, board, entering, leaving }: { id: string; board: PointerBoard; entering: boolean; leaving: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const name = useAgents((st) => agentById(st.views, id)?.name ?? null);
@@ -236,11 +235,12 @@ function AgentMarker({ id, board, entering, leaving }: { id: string; board: Poin
       data-testid={`live-agent-3d-${id}`}
     >
       <div className={cx(s.body, entering && s.enter, leaving && s.leave)}>
-        <span className={s.agentDot}>
-          <AiMark size={8} />
-        </span>
+        <span className={s.agentDot} />
         <span className={cx(s.label, s.agentLabel)}>
-          <span className={s.agentName}>{shownName}</span>
+          <span className={s.agentName}>
+            {shownName}
+            <span className={s.aiTag}>AI</span>
+          </span>
           {shownLine ? (
             <span key={shownLine} className={s.agentStatus}>
               {shownLine}

@@ -31,7 +31,9 @@ const TURNS: Array<{ value: Turn; label: string }> = [
 export function Reveal({ open, children }: { open: boolean; children: ReactNode }) {
   return (
     <div className={cx(css.reveal, open && css.revealOpen)} inert={!open} aria-hidden={!open}>
-      <div className={css.revealClip}>{children}</div>
+      <div className={css.revealClip}>
+        <div className={css.revealBody}>{children}</div>
+      </div>
     </div>
   );
 }

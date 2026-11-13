@@ -85,11 +85,7 @@
 }
 
 .label {
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  composes: sectionLabel from "../../ui/controls.module.css";
 }
 
 .section {
@@ -116,10 +112,11 @@
   background: var(--surface);
   box-shadow: var(--shadow-1);
   pointer-events: none;
+  /* It answers a click or Shift+U and Shift+I, so it starts at once. */
   transition:
-    transform var(--dur-base) var(--ease-in-out),
-    width var(--dur-base) var(--ease-in-out),
-    height var(--dur-base) var(--ease-in-out),
+    transform var(--dur-base) var(--ease-out),
+    width var(--dur-base) var(--ease-out),
+    height var(--dur-base) var(--ease-out),
     opacity var(--dur-hover) var(--ease-out);
 }
 
@@ -152,7 +149,7 @@
 
 .preset small {
   color: var(--ink-3);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -175,10 +172,12 @@
   outline-offset: 1px;
 }
 
-/* Time slider, 5:00 to 20:00, with sunrise and sunset marked under it. */
+/* Time slider, 5:00 to 20:00, with sunrise and sunset marked under it. A
+   size container, so a mark can be placed in its width (cqw) by transform. */
 .slider {
   position: relative;
   padding-bottom: 12px;
+  container-type: inline-size;
 }
 
 .range {
@@ -188,18 +187,30 @@
   cursor: pointer;
 }
 
+/* Sunrise and sunset marks: a zero-width point moved by transform to
+   `--at` (0 to 1) of the slider's width, its label centred on it. A new date
+   slides the marks without a layout per frame. */
 .tick {
   position: absolute;
+  left: 0;
   bottom: 0;
-  transform: translateX(-50%);
-  color: var(--ink-3);
-  font-size: 10px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  transition: left var(--dur-base) var(--ease-in-out);
+  width: 0;
+  pointer-events: none;
+  transform: translateX(calc(var(--at, 0) * 100cqw));
+  transition: transform var(--dur-base) var(--ease-out);
 }
 
-.tick::before {
+.tick > span {
+  position: relative;
+  display: inline-block;
+  transform: translateX(-50%);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 12px;
+  white-space: nowrap;
+}
+
+.tick > span::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -219,7 +230,7 @@
   height: 24px;
   padding: 0 9px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink-2);
   font-size: var(--text-xs);
@@ -341,7 +352,7 @@
   padding: 0 3px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  font: 600 10px/14px var(--font-mono);
+  font: 600 var(--text-xs) / 14px var(--font-ui);
   text-align: center;
 }
 

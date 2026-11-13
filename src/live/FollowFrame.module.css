@@ -54,7 +54,6 @@
 .text {
   display: flex;
   align-items: baseline;
-  gap: 8px;
   min-width: 0;
   overflow: hidden;
 }
@@ -64,22 +63,20 @@
 }
 
 /* "Ana is walking": opens beside the name (grid columns 0fr to 1fr, the
-   MOTION.md reveal) and closes when they orbit again. */
+   MOTION.md reveal) and closes when they orbit again. Only the columns and
+   the opacity move: the space before it is padding inside the column. */
 .nav {
   display: grid;
   grid-template-columns: 0fr;
-  margin-left: -8px;
   opacity: 0;
   font-size: var(--text-xs);
   transition:
     grid-template-columns calc(var(--dur-base) * 0.7) var(--ease-in),
-    margin-left calc(var(--dur-base) * 0.7) var(--ease-in),
     opacity calc(var(--dur-base) * 0.7) var(--ease-in);
 }
 
 .navOn {
   grid-template-columns: 1fr;
-  margin-left: 0;
   opacity: 0.86;
   transition-duration: var(--dur-base);
   transition-timing-function: var(--ease-out);
@@ -91,10 +88,11 @@
   gap: 3px;
   min-width: 0;
   overflow: hidden;
+  padding-left: 8px;
 }
 
 .stop {
-  height: 22px;
+  height: 24px;
   pointer-events: auto;
   padding: 0 9px;
   border: 0;
@@ -122,13 +120,14 @@
   outline-offset: 1px;
 }
 
+/* The key cap: the UI face, not mono (mono is for code and coordinates). */
 .key {
   min-width: 16px;
   margin-right: 2px;
   padding: 0 4px;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--peer-ink) 16%, transparent);
-  font: 600 10.5px/16px var(--font-mono);
+  font: 600 var(--text-xs) / 16px var(--font-ui);
   text-align: center;
   opacity: 0.9;
 }

@@ -83,7 +83,7 @@ export async function newTypeFrom(o: OpeningEl): Promise<boolean> {
     return false;
   }
   if (!made) {
-    app.toast("error", "The engine made no new type. Try again.");
+    app.toast("error", "No new type was made. Try again.");
     return false;
   }
   const now = useApp.getState().doc?.project.elements.find((e): e is OpeningEl => e.id === o.id && e.kind === "opening");

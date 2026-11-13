@@ -61,7 +61,7 @@ export function DimensionFields({ el, doc }: { el: Of<"dimension">; doc: DocStat
           <Field label="Segments" hint="Each length along the line, in order">
             <ul className={css.segments}>
               {segments.map((sg, i) => (
-                <li key={i} className={css.segment} style={{ animationDelay: `${Math.min(i, 7) * 30}ms` }}>
+                <li key={i} className={css.segment}>
                   {formatLength(sg.length, unit)}
                 </li>
               ))}

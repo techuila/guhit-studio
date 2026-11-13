@@ -61,6 +61,9 @@ function measure(container: HTMLElement, active: HTMLElement): Rect {
  * Style the indicator element with:
  *   position: absolute; top: 0; left: 0;
  *   transition: transform var(--dur-base) var(--ease-in-out), width var(--dur-base) var(--ease-in-out), height var(--dur-base) var(--ease-in-out);
+ * (use --dur-press and --ease-out when a key or a click on a tool moves it).
+ * Animating width and height is allowed here only because the indicator is
+ * absolutely positioned and alone in its layer (MOTION.md rule 5).
  * and spread the returned style. When `instant` is true, also apply
  * `transitionDuration: "0.01ms"` (or gate on `motionOK()`), which this hook
  * does not do for you so it stays a plain data hook.

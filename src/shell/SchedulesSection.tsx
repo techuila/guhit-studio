@@ -143,7 +143,7 @@ function PermitSchedules({ doc }: { doc: DocState }) {
       onToggle={toggle}
       aside={<span className={s.sectionAside}>{formatArea(sched.totals.floorM2)}</span>}
     >
-      {!sched.counted ? <p className={s.note}>The schedules appear once the engine has counted the doors, windows and rooms.</p> : null}
+      {!sched.counted ? <p className={s.note}>The schedules appear once the doors, windows and rooms are counted.</p> : null}
 
       {sched.openings.length > 0 ? (
         <>
@@ -268,7 +268,7 @@ function PermitSchedules({ doc }: { doc: DocState }) {
         </>
       ) : null}
 
-      <p className={css.fact}>Net areas leave out voids, balconies and decks; open is balconies and decks.</p>
+      <p className={css.fact}>Net area leaves out voids, balconies and decks. Open area is the balconies and decks.</p>
       <div className={s.actionsRow}>
         <CopyButton label="Copy as CSV" text={() => permitSchedulesCsv(sched)} />
       </div>
@@ -296,7 +296,7 @@ function DeviceSchedules({ doc }: { doc: DocState }) {
         onToggle={toggle}
         aside={devices > 0 ? <span className={s.sectionAside}>{devices} devices</span> : null}
       >
-        {!counted ? <p className={s.note}>The counts appear once the engine has counted the objects.</p> : null}
+        {!counted ? <p className={s.note}>The counts appear once the objects are counted.</p> : null}
 
         {sched.form.length > 0 ? (
           <>

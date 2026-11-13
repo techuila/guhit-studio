@@ -8,7 +8,7 @@ import { useApp } from "../state/store";
 import { Button, Field, Section, Select, cx } from "../ui/controls";
 import { copyText } from "../ui/clipboard";
 import { Icon } from "../ui/icons";
-import { motionOK } from "../ui/motion";
+import { dur, motionOK } from "../ui/motion";
 import {
   EMPTY_NETWORK,
   PIPE_COLOR,
@@ -87,7 +87,8 @@ export function useReveal(key: string, ref: RefObject<HTMLElement | null>): bool
       setFlash(true);
     });
     setFlash(false);
-    const t = window.setTimeout(() => setFlash(false), 900);
+    // As long as the wash itself (`.revealFlash`, twice --dur-scene).
+    const t = window.setTimeout(() => setFlash(false), Math.max(dur("scene") * 2, 16));
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(t);
@@ -116,7 +117,7 @@ export function PlumbingSection({ doc }: { doc: DocState }) {
         aside={rows.length > 0 ? <span className={s.sectionAside}>{net.total_length_m.toFixed(2)} m of {title === "Plumbing" ? "pipe" : "runs"}</span> : null}
       >
         {rows.length === 0 ? (
-          <p className={s.note}>The take-off appears once the engine has measured the pipe runs.</p>
+          <p className={s.note}>The take-off appears once the pipe runs are measured.</p>
         ) : (
           <>
             <table className={s.takeoff}>

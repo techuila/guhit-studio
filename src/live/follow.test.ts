@@ -150,7 +150,7 @@ describe("starting and stopping", () => {
     setPeer("ana", { view_mode: null });
     follow("ana");
     expect(useLive.getState().following).toBeNull();
-    expect(toasts()).toEqual(["Ana's version of Guhit cannot be followed. Ask Ana to update."]);
+    expect(toasts()).toEqual(["Ana's version of Guhit Studio cannot be followed. Ask Ana to update."]);
   });
 
   it("stops with that line when their first presence comes after the click, from such a version", () => {
@@ -158,7 +158,7 @@ describe("starting and stopping", () => {
     expect(useLive.getState().following).toBe("ana");
     setPeer("ana", { view_mode: null });
     expect(useLive.getState().following).toBeNull();
-    expect(toasts()).toEqual(["Ana's version of Guhit cannot be followed. Ask Ana to update."]);
+    expect(toasts()).toEqual(["Ana's version of Guhit Studio cannot be followed. Ask Ana to update."]);
   });
 
   it("tells who follows whom", () => {

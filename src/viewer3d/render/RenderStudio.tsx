@@ -23,6 +23,7 @@ import { AgentCap, DriftCard, LookBlock, MAP_LABELS, MapsStrip, PriceLine, useMa
 import { CompareSlider } from "./CompareSlider";
 import { saveMapsFor } from "./conditioning";
 import { GalleryStrip } from "./GalleryStrip";
+import { NO_AI_RENDER, captureLabel, savedLabel } from "./renderMeta";
 import {
   BUILDING_TYPES,
   QUALITIES,
@@ -297,11 +298,7 @@ export function RenderStudio({
     } catch (e) {
       if (!alive.current || abandoned.current) return;
       const err = toIpcError(e);
-      setGenError(
-        err.code === "unknown_command"
-          ? "This build's backend has no AI rendering yet."
-          : err.message || "The image provider did not return an image.",
-      );
+      setGenError(err.code === "unknown_command" ? NO_AI_RENDER : err.message || "The image provider did not return an image.");
     } finally {
       if (alive.current && !abandoned.current) setPhase(null);
     }
@@ -384,7 +381,7 @@ export function RenderStudio({
   };
 
   const disabledReason = !backendReady
-    ? (settingsError ?? "AI rendering is not available in this build yet.")
+    ? (settingsError ?? NO_AI_RENDER)
     : !hasKey
       ? "Add a Google AI Studio key to generate visualizations."
       : !source
@@ -414,19 +411,24 @@ export function RenderStudio({
               </div>
               <div className={s.sourceMeta}>
                 {captures.length > 0 ? (
-                  <Select
-                    label="Source capture"
-                    value={source?.id ?? ""}
-                    options={captures.map((r) => ({
-                      value: r.id,
-                      label: `${r.camera?.name || "View"} - rev ${r.revision}`,
-                    }))}
-                    onChange={(id) => {
-                      setHeld(null);
-                      setSourceId(id);
-                      setCompareId(id);
-                    }}
-                  />
+                  // A long view name ends in an ellipsis; the tip has it whole.
+                  <span
+                    className={s.sourceSelect}
+                    data-tip={source ? `${source.camera?.name || "View"}, saved ${savedLabel(source.created_at)}` : ""}
+                    data-tip-side="bottom-start"
+                    data-testid="source-select"
+                  >
+                    <Select
+                      label="Source capture"
+                      value={source?.id ?? ""}
+                      options={captures.map((r) => ({ value: r.id, label: captureLabel(r.camera?.name ?? "", r.created_at) }))}
+                      onChange={(id) => {
+                        setHeld(null);
+                        setSourceId(id);
+                        setCompareId(id);
+                      }}
+                    />
+                  </span>
                 ) : (
                   <p className={s.hint}>No captures yet. Set up the 3D view, then capture it.</p>
                 )}
@@ -457,7 +459,7 @@ export function RenderStudio({
                 <p>
                   {backendReady
                     ? "AI visualizations come from Google's Gemini image models with your own Google AI Studio key. The key stays on this computer."
-                    : (settingsError ?? "This build's backend has no AI rendering yet. Captures and comparing still work.")}
+                    : (settingsError ?? NO_AI_RENDER)}
                 </p>
                 {backendReady ? (
                   <Button size="sm" variant="primary" onClick={onAddKey} data-testid="add-google-key">
@@ -520,7 +522,7 @@ export function RenderStudio({
             <CheckRow
               checked={config.keepGeometry}
               onChange={(next) => patchConfig({ keepGeometry: next })}
-              hint="Holds the walls, openings and camera exactly as modelled."
+              hint="Holds the walls, openings and camera exactly as modeled."
             >
               Keep geometry
             </CheckRow>
@@ -669,7 +671,7 @@ export function RenderStudio({
               beforeSrc={beforeSrc}
               afterSrc={afterSrc}
               beforeLabel={mapPreview ? `${MAP_LABELS[mapPreview]} map` : "Model view"}
-              afterLabel={held ? "AI visualization, not saved" : "AI visualization"}
+              afterLabel={held ? "Not saved yet" : "AI visualization"}
               value={divider}
               onChange={setDivider}
               mode={compareMode}
@@ -687,9 +689,11 @@ export function RenderStudio({
             </div>
           )}
 
+          {/* One quiet meta line. The image itself carries the one "AI
+              visualization" badge (CompareSlider). */}
           <div className={s.badges} data-testid="render-badges">
             {resolution ? <span className={s.badge}>Result {resolution}</span> : null}
-            <span className={s.badge}>Geometry: as modelled</span>
+            <span className={s.badge}>Geometry: as modeled</span>
             {afterRecord?.provider ? <span className={s.badge}>{providerLabel(afterRecord.provider)}</span> : null}
             {currentRecord?.look ? <span className={cx(s.badge, s.badgeLook)}>Project look</span> : null}
             {afterDrift ? (
@@ -709,7 +713,6 @@ export function RenderStudio({
                 </span>
               )
             ) : null}
-            {afterRecord || held ? <span className={cx(s.badge, s.badgeAi)}>AI visualization</span> : null}
           </div>
           <p className={s.synthid}>
             AI images carry an invisible SynthID watermark from Google. They are visualizations for discussion, not

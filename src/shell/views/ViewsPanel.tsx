@@ -11,7 +11,7 @@ import { useApp } from "../../state/store";
 import { IconButton, Select, Spinner, cx } from "../../ui/controls";
 import { motionOK } from "../../ui/motion";
 import { useLastTruthy, Presence } from "../../ui/motionDom";
-import { SCALES, projectViews, viewKey, viewTitle } from "../sheets/sheetModel";
+import { SCALES, projectViews, viewKey, viewLabel } from "../sheets/sheetModel";
 import s from "./views.module.css";
 
 export function ViewsPanel() {
@@ -105,8 +105,14 @@ function Viewer({ view, stage, onPick, onClose }: { view: ViewRef; stage: "enter
     }
   }, [pic, key, fit]);
 
+  // Focus moves in, and back to where it was when the viewer closes: opened
+  // from the Sheets panel, Esc then closes Sheets too, as in any dialog.
   useEffect(() => {
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     root.current?.focus();
+    return () => {
+      if (before?.isConnected) before.focus();
+    };
   }, []);
 
   const onWheel = (e: React.WheelEvent) => {
@@ -121,7 +127,7 @@ function Viewer({ view, stage, onPick, onClose }: { view: ViewRef; stage: "enter
     setCam({ x: px - (px - cam.x) * g, y: py - (py - cam.y) * g, k });
   };
 
-  const title = viewTitle(doc ?? { project: { levels: [], elements: [] } as never }, view);
+  const title = viewLabel(doc ?? { project: { levels: [], elements: [] } as never }, view);
   const choices = doc ? projectViews(doc) : [];
   const groups = [...new Set(choices.map((c) => c.group))];
   const scaled = !["schedule", "notes", "vicinity_map", "perspective"].includes(view.type);

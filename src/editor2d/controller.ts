@@ -29,7 +29,7 @@ import { lengthToInput, parseLength, parseNumber } from "../ui/units";
 import { useLive } from "../live/liveStore";
 import { isModalOpen } from "../ui/Dialog";
 import { useViewer } from "../viewer3d/viewerStore";
-import { Anim, breathe, mix, mixP } from "./anim";
+import { Anim, frameStep, ghostAlpha, ghostBreathing, mix, mixP } from "./anim";
 import type { Grip } from "./edit";
 import { gripsFor, hitGrip, jointInset, normalDelta, rotationFromGrip } from "./edit";
 import type { P, Rect, Seg } from "./geom";
@@ -108,7 +108,7 @@ import {
   typedDragDelta,
   validPick,
 } from "./pipeEdit";
-import { isTypingTarget, planKeyBlocked, selectionKey } from "./keys";
+import { KEYS, isTypingTarget, planKeyBlocked, selectionKey } from "./keys";
 import { decideResize } from "./resizePolicy";
 import type { SnapResult, SnapScene } from "./snap";
 import { computeIntersections, emptyScene, snap } from "./snap";
@@ -178,8 +178,8 @@ export const K = {
   /** `hov:<id>`, `sel:<id>`: hover tint and selection outline, 0 to 1. */
   hover: "hov:",
   sel: "sel:",
-  /** `grip:<index>`: grips scale in from 0, staggered. */
-  grip: "grip:",
+  /** `grip`: the grips scale in together from 0.6 (no stagger, MOTION.md rule 8). */
+  grip: "grip",
   snapAlpha: "snap.a",
   snapPop: "snap.pop",
   /** Drag pick up (shadow and tint) and the ease back after a rejected drop. */
@@ -259,16 +259,30 @@ export interface TagDraw {
   alpha: number;
 }
 
-/** Grips beyond this many share the last stagger step (docs/MOTION.md: at most 8). */
-const GRIP_STAGGER = 8;
+/**
+ * What a fit shows: everything drawn on the level, camera markers included
+ * (zoom extents, as in CAD), so a camera's marker and view cone sit whole
+ * inside the pane instead of poking in from its edge.
+ */
+function extents(index: DocIndex): Rect {
+  return modelBounds(index, true);
+}
 
 /** Leaving is faster than entering: about 70% of the enter duration. */
 function exitDur(key: Parameters<typeof dur>[0]): number {
   return Math.round(dur(key) * 0.7);
 }
 
-/** Period of the AI preview breath, in ms. */
+/**
+ * The AI proposal ghost (docs/MOTION.md rule 11): two breaths of 1.6 s
+ * between 0.55 and 0.85 when it arrives, then it holds at 0.78 and the
+ * frame loop stops. Matches the 3D view's preview opacity.
+ */
 const BREATH_MS = 1600;
+const GHOST_LO = 0.55;
+const GHOST_HI = 0.85;
+const GHOST_HOLD = 0.78;
+const GHOST_BREATHS = 2;
 
 export type Op =
   | { kind: "idle" }
@@ -548,6 +562,11 @@ export class PlanController {
   /** Frames drawn since construction. Dev checks read it to prove idleness. */
   frames = 0;
   /**
+   * When the current AI proposal arrived (performance.now()), for its two
+   * breaths. A canvas mounted while one is already showing holds it steady.
+   */
+  private previewAt = Number.NEGATIVE_INFINITY;
+  /**
    * True while the view should track the model automatically (right after
    * zoom-to-fit, the first-load fit, or F). Any direct user zoom, pinch or
    * pan turns it off so a later resize never yanks their scale back.
@@ -559,6 +578,8 @@ export class PlanController {
   private ctx: Ctx2D;
   private dpr = 1;
   private dirty = true;
+  /** Something moved on the last frame: the next one is drawn even if it has landed. */
+  private wasRunning = false;
   private raf = 0;
   private disposed = false;
   private fitted = false;
@@ -621,6 +642,8 @@ export class PlanController {
       useApp.subscribe((s) => {
         const p = prev;
         prev = s;
+        // A new proposal arrives: its ghost breathes twice from now, then holds.
+        if (s.preview && s.preview !== p.preview) this.previewAt = performance.now();
         if (s.doc !== p.doc || s.preview !== p.preview || s.activeLevelId !== p.activeLevelId) this.syncDoc();
         if (s.tool !== p.tool) this.onToolChange(p.tool, s.tool);
         else if (s.tool === "link" && s.selection !== p.selection) this.followLinkSelection(s.selection);
@@ -659,6 +682,17 @@ export class PlanController {
     // A swarm draft (D56): redrawn when it changes and at each reveal boundary,
     // and kept in view while it grows, until the user moves the view.
     this.cleanups.push(watchDraft(() => this.invalidate(), () => this.followDraft()));
+    // Labels and tags are drawn and measured in the bundled Inter: a plan drawn
+    // before a face finished loading draws once more when it has.
+    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+    if (fonts) {
+      const onFonts = (): void => {
+        if (!this.disposed) this.invalidate();
+      };
+      void fonts.ready.then(onFonts);
+      fonts.addEventListener?.("loadingdone", onFonts);
+      this.cleanups.push(() => fonts.removeEventListener?.("loadingdone", onFonts));
+    }
     useApp.getState().registerCapturePlan((levelId) => this.capturePlan(levelId));
     // Dev only hook so scripted UI checks can map model points to the screen.
     if (import.meta.env.DEV) (window as unknown as { __planController?: PlanController }).__planController = this;
@@ -772,14 +806,14 @@ export class PlanController {
       case "select":
         return this.pipeHint();
       case "pipe": {
-        if (op.kind === "pipe") return "Click the next point. PageUp, PageDown or h adds a riser. Enter finishes, Escape steps back";
+        if (op.kind === "pipe") return "Click the next point. PageUp, PageDown or H adds a riser. Enter finishes, Esc steps back";
         const system = this.pipeSpec().system;
         const name = PIPE_SYSTEM_LABEL[system];
         const layerName = layerLabel(PIPE_LAYER[system]);
         const layer = this.pipeLayer();
         if (layer.locked) return `The ${layerName} layer is locked. Unlock it to draw ${name.toLowerCase()} runs`;
         if (layer.hidden) return `The ${layerName} layer is hidden. New runs show when it is on`;
-        return `Click to start a ${name.toLowerCase()} run. PageUp or PageDown sets the height, or type h and a height`;
+        return `Click to start a ${name.toLowerCase()} run. PageUp or PageDown sets the height, or type H and a height`;
       }
       default:
         return laneTool(tool)?.hint(this.toolHost) ?? null;
@@ -793,11 +827,11 @@ export class PlanController {
     if (layer.locked) return "The Slabs layer is locked. Unlock it to draw slabs";
     if (op.kind === "slab") {
       return op.points.length >= 3
-        ? "Click the next corner, or click the first point, double click or press Enter to close. Backspace takes the last point back"
+        ? "Click the next corner, or click the first point, double-click or press Enter to close. Backspace takes the last point back"
         : "Click the next corner, or type a length and press Enter";
     }
     const room = this.slabRoom;
-    if (room) return `Click to make this ${room.below ? "room below" : "room"} a ${kind}, or hold Alt to draw one inside it`;
+    if (room) return `Click to make this ${room.below ? "room below" : "room"} a ${kind}, or hold ${KEYS.held.alt} to draw one inside it`;
     return layer.hidden ? `Click the corners of the ${kind}. The Slabs layer is hidden, new slabs show when it is on` : `Click the corners of the ${kind}, or click inside a room to take its outline`;
   }
 
@@ -1009,7 +1043,7 @@ export class PlanController {
     this.autoFit = true;
     // A swarm draft on show fits with the model (D56): a fresh plan finds what the swarm drew.
     const sw = useSwarm.getState();
-    const bounds = sw.showDraft ? unionRect(modelBounds(this.index), draftBounds(sw.draft, this.index.levelId)) : modelBounds(this.index);
+    const bounds = sw.showDraft ? unionRect(extents(this.index), draftBounds(sw.draft, this.index.levelId)) : extents(this.index);
     this.setView(fitRect(bounds, this.width, this.height, 70), animated ? dur("scene") : 0);
   }
 
@@ -1024,7 +1058,7 @@ export class PlanController {
     const a = toWorld(this.view, { x: 0, y: this.height });
     const b = toWorld(this.view, { x: this.width, y: 0 });
     if (draft.minX >= a.x && draft.minY >= a.y && draft.maxX <= b.x && draft.maxY <= b.y) return;
-    const all = unionRect(modelBounds(this.index), draft);
+    const all = unionRect(extents(this.index), draft);
     const pad = 1500;
     this.setView(fitRect({ minX: all.minX - pad, minY: all.minY - pad, maxX: all.maxX + pad, maxY: all.maxY + pad }, this.width, this.height, 70), dur("scene"));
   }
@@ -1248,15 +1282,18 @@ export class PlanController {
     if (this.raf === 0 && !this.disposed) this.raf = requestAnimationFrame(this.loop);
   }
 
-  /** The AI preview breath is the only looping animation, and only with motion on. */
+  /**
+   * The AI preview ghost breathes twice when a proposal arrives, then holds:
+   * the loop runs only for those breaths, and never with motion off.
+   */
   private breathing(): boolean {
-    return !!useApp.getState().preview && motionOK();
+    return !!useApp.getState().preview && ghostBreathing(this.anim.now, this.previewAt, BREATH_MS, GHOST_BREATHS, motionOK());
   }
 
   /**
    * One requestAnimationFrame loop, render on demand: it only runs while the
-   * canvas is dirty, something is animating, an AI preview is breathing, or
-   * a swarm draft element is drawing in.
+   * canvas is dirty, something is animating, an AI preview is in its two
+   * breaths, or a swarm draft element is drawing in.
    */
   private loop = (now: number): void => {
     this.raf = 0;
@@ -1267,13 +1304,17 @@ export class PlanController {
     if (this.fading.length > 0) this.dropFinishedFades();
     if (this.fadingLinks.length > 0) this.fadingLinks = this.fadingLinks.filter((f) => this.anim.has(`${K.linkGone}${f.key}`));
     if (this.peerSelFading.length > 0) this.peerSelFading = this.peerSelFading.filter((f) => this.anim.has(f.key));
-    if (this.dirty || running > 0 || looping) {
+    // The frame where the last track lands (or is dropped) is drawn too, so the
+    // plan rests on the end state, not on a frame from the middle of a fade.
+    const step = frameStep({ dirty: this.dirty, running, looping, wasRunning: this.wasRunning });
+    this.wasRunning = step.again;
+    if (step.draw) {
       this.dirty = false;
       this.frames++;
       this.draw();
       this.updateUi();
     }
-    if (this.dirty || running > 0 || looping) this.schedule();
+    if (this.dirty || step.again) this.schedule();
   };
 
   private dropFinishedFades(): void {
@@ -1314,8 +1355,8 @@ export class PlanController {
 
     const preview = s.preview;
     const tinted = new Set<string>(preview ? [...preview.diff.added, ...preview.diff.modified] : []);
-    // The only looping animation in the app: the proposal ghost breathes.
-    const breath = breathe(this.anim.now, BREATH_MS, 0.55, 0.85, motionOK());
+    // The proposal ghost breathes twice when it arrives, then holds (rule 11).
+    const breath = ghostAlpha(this.anim.now, this.previewAt, BREATH_MS, GHOST_LO, GHOST_HI, GHOST_HOLD, GHOST_BREATHS, motionOK());
     const previewStyle: ElementStyle = { color: this.palette.preview, alpha: breath };
     const hidden = new Set<string>();
     if (this.editor?.id) hidden.add(this.editor.id);
@@ -1435,11 +1476,15 @@ export class PlanController {
 
   // ------------------------------------------------------------ interaction motion
 
-  /** Hover tint, selection outline and the grips that come with a selection. */
+  /**
+   * Hover tint, selection outline and the grips that come with a selection.
+   * These are the most frequent things on the canvas, so they answer at the
+   * speed of a click (`--dur-press`, ease-out; D11 keeps them under 100 ms).
+   */
   private syncHighlight(prev: AppState, next: AppState): void {
     if (next.hoverId !== prev.hoverId) {
       if (prev.hoverId) this.animate(`${K.hover}${prev.hoverId}`, 0, exitDur("hover"), { drop: true });
-      if (next.hoverId) this.animate(`${K.hover}${next.hoverId}`, 1, dur("hover"), { from: 0 });
+      if (next.hoverId) this.animate(`${K.hover}${next.hoverId}`, 1, dur("press"), { from: 0, easing: ease.out });
     }
     // Another selection or tool has other grips: the hovered one is gone.
     if (next.selection !== prev.selection || next.tool !== prev.tool) this.setHoverGrip(null);
@@ -1448,20 +1493,22 @@ export class PlanController {
       const after = new Set(next.selection);
       const before = new Set(prev.selection);
       for (const id of prev.selection) if (!after.has(id)) this.animate(`${K.sel}${id}`, 0, exitDur("hover"), { drop: true });
-      for (const id of next.selection) if (!before.has(id)) this.animate(`${K.sel}${id}`, 1, dur("hover"), { from: 0 });
+      for (const id of next.selection) if (!before.has(id)) this.animate(`${K.sel}${id}`, 1, dur("press"), { from: 0, easing: ease.out });
     }
     this.syncGrips(next);
   }
 
-  /** Grips scale in from nothing, one after the other, and fade out together. */
+  /**
+   * Grips fade and scale in together from 0.6, at the speed of a click, and
+   * fade out together. Never staggered: the user is already reaching for one.
+   */
   private syncGrips(s: AppState): void {
     const show = s.tool === "select" && s.selection.length === 1;
-    const n = GRIP_STAGGER;
-    for (let i = 0; i < n; i++) {
-      const key = `${K.grip}${i}`;
-      if (show) this.animate(key, 1, dur("base"), { from: 0, easing: ease.spring, delayMs: i * 30 });
-      else this.animate(key, 0, exitDur("hover"), { drop: true });
-    }
+    if (show) {
+      // The key rests at 0 while hidden; start the scale-in from 0.6, not from nothing.
+      if (this.anim.value(K.grip, 0) < 0.6) this.anim.clear(K.grip);
+      this.animate(K.grip, 1, dur("press"), { from: 0.6, easing: ease.out });
+    } else this.animate(K.grip, 0, exitDur("hover"), { drop: true });
   }
 
   /**
@@ -1477,7 +1524,8 @@ export class PlanController {
       if (!this.snapOn) {
         this.snapOn = true;
         this.anim.clear(K.snapPop);
-        this.animate(K.snapPop, 1, dur("base"), { from: 0.6, easing: ease.spring });
+        // Snaps engage constantly while drawing: a quick ease-out from 0.8, no spring.
+        this.animate(K.snapPop, 1, dur("press"), { from: 0.8, easing: ease.out });
         this.animate(K.snapAlpha, 1, dur("hover"), { from: 0 });
       }
     } else if (this.snapOn) {
@@ -3518,12 +3566,13 @@ export class PlanController {
   /** What the select tool can do with the selected run right now. */
   private pipeHint(): string | null {
     const op = this.op;
-    if (op.kind === "pipe_drag") return op.keepJoins ? "Type a distance and press Enter. Joined runs follow, hold Alt to break the joins" : "Joins break on drop. Release Alt to keep them";
+    const alt = KEYS.held.alt;
+    if (op.kind === "pipe_drag") return op.keepJoins ? `Type a distance and press Enter. Joined runs follow, hold ${alt} to break the joins` : `Joins break on drop. Release ${alt} to keep them`;
     if (op.kind !== "idle" || !this.selectedPipe()) return null;
     const pick = this.pipePick();
-    if (!pick) return "Click a segment or a point to edit it. PageUp or PageDown moves the run, or type h and a height";
+    if (!pick) return "Click a segment or a point to edit it. PageUp or PageDown moves the run, or type H and a height";
     const part = pick.kind === "point" ? "point" : "segment";
-    return `Drag the ${part}, or PageUp, PageDown or h for its height. Click a tag to type a value. Escape picks the whole run`;
+    return `Drag the ${part}, or PageUp, PageDown or H for its height. Click a tag to type a value. Esc picks the whole run`;
   }
 
   // ------------------------------------------------------------ slab tool

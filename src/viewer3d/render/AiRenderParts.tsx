@@ -1,9 +1,9 @@
 // The AI render v2 pieces of the render studio (lane L6, DECISIONS D53):
 // the price line, the conditioning maps, the project look, the drift
 // warning and the agents' daily cap. Each one animates with the motion
-// tokens (docs/MOTION.md): the price bumps when it changes, maps rise in one
-// after the other, the warning rises from below and leaves faster, the cap
-// meter fills along its track.
+// tokens (docs/MOTION.md): the price bumps when it changes, the maps rise in
+// together as one block, the warning rises from below and leaves faster, the
+// cap meter fills along its track.
 
 import { useEffect, useState, type CSSProperties } from "react";
 import type { MapKind, RenderRecord } from "../../contract/bindings";
@@ -85,13 +85,12 @@ export function useMapImage(record: RenderRecord | null, kind: MapKind | null): 
   return src;
 }
 
-function MapChip({ record, kind, index, active, onPick }: { record: RenderRecord; kind: MapKind; index: number; active: boolean; onPick: () => void }) {
+function MapChip({ record, kind, active, onPick }: { record: RenderRecord; kind: MapKind; active: boolean; onPick: () => void }) {
   const src = useMapImage(record, kind);
   return (
     <button
       type="button"
       className={s.mapChip}
-      style={{ "--i": index } as CSSProperties}
       aria-pressed={active}
       data-active={active || undefined}
       data-testid={`map-${kind}`}
@@ -137,14 +136,14 @@ export function MapsStrip({
       </div>
       {have.length > 0 ? (
         <div className={s.mapRow} key={record.id}>
-          {have.map((k, i) => (
-            <MapChip key={k} record={record} kind={k} index={i} active={preview === k} onPick={() => onPreview(preview === k ? null : k)} />
+          {have.map((k) => (
+            <MapChip key={k} record={record} kind={k} active={preview === k} onPick={() => onPreview(preview === k ? null : k)} />
           ))}
         </div>
       ) : drawing ? (
         <div className={s.mapRow} aria-busy>
-          {MAP_ORDER.map((k, i) => (
-            <span key={k} className={cx(s.mapChip, s.mapGhost)} style={{ "--i": i } as CSSProperties}>
+          {MAP_ORDER.map((k) => (
+            <span key={k} className={cx(s.mapChip, s.mapGhost)}>
               <span className={s.mapThumb}>
                 <span className={s.mapWait} />
               </span>

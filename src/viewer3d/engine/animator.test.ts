@@ -73,22 +73,32 @@ describe("Animator", () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
-  it("loops without ever landing, and stops when the key is removed", () => {
+  it("stops counting a track when its key is removed", () => {
     const a = full();
     a.set("k", 0.55);
-    a.to("k", 0.85, 0, { duration: 800, easing: (x) => x, loop: true });
+    a.to("k", 0.85, 0, { duration: 800, easing: (x) => x });
     a.sample(400);
     expect(a.value("k")).toBeCloseTo(0.7, 5);
-    a.sample(800);
-    expect(a.value("k")).toBeCloseTo(0.85, 5);
-    a.sample(1200); // swinging back
-    expect(a.value("k")).toBeCloseTo(0.7, 5);
-    a.sample(1600);
-    expect(a.value("k")).toBeCloseTo(0.55, 5);
-    expect(a.active()).toBe(1); // still the one looping track
+    expect(a.active()).toBe(1);
     a.remove("k");
     expect(a.active()).toBe(0);
     expect(a.animating()).toBe(false);
+  });
+
+  it("has no looping track: an easing that swings still lands and stops (rule 11)", () => {
+    const a = full();
+    a.set("k", 0.55);
+    // Two swings over the run, back where it began: the track still ends.
+    a.to("k", 0.85, 0, { duration: 800, easing: (x) => 0.5 - 0.5 * Math.cos(x * 4 * Math.PI) });
+    a.sample(200);
+    expect(a.value("k")).toBeCloseTo(0.85, 5);
+    a.sample(400);
+    expect(a.value("k")).toBeCloseTo(0.55, 5);
+    expect(a.active()).toBe(1);
+    a.sample(800);
+    expect(a.active()).toBe(0);
+    expect(a.value("k")).toBe(0.85);
+    expect(a.sample(5000)).toBe(false);
   });
 
   it("finishes every track at once, for a capture", () => {
@@ -96,13 +106,13 @@ describe("Animator", () => {
     const done = vi.fn();
     a.to("a", 1, 0, { duration: 100, onDone: done });
     a.to("b", 5, 0, { duration: 900 });
-    a.to("loop", 0.85, 0, { duration: 800, loop: true });
+    a.to("c", 0.78, 0, { duration: 3200 });
     a.sample(20);
     expect(a.active()).toBe(3);
     a.finishAll();
     expect(a.value("a")).toBe(1);
     expect(a.value("b")).toBe(5);
-    expect(a.value("loop")).toBe(0.85);
+    expect(a.value("c")).toBe(0.78);
     expect(a.active()).toBe(0);
     expect(done).toHaveBeenCalledTimes(1);
   });
@@ -157,16 +167,16 @@ describe("Animator", () => {
       expect(a.sample(120)).toBe(false);
     });
 
-    it("holds a looping track steady instead of pulsing", () => {
+    it("holds a swinging track at its end instead of pulsing", () => {
       const a = reduced();
       a.set("k", 0.55);
-      a.to("k", 0.85, 0, { duration: 800, loop: true });
-      expect(a.value("k")).toBe(0.85);
+      a.to("k", 0.78, 0, { duration: 3200, easing: (x) => 0.5 - 0.5 * Math.cos(x * 4 * Math.PI) });
+      expect(a.value("k")).toBe(0.78);
       expect(a.active()).toBe(0);
       a.sample(400);
-      expect(a.value("k")).toBe(0.85);
+      expect(a.value("k")).toBe(0.78);
       a.sample(1600);
-      expect(a.value("k")).toBe(0.85);
+      expect(a.value("k")).toBe(0.78);
     });
 
     it("ignores a stagger delay", () => {

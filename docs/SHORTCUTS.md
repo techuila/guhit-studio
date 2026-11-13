@@ -176,7 +176,7 @@ also stops it.
 
 Agents (DECISIONS D47): clicking an agent's square avatar in the top bar
 follows it the same way, with or without a live session, and Escape stops.
-The Agents panel (the sparkle button after the avatars) closes with Escape
+The Agents panel (the agent button after the avatars, a diamond) closes with Escape
 while it has the focus; a click on the plan leaves it open. No new keys.
 The palette has Show agents, What the agents changed, Pause all agents,
 Stop all agents, Resume all agents (while any is paused or stopped) and
@@ -322,13 +322,17 @@ uses) built from `doc_preview`, without committing anything.
 | Key | Action |
 |---|---|
 | MOD+K | Command palette |
+| MOD+, | Settings, as in every macOS app |
 | MOD+E | Export |
 | MOD+S | Save a quick version, labeled "Version N" |
-| Shift+MOD+S | Open Export with PDF selected |
+| Shift+MOD+S | Open Export on the permit set when the project has one, otherwise on PDF |
 | ? | This list |
-| MOD+, | Open the copilot panel |
+| MOD+J | Ask the copilot: the side dock switches to the copilot tab |
+| MOD+Enter | With a copilot proposal pending, from the empty composer or the proposal card: apply it. Only Apply commits (D8) |
+| Esc | With a copilot proposal pending, from the empty composer or the proposal card: discard it |
+| MOD+Enter | In the swarm brief: start the swarm |
 
-MOD+, only switches the side dock to the copilot tab. The copilot's own
+MOD+J only switches the side dock to the copilot tab. The copilot's own
 settings popover is local state inside `src/ai/AiDock.tsx` with no store hook
 to open it from outside, so the shortcut cannot reach into it without
 changing AI-owned code.

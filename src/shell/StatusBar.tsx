@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DocState, Element } from "../contract/bindings";
 import { useApp, useVisibleDoc } from "../state/store";
 import { cx } from "../ui/controls";
 import { Icon, type IconName } from "../ui/icons";
 import { formatArea, formatAreaMm2, formatLength, lengthToInput } from "../ui/units";
 import { useViewer, type ShellMode } from "../viewer3d/viewerStore";
-import { TOOLS, currentSunPresets, showProjectSection } from "./actions";
+import { TOOLS, currentSunPresets, showProjectSection, type ToolDef } from "./actions";
 import { pipeLength, runLabel, sizeLabel } from "./pipes";
+import { useStairTool } from "../editor2d/stairTool";
+import { rememberedStyle } from "./railFlyout";
+import { useShell } from "./shellStore";
 import { formatClock, presetAtTime } from "./sun";
 import s from "./chrome.module.css";
-import own from "./StatusBar.module.css";
 
 const KIND_LABEL: Record<Element["kind"], [string, string]> = {
   wall: ["wall", "walls"],
@@ -99,23 +101,36 @@ const SHELL_LABEL: Record<ShellMode, string> = { solid: "Solid", xray: "X-ray", 
  * Shows the 3D building shell mode while it is not solid, so X pressed in
  * the plan view has a visible answer. Click to cycle, like X.
  */
+/**
+ * A status chip that grows in from the right of its group and folds away,
+ * by its grid column (docs/MOTION.md rule 5: never max-width or margin).
+ */
+function Fold({ shown, quick, children }: { shown: boolean; quick?: boolean; children: ReactNode }) {
+  return (
+    <span className={cx(s.fold, quick && s.foldQuick, shown && s.foldOn)} aria-hidden={!shown}>
+      <span className={s.foldClip}>{children}</span>
+    </span>
+  );
+}
+
 function ShellStatus() {
   const shell = useViewer((st) => st.shell);
   const cycle = useViewer((st) => st.cycleShell);
   const shown = shell !== "solid";
   return (
-    <button
-      type="button"
-      className={cx(s.statusToggle, s.statusToggleOn, s.shellStatus, !shown && s.shellStatusOff)}
-      aria-hidden={!shown}
-      tabIndex={shown ? 0 : -1}
-      data-tip="3D building: X switches solid, X-ray, hidden"
-      data-tip-side="top"
-      onClick={cycle}
-    >
-      <Icon name={shell === "hidden" ? "eyeOff" : "xray"} size={13} />
-      {SHELL_LABEL[shell]}
-    </button>
+    <Fold shown={shown}>
+      <button
+        type="button"
+        className={cx(s.statusToggle, s.statusToggleOn, s.foldItem)}
+        tabIndex={shown ? 0 : -1}
+        data-tip="3D building: X switches solid, X-ray, hidden"
+        data-tip-side="top"
+        onClick={cycle}
+      >
+        <Icon name={shell === "hidden" ? "eyeOff" : "xray"} size={13} />
+        {SHELL_LABEL[shell]}
+      </button>
+    </Fold>
   );
 }
 
@@ -130,18 +145,19 @@ function AiScopeStatus() {
   const setAiScope = useApp((st) => st.setAiScope);
   const shown = count > 0;
   return (
-    <button
-      type="button"
-      className={cx(s.statusToggle, s.shellStatus, own.aiScope, !shown && s.shellStatusOff)}
-      aria-hidden={!shown}
-      tabIndex={shown ? 0 : -1}
-      data-tip="AI edits may change only the selection. Click to lift the limit"
-      data-tip-side="top"
-      onClick={() => setAiScope(false)}
-    >
-      <Icon name="lock" size={13} />
-      AI: selection only
-    </button>
+    <Fold shown={shown}>
+      <button
+        type="button"
+        className={cx(s.statusToggle, s.statusToggleOn, s.foldItem)}
+        tabIndex={shown ? 0 : -1}
+        data-tip="AI edits may change only the selection. Click to lift the limit"
+        data-tip-side="top"
+        onClick={() => setAiScope(false)}
+      >
+        <Icon name="lock" size={13} />
+        AI: selection only
+      </button>
+    </Fold>
   );
 }
 
@@ -168,11 +184,45 @@ function SunStatus() {
   const preset = presetAtTime(currentSunPresets(), light.minutes);
   const dark = light.minutes < 6 * 60 || light.minutes >= 18 * 60;
   return (
-    <span className={cx(s.statusToggle, s.statusToggleOn, s.sunStatus, !shown && s.sunStatusOff)} aria-live="polite" aria-hidden={!shown}>
-      <Icon name={dark ? "moon" : "sun"} size={13} />
-      {preset ? `${preset.label}, ` : "Sun "}
-      {formatClock(light.minutes)}
-      {light.lamps === "on" ? ", lamps on" : ""}
+    <Fold shown={shown} quick>
+      <span className={cx(s.statusToggle, s.statusToggleOn, s.sunStatus, s.foldItem)} aria-live="polite">
+        <Icon name={dark ? "moon" : "sun"} size={13} />
+        {preset ? `${preset.label}, ` : "Sun "}
+        {formatClock(light.minutes)}
+        {light.lamps === "on" ? ", lamps on" : ""}
+      </span>
+    </Fold>
+  );
+}
+
+/**
+ * The tool hint: the tool's remembered style as a button that opens its
+ * options (railFlyout.ts), so thickness, type or style is never hidden.
+ */
+function ToolHint({ def }: { def: ToolDef }) {
+  const options = useApp((st) => st.toolOptions);
+  const settings = useApp((st) => st.doc?.project.settings);
+  const catalog = useApp((st) => st.catalog);
+  const shape = useStairTool((st) => st.shape);
+  const turn = useStairTool((st) => st.turn);
+  const style = def.flyout ? rememberedStyle(def.tool, options, settings, catalog, { shape, turn }) : null;
+  if (!style || !def.flyout) return <span className={s.statusHint}>{def.label} tool. Esc returns to Select.</span>;
+  const flyout = def.flyout;
+  return (
+    <span className={s.statusHint}>
+      {def.label}:{" "}
+      <button
+        type="button"
+        className={s.statusStyle}
+        aria-haspopup="dialog"
+        data-tip={`${def.label} options`}
+        data-tip-side="top"
+        onClick={() => useShell.getState().requestFlyout(flyout)}
+      >
+        {style}
+        <Icon name="chevronRight" size={11} />
+      </button>{" "}
+      Esc returns to Select.
     </span>
   );
 }
@@ -219,11 +269,11 @@ export function StatusBar() {
 
       <div className={s.statusMain}>
         {preview ? (
-          <span className={s.statusAi}>Copilot preview. Nothing changes until you accept it.</span>
+          <span className={s.statusAi}>Copilot preview. Nothing changes until you apply it.</span>
         ) : summary ? (
           <span className={s.statusSelection}>{summary}</span>
         ) : toolDef && tool !== "select" ? (
-          <span className={s.statusHint}>{toolDef.label} tool. Esc returns to Select.</span>
+          <ToolHint def={toolDef} />
         ) : null}
       </div>
 

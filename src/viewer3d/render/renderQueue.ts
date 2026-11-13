@@ -219,7 +219,7 @@ export async function renderForRequest(views: string[], quality: TraceQuality, s
   const view = { cutaway: show.cutaway, roofVisible: show.roof, activeLevelId: show.cutaway ? useApp.getState().activeLevelId : null };
   const outcome = await runQueue(tasks, { size, quality, view });
   if (outcome.results.length === 0) {
-    const message = outcome.error ?? (outcome.cancelled ? "The render was cancelled in Guhit Studio." : "Nothing was rendered.");
+    const message = outcome.error ?? (outcome.cancelled ? "The render was stopped in Guhit Studio." : "Nothing was rendered.");
     throw { code: "invalid", message, element_ids: [] };
   }
   return outcome.results;
@@ -273,7 +273,7 @@ async function runQueue(tasks: RenderTask[], opts: QueueOptions = {}): Promise<Q
         break;
       }
       if (!rendered) {
-        app.toast("info", "Render cancelled");
+        app.toast("info", "Render stopped");
         outcome.cancelled = true;
         break;
       }

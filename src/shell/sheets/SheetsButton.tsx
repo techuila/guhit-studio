@@ -13,6 +13,7 @@ export function SheetsButton() {
       variant="chrome"
       icon="schedule"
       className={chrome.foldable}
+      aria-label="Sheets"
       data-tip={count > 0 ? `Sheets: the permit set, ${count} ${count === 1 ? "sheet" : "sheets"}` : "Sheets: make the permit set"}
       onClick={() => bus.emit("open_sheets", { sheet_id: null })}
     >

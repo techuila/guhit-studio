@@ -41,7 +41,7 @@ export function ToursSection({ doc }: { doc: DocState }) {
     useTours.getState().setOpen(true);
   };
   return (
-    <Section title="Tours" icon="camera" count={tours.length} open={open} onToggle={toggle}>
+    <Section title="Tours" icon="tours" count={tours.length} open={open} onToggle={toggle}>
       {tours.length === 0 ? (
         <div className={t.actions}>
           <Button size="sm" icon="plus" onClick={() => panel(null)}>

@@ -12,7 +12,7 @@ export function pickImage(): Promise<string | null> {
       const file = input.files?.[0];
       if (!file) return resolve(null);
       const reader = new FileReader();
-      reader.onerror = () => reject({ code: "io", message: "The image could not be read.", element_ids: [] });
+      reader.onerror = () => reject({ code: "io", message: "The image could not be read. Pick a PNG or JPEG file.", element_ids: [] });
       reader.onload = () => {
         ipc
           .fileStore(file.name, String(reader.result))

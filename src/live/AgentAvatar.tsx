@@ -1,21 +1,14 @@
 // An agent's avatar (DECISIONS D47): a rounded square in its color with its
-// initials, the AI mark, and a status dot: working pulses, looking is a
-// ring, idle dims, paused shows a pause bar, stopped a square. People's
-// avatars are round (Avatar.tsx), so the shape tells them apart.
+// initials and a status dot. Working is the "on" color with a steady ring,
+// looking is a hollow ring, idle a grey dot, paused a pause bar, stopped a
+// square. The avatar keeps its color and initials in every state. People's
+// avatars are round (Avatar.tsx), so the shape alone tells them apart: no
+// corner mark, no sparkle (tokens.css header).
 import type { CSSProperties } from "react";
 import type { AgentActivity } from "../contract/bindings";
 import { cx } from "../ui/controls";
 import { initials, peerVar } from "./format";
 import s from "./agents.module.css";
-
-/** The AI mark: a four-point sparkle, drawn in a 12 by 12 box. */
-export function AiMark({ size = 12, className }: { size?: number; className?: string }) {
-  return (
-    <svg className={className} width={size} height={size} viewBox="0 0 12 12" aria-hidden>
-      <path d="M6 .6c.5 2.9 2.2 4.6 5.4 5.4C8.2 6.8 6.5 8.5 6 11.4 5.5 8.5 3.8 6.8.6 6 3.8 5.2 5.5 3.5 6 .6z" fill="currentColor" />
-    </svg>
-  );
-}
 
 export function agentStyle(color: number): CSSProperties {
   return { "--peer": peerVar(color) } as CSSProperties;
@@ -33,7 +26,7 @@ export function AgentAvatar({
   color: number;
   activity: AgentActivity | null;
   size?: number;
-  /** What the avatar sits on: the corner marks wear a ring of it. The top bar's chrome by default. */
+  /** What the avatar sits on: the status dot wears a ring of it. The top bar's chrome by default. */
   ring?: string;
   className?: string;
 }) {
@@ -45,9 +38,6 @@ export function AgentAvatar({
       aria-hidden
     >
       {initials(name)}
-      <span className={s.mark}>
-        <AiMark size={Math.max(7, Math.round(size * 0.32))} />
-      </span>
       {activity ? <StatusDot activity={activity} /> : null}
     </span>
   );

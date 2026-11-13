@@ -16,6 +16,10 @@ const PATHS = {
   dimension: "M3.5 5v10M16.5 5v10M3.5 10h13M2.3 11.2l2.4-2.4M15.3 11.2l2.4-2.4",
   text: "M4.5 6V4.5h11V6M10 4.5v11M8 15.5h4",
   camera: "M2.5 6.5h10v7h-10zM12.5 9l5-2.2v6.4l-5-2.2",
+  /** A path from a start point into a play mark: camera tours. */
+  tours: "M2.2 15.5a.8.8 0 1 0 1.6 0a.8.8 0 1 0-1.6 0M5 15.5c3 0 2.5-5 6-5M12.5 6.5v8l5.5-4z",
+  /** An AI agent: a diamond with a centre dot, like its cursor on the plan. Neutral, never a sparkle. */
+  agent: "M10 3.2l6.8 6.8-6.8 6.8L3.2 10zM9.2 10a.8.8 0 1 0 1.6 0a.8.8 0 1 0-1.6 0",
   undo: "M7 4.5L3.5 8 7 11.5M3.5 8h8.2a4.3 4.3 0 0 1 0 8.6H9",
   redo: "M13 4.5L16.5 8 13 11.5M16.5 8H8.3a4.3 4.3 0 0 0 0 8.6H11",
   back: "M12 4.5L6.5 10l5.5 5.5",
@@ -23,7 +27,8 @@ const PATHS = {
   chevronRight: "M8 5.5l4.5 4.5L8 14.5",
   chevronUp: "M5.5 12L10 7.5l4.5 4.5",
   export: "M10 12.5V3M6.5 6.5L10 3l3.5 3.5M4 12v4.5h12V12",
-  versions: "M10 6v4l2.8 1.8M3.2 10a6.8 6.8 0 1 0 2-4.8M3 3.5v2.2h2.2",
+  /** Three stacked sheets: saved versions (History keeps the clock). */
+  versions: "M2.5 8h9.5v9.5H2.5zM5.5 8V5H15v9.5h-3M8.5 5V2h9v9.5H15",
   check: "M4.5 10.5l3.5 3.5 7.5-8",
   close: "M5 5l10 10M15 5L5 15",
   plus: "M10 4v12M4 10h12",
@@ -68,7 +73,7 @@ const PATHS = {
   /** A box with its hidden edges dashed: the shell drawn see-through. */
   xray: "M10 2.8l6.5 3.6v7.2L10 17.2l-6.5-3.6V6.4zM3.5 6.4L10 10l6.5-3.6M10 10v7.2M10 7.4V5.6M7.6 11.3l-1.6.9M12.4 11.3l1.6.9",
   takeoff: "M5 3.5h10v13H5zM7.5 7h5M7.5 10h5M7.5 13h2.5",
-  /** Two chain links: a switch linked to its lights. */
+  /** Two chain links: a switch linked to its lights, and Connect agent. */
   link: "M8.2 11.8l3.6-3.6M9.4 6.9l1.3-1.3a3 3 0 0 1 4.2 4.2l-1.3 1.3M10.6 13.1l-1.3 1.3a3 3 0 0 1-4.2-4.2l1.3-1.3",
   sun: "M10 13.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM10 2.5v1.8M10 15.7v1.8M2.5 10h1.8M15.7 10h1.8M4.7 4.7l1.3 1.3M14 14l1.3 1.3M15.3 4.7L14 6M6 14l-1.3 1.3",
   moon: "M15.8 12.3A6.6 6.6 0 0 1 7.7 4.2a6.6 6.6 0 1 0 8.1 8.1z",

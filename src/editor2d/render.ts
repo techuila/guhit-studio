@@ -74,12 +74,13 @@ export const DEFAULT_PALETTE: Palette = {
   preview: "#6b4fbb",
   ink: "#14283f",
   ink2: "#44566b",
-  ink3: "#7b8896",
+  ink3: "#5f6c79",
   danger: "#c0392b",
   warn: "#c07a12",
   pipes: { ...PIPE_COLOR_HEX },
-  fontUi: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-  fontMono: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+  // The same stacks as tokens.css: Inter ships with the app, mono is the system's.
+  fontUi: '"Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  fontMono: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
 };
 
 /** Reads the drawing tokens from tokens.css, with safe fallbacks. */
@@ -151,6 +152,9 @@ export interface RenderContext {
 }
 
 export const LABEL_PX = 12;
+
+/** A room tag's second line while its walls do not close it yet (no area). */
+const ROOM_NOT_CLOSED = "not closed";
 
 export function labelHeightMm(view: View, uiScale = 1): number {
   return (LABEL_PX * uiScale) / view.scale;
@@ -466,7 +470,7 @@ export function drawRoomLabel(rc: RenderContext, room: Room, style: ElementStyle
   ctx.fillText(room.name, at.x, at.y - px * 0.62);
   ctx.fillStyle = style?.color ?? palette.ink2;
   ctx.font = `${px * 0.92}px ${palette.fontMono}`;
-  const area = g ? formatArea(g.area_mm2) : "open";
+  const area = g ? formatArea(g.area_mm2) : ROOM_NOT_CLOSED;
   const fade = style?.areaFade;
   const areaY = at.y + px * 0.72;
   if (fade && fade.p < 1) {
@@ -709,8 +713,8 @@ export function drawDimension(
   ctx.textBaseline = "alphabetic";
   const text = dimensionText(d, rc.unit);
   const tw = ctx.measureText(text).width;
+  // A solid paper backing: no line drawn under the label cuts its digits.
   ctx.save();
-  ctx.globalAlpha *= 0.85;
   ctx.fillStyle = palette.paper;
   ctx.fillRect(-tw / 2 - 3 * k, -15 * k, tw + 6 * k, 12 * k);
   ctx.restore();
@@ -755,7 +759,7 @@ export function roomLabelTextBox(rc: RenderContext, room: Room): Box | null {
   ctx.font = `600 ${px}px ${palette.fontUi}`;
   const nameW = ctx.measureText(room.name).width;
   ctx.font = `${px * 0.92}px ${palette.fontMono}`;
-  const areaW = ctx.measureText(g ? formatArea(g.area_mm2) : "open").width;
+  const areaW = ctx.measureText(g ? formatArea(g.area_mm2) : ROOM_NOT_CLOSED).width;
   ctx.restore();
   const w = Math.max(nameW, areaW);
   return { x: at.x - w / 2, y: at.y - px * 1.2, w, h: px * 2.45 };
@@ -1294,9 +1298,7 @@ export function drawModel(rc: RenderContext, opt: SceneOptions): void {
   for (const p of pipes) drawPipe(rc, p, opt.styleOf(p.id), "risers");
   drawPipeFittings(rc, opt.styleOf);
   for (const r of of("room")) drawRoomLabel(rc, r, opt.styleOf(r.id));
-  // Plain dimensions; dimension strings (`through` points) are lane L1's pass below.
   const dims = of("dimension");
-  for (const d of dims) if (!isDimensionString(d)) drawDimension(rc, d, opt.styleOf(d.id));
   for (const a of of("annotation")) drawAnnotation(rc, a, opt.styleOf(a.id));
   for (const m of of("reference_model")) drawReferenceModel(rc, m, opt.styleOf(m.id));
   if (opt.showCameras) {
@@ -1307,6 +1309,10 @@ export function drawModel(rc: RenderContext, opt: SceneOptions): void {
   drawGrids(rc, of("grid"), opt.styleOf);
   drawLot(rc, of("lot"), opt.styleOf);
   drawViewMarks(rc, of("view_mark"), opt.styleOf);
+  // Plain dimensions after the roof, grid and lot outlines, so their paper
+  // backing keeps those lines out of the digits; dimension strings (`through`
+  // points) are lane L1's pass below.
+  for (const d of dims) if (!isDimensionString(d)) drawDimension(rc, d, opt.styleOf(d.id));
   drawTypeTags(rc, of("opening"), opt.styleOf);
   drawDimensionStrings(rc, dims.filter(isDimensionString), opt.styleOf);
 }

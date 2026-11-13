@@ -4,10 +4,11 @@
 // them, "Undo to here" takes back several steps as one revision. Pure parts
 // in history.ts.
 //
-// Agents' steps (DECISIONS D47) show the agent's name on a square dot, an AI
-// tag and whom it worked for ("for Axl"); each agent gets a filter chip like
-// each person. "Show its steps" in the Agents panel opens this panel
-// filtered to that agent (`useAgents.historyRequest`).
+// Agents' steps (DECISIONS D47) show the agent's name on a rounded-square
+// dot, an AI tag and whom it worked for ("for Axl"); each agent gets a filter
+// chip like each person, with a small square instead of a round dot. "Steps
+// in History" in the Agents panel opens this panel filtered to that agent
+// (`useAgents.historyRequest`).
 import {
   useCallback,
   useEffect,
@@ -21,7 +22,6 @@ import {
 } from "react";
 import type { HistoryList } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
-import { AiMark } from "../live/AgentAvatar";
 import { forLine } from "../live/agents";
 import { useAgents } from "../live/agentsStore";
 import { initials, peerVar } from "../live/format";
@@ -50,9 +50,6 @@ import { levelOfElement } from "./levels";
 import { useShell } from "./shellStore";
 import s from "./HistoryPanel.module.css";
 
-/** Rows that stagger in when the panel opens (docs/MOTION.md rule 8). */
-const STAGGERED = 8;
-
 /** The History button for the top bar, with its flyout. */
 export function HistoryButton() {
   const [open, setOpen] = useState(false);
@@ -66,7 +63,7 @@ export function HistoryButton() {
   useEffect(() => {
     if (!hasDoc) setOpen(false);
   }, [hasDoc]);
-  // "Show its steps" (Agents panel): opens, filtered to that agent. The button opens it unfiltered.
+  // "Steps in History" (Agents panel): opens, filtered to that agent. The button opens it unfiltered.
   const request = useAgents((st) => st.historyRequest);
   const seenRequest = useRef(request?.token ?? 0);
   const [ask, setAsk] = useState<{ filter: string; token: number } | null>(null);
@@ -87,6 +84,7 @@ export function HistoryButton() {
         className={cx(s.button, open && s.buttonOn)}
         aria-expanded={open}
         aria-haspopup="dialog"
+        data-tip-off={open ? "true" : undefined}
         disabled={!hasDoc}
         onClick={() => {
           setAsk(null);
@@ -109,7 +107,7 @@ function HistoryPanel({
   stage: PresenceStage;
   anchor: RefObject<HTMLSpanElement | null>;
   onClose: (refocus: boolean) => void;
-  /** Opened for one agent's steps ("Show its steps"): the filter to start with. */
+  /** Opened for one agent's steps ("Steps in History"): the filter to start with. */
   ask: { filter: string; token: number } | null;
 }) {
   const revision = useApp((st) => st.doc?.revision ?? null);
@@ -123,7 +121,7 @@ function HistoryPanel({
   // The revision the list was read at: "Undo to here" counts its steps there.
   const [listRevision, setListRevision] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Opened by "Show its steps": that agent's chip is on, also when asked again while open.
+  // Opened by "Steps in History": that agent's chip is on, also when asked again while open.
   const [person, setPerson] = useState(() => ask?.filter ?? EVERYONE);
   const seenAsk = useRef(ask?.token ?? 0);
   useEffect(() => {
@@ -198,9 +196,6 @@ function HistoryPanel({
   const done = shown.filter((r) => r.stack === "undo").length;
   const undone = shown.length - done;
   const firstUndone = present.findIndex((r) => r.item.stack === "redo" && !r.leaving);
-  // The rows of the first load stagger in; a row that comes later rises alone.
-  const intro = useRef<Set<string> | null>(null);
-  if (intro.current === null && list !== null) intro.current = new Set(shown.slice(0, STAGGERED).map((r) => r.key));
 
   // Rows that move (an undo sends them below the divider) slide there.
   const rects = useRef(new Map<string, DOMRect>());
@@ -317,13 +312,7 @@ function HistoryPanel({
               style={dotStyle(c.color)}
               data-testid={`history-chip-${c.key}`}
             >
-              {c.agent ? (
-                <i className={s.chipAgent} aria-hidden>
-                  <AiMark size={7} />
-                </i>
-              ) : (
-                <i className={s.chipDot} aria-hidden />
-              )}
+              <i className={cx(s.chipDot, c.agent && s.chipAgent)} aria-hidden />
               {c.name}
               <span className={s.chipCount}>{c.count}</span>
             </button>
@@ -341,7 +330,6 @@ function HistoryPanel({
           const redo = row.stack === "redo";
           const time = relativeTime(row.step.at, now);
           const detail = stepDetail(row.step);
-          const delay = intro.current?.has(p.key) ? Math.min(i, STAGGERED - 1) : 0;
           const isStop = p.key === tabStop;
           // One divider that slides to the first undone step, and folds
           // away under the last row when nothing is undone.
@@ -353,7 +341,7 @@ function HistoryPanel({
                 className={cx(s.divider, firstUndone < 0 && s.dividerAway)}
                 role="presentation"
               >
-                <span>Undone</span>
+                <span className={s.dividerInner}>Undone</span>
               </div>
             ) : null;
           const item = (
@@ -362,7 +350,7 @@ function HistoryPanel({
                 role="listitem"
                 data-row-item
                 className={cx(s.row, redo && s.rowUndone, p.leaving && s.rowLeave)}
-                style={{ "--i": delay, ...dotStyle(row.color) } as CSSProperties}
+                style={dotStyle(row.color)}
               >
                 <div className={s.rowInner}>
                   <button
@@ -383,11 +371,6 @@ function HistoryPanel({
                   >
                     <span className={cx(s.dot, row.agent && s.dotAgent)} aria-hidden>
                       {initials(row.mine && me ? me : row.name)}
-                      {row.agent ? (
-                        <i className={s.dotMark}>
-                          <AiMark size={6} />
-                        </i>
-                      ) : null}
                     </span>
                     <span className={s.text}>
                       <span className={s.label}>{row.step.label || "Change"}</span>
@@ -396,7 +379,7 @@ function HistoryPanel({
                         {forText(row) ? <span className={s.for}>{forText(row)}</span> : null}
                         {time ? <span className={s.when}>{time}</span> : null}
                         {row.agent || row.step.origin === "ai" ? (
-                          <span className={s.ai} data-tip={row.agent ? "Made by an AI agent through MCP" : "Made by the copilot or an MCP client"} data-tip-side="right">
+                          <span className={s.ai} data-tip={row.agent ? "Made by an AI agent" : "Made by the copilot or an AI agent"} data-tip-side="right">
                             AI
                           </span>
                         ) : null}

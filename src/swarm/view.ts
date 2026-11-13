@@ -1,13 +1,19 @@
 // Pure words and rules for the swarm panel and the draft bar: who is the
 // lead, what each part's pill says, what the bar says, who depends on whom,
 // and when Accept or Discard has to ask first. Tested in view.test.ts.
+// In these words the building is "the plan" or "the project", never "the
+// model", which would read as the AI model.
 
+import { clientLabel } from "../shell/connect/agents";
 import type { SwarmConflict, SwarmCost, SwarmPart, SwarmPartState, SwarmStatus } from "./types";
 
 export const LEAD_KEY = "lead";
 
 /** The lock's banner and the disabled tools' hint while a draft is open (D57). */
-export const LOCK_HINT = "A swarm is drafting. Accept or discard to edit";
+export const LOCK_HINT = "A swarm draft is open. Accept or discard it to edit the plan";
+
+/** What waits for Accept, said wherever the swarm costs or runs. */
+export const NOTHING_UNTIL_ACCEPT = "Nothing goes into the project until you accept it";
 
 export function leadOf(status: SwarmStatus | null): SwarmPart | null {
   return status?.parts.find((p) => p.key === LEAD_KEY) ?? null;
@@ -52,6 +58,19 @@ export function isOpen(part: SwarmPart): boolean {
   return part.state !== "accepted" && part.steps > 0;
 }
 
+/** The draft holds something to accept: Accept all is on. */
+export function hasDraftWork(status: SwarmStatus): boolean {
+  return status.added + status.modified + status.removed > 0 || workersOf(status).some(isOpen);
+}
+
+/** Why Start swarm is off, else its shortcut, for the button's tip. `mod` is the platform's ⌘ or Ctrl+. */
+export function startTip(o: { hasDoc: boolean; hasKey: boolean; brief: string }, mod: string): string {
+  if (!o.hasDoc) return "Open a project first";
+  if (!o.hasKey) return "Add a Claude API key in the copilot settings";
+  if (o.brief.trim() === "") return "Write a brief first";
+  return `${mod}Enter starts the swarm`;
+}
+
 /** "The swarm drew 48 elements in a draft". */
 export function draftLine(status: SwarmStatus): string {
   const drew = status.added + status.modified;
@@ -63,7 +82,8 @@ export function draftLine(status: SwarmStatus): string {
 export function drivingLine(status: SwarmStatus): string | null {
   if (status.source.type !== "mcp") return null;
   const n = workersOf(status).length;
-  const who = status.source.client.trim() || "Your AI";
+  // "claude-code" reads "Claude Code", as everywhere else in the app.
+  const who = clientLabel(status.source.client.trim()) || "Your AI";
   return `${who} is driving ${n} ${n === 1 ? "sub-agent" : "sub-agents"}`;
 }
 
@@ -78,20 +98,18 @@ export function modelName(cost: SwarmCost | null): string | null {
 }
 
 /**
- * The estimate line before a start: "4 agents on Claude Opus 5.5 · about
- * US$0.76 to $2.42 on your Claude key (estimate) · nothing enters the model
- * until you accept". Before the lead plans, the count is not known: "Agents
- * on Claude Opus 5.5 · ...".
+ * The estimate before a start, one phrase per span (the panel sets them
+ * apart with a gap, not middle dots): "4 agents on Claude Opus 5.5", "About
+ * US$0.76 to US$2.42 on your Claude key (estimate)", "Nothing goes into the
+ * project until you accept it". Before the lead plans, the count is not
+ * known: "Agents on Claude Opus 5.5".
  */
-export function estimateLine(cost: SwarmCost | null, agents: number | null): string {
-  const tail = "nothing enters the model until you accept";
+export function estimateParts(cost: SwarmCost | null, agents: number | null): string[] {
   const model = modelName(cost);
   const on = model ? ` on ${model}` : "";
-  const who = agents ? `${agents} agents${on} · ` : model ? `Agents${on} · ` : "";
-  if (cost && cost.low_usd !== null && cost.high_usd !== null) {
-    return `${who}about ${usd(cost.low_usd)} to $${cost.high_usd.toFixed(2)} on your Claude key (estimate) · ${tail}`;
-  }
-  return `${who}Runs on your Claude key · ${tail}`;
+  const who = agents ? `${agents} agents${on}` : model ? `Agents${on}` : null;
+  const price = cost && cost.low_usd !== null && cost.high_usd !== null ? `About ${usd(cost.low_usd)} to ${usd(cost.high_usd)} on your Claude key (estimate)` : "Runs on your Claude key";
+  return [...(who ? [who] : []), price, NOTHING_UNTIL_ACCEPT];
 }
 
 /** While it runs: what it spent against the cap. */
@@ -234,6 +252,11 @@ function skipLine(skipped: readonly SwarmConflict[]): string {
   return `${n} ${n === 1 ? "step no longer applies" : "steps no longer apply"}. Accepting the rest leaves ${n === 1 ? "it" : "them"} in the draft as conflicts.`;
 }
 
+/** "Rooms: Wall 4000 mm changed in the plan since the draft." One conflict under the draft bar, by part. */
+export function conflictLine(status: SwarmStatus | null, c: SwarmConflict): string {
+  return c.part ? `${partName(status, c.part)}: ${c.message}` : c.message;
+}
+
 /** "Dims, Auto dimension: Nothing to dimension." One skipped step for the confirm's list. */
 export function skippedLine(status: SwarmStatus | null, c: SwarmConflict): string {
   const who = [c.part ? partName(status, c.part) : "", c.label].filter(Boolean).join(", ");
@@ -324,7 +347,7 @@ export function discardAllAsk(status: SwarmStatus): Ask {
     kind: "discard",
     part: null,
     parts: workersOf(status).filter(isOpen).map((p) => p.key),
-    text: "Discard the whole draft? Nothing was added to the model, and the draft cannot come back.",
+    text: "Discard the whole draft? Nothing was added to the project, and the draft cannot be brought back.",
     confirm: "Discard the draft",
   };
 }

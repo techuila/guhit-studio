@@ -35,7 +35,7 @@
   flex: none;
   padding: 1px 6px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
   color: var(--ink-2);
   font-family: var(--font-ui);
@@ -95,8 +95,8 @@
 }
 
 .paletteItemActive kbd {
-  border-color: rgba(10, 109, 113, 0.25);
-  background: rgba(255, 255, 255, 0.6);
+  border-color: color-mix(in srgb, var(--accent-strong) 25%, transparent);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
 }
 
 .paletteItemDisabled {
@@ -132,13 +132,10 @@
   gap: 2px;
 }
 
+/* Sentence case, never tracked caps (the shared section label). */
 .formatGroupLabel {
+  composes: sectionLabel from "../ui/controls.module.css";
   padding: 4px 10px 2px;
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
 }
 
 .formatDisabled {
@@ -246,7 +243,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
   color: var(--accent);
 }
 
@@ -418,7 +415,7 @@
 .versionNewRow input:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .versionState {
@@ -555,7 +552,7 @@
   padding: 1px 6px;
   border: 1px solid var(--line);
   border-bottom-width: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
   color: var(--ink);
   font-family: var(--font-ui);
@@ -592,7 +589,7 @@
   left: 0;
   z-index: 0;
   border: 1px solid var(--accent);
-  border-radius: 13px;
+  border-radius: var(--radius-pill);
   background: var(--accent-soft);
   pointer-events: none;
   transition:
@@ -611,7 +608,7 @@
   height: 26px;
   padding: 0 11px;
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink-2);
   font-size: var(--text-sm);

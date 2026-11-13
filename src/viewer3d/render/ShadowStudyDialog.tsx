@@ -2,9 +2,10 @@
 // dates and the step, then the live 3D view draws a frame per step and the
 // frames land on a contact sheet, saved as a PNG and added to Visuals.
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { create } from "zustand";
 import { ipc, isTauri } from "../../contract/ipc";
+import { showInFolder } from "../../shell/reveal";
 import { bus } from "../../state/bus";
 import { useApp } from "../../state/store";
 import { Button, Segmented, Select } from "../../ui/controls";
@@ -95,7 +96,7 @@ function StudyDialog({ stage }: { stage: "enter" | "idle" | "exit" }) {
       useViewer.getState().bumpRenders();
       if (!isTauri || path) {
         const exported = await ipc.exportImage(result.png, name, path);
-        app.toast("success", `Shadow study saved to ${exported.path} and added to Visuals`);
+        app.toast("success", `Shadow study saved to ${exported.path} and added to Visuals`, showInFolder(exported.path));
       } else {
         app.toast("success", "Shadow study added to Visuals");
       }
@@ -177,7 +178,7 @@ function StudyDialog({ stage }: { stage: "enter" | "idle" | "exit" }) {
         </p>
         {busy && (
           <div className={s.bar} role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}>
-            <span className={s.fill} style={{ width: `${Math.round((done / Math.max(total, 1)) * 100)}%` }} />
+            <span className={s.fill} style={{ "--p": done / Math.max(total, 1) } as CSSProperties} />
           </div>
         )}
         {error && (

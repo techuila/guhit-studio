@@ -43,8 +43,8 @@
   padding: 0 12px;
   border: 0;
   border-radius: var(--radius-md);
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-strong);
+  color: var(--on-accent);
   font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
@@ -54,10 +54,11 @@
 }
 
 .primary:hover:not(:disabled) {
-  background: var(--accent-strong);
+  background: var(--accent-hover);
 }
 
 .primary:active:not(:disabled) {
+  background: var(--accent-active);
   transform: scale(var(--press-scale));
 }
 

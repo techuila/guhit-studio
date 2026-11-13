@@ -7,15 +7,7 @@
   display: inline-flex;
 }
 
-/* The clock's hand turns a little on press, like undo and redo. */
-.button svg {
-  transition: transform var(--dur-press) var(--ease-out);
-}
-
-.button:active:not(:disabled) svg {
-  transform: rotate(-30deg);
-}
-
+/* The button press-scales like every button (IconButton); its icon stays still. */
 .buttonOn,
 .buttonOn:hover:not(:disabled) {
   background: var(--chrome-2);
@@ -82,10 +74,14 @@
   font-weight: 600;
 }
 
+/* "2 steps": the shared count, at the title's size (R14). */
 .count {
   color: var(--ink-3);
-  font-size: var(--text-sm);
+  font-family: var(--font-ui);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  margin-left: 0;
+  font-size: var(--text-lg);
 }
 
 .close {
@@ -110,7 +106,7 @@
   height: 24px;
   padding: 0 9px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink-2);
   font: inherit;
@@ -152,22 +148,18 @@
   background: var(--who);
 }
 
-/* An agent's chip: a small rounded square with the AI mark, not a dot. */
+/* An agent's chip: a small rounded square, like its avatar, not a dot. */
 .chipAgent {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  height: 12px;
-  border-radius: 3.5px;
-  background: var(--who);
-  color: #fff;
+  border-radius: 2px;
 }
 
 .chipCount {
   color: var(--ink-3);
-  font-size: var(--text-xs);
+  font-family: var(--font-ui);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  margin-left: 0;
+  font-size: var(--text-sm);
 }
 
 /* ------------------------------------------------------------ rows */
@@ -187,13 +179,13 @@
   display: block;
 }
 
-/* Every row rises in once when it appears; the first load staggers by
-   --i (at most 8 rows, 30 ms apart). A row that goes folds away. */
+/* The rows rise in once as one block when the panel opens, and a step that
+   comes later rises alone (docs/MOTION.md rule 8: no stagger). A row that
+   goes folds away. */
 .row {
   display: grid;
   grid-template-rows: 1fr;
   animation: history-row-in var(--dur-base) var(--ease-out) backwards;
-  animation-delay: calc(var(--i, 0) * 30ms);
   transition:
     grid-template-rows calc(var(--dur-base) * 0.7) var(--ease-in),
     opacity calc(var(--dur-base) * 0.7) var(--ease-in);
@@ -264,36 +256,16 @@
   border-radius: 50%;
   background: var(--who);
   color: var(--peer-ink);
-  font-size: 9px;
+  font-size: var(--text-2xs, 10px);
   font-weight: 650;
   letter-spacing: 0.02em;
   line-height: 1;
-  transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-hover) var(--ease-out);
+  transition: opacity var(--dur-base) var(--ease-out);
 }
 
-.rowInner:hover .dot {
-  transform: scale(1.08);
-}
-
-/* An agent's step: a rounded square, like its avatar, with the AI mark. */
+/* An agent's step: a rounded square, like its avatar. The "AI" tag names it. */
 .dotAgent {
-  position: relative;
   border-radius: 6px;
-}
-
-.dotMark {
-  position: absolute;
-  top: -3px;
-  left: -3px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--surface);
-  color: var(--ai);
-  box-shadow: 0 0 0 1px var(--surface);
 }
 
 /* "for Axl": whom an agent worked for. */
@@ -320,7 +292,7 @@
 .meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   min-width: 0;
   color: var(--ink-3);
   font-size: var(--text-xs);
@@ -345,24 +317,14 @@
   text-overflow: ellipsis;
 }
 
-.who + .when::before,
-.for + .when::before,
-.when + .detail::before,
-.who + .detail::before,
-.ai + .detail::before {
-  content: "\00b7";
-  margin-right: 6px;
-  color: var(--line-strong);
-}
-
 .ai {
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--ai-soft);
   color: var(--ai);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 650;
-  line-height: 15px;
+  line-height: 16px;
 }
 
 /* Undone steps: greyed, still clickable. */
@@ -429,28 +391,32 @@
   outline-offset: 1px;
 }
 
-/* One divider above the undone steps. It slides with the rows, and fades
-   away when nothing is undone. */
+/* One divider above the undone steps. It slides with the rows, and folds
+   away by its grid row when nothing is undone (MOTION.md rule 5). */
 .divider {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    grid-template-rows var(--dur-base) var(--ease-out);
+}
+
+.dividerInner {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 22px;
-  margin: 6px 8px 2px;
+  /* No vertical padding: the grid row folds it all the way to 0. */
+  min-height: 0;
+  padding: 0 8px;
+  overflow: hidden;
   color: var(--ink-3);
   font-size: var(--text-xs);
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  overflow: hidden;
-  transition:
-    opacity var(--dur-base) var(--ease-out),
-    height var(--dur-base) var(--ease-out),
-    margin var(--dur-base) var(--ease-out);
+  line-height: 28px;
 }
 
-.divider::before,
-.divider::after {
+.dividerInner::before,
+.dividerInner::after {
   content: "";
   flex: 1;
   height: 1px;
@@ -458,9 +424,7 @@
 }
 
 .dividerAway {
-  height: 0;
-  margin-top: 0;
-  margin-bottom: 0;
+  grid-template-rows: 0fr;
   opacity: 0;
   transition-timing-function: var(--ease-in);
 }
@@ -495,7 +459,7 @@
 }
 
 .link:hover {
-  color: var(--accent);
+  color: var(--accent-hover);
 }
 
 .link:focus-visible {

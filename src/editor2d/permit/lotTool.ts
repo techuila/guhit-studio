@@ -10,7 +10,7 @@ import { useApp } from "../../state/store";
 import { isModalOpen } from "../../ui/Dialog";
 import type { P } from "../geom";
 import { dist, polygonArea } from "../geom";
-import { isTypingTarget } from "../keys";
+import { isTypingTarget, keyNames } from "../keys";
 import type { PlanTool, PlanToolHost } from "../planTool";
 import type { RenderContext } from "../render";
 import { formatArea } from "../typed";
@@ -136,7 +136,8 @@ function listen(host: PlanToolHost): void {
   );
 }
 
-const pasteKey = (): string => (isMac() ? "Cmd V" : "Ctrl V");
+/** "⌘V" or "Ctrl+V", as the shell's tooltips write shortcuts. */
+const pasteKey = (): string => `${keyNames(isMac()).combo.mod}V`;
 
 export const lotTool: PlanTool = {
   tool: "lot",

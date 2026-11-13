@@ -401,7 +401,7 @@ try {
 
   // ---- Opening a bundle would end the session: Ana is asked first.
   await ana.getByRole("button", { name: "Import", exact: true }).click();
-  await ana.getByRole("menuitem", { name: "Open .guhit bundle" }).click();
+  await ana.getByRole("menuitem", { name: "Open .guhit file" }).click();
   const bundleAsk = await ana.getByRole("dialog", { name: "End the live session?" }).textContent({ timeout: 5000 }).catch(() => null);
   check("opening a bundle while hosting asks first", !!bundleAsk && bundleAsk.includes("the other person"), bundleAsk);
   await ana.waitForTimeout(500); // the dialog's entrance

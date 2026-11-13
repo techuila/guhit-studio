@@ -91,7 +91,7 @@ export const AGENTS: AgentDef[] = [
       kind: "snippet",
       lead: "Run this once in a terminal. Claude Code remembers it for every project.",
       code: claudeCodeCommand(url, name),
-      steps: ["Keep Guhit open.", "Ask Claude Code to draw or change the plan. The window updates as it works."],
+      steps: ["Keep Guhit Studio open.", "Ask Claude Code to draw or change the plan. The window updates as it works."],
     }),
   },
   {
@@ -142,7 +142,7 @@ export const AGENTS: AgentDef[] = [
       kind: "snippet",
       lead: "Run this once in a terminal. The ChatGPT desktop app shares this setting.",
       code: codexCommand(url, name),
-      steps: ["Keep Guhit open.", "Ask Codex for a change."],
+      steps: ["Keep Guhit Studio open.", "Ask Codex for a change."],
     }),
   },
   {
@@ -186,11 +186,11 @@ export const AGENTS: AgentDef[] = [
     id: "lmstudio", name: "LM Studio", mark: "LM", color: "#6b4fd1", group: "Free and local models", free: true, match: ["lmstudio"],
     setup: ({ url, name }) => ({
       kind: "link",
-      lead: "Adds Guhit to LM Studio in one click. Use a model with 32k context or more.",
+      lead: "Adds Guhit to LM Studio in one click. Use an AI model with 32k context or more.",
       button: "Add to LM Studio",
       app: "LM Studio",
       link: lmstudioLink(url, name),
-      steps: ["Confirm in LM Studio.", "Plan pictures do not reach the model in LM Studio yet."],
+      steps: ["Confirm in LM Studio.", "LM Studio does not pass plan pictures to its AI model yet."],
     }),
   },
   {
@@ -205,7 +205,7 @@ export const AGENTS: AgentDef[] = [
     }),
   },
   {
-    id: "other", name: "Other agent", mark: "+", color: "#7b8896", group: "Free and local models", match: [],
+    id: "other", name: "Other agent", mark: "+", color: "var(--ink-3)", group: "Free and local models", match: [],
     setup: ({ url, stdioCommand, stdioArgs }) => ({
       kind: "snippet",
       lead: "Agents that take a URL: use this one. Agents that only launch a command: use the app with --mcp-stdio.",

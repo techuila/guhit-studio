@@ -1,46 +1,53 @@
 // "Furnish rooms" in the copilot dock (lane L5): the bar that starts it and
 // the room cards of its answer, one proposal per room (D8). Logic in
 // furnish.ts; the engine places everything (guhit_core::placement).
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AiProposal } from "../contract/bindings";
 import { useApp } from "../state/store";
+import { Select, cx } from "../ui/controls";
+import { dur, motionOK } from "../ui/motion";
 import { growIn } from "../ui/motionWaapi";
 import type { ChatItem, FurnishRoom } from "./copilotStore";
 import { FURNISH_STYLES, applyRoom, discardRoom, previewRoom, roomsToFurnish } from "./furnish";
 import { DrawnCheck } from "./icons";
 import s from "./Furnish.module.css";
 
-function cx(...parts: Array<string | false | null | undefined>): string {
-  return parts.filter(Boolean).join(" ");
+const STYLE_OPTIONS = FURNISH_STYLES.map((st) => ({ value: st.key, label: st.label }));
+
+/** What the Furnish button says: "Furnish 3 rooms", "Furnish Bedroom", "No closed rooms". */
+export function furnishLabel(rooms: ReadonlyArray<{ id: string; name: string }>, selection: readonly string[]): string {
+  if (rooms.length === 0) return "No closed rooms";
+  const selected = rooms.some((r) => selection.includes(r.id));
+  if (selected) return `Furnish ${rooms.length === 1 ? rooms[0].name : `${rooms.length} selected rooms`}`;
+  return `Furnish ${rooms.length} ${rooms.length === 1 ? "room" : "rooms"}`;
 }
 
-/** The bar above the composer: style pills and the Furnish button. `tip`: why it is off (the swarm lock). */
+/**
+ * The bar above the composer: the style, as one select so it fits the
+ * narrow dock, and the Furnish button. `tip`: why it is off (the swarm lock).
+ */
 export function FurnishBar({ disabled, tip = null, onFurnish }: { disabled: boolean; tip?: string | null; onFurnish: (style: string) => void }) {
   const doc = useApp((st) => st.doc);
   const selection = useApp((st) => st.selection);
   const activeLevelId = useApp((st) => st.activeLevelId);
   const [style, setStyle] = useState<string>("modern");
   const rooms = roomsToFurnish(doc, selection, activeLevelId);
-  const selected = rooms.some((r) => selection.includes(r.id));
-  const label = rooms.length === 0 ? "No closed rooms" : selected ? `Furnish ${rooms.length === 1 ? rooms[0].name : `${rooms.length} selected rooms`}` : `Furnish ${rooms.length} ${rooms.length === 1 ? "room" : "rooms"}`;
+  const label = furnishLabel(rooms, selection);
   return (
     <div className={s.bar} data-testid="furnish-bar">
-      <div className={s.styles} role="radiogroup" aria-label="Furnishing style">
-        {FURNISH_STYLES.map((st) => (
-          <button
-            key={st.key}
-            type="button"
-            role="radio"
-            aria-checked={style === st.key}
-            className={cx(s.style, style === st.key && s.styleOn)}
-            onClick={() => setStyle(st.key)}
-          >
-            {st.label}
-          </button>
-        ))}
-      </div>
-      <button type="button" className={s.go} disabled={disabled || rooms.length === 0} onClick={() => onFurnish(style)} data-tip={tip ?? undefined} data-testid="furnish-go">
-        {label}
+      <span className={s.styles}>
+        <Select<string> label="Furnishing style" value={style} options={STYLE_OPTIONS} onChange={setStyle} />
+      </span>
+      <button
+        type="button"
+        className={s.go}
+        disabled={disabled || rooms.length === 0}
+        onClick={() => onFurnish(style)}
+        data-tip={tip ?? (label.length > 24 ? label : undefined)}
+        data-tip-side="top-end"
+        data-testid="furnish-go"
+      >
+        <span className={s.goText}>{label}</span>
       </button>
     </div>
   );
@@ -97,12 +104,13 @@ function RoomCard({ item, room, active, onPick }: { item: ChatItem; room: Furnis
             onClick={() => void applyRoom(item.id, room.roomId, item.furnishStyle ?? "modern")}
             data-testid="furnish-apply"
           >
-            {room.status === "applying" ? "Applying" : "Apply"}
+            Apply
           </button>
           <button type="button" className={s.discard} disabled={room.status === "applying"} onClick={() => discardRoom(item.id, room.roomId)}>
             Discard
           </button>
-          <span className={s.count}>{room.proposal.preview.diff.added.length} objects, one undo step</span>
+          {/* The names above say what comes in; this says how it goes back out. */}
+          <span className={s.count}>One undo step</span>
         </div>
       ) : (
         <p className={s.note} data-state={room.status}>
@@ -126,8 +134,15 @@ export function FurnishCards({ item }: { item: ChatItem }) {
     setActive(room.proposal.id);
     previewRoom(room);
   };
+  // The cards grow in after the log scrolled to them: once they have, bring
+  // them into view, so their Apply is never left below the fold.
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const t = window.setTimeout(() => ref.current?.scrollIntoView?.({ block: "nearest", behavior: motionOK() ? "smooth" : "auto" }), dur("panel"));
+    return () => window.clearTimeout(t);
+  }, []);
   return (
-    <div className={s.cards} onMouseLeave={() => previewRoom(rooms.find((r) => r.proposal.id === active) ?? null)}>
+    <div ref={ref} className={s.cards} onMouseLeave={() => previewRoom(rooms.find((r) => r.proposal.id === active) ?? null)}>
       {rooms.map((r) => (
         <RoomCard key={r.proposal.id} item={item} room={r} active={active === r.proposal.id} onPick={pick} />
       ))}

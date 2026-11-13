@@ -328,9 +328,9 @@ function drawGrips(rc: RenderContext, c: PlanController, op: PlanController["op"
     if (active && sameGrip(active, g)) continue;
     if (dragged && g.kind === "pipe_node" && g.index !== undefined && (dragged.size === 0 || dragged.has(g.index))) continue;
     if (dragged && (g.kind === "pipe_mid" || g.kind === "pipe_continue")) continue;
-    // Scale in from nothing, one after the other, and grow a little under the pointer.
+    // All grips scale in together, and each grows a little under the pointer.
     // The picked segment's middle handle comes with the pick, so it grows in with it.
-    const grow = c.anim.value(`${K.grip}${Math.min(i, 7)}`, 1) * (g.kind === "pipe_mid" ? pickA : 1);
+    const grow = c.anim.value(K.grip, 1) * (g.kind === "pipe_mid" ? pickA : 1);
     if (grow <= 0.002) continue;
     const scale = grow * (1 + 0.3 * c.anim.value(`${K.gripHover}${i}`, 0));
     const s = toScreen(view, g.pos);

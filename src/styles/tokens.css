@@ -13,23 +13,41 @@
   --chrome-2: #1d3653;
   --chrome-text: #dfe7f0;
   --chrome-muted: #8ea2b8;
+  --chrome-hover: #24405f; /* pressed chrome button */
+  --chrome-accent: #4fc3b0; /* teal that reads on navy */
+  --focus-chrome: #6fd3d6; /* focus ring on navy chrome: 8.5:1 on --chrome */
+  --chrome-focus: var(--focus-chrome); /* alias, prefer --focus-chrome */
+  --toast-bg: #0f2034; /* toasts and dark panels on the canvas */
+  --tip-bg: #0c1a2b; /* tooltips */
+  --on-dark: #eef3f8; /* body text on --toast-bg and --chrome */
+  --on-dark-ok: #5fd0bc;
+  --on-dark-danger: #f08a7c;
+  --status-on: #4fc38a; /* status dots on dark: connected, live */
+  --status-warn: #e3a33b; /* status dots on dark: waiting, stale */
 
   /* ink */
   --ink: #14283f;
   --ink-2: #44566b;
-  --ink-3: #7b8896;
+  --ink-3: #5f6c79; /* 5.4:1 on surface, 4.7:1 on surface-2 */
   --line: #d9d5cb;
   --line-strong: #b9b4a8;
 
   /* accents */
   --accent: #0e8a8f; /* teal: interaction, selection */
-  --accent-strong: #0a6d71;
+  --accent-strong: #0a6d71; /* teal text, primary button fill */
+  --accent-hover: #085a5e; /* primary button hover */
+  --accent-active: #074b4e; /* primary button pressed */
   --accent-soft: #d8eeee;
+  --on-accent: #ffffff; /* text and icons on --accent and --accent-strong */
   --blueprint: #1f5f99;
   --ai: #6b4fbb; /* AI proposals and ghost previews only */
   --ai-soft: #ebe6f8;
+  /* --ok, --warn and --accent are for dots, icons, fills and borders (3:1).
+     Text in those colours uses --ok-text, --warn-text and --accent-strong. */
   --ok: #2e8b57;
+  --ok-text: #257347; /* 5.3:1 on paper */
   --warn: #c07a12;
+  --warn-text: #94590a; /* 5.2:1 on paper */
   --danger: #c0392b;
 
   /* drawing */
@@ -63,9 +81,13 @@
   --peer-ink: #ffffff;
 
   /* type */
-  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --text-xs: 11px;
+  /* Inter ships with the app (@fontsource-variable/inter, imported in main.tsx),
+     so every platform measures the same letter widths. Mono is only for code,
+     commands, coordinates and error detail; other numbers use tabular-nums. */
+  --font-ui: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --text-2xs: 10px; /* avatar initials and the plan's typed-field label only */
+  --text-xs: 11px; /* the floor for every other UI label */
   --text-sm: 12px;
   --text-md: 13px;
   --text-lg: 15px;
@@ -75,15 +97,17 @@
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 10px;
+  --radius-pill: 999px;
   --shadow-1: 0 1px 2px rgba(20, 40, 63, 0.08);
   --shadow-2: 0 6px 24px rgba(20, 40, 63, 0.14);
+  --shadow-3: 0 12px 40px rgba(20, 40, 63, 0.22); /* dialogs only */
 
   /* layout */
   --topbar-h: 44px;
   --rail-w: 52px;
   --inspector-w: 296px;
   --statusbar-h: 26px;
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1); /* old, prefer --ease-out */
 
   /* motion. See docs/MOTION.md. Durations scale with how rare the action is. */
   --dur-press: 80ms; /* pointer down feedback */
@@ -97,6 +121,12 @@
   /* small settle overshoot for things that land: placed objects, toggles */
   --ease-spring: linear(0, 0.35 12%, 0.72 24%, 0.96 36%, 1.06 48%, 1.05 58%, 1.01 72%, 0.995 86%, 1);
   --press-scale: 0.97;
+  /* Indeterminate progress only (a sweep, a spinner, the busy dots). Unchanged
+     under reduced motion: those loops stop with animation: none instead, since
+     a near-zero period strobes. */
+  --dur-loop: 1600ms;
+  /* Hover intent before a tooltip shows. Not motion, so reduced motion keeps it. */
+  --tip-delay: 350ms;
 }
 
 @media (prefers-reduced-motion: reduce) {

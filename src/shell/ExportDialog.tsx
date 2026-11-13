@@ -4,11 +4,12 @@ import { PIPE_GROUP } from "../contract/pipes";
 import { ipc, isTauri } from "../contract/ipc";
 import { useApp } from "../state/store";
 import { Dialog } from "../ui/Dialog";
-import { Button, CheckRow, Field, Segmented, Select, Spinner, cx } from "../ui/controls";
+import { Button, CheckRow, Field, Segmented, Select, Spinner, cx, useRovingGroup } from "../ui/controls";
 import { Icon, type IconName } from "../ui/icons";
 import type { PresenceStage } from "../ui/motion";
 import { useSlidingIndicator } from "../ui/motionDom";
 import { catalogItem } from "./devices";
+import { showInFolder } from "./reveal";
 import { makePermitSet } from "./sheets/permitSet";
 import { PAPERS, today } from "./sheets/sheetModel";
 import sh from "./sheets/sheets.module.css";
@@ -17,37 +18,53 @@ import s from "./overlays.module.css";
 
 type SceneFormat = "glb" | "obj" | "dae";
 type Format = PlanFormat | "permit" | "dwg2d" | "png_plan" | "png_3d" | "ifc" | "dxf3d" | SceneFormat | "bundle";
-type Group = "Drawings" | "Model" | "Images" | "Project bundle";
+type Group = "Drawings" | "Model" | "Images" | "Project file";
 
 interface FormatDef {
   value: Format;
   group: Group;
   name: string;
+  /** The button and the save dialog's title: "Export permit set", "Save .guhit file". */
+  action: string;
   /** One sentence naming the apps that open this format. */
   apps: string;
   icon: IconName;
   ext: string;
 }
 
-const GROUPS: Group[] = ["Drawings", "Model", "Images", "Project bundle"];
+const GROUPS: Group[] = ["Drawings", "Model", "Images", "Project file"];
 
 const FORMATS: FormatDef[] = [
-  { value: "permit", group: "Drawings", name: "Permit set", apps: "Every sheet in one PDF, with the PH title block, ready to print and sign", icon: "schedule", ext: "pdf" },
-  { value: "pdf", group: "Drawings", name: "PDF", apps: "Any PDF viewer, for printing or sending to a client", icon: "export", ext: "pdf" },
-  { value: "svg", group: "Drawings", name: "SVG", apps: "Illustrator, Inkscape, Figma", icon: "pencil", ext: "svg" },
-  { value: "dxf", group: "Drawings", name: "DXF (2D)", apps: "AutoCAD, BricsCAD, LibreCAD, SketchUp Pro", icon: "layers", ext: "dxf" },
-  { value: "dwg2d", group: "Drawings", name: "DWG", apps: "AutoCAD, BricsCAD", icon: "layers", ext: "dwg" },
-  { value: "ifc", group: "Model", name: "IFC", apps: "Archicad, Revit, SketchUp Pro, BIM viewers", icon: "model", ext: "ifc" },
-  { value: "dxf3d", group: "Model", name: "DXF (3D)", apps: "AutoCAD, BricsCAD, SketchUp Pro", icon: "model", ext: "dxf" },
-  { value: "glb", group: "Model", name: "GLB", apps: "SketchUp, Blender, web and AR viewers", icon: "view3d", ext: "glb" },
-  { value: "obj", group: "Model", name: "OBJ", apps: "SketchUp, Blender, 3ds Max, most 3D apps", icon: "view3d", ext: "obj" },
-  { value: "dae", group: "Model", name: "DAE (Collada)", apps: "SketchUp Free and Pro", icon: "view3d", ext: "dae" },
-  { value: "png_plan", group: "Images", name: "Plan image", apps: "Any image viewer", icon: "view2d", ext: "png" },
-  { value: "png_3d", group: "Images", name: "3D image", apps: "Any image viewer", icon: "view3d", ext: "png" },
-  { value: "bundle", group: "Project bundle", name: ".guhit", apps: "Guhit Studio, on this computer or another", icon: "folder", ext: "guhit" },
+  { value: "permit", group: "Drawings", name: "Permit set", action: "Export permit set", apps: "Every sheet in one PDF, with the PH title block, ready to print and sign", icon: "schedule", ext: "pdf" },
+  { value: "pdf", group: "Drawings", name: "PDF", action: "Export PDF", apps: "Any PDF viewer, for printing or sending to a client", icon: "export", ext: "pdf" },
+  { value: "svg", group: "Drawings", name: "SVG", action: "Export SVG", apps: "Illustrator, Inkscape, Figma", icon: "pencil", ext: "svg" },
+  { value: "dxf", group: "Drawings", name: "DXF (2D)", action: "Export DXF", apps: "AutoCAD, BricsCAD, LibreCAD, SketchUp Pro", icon: "layers", ext: "dxf" },
+  { value: "dwg2d", group: "Drawings", name: "DWG", action: "Export DWG", apps: "AutoCAD, BricsCAD", icon: "layers", ext: "dwg" },
+  { value: "ifc", group: "Model", name: "IFC", action: "Export IFC", apps: "Archicad, Revit, SketchUp Pro, BIM viewers", icon: "model", ext: "ifc" },
+  { value: "dxf3d", group: "Model", name: "DXF (3D)", action: "Export 3D DXF", apps: "AutoCAD, BricsCAD, SketchUp Pro", icon: "model", ext: "dxf" },
+  { value: "glb", group: "Model", name: "GLB", action: "Export GLB", apps: "SketchUp, Blender, web and AR viewers", icon: "view3d", ext: "glb" },
+  { value: "obj", group: "Model", name: "OBJ", action: "Export OBJ", apps: "SketchUp, Blender, 3ds Max, most 3D apps", icon: "view3d", ext: "obj" },
+  { value: "dae", group: "Model", name: "DAE (Collada)", action: "Export DAE", apps: "SketchUp Free and Pro", icon: "view3d", ext: "dae" },
+  { value: "png_plan", group: "Images", name: "Plan image", action: "Export plan image", apps: "Any image viewer", icon: "view2d", ext: "png" },
+  { value: "png_3d", group: "Images", name: "3D image", action: "Export 3D image", apps: "Any image viewer", icon: "view3d", ext: "png" },
+  { value: "bundle", group: "Project file", name: ".guhit file", action: "Save .guhit file", apps: "Guhit Studio, on this computer or another", icon: "folder", ext: "guhit" },
 ];
 
 const SCALES = [20, 25, 50, 75, 100, 125, 150, 200, 250, 500];
+
+/**
+ * Where Export opens: on the permit set once the project has one (it is the
+ * file most projects export, DECISIONS D53), else on a PDF of the plan.
+ */
+export function defaultExportFormat(doc: DocState | null): "permit" | "pdf" {
+  return (doc?.project.sheet_set.sheets.length ?? 0) > 0 ? "permit" : "pdf";
+}
+
+/** The success toast: "Exported permit set at 1:100 to ...", "Saved .guhit file to ...". */
+export function exportedMessage(action: string, scale: string, path: string): string {
+  const saved = action.startsWith("Save ");
+  return `${saved ? "Saved" : "Exported"} ${action.replace(/^(Export|Save) /, "")}${scale} to ${path}`;
+}
 
 interface SheetDef {
   value: SheetKind;
@@ -105,16 +122,23 @@ function SheetPicker({ sheets, value, onChange }: { sheets: SheetDef[]; value: S
   const box = useRef<HTMLDivElement>(null);
   const on = useRef<HTMLButtonElement>(null);
   const pill = useSlidingIndicator(box, on, [value, sheets.length]);
+  // One tab stop; the arrows pick (WAI-ARIA radio group).
+  const roving = useRovingGroup({
+    active: sheets.findIndex((sh) => sh.value === value),
+    onMove: (_el, i) => onChange(sheets[i].value),
+  });
   return (
-    <div ref={box} className={s.sheetChips} role="radiogroup" aria-label="Sheet">
+    <div ref={box} className={s.sheetChips} role="radiogroup" aria-label="Sheet" onKeyDown={roving.onKeyDown}>
       {pill.visible ? <span aria-hidden className={cx(s.sheetChipPill, pill.instant && s.instant)} style={pill.style} /> : null}
-      {sheets.map((sh) => (
+      {sheets.map((sh, i) => (
         <button
           key={sh.value}
           ref={sh.value === value ? on : undefined}
           type="button"
           role="radio"
           aria-checked={sh.value === value}
+          tabIndex={roving.tabIndexFor(i)}
+          data-roving=""
           className={cx(s.sheetChip, sh.value === value && s.sheetChipOn)}
           onClick={() => onChange(sh.value)}
         >
@@ -152,7 +176,7 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
   const reportError = useApp((st) => st.reportError);
 
   const settings = doc?.project.settings;
-  const [format, setFormat] = useState<Format>("pdf");
+  const [format, setFormat] = useState<Format>(() => defaultExportFormat(doc));
   const [paper, setPaper] = useState<PaperSize>(settings?.paper ?? "a3");
   const [orientation, setOrientation] = useState<Orientation>("landscape");
   // The project's scale, not "best fit": a 1:100 project prints at 1:100
@@ -170,6 +194,13 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
   const [reviewPage, setReviewPage] = useState(false);
   const [working, setWorking] = useState(false);
   const catalog = useApp((st) => st.catalog);
+  // The format list is one radio group across its headings: one tab stop, the arrows pick.
+  const formatOrder = GROUPS.flatMap((g) => FORMATS.filter((f) => f.group === g));
+  const formatRoving = useRovingGroup({
+    active: formatOrder.findIndex((f) => f.value === format),
+    orientation: "vertical",
+    onMove: (_el, i) => setFormat(formatOrder[i].value),
+  });
   const [dwg, setDwg] = useState<DwgConverterStatus | null>(null);
 
   useEffect(() => {
@@ -223,7 +254,7 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
     if (!isTauri) return null;
     const { save } = await import("@tauri-apps/plugin-dialog");
     const picked = await save({
-      title: `Export ${def.name}`,
+      title: def.action,
       defaultPath: `${safeFileName(name)}.${def.ext}`,
       filters: [{ name: def.name, extensions: [def.ext] }],
     });
@@ -319,7 +350,7 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
 
       // The isometric sheet fits its diagrams to the paper and prints NTS.
       const usedScale = result.scale_denominator && !notToScale ? ` at 1:${result.scale_denominator}` : "";
-      toast("success", `Exported ${def.name}${usedScale} to ${result.path}`);
+      toast("success", exportedMessage(def.action, usedScale, result.path), showInFolder(result.path));
       onClose();
     } catch (e) {
       reportError(e);
@@ -339,16 +370,18 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
           <span className={s.exportWhere}>{isTauri ? "You choose where to save next." : "Saved to the app's exports folder."}</span>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" disabled={working || (format === "dwg2d" && !dwgReady)} onClick={() => void run()} data-autofocus>
-            {working ? "Exporting" : `Export ${def.name}`}
+            {working ? (format === "bundle" ? "Saving" : "Exporting") : def.action}
           </Button>
         </>
       }
     >
       <div className={s.export}>
-        <div className={s.formats} role="radiogroup" aria-label="Format">
+        <div className={s.formats} role="radiogroup" aria-label="Format" onKeyDown={formatRoving.onKeyDown}>
           {GROUPS.map((group) => (
-            <div key={group} className={s.formatGroup}>
-              <span className={s.formatGroupLabel}>{group}</span>
+            <div key={group} className={s.formatGroup} role="group" aria-label={group}>
+              <span className={s.formatGroupLabel} aria-hidden>
+                {group}
+              </span>
               {FORMATS.filter((f) => f.group === group).map((f) => {
                 const disabled = f.value === "dwg2d" && !dwgReady;
                 return (
@@ -358,6 +391,8 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
                     role="radio"
                     aria-checked={format === f.value}
                     aria-disabled={disabled}
+                    tabIndex={formatRoving.tabIndexFor(formatOrder.indexOf(f))}
+                    data-roving=""
                     className={cx(s.format, format === f.value && s.formatOn, disabled && s.formatDisabled)}
                     onClick={() => setFormat(f.value)}
                   >
@@ -531,7 +566,7 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
               {hasExportScene ? "" : " The 3D view opens next to the plan to prepare the export."}
             </p>
           ) : format === "bundle" ? (
-            <p className={s.exportNote}>A single .guhit file with the whole project: model, materials, snapshots and traced images. Open it on any computer running Guhit Studio.</p>
+            <p className={s.exportNote}>A single .guhit file with the whole project: model, materials, versions and traced images. Open it on any computer running Guhit Studio.</p>
           ) : format === "png_plan" ? (
             <p className={s.exportNote}>
               Saves the plan as it looks now, with the current layers and zoom.

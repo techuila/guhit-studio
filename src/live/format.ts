@@ -235,14 +235,14 @@ export function avatarFollowTip(p: Participant, selfId: string | null, followed:
   const first = firstName(p.name);
   if (followed) return `Following ${first}. Click to stop`;
   if (followsMe) return `${first} is following you`;
-  if (!followable) return `${avatarTip(p, selfId)}. ${possessive(first)} version of Guhit cannot be followed`;
+  if (!followable) return `${avatarTip(p, selfId)}. ${possessive(first)} version of Guhit Studio cannot be followed`;
   return `${avatarTip(p, selfId)}. Click to follow`;
 }
 
 /** The toast when someone's version cannot be followed. */
 export function oldVersionLine(name: string): string {
   const first = firstName(name);
-  return `${possessive(first)} version of Guhit cannot be followed. Ask ${first} to update.`;
+  return `${possessive(first)} version of Guhit Studio cannot be followed. Ask ${first} to update.`;
 }
 
 /** "Ana is walking" while the person followed walks or flies in 3D, null otherwise. */

@@ -178,7 +178,7 @@ export function queueStatus(q: QueueView, jobId: string | null): WindowStatus {
   const share = p ? Math.max(p.targetSamples > 0 ? p.samples / p.targetSamples : 0, p.budgetMs > 0 ? p.elapsedMs / p.budgetMs : 0) : null;
   return {
     busy: true,
-    what: jobId ? "Rendering for an MCP client" : "Rendering",
+    what: jobId ? "Rendering for your agent" : "Rendering",
     view: q.current?.name ?? null,
     index: q.current?.index ?? null,
     total: q.current?.total ?? null,
@@ -250,7 +250,7 @@ async function watchRenderQueue(): Promise<void> {
 async function render(task: Extract<WindowRequest["task"], { type: "render" }>, jobId: string): Promise<WindowReply> {
   for (const id of task.views) cameraOf(id);
   await need3dView();
-  useApp.getState().toast("info", "Rendering for an MCP client. The images go to Visuals.");
+  useApp.getState().toast("info", "Rendering for your agent. The images go to Visuals.");
   // Loaded with the 3D view; imported here so the hub bundle stays small.
   const { renderForRequest } = await import("../viewer3d/render/renderQueue");
   void watchRenderQueue();

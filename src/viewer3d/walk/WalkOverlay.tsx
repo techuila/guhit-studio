@@ -5,7 +5,9 @@
 // browser supports pointer lock. Motion: docs/MOTION.md, "3D view, walk and fly".
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { ALT, SHIFT } from "../../shell/actions";
 import { useApp } from "../../state/store";
+import { useRovingGroup } from "../../ui/controls";
 import { usePresence } from "../../ui/motion";
 import type { ViewerEngine } from "../engine/ViewerEngine";
 import { ESC_CONFIRM_MS, EYE_MAX_MM, EYE_MIN_MM, SPEED_MAX_MM_S, SPEED_MIN_MM_S, type TouchMove } from "../engine/walker";
@@ -28,6 +30,33 @@ export const EYE_PRESETS: { label: string; mm: number }[] = [
 ];
 
 const stroke = { fill: "none", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" } as const;
+
+/** Shift and Alt as key caps: the symbols on a Mac, the words elsewhere. */
+const SHIFT_KEY = SHIFT.replace(/\+$/, "");
+const ALT_KEY = ALT.replace(/\+$/, "");
+
+/** The key hint: keys and what they do, one pair per item. */
+export const WALK_KEYS: Array<[keys: string[], what: string]> = [
+  [["W", "A", "S", "D"], "or scroll to walk"],
+  [[], "drag to look"],
+  [[], "double-click to go there"],
+  [[SHIFT_KEY], "run"],
+  [["F"], "fly"],
+  [["X"], "shell"],
+  [["Esc", "Esc"], "orbit"],
+];
+
+export const FLY_KEYS: Array<[keys: string[], what: string]> = [
+  [["W", "A", "S", "D"], "fly"],
+  [["E"], "up"],
+  [["Q"], "down"],
+  [[], "drag to look"],
+  [[], "scroll to move"],
+  [[], "double-click to go there"],
+  [[SHIFT_KEY], "faster"],
+  [["F"], "walk"],
+  [["Esc", "Esc"], "orbit"],
+];
 
 export function WalkOverlay(props: {
   open: boolean;
@@ -81,34 +110,27 @@ export function WalkOverlay(props: {
       <SpeedReadout quiet={settingsOpen} />
       <ExitAsk />
       <div className={s.hintRow}>
-        <div
+        <ul
           className={v3.walkHint}
           data-on={hintOn}
           data-testid="walk-hint"
+          aria-label={fly ? "Fly keys" : "Walk keys"}
           onPointerEnter={() => {
             window.clearTimeout(timer.current);
             setHintOn(true);
           }}
           onPointerLeave={() => fadeLater(HINT_LINGER_MS)}
         >
-          {fly ? (
-            <>
-              <kbd>W</kbd>
-              <kbd>A</kbd>
-              <kbd>S</kbd>
-              <kbd>D</kbd> fly · <kbd>E</kbd> up · <kbd>Q</kbd> down · drag to look · scroll to move · double-click to go there · <kbd>Shift</kbd>{" "}
-              faster · <kbd>F</kbd> walk · <kbd>Esc</kbd> <kbd>Esc</kbd> orbit
-            </>
-          ) : (
-            <>
-              <kbd>W</kbd>
-              <kbd>A</kbd>
-              <kbd>S</kbd>
-              <kbd>D</kbd> or scroll to walk · drag to look · double-click to go there · <kbd>Shift</kbd> run · <kbd>F</kbd> fly · <kbd>X</kbd> shell ·{" "}
-              <kbd>Esc</kbd> <kbd>Esc</kbd> orbit
-            </>
-          )}
-        </div>
+          {(fly ? FLY_KEYS : WALK_KEYS).map(([keys, what]) => (
+            <li key={what} className={v3.walkKey}>
+              {keys.map((k, i) => (
+                <kbd key={i}>{k}</kbd>
+              ))}
+              {keys.length > 0 ? " " : ""}
+              {what}
+            </li>
+          ))}
+        </ul>
       </div>
       {coarse && <TouchPad engineRef={engineRef} />}
       <div className={`${v3.group} ${s.controls}`}>
@@ -120,7 +142,9 @@ export function WalkOverlay(props: {
           data-testid="walk-settings-button"
           aria-haspopup="dialog"
           aria-expanded={settingsOpen}
-          title="Walk settings: eye height and speed"
+          aria-label="Walk settings"
+          data-tip="Walk settings: eye height and speed"
+          data-tip-side="top-end"
           onClick={() => setSettingsOpen(!settingsOpen)}
         >
           <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
@@ -136,7 +160,8 @@ export function WalkOverlay(props: {
             className={v3.btn}
             data-active={props.locked}
             data-testid="walk-lock"
-            title={props.locked ? "Press Esc to free the mouse" : "Lock the mouse to look without dragging"}
+            data-tip={props.locked ? "Press Esc to free the mouse" : "Lock the mouse to look without dragging"}
+            data-tip-side="top-end"
             onClick={() => (props.locked ? engineRef.current?.exitPointerLock() : engineRef.current?.requestPointerLock())}
           >
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
@@ -160,14 +185,13 @@ function WalkMap(props: { canvasRef: (el: HTMLCanvasElement | null) => void; eng
   const seq = useRef(0);
   const name = levels && levels.length > 1 ? (levels.find((l) => l.id === levelId)?.name ?? null) : null;
   return (
-    <div className={s.map} data-testid="walk-map">
+    <div className={s.map} data-testid="walk-map" data-tip="Click a spot to go there" data-tip-side="top-start">
       <canvas
         ref={props.canvasRef}
         className={s.mapCanvas}
         data-testid="walk-minimap"
         role="img"
         aria-label="Minimap of this level. Click a spot to go there."
-        title="Click a spot to go there"
         onPointerDown={(e) => {
           if (e.button === 0) down.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
         }}
@@ -326,7 +350,9 @@ function WalkSettings(props: { open: boolean; onClose: () => void; anchor: RefOb
         data-testid="walk-speed-range"
         onChange={(e) => set({ speed: Math.min(Math.max(Number(e.currentTarget.value), speedMin), speedMax) })}
       />
-      <p className={s.note}>Hold W, A, S or D and turn the wheel to change the speed, or use Alt and the wheel. Shift runs.</p>
+      <p className={s.note}>
+        Hold W, A, S or D and turn the wheel to change the speed, or use {ALT_KEY} and the wheel. {SHIFT_KEY} runs.
+      </p>
     </div>
   );
 }
@@ -336,6 +362,7 @@ function EyePresets(props: { value: number; onPick: (mm: number) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
   const active = EYE_PRESETS.findIndex((p) => p.mm === props.value);
+  const roving = useRovingGroup({ active, onMove: (_el, i) => props.onPick(EYE_PRESETS[i].mm) });
   useLayoutEffect(() => {
     const group = ref.current;
     if (!group) return;
@@ -344,7 +371,7 @@ function EyePresets(props: { value: number; onPick: (mm: number) => void }) {
     if (el) setPill({ x: el.offsetLeft, w: el.offsetWidth });
   }, [active]);
   return (
-    <div className={s.chips} ref={ref} role="radiogroup" aria-label="Eye height presets">
+    <div className={s.chips} ref={ref} role="radiogroup" aria-label="Eye height presets" onKeyDown={roving.onKeyDown}>
       {pill && (
         <span
           className={s.chipPill}
@@ -359,6 +386,8 @@ function EyePresets(props: { value: number; onPick: (mm: number) => void }) {
           type="button"
           role="radio"
           aria-checked={i === active}
+          tabIndex={roving.tabIndexFor(i)}
+          data-roving=""
           className={s.chip}
           data-active={i === active}
           data-testid={`walk-eye-${p.label.toLowerCase()}`}

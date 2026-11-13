@@ -1,8 +1,9 @@
 // The swarm panel in the AI dock (DECISIONS D56, D57), behind the dock's
-// Chat | Swarm switch: the prompt (or, for an MCP swarm, who drives it), the
-// estimate and the cap, Start, Pause all, the speed and Skip to the end, a
-// row per part with its progress and state, the feed, and per-part Accept
-// and Discard. Motion: docs/MOTION.md, "Swarm".
+// Ask | Swarm switch: the prompt (or, for an MCP swarm, who drives it), the
+// estimate and the cap, Start swarm, Pause all, the speed and Skip to the
+// end, Accept all and Discard all for the whole draft, a row per part with
+// its progress and state, the feed, and per-part Accept and Discard.
+// Motion: docs/MOTION.md, "Swarm".
 //
 // `SwarmPanel` reads the store; `SwarmPanelView` draws from props only, so
 // every state renders the same in a test.
@@ -11,15 +12,16 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } f
 import { useShallow } from "zustand/react/shallow";
 import { AgentAvatar } from "../live/AgentAvatar";
 import { peerVar } from "../live/format";
+import { MOD } from "../shell/actions";
 import { cx } from "../ui/controls";
 import { dur, motionOK } from "../ui/motion";
 import { useListPresence } from "../ui/useListPresence";
-import { acceptPart, cancelAsk, confirmAsk, discardAll, discardPart, estimateBrief, pauseAll, resumeAll, startSwarm, stopPart } from "./actions";
+import { acceptAll, acceptPart, cancelAsk, confirmAsk, discardAll, discardPart, estimateBrief, pauseAll, resumeAll, startSwarm, stopPart } from "./actions";
 import { SPEED_MAX, SPEED_MIN } from "./reveal";
 import { reveal, useRevealNow, useSwarm, type SwarmUiState } from "./swarmStore";
 import type { SwarmPart, SwarmStatus } from "./types";
 import { Icon } from "../ui/icons";
-import { aiWaitLine, drivingLine, estimateLine, feedRows, isLive, isOpen, leadOf, pillText, priceNote, spendLine, workersOf, type Ask } from "./view";
+import { NOTHING_UNTIL_ACCEPT, aiWaitLine, drivingLine, estimateParts, feedRows, hasDraftWork, isLive, isOpen, leadOf, pillText, priceNote, spendLine, startTip, workersOf, type Ask } from "./view";
 import s from "./swarm.module.css";
 
 /** How long the brief rests before the estimate is asked for. */
@@ -92,7 +94,7 @@ function BriefSection({ status, hasKey, hasDoc, ask, brief, capUsd, estimate, ac
 
   return (
     <section className={s.section} aria-label="Brief">
-      <div className={s.label}>{driving ? "Your AI, over MCP" : status ? "The brief" : "One prompt, several agents"}</div>
+      <div className={s.label}>{driving ? "Run by your own agent" : "Brief"}</div>
       {driving ? (
         <div className={s.driving} data-testid="swarm-driving">
           <b>{driving}</b>
@@ -114,8 +116,16 @@ function BriefSection({ status, hasKey, hasDoc, ask, brief, capUsd, estimate, ac
       )}
       <div className={s.controls}>
         {!status ? (
-          <button type="button" className={cx(s.btn, s.primary)} disabled={!canStart} onClick={() => void startSwarm()} data-testid="swarm-start">
-            {acting === "start" ? "Starting" : "Start"}
+          <button
+            type="button"
+            className={cx(s.btn, s.primary)}
+            disabled={!canStart}
+            onClick={() => void startSwarm()}
+            data-testid="swarm-start"
+            data-tip={acting === null ? startTip({ hasDoc, hasKey, brief }, MOD) : undefined}
+            data-tip-side="bottom-start"
+          >
+            {acting === "start" ? "Starting" : "Start swarm"}
           </button>
         ) : null}
         {status && (running || paused) ? (
@@ -143,16 +153,13 @@ function BriefSection({ status, hasKey, hasDoc, ask, brief, capUsd, estimate, ac
             Skip to the end
           </button>
         ) : null}
-        {status ? (
-          <button type="button" className={cx(s.btn, s.small, s.quiet)} disabled={acting !== null} onClick={() => discardAll("panel")} data-testid="swarm-discard">
-            Discard
-          </button>
-        ) : null}
       </div>
       {!status ? (
         <div className={s.capRow}>
           <span className={s.cost} data-testid="swarm-estimate">
-            {estimateLine(estimate, null)}
+            {estimateParts(estimate, null).map((part) => (
+              <span key={part}>{part}</span>
+            ))}
             <PriceNote note={priceNote(estimate)} />
           </span>
           <label className={s.cap}>
@@ -173,11 +180,22 @@ function BriefSection({ status, hasKey, hasDoc, ask, brief, capUsd, estimate, ac
         </div>
       ) : (
         <p className={s.cost}>
-          {status.source.type === "app" ? (spendLine(status.cost) ?? "Nothing enters the model until you accept") : "Runs on your own AI plan. Nothing enters the model until you accept"}
-          {wait ? <span className={s.wait}> · {wait}</span> : null}
+          <span>{status.source.type === "app" ? (spendLine(status.cost) ?? NOTHING_UNTIL_ACCEPT) : `Runs on your own AI plan. ${NOTHING_UNTIL_ACCEPT}`}</span>
+          {wait ? <span className={s.wait}>{wait}</span> : null}
           {status.source.type === "app" ? <PriceNote note={priceNote(status.cost)} /> : null}
         </p>
       )}
+      {status ? (
+        // The whole draft, as on the draft bar: the same actions and the same confirm, opening just below.
+        <div className={s.controls}>
+          <button type="button" className={cx(s.btn, s.small, s.primary)} disabled={acting !== null || !hasDraftWork(status)} onClick={() => void acceptAll("panel")} data-testid="swarm-panel-accept-all">
+            {acting === "accept" ? "Accepting" : "Accept all"}
+          </button>
+          <button type="button" className={cx(s.btn, s.small, s.quiet)} disabled={acting !== null} onClick={() => discardAll("panel")} data-testid="swarm-discard">
+            Discard all
+          </button>
+        </div>
+      ) : null}
       {status ? <AskRow ask={ask} acting={acting} /> : null}
     </section>
   );
@@ -197,8 +215,8 @@ function PriceNote({ note }: { note: string | null }) {
 function EmptyParts({ hasKey }: { hasKey: boolean }) {
   return (
     <div className={s.empty}>
-      <p>A lead agent splits the brief into parts, and each agent draws its part at the same time, with its own cursor. They draw into a draft: nothing enters the model until you accept all of it, one part, or discard it.</p>
-      <p>{hasKey ? "Or ask Claude Code or Codex to run a swarm over MCP. It shows here the same way." : "Or ask Claude Code or Codex to run a swarm over MCP, on your own plan. It shows here the same way."}</p>
+      <p>A lead agent splits the brief into parts, and each agent draws its part at the same time, with its own cursor. They draw into a draft: nothing goes into the project until you accept all of it or one part. You can also discard it.</p>
+      <p>{hasKey ? "Or ask Claude Code or Codex to run a swarm over MCP. It shows here the same way." : "Or ask Claude Code or Codex to run a swarm over MCP, on your own AI plan. It shows here the same way."}</p>
     </div>
   );
 }
@@ -267,7 +285,7 @@ function PartRow({ part, status, acting, most, lead, index, entering, leaving, f
     if (!focusToken) return;
     rowRef.current?.scrollIntoView?.({ block: "nearest", behavior: motionOK() ? "smooth" : "auto" });
     setWashing(true);
-    const t = window.setTimeout(() => setWashing(false), dur("panel") * 2 + 40);
+    const t = window.setTimeout(() => setWashing(false), dur("panel") + 40);
     return () => window.clearTimeout(t);
   }, [focusToken]);
   const now = Math.max(tick, performance.now());
@@ -288,9 +306,9 @@ function PartRow({ part, status, acting, most, lead, index, entering, leaving, f
     >
       <AgentAvatar name={part.name} color={part.color} activity={activityOf(part)} size={26} ring="var(--surface)" />
       <div className={s.who}>
+        {/* No "AI" tag: every row here is an agent, and the square avatar says so. */}
         <b>
           {part.name}
-          <span className={s.aiTag}>AI</span>
           {lead && part.name !== "Lead" ? <span className={s.leadTag}>Lead</span> : null}
         </b>
         <small key={line} className={s.line} title={line}>
@@ -302,7 +320,9 @@ function PartRow({ part, status, acting, most, lead, index, entering, leaving, f
         </div>
       </div>
       <div className={s.side}>
-        <span key={part.state} className={s.pill} data-state={part.state}>
+        {/* Finished work shows a check, anything else a dot: the shape tells them apart, not only the color. */}
+        <span key={part.state} className={s.state} data-state={part.state}>
+          {part.state === "done" || part.state === "accepted" ? <Icon name="check" size={12} className={s.stateCheck} /> : <i aria-hidden />}
           {pillText(part, status)}
         </span>
         {!lead && isLive(part) ? (

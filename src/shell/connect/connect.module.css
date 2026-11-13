@@ -6,37 +6,39 @@
   gap: 7px;
 }
 
-/* Status dot: green ready, amber allowed but not listening, grey off. */
+/* Status dot: green ready, amber allowed but not listening, grey off. A new
+   state fades in from 0.8 (MOTION.md rule 4: dots never start from 0). */
 .dot {
   display: inline-block;
   flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  animation: dot-in var(--dur-base) var(--ease-spring);
+  animation: dot-in var(--dur-base) var(--ease-out);
   transition:
     background var(--dur-base) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);
 }
 
 .dot_on {
-  background: #4fc38a;
-  box-shadow: 0 0 0 2px rgba(79, 195, 138, 0.22);
+  background: var(--status-on);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--status-on) 22%, transparent);
 }
 
 .dot_warn {
-  background: #e3a33b;
-  box-shadow: 0 0 0 2px rgba(227, 163, 59, 0.24);
+  background: var(--status-warn);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--status-warn) 24%, transparent);
 }
 
 .dot_off {
   background: var(--line-strong);
-  box-shadow: 0 0 0 2px rgba(185, 180, 168, 0.22);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--line-strong) 22%, transparent);
 }
 
 @keyframes dot-in {
   from {
-    transform: scale(0);
+    opacity: 0;
+    transform: scale(0.8);
   }
 }
 
@@ -119,12 +121,10 @@
   gap: 2px;
 }
 
+/* Sentence case, never tracked mono caps (the shared section label). */
 .groupName {
+  composes: sectionLabel from "../../ui/controls.module.css";
   padding: 10px 8px 4px;
-  font: 600 10px var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-3);
 }
 
 .group:first-child .groupName {
@@ -174,8 +174,8 @@
   place-items: center;
   width: 24px;
   height: 24px;
-  border-radius: 6px;
-  font: 600 11px var(--font-mono);
+  border-radius: var(--radius-md);
+  font: 600 var(--text-xs) var(--font-ui);
   color: #fff;
   flex: none;
 }
@@ -183,8 +183,8 @@
 .markBig {
   width: 36px;
   height: 36px;
-  border-radius: 9px;
-  font-size: 13px;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-md);
 }
 
 .name {
@@ -196,10 +196,9 @@
 }
 
 .pill {
-  font: 500 9.5px var(--font-mono);
-  letter-spacing: 0.03em;
-  padding: 1px 5px;
-  border-radius: 3px;
+  font: 500 var(--text-xs) var(--font-ui);
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
   color: var(--ink-2);
   background: var(--surface-3);
   white-space: nowrap;
@@ -207,8 +206,8 @@
 }
 
 .pillFree {
-  color: var(--ok);
-  background: #e3f1e8;
+  color: var(--ok-text);
+  background: color-mix(in srgb, var(--ok) 13%, var(--surface));
 }
 
 .pillUsed {
@@ -221,10 +220,11 @@
 @keyframes pill-in {
   from {
     opacity: 0;
-    transform: scale(0.85);
+    transform: scale(0.9);
   }
 }
 
+/* Picking another agent swaps the setup in place: a fade only (MOTION.md rule 12). */
 .detail {
   padding: 16px 18px;
   display: flex;
@@ -233,14 +233,7 @@
   gap: 14px;
   min-width: 0;
   overflow-y: auto;
-  animation: detail-in var(--dur-base) var(--ease-out);
-}
-
-@keyframes detail-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
+  animation: global(ui-fade-in) var(--dur-hover) var(--ease-out);
 }
 
 .detailTop {
@@ -281,12 +274,13 @@
   border-color: var(--ok);
 }
 
+/* An error arrives, so it rises in (the shared 4 px rise). */
 .error {
   margin: 0;
   color: var(--danger);
   font-size: var(--text-sm);
   line-height: 1.45;
-  animation: detail-in var(--dur-base) var(--ease-out);
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out);
 }
 
 .code {
@@ -333,7 +327,7 @@
 
 .copyOk,
 .copyOk:hover {
-  color: var(--ok);
+  color: var(--ok-text);
 }
 
 .where {
@@ -357,7 +351,7 @@
   font-size: var(--text-xs);
   background: var(--surface-2);
   padding: 1px 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--ink);
 }
 
@@ -382,7 +376,7 @@
 }
 
 .docsLink:hover {
-  color: var(--accent);
+  color: var(--accent-hover);
 }
 
 /* Link-styled button for the copilot notes. */
@@ -402,7 +396,7 @@
 }
 
 .linkBtn:hover {
-  color: var(--accent);
+  color: var(--accent-hover);
 }
 
 .linkBtn:focus-visible {
@@ -424,23 +418,21 @@
 
 /* ------------------------------------------------------------ several agents (D47) */
 
-/* Who is working now, under the status line. */
+/* Who is working now, under the agent list and its setup. */
 .connected {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
   padding: 8px 16px;
-  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
   background: var(--surface-2);
   font-size: var(--text-sm);
-  animation: detail-in var(--dur-base) var(--ease-out);
+  animation: global(ui-rise-in) var(--dur-base) var(--ease-out);
 }
 
 .connectedLabel {
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  font-weight: 600;
+  composes: sectionLabel from "../../ui/controls.module.css";
 }
 
 .connectedList {
@@ -462,7 +454,7 @@
 }
 
 .connectedIn {
-  animation: connected-in var(--dur-base) var(--ease-spring);
+  animation: connected-in var(--dur-base) var(--ease-out);
 }
 
 .connectedOut {
@@ -475,7 +467,7 @@
 @keyframes connected-in {
   from {
     opacity: 0;
-    transform: scale(0.8);
+    transform: scale(0.9);
   }
 }
 
@@ -498,7 +490,7 @@
 }
 
 .connectedOpen:hover {
-  color: var(--accent);
+  color: var(--accent-hover);
 }
 
 .connectedOpen:focus-visible {
@@ -556,9 +548,9 @@
   justify-content: center;
   width: 18px;
   height: 18px;
-  border-radius: 6px;
-  background: var(--ai-soft);
-  color: var(--ai);
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
   font-weight: 700;
   line-height: 1;
   transition: transform var(--dur-base) var(--ease-out);
@@ -623,7 +615,7 @@
 .anotherInput:focus {
   border-color: var(--accent);
   outline: none;
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .toolsets {
@@ -635,10 +627,10 @@
 .toolset {
   display: inline-flex;
   align-items: center;
-  height: 22px;
+  height: 24px;
   padding: 0 8px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink-2);
   font: inherit;
@@ -665,11 +657,12 @@ button.toolset:active {
   color: var(--ink-3);
 }
 
+/* An extra toolset that is on: the teal "on" style. Purple is for AI proposals only. */
 .toolsetOn,
 button.toolsetOn:hover {
-  border-color: color-mix(in srgb, var(--ai) 40%, var(--line));
-  background: var(--ai-soft);
-  color: var(--ai);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .toolsetNote {
@@ -681,7 +674,7 @@ button.toolsetOn:hover {
 /* ------------------------------------------------------------ tools agents get (MCP v2) */
 
 .tools {
-  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
 }
 
 .toolsHead {
@@ -721,17 +714,21 @@ button.toolsetOn:hover {
   white-space: nowrap;
 }
 
-/* The count bumps when a switch changes it. */
+/* The count bumps when a switch changes it (from 1.12, ease-out: MOTION.md rule 4). */
 .toolsCount {
-  display: inline-block;
-  color: var(--ink-2);
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  animation: count-bump var(--dur-base) var(--ease-spring);
+  display: inline-block;
+  margin-left: 0;
+  font-size: inherit;
+  animation: count-bump var(--dur-base) var(--ease-out);
 }
 
 @keyframes count-bump {
   from {
-    transform: scale(1.2);
+    transform: scale(1.12);
   }
 }
 

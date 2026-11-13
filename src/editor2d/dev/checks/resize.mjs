@@ -48,7 +48,8 @@ async function modelBounds(page) {
   return page.evaluate(() => {
     const c = window.__planController;
     if (!c.index) return null;
-    // Inline copy of model.ts:modelBounds, kept simple: walls + rooms only.
+    // Inline copy of what a fit shows (controller.ts `extents`), kept simple:
+    // the walls and the camera markers on visible layers.
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     const expand = (p) => {
       minX = Math.min(minX, p.x);
@@ -62,6 +63,7 @@ async function modelBounds(page) {
         expand(w.end);
       }
     }
+    for (const cam of c.index.visible) if (cam.kind === "camera") expand(cam.position);
     return { minX, minY, maxX, maxY };
   });
 }

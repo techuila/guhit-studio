@@ -5,6 +5,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import type { ChatMessage } from "../contract/bindings";
 import { ipc } from "../contract/ipc";
+import { SHIFT } from "../shell/actions";
 import { useShell } from "../shell/shellStore";
 import { useApp } from "../state/store";
 import { cx } from "../ui/controls";
@@ -157,7 +158,7 @@ function Group({ group, isNew }: { group: ChatGroup; isNew: (id: string) => bool
         <span className={s.dot} aria-hidden />
         <span className={s.name}>{group.mine ? "You" : group.name}</span>
         {group.viaAi ? (
-          <span className={s.aiTag} title="Sent by an AI client on their behalf">
+          <span className={s.aiTag} title="Sent by their AI agent">
             AI
           </span>
         ) : null}
@@ -279,23 +280,32 @@ function Composer({ disabled }: { disabled: boolean }) {
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        <button type="button" className={s.send} disabled={!canSend} onClick={() => void send()} aria-label="Send">
+        {/* The keys live in the tooltip, not in a line under the field (V31). */}
+        <button
+          type="button"
+          className={s.send}
+          disabled={!canSend}
+          onClick={() => void send()}
+          aria-label="Send"
+          data-tip={SEND_TIP}
+          data-tip-side="top-end"
+        >
           <span ref={iconRef} className={s.sendIcon}>
             <Icon name="send" size={16} />
           </span>
         </button>
       </div>
-      <div className={s.foot}>
-        <span>Enter to send, Shift+Enter for a new line</span>
-      </div>
     </>
   );
 }
 
+/** The Send button's tooltip: the keys, with the platform's Shift symbol. */
+const SEND_TIP = `Enter to send, ${SHIFT}Enter for a new line`;
+
 function OffBar({ hasDoc }: { hasDoc: boolean }) {
   return (
     <div className={s.off}>
-      <p>Chat works in a live session. Start one to invite people on your network, or join one with an invite.</p>
+      <p>Chat works in a live session. Start one and send the invite, or join one with an invite you got.</p>
       <div className={s.offActions}>
         <button type="button" className={s.primary} disabled={!hasDoc} onClick={() => openShare()}>
           <Icon name="people" size={15} />
@@ -303,7 +313,7 @@ function OffBar({ hasDoc }: { hasDoc: boolean }) {
         </button>
         <button type="button" className={s.secondary} onClick={openJoin}>
           <Icon name="join" size={15} />
-          Join one
+          Join a session
         </button>
       </div>
     </div>

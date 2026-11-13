@@ -68,7 +68,7 @@ export function LotFields({ el, doc }: { el: Of<"lot">; doc: DocState }) {
             const side = el.sides[i] ?? { role: "side", setback_mm: 0, road: "", road_width_mm: null };
             const open = openSide === i;
             return (
-              <li key={i} className={cx(css.side, open && css.sideOpen)} style={{ animationDelay: `${Math.min(i, 7) * 30}ms` }}>
+              <li key={i} className={cx(css.side, open && css.sideOpen)}>
                 <button type="button" className={css.sideHead} aria-expanded={open} onClick={() => setOpenSide(open ? null : i)}>
                   <span className={css.sideNo}>
                     {i + 1}-{((i + 1) % n) + 1}

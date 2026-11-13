@@ -52,9 +52,7 @@
 
 .backButton > svg:first-child {
   color: var(--chrome-muted);
-  transition:
-    transform var(--dur-hover) var(--ease-out),
-    color var(--dur-hover) var(--ease-out);
+  transition: color var(--dur-hover) var(--ease-out);
 }
 
 .backButton:hover {
@@ -63,9 +61,10 @@
 
 .backButton:hover > svg:first-child {
   color: #fff;
-  transform: translateX(-2px);
 }
 
+/* A hairline between groups: after the brand, and in the right group
+   between search and file, people and agents, and output (V17). */
 .topRule {
   flex: none;
   width: 1px;
@@ -99,9 +98,9 @@
 }
 
 .projectName .projectNameInput:focus {
-  border-color: var(--accent);
+  border-color: var(--focus-chrome);
   background: rgba(0, 0, 0, 0.25);
-  box-shadow: 0 0 0 2px rgba(14, 138, 143, 0.35);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-chrome) 35%, transparent);
 }
 
 .saved {
@@ -125,7 +124,7 @@
 .savedIconLayer {
   position: absolute;
   inset: 0;
-  color: #4fc3b0;
+  color: var(--chrome-accent);
   opacity: 0;
   transition: opacity var(--dur-hover) var(--ease-out);
 }
@@ -139,18 +138,8 @@
   gap: 2px;
 }
 
-/* Undo/redo icon rotates on press (MOTION.md, Top bar row). */
-.historyButton svg {
-  transition: transform var(--dur-press) var(--ease-out);
-}
-
-.historyButton:active:not(:disabled) svg {
-  transform: rotate(-20deg);
-}
-
-.historyButton:nth-child(2):active:not(:disabled) svg {
-  transform: rotate(20deg);
-}
+/* Undo and redo press-scale like every button (IconButton); the icons stay
+   still (MOTION.md, Top bar row). */
 
 .paletteButton {
   display: inline-flex;
@@ -185,7 +174,7 @@
 .paletteButton kbd {
   margin-left: 10px;
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: rgba(223, 231, 240, 0.12);
   color: var(--chrome-text);
   font-family: var(--font-ui);
@@ -216,11 +205,22 @@
   flex-shrink: 0;
 }
 
+/* The palette button keeps its aria-label, so its words can go. */
 .topRight:is([data-fold="1"], [data-fold="2"], [data-fold="3"]) .paletteButton span,
-.topRight:is([data-fold="1"], [data-fold="2"], [data-fold="3"]) .paletteButton kbd,
+.topRight:is([data-fold="1"], [data-fold="2"], [data-fold="3"]) .paletteButton kbd {
+  display: none;
+}
+
+/* The other folded words are the button's only name: hidden from sight,
+   still read out (WCAG 4.1.2). */
 .topRight:is([data-fold="2"], [data-fold="3"]) .foldable > span,
 .topRight[data-fold="3"] [data-fold-label] {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .topRight:is([data-fold="1"], [data-fold="2"], [data-fold="3"]) .paletteButton,
@@ -231,6 +231,42 @@
 .topRight:is([data-fold="1"], [data-fold="2"], [data-fold="3"]) .paletteButton[data-tip]::after,
 .topRight:is([data-fold="2"], [data-fold="3"]) .foldable[data-tip]::after {
   display: block;
+}
+
+/* Past fold 3 the bar itself gives way (TopBar FOLD_STEPS, data-squeeze).
+   Squeeze 1: the view mode shows its icons only; its words stay the
+   options' names (hidden from sight, still read out). */
+.topbar:is([data-squeeze="1"], [data-squeeze="2"], [data-squeeze="3"]) .topCenter [role="radio"] > span,
+.topbar[data-squeeze="3"] .savedWord {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.topbar:is([data-squeeze="1"], [data-squeeze="2"], [data-squeeze="3"]) .topCenter [role="radio"] {
+  padding: 0 7px;
+}
+
+/* Squeeze 2: the right group takes the width it needs, and the middle group
+   moves left of centre instead of being run over. */
+.topbar:is([data-squeeze="2"], [data-squeeze="3"]) {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+/* Squeeze 3: tighter gaps; "Saved" keeps only its mark (its tooltip says it). */
+.topbar[data-squeeze="3"] {
+  gap: 10px;
+}
+
+.topbar[data-squeeze="3"] .topRight {
+  gap: 6px;
+}
+
+.topbar[data-squeeze="3"] .topCenter {
+  gap: 6px;
 }
 
 @media (max-width: 1180px) {
@@ -246,6 +282,13 @@
   .paletteButton[data-tip]::after {
     display: block;
   }
+}
+
+/* Focus on the navy chrome: the light teal ring (8.5:1). The panels and
+   menus that open from it are light, so they keep the global ring. */
+.topbar :focus-visible:not([role="dialog"] *, [role="menu"] *),
+.rail :focus-visible:not([role="dialog"] *) {
+  outline-color: var(--focus-chrome);
 }
 
 /* ------------------------------------------------------------ tool rail */
@@ -265,7 +308,8 @@
 
 /* One element that slides between tools, measured from the DOM
    (useSlidingIndicator in motionDom.ts). Does not animate on first mount;
-   repositions instantly on resize. */
+   repositions instantly on resize. Most tool changes are a letter key, so
+   it answers at press speed with ease-out (DECISIONS D11). */
 .railPill {
   position: absolute;
   top: 0;
@@ -275,9 +319,9 @@
   background: var(--accent);
   pointer-events: none;
   transition:
-    transform var(--dur-base) var(--ease-in-out),
-    width var(--dur-base) var(--ease-in-out),
-    height var(--dur-base) var(--ease-in-out);
+    transform var(--dur-press) var(--ease-out),
+    width var(--dur-press) var(--ease-out),
+    height var(--dur-press) var(--ease-out);
 }
 
 .instant {
@@ -332,7 +376,7 @@
 }
 
 .railButton:active {
-  background: #24405f;
+  background: var(--chrome-hover);
   transform: scale(var(--press-scale));
 }
 
@@ -358,17 +402,18 @@
 }
 
 .railButton:focus-visible {
-  outline-color: #6fd3d6;
+  outline-color: var(--focus-chrome);
 }
 
-.railButton svg {
-  transition: transform var(--dur-hover) var(--ease-out);
+/* One rail tooltip at a time: while the pointer is on a rail button, the
+   focused one's tip steps aside. */
+.rail:has(.railButton:hover) .railButton:not(:hover)::after {
+  opacity: 0;
+  transition-delay: 0ms;
 }
 
-.railButton:hover svg {
-  transform: translateY(-1px);
-}
-
+/* The corner mark: a click on it opens the tool's options (railFlyout.ts).
+   The mark is 4 px; its hit area is the button's bottom right 14 px. */
 .railCorner {
   position: absolute;
   right: 3px;
@@ -378,6 +423,20 @@
   border-left: 4px solid transparent;
   border-bottom: 4px solid currentColor;
   opacity: 0.55;
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+
+.railCorner::before {
+  content: "";
+  position: absolute;
+  right: -3px;
+  bottom: -7px;
+  width: 14px;
+  height: 14px;
+}
+
+.railButton:hover .railCorner {
+  opacity: 0.9;
 }
 
 /* flyouts */
@@ -467,6 +526,11 @@
   color: var(--accent-strong);
 }
 
+/* ink-3 is 4.45:1 on accent-soft; the strong teal is 5.06:1. */
+.flyoutItemOn small {
+  color: var(--accent-strong);
+}
+
 .flyoutItem:focus-visible {
   outline-offset: -2px;
 }
@@ -486,7 +550,7 @@
 
 .flyoutSearch:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .flyoutSearch input {
@@ -535,7 +599,7 @@
 }
 
 .flyoutLink:hover:not(:disabled) {
-  color: var(--ink);
+  color: var(--accent-hover);
 }
 
 /* Kept in place while unavailable, so the flyout does not change height. */
@@ -568,10 +632,10 @@
 
 .defaultTag {
   padding: 1px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
   color: var(--ink-3);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 500;
   transition:
     opacity var(--dur-hover) var(--ease-out),
@@ -597,7 +661,7 @@
   flex: none;
   width: 10px;
   height: 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   box-shadow: inset 0 0 0 1px rgba(20, 40, 63, 0.18);
   transition: transform var(--dur-base) var(--ease-spring);
 }
@@ -634,7 +698,6 @@
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--ink);
-  font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   cursor: default;
@@ -727,7 +790,10 @@
   gap: 2px;
 }
 
+/* 20 px chips keep clear of the bar's top hairline; ::before makes each a
+   24 px target (WCAG 2.5.8). */
 .statusToggle {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -746,6 +812,13 @@
     transform var(--dur-press) var(--ease-out);
 }
 
+.statusToggle::before,
+.levelStatus::before {
+  content: "";
+  position: absolute;
+  inset: -2px 0;
+}
+
 .statusToggle:hover {
   background: var(--surface-3);
   color: var(--ink);
@@ -761,7 +834,7 @@
 }
 
 .statusToggleOn:hover {
-  background: #c5e6e6;
+  background: color-mix(in srgb, var(--accent) 9%, var(--accent-soft));
   color: var(--accent-strong);
 }
 
@@ -781,6 +854,41 @@
   color: var(--ink-3);
 }
 
+/* The tool's remembered style in the hint: opens its options (railFlyout.ts). */
+.statusStyle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  margin: 0 2px;
+  padding: 0 4px 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  vertical-align: middle;
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.statusStyle svg {
+  color: var(--ink-3);
+}
+
+.statusStyle:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.statusStyle:active {
+  transform: scale(var(--press-scale));
+}
+
 .statusAi {
   color: var(--ai);
   font-weight: 500;
@@ -790,8 +898,13 @@
   display: flex;
   align-items: center;
   flex: none;
-  gap: 14px;
   font-variant-numeric: tabular-nums;
+}
+
+/* No flex gap: a folded chip must take no room at all. Each chip carries its
+   own space inside its fold, and the fixed readouts space themselves. */
+.statusRight > :not(.fold) + :not(.fold) {
+  margin-left: 14px;
 }
 
 .statusRight b {
@@ -799,54 +912,48 @@
   font-weight: 600;
 }
 
-/* 3D building shell chip: only while X-ray or hidden. Grows in from the
-   right edge of its group and collapses away when back to solid. */
-.shellStatus {
-  max-width: 140px;
-  overflow: hidden;
-  white-space: nowrap;
-  transition:
-    max-width var(--dur-base) var(--ease-out),
-    opacity var(--dur-base) var(--ease-out),
-    margin var(--dur-base) var(--ease-out),
-    padding var(--dur-base) var(--ease-out),
-    background var(--dur-hover) var(--ease-out),
-    color var(--dur-hover) var(--ease-out),
-    transform var(--dur-press) var(--ease-out);
-}
-
-.shellStatusOff {
-  max-width: 0;
-  margin-right: -14px;
-  padding: 0;
+/* Status chips that show only now and then (the 3D shell while X-ray or
+   hidden, "AI: selection only", the sun readout): each grows in from the
+   right of its group and folds away by its grid column, never by max-width
+   or margin (MOTION.md rule 5). */
+.fold {
+  display: inline-grid;
+  grid-template-columns: 0fr;
   opacity: 0;
   pointer-events: none;
-}
-
-/* The sun readout after U, I, a preset or Shift+N: grows in from the right
-   of its group, stays a moment, collapses. Keyboard-driven, so it enters at
-   press speed (DECISIONS D11). */
-.sunStatus {
-  max-width: 240px;
-  overflow: hidden;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  cursor: default;
   transition:
-    max-width var(--dur-press) var(--ease-out),
-    opacity var(--dur-press) var(--ease-out),
-    margin var(--dur-press) var(--ease-out),
-    padding var(--dur-press) var(--ease-out);
+    grid-template-columns calc(var(--dur-base) * 0.7) var(--ease-in),
+    opacity calc(var(--dur-base) * 0.7) var(--ease-in);
 }
 
-.sunStatusOff {
-  max-width: 0;
-  margin-right: -14px;
-  padding: 0;
-  opacity: 0;
-  pointer-events: none;
+.foldOn {
+  grid-template-columns: 1fr;
+  opacity: 1;
+  pointer-events: auto;
   transition-duration: var(--dur-base);
-  transition-timing-function: var(--ease-in);
+  transition-timing-function: var(--ease-out);
+}
+
+/* The sun readout answers U, I, a preset or Shift+N: keyboard-driven, so it
+   enters at press speed (DECISIONS D11), and leaves at the usual pace. */
+.foldQuick.foldOn {
+  transition-duration: var(--dur-press);
+}
+
+.foldClip {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Inside the clip, so a folded chip takes no space at all. */
+.foldItem {
+  margin-right: 14px;
+  white-space: nowrap;
+}
+
+.sunStatus {
+  font-variant-numeric: tabular-nums;
+  cursor: default;
 }
 
 /* the services flyout: one block per trade */
@@ -859,6 +966,7 @@
 /* The active level in the status bar: opens the Levels section. A new level
    name fades in (the button is keyed by level). */
 .levelStatus {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;

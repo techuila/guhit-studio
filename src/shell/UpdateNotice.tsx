@@ -9,7 +9,7 @@
 // renders nothing and never touches the plugin, so the browser build stays
 // clean. Failures show one sentence and never block the app.
 
-import { useEffect } from "react";
+import { useEffect, type CSSProperties } from "react";
 import { create } from "zustand";
 import { isTauri } from "../contract/ipc";
 import { useApp } from "../state/store";
@@ -143,9 +143,10 @@ async function installAndRestart(): Promise<void> {
 
 /**
  * The notice card. Mounted by both the hub and the editor; the first one to
- * mount owns the schedule, so switching screens does not re-check.
+ * mount owns the schedule, so switching screens does not re-check. In the
+ * editor it sits at the bottom left of the canvas, clear of the dock.
  */
-export function UpdateNotice() {
+export function UpdateNotice({ place = "hub" }: { place?: "hub" | "editor" }) {
   const st = useUpdate();
 
   useEffect(() => {
@@ -179,7 +180,7 @@ export function UpdateNotice() {
 
   return (
     <aside
-      className={s.card}
+      className={cx(s.card, place === "editor" && s.cardEditor)}
       data-stage={presence.stage}
       role="status"
       aria-live="polite"
@@ -207,7 +208,7 @@ export function UpdateNotice() {
             aria-valuemax={100}
             aria-valuenow={pct ?? undefined}
           >
-            <span className={cx(s.bar, pct === null && s.barUnknown)} style={pct === null ? undefined : { width: `${pct}%` }} />
+            <span className={cx(s.bar, pct === null && s.barUnknown)} style={pct === null ? undefined : ({ "--p": pct / 100 } as CSSProperties)} />
           </div>
           <span className={s.pct}>
             {st.phase === "installing" ? "Installing" : pct === null ? "Downloading" : `${pct}%`}

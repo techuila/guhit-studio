@@ -17,7 +17,7 @@ describe("queueStatus", () => {
     );
     expect(status).toEqual({
       busy: true,
-      what: "Rendering for an MCP client",
+      what: "Rendering for your agent",
       view: "Front",
       index: 1,
       total: 2,

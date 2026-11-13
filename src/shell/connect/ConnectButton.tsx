@@ -1,5 +1,7 @@
-// "Connect agent" with a status dot: green when agents can connect, amber when
-// allowed but not listening, grey when off. Opens the dialog (DECISIONS D35).
+// "Connect agent" with a link mark and a status dot: green when agents can
+// connect, amber when allowed but not listening, grey when off. Opens the
+// dialog (DECISIONS D35). Folded in the top bar, the mark and the dot stay.
+
 import { Button, cx } from "../../ui/controls";
 import { dotState, useConnect, useMcpPolling } from "./connectStore";
 import s from "./connect.module.css";
@@ -16,7 +18,9 @@ export function ConnectButton({ variant = "default", tipSide = "bottom" }: { var
   return (
     <Button
       variant={variant}
+      icon="link"
       className={s.trigger}
+      aria-label="Connect agent"
       data-tip={TIPS[dot]}
       data-tip-side={tipSide}
       onClick={() => useConnect.getState().openDialog()}

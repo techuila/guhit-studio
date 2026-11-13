@@ -341,13 +341,18 @@ export function rotateSelectionCCW() {
   void dispatch({ type: "rotate_elements", ids: selection, pivot, angle_deg: 90 });
 }
 
+/** The name a version gets when none is typed: the same numbering for MOD+S and the Versions panel. */
+export function nextVersionLabel(count: number): string {
+  return `Version ${count + 1}`;
+}
+
 /** Saves a quick, auto-labeled version. Used by the MOD+S shortcut. */
 export async function quickSaveVersion() {
   const { doc, toast, reportError } = useApp.getState();
   if (!doc) return;
   try {
     const list = await ipc.snapshotList();
-    const meta = await ipc.snapshotCreate(`Version ${list.length + 1}`);
+    const meta = await ipc.snapshotCreate(nextVersionLabel(list.length));
     toast("success", `Saved version "${meta.label}"`);
   } catch (e) {
     reportError(e);
@@ -610,10 +615,10 @@ export function paletteActions(): PaletteAction[] {
 
   out.push(
     { id: "export", title: "Export a drawing or image", group: "Project", icon: "export", keywords: "pdf svg dxf png print save file", shortcut: `${MOD}E`, run: () => shell.open("export") },
-    { id: "export-pdf", title: "Export to PDF", group: "Project", icon: "export", keywords: "pdf print save quick", shortcut: `${SHIFT}${MOD}S`, run: () => shell.open("export") },
+    { id: "export-pdf", title: "Export to PDF", group: "Project", icon: "export", keywords: "pdf print save quick permit set", shortcut: `${SHIFT}${MOD}S`, run: () => shell.open("export") },
     { id: "import-cad", title: "Import DXF or DWG", group: "Project", icon: "import", keywords: "cad autocad drawing recognize walls linework", run: () => shell.requestImport("cad") },
     { id: "import-model", title: "Import 3D model", group: "Project", icon: "import", keywords: "gltf glb obj sketchup reference site massing", run: () => shell.requestImport("model") },
-    { id: "import-bundle", title: "Open .guhit bundle", group: "Project", icon: "import", keywords: "guhit project open file", run: () => shell.requestImport("bundle") },
+    { id: "import-bundle", title: "Open .guhit file", group: "Project", icon: "import", keywords: "guhit project open file bundle", run: () => shell.requestImport("bundle") },
     { id: "version-new", title: "Save a new version", group: "Project", icon: "versions", keywords: "snapshot checkpoint history quick", shortcut: `${MOD}S`, run: () => void quickSaveVersion() },
     { id: "versions", title: "Browse and restore versions", group: "Project", icon: "versions", keywords: "snapshot history restore", run: () => shell.open("versions") },
     {
@@ -647,9 +652,9 @@ export function paletteActions(): PaletteAction[] {
     },
     { id: "hub", title: "Back to all projects", group: "Project", icon: "home", keywords: "hub close home", run: () => void leaveEditor() },
     { id: "shortcuts", title: "Show keyboard shortcuts", group: "Project", icon: "keyboard", keywords: "keys help", shortcut: "?", run: () => shell.open("shortcuts") },
-    { id: "settings", title: "Settings", group: "Project", icon: "settings", keywords: "preferences interchange dwg converter oda", run: () => shell.open("settings") },
+    { id: "settings", title: "Settings", group: "Project", icon: "settings", keywords: "preferences interchange dwg converter oda", shortcut: `${MOD},`, run: () => shell.open("settings") },
     { id: "check-updates", title: "Check for updates", group: "Project", icon: "import", keywords: "update upgrade version new release download", run: () => void checkForUpdates(true) },
-    { id: "dock-copilot", title: "Ask the copilot", group: "Panels", icon: "copilot", keywords: "ai chat assistant settings", shortcut: `${MOD},`, run: () => shell.setDockTab("copilot") },
+    { id: "dock-copilot", title: "Ask the copilot", group: "Panels", icon: "copilot", keywords: "ai chat assistant ask", shortcut: `${MOD}J`, run: () => shell.setDockTab("copilot") },
     { id: "dock-visuals", title: "Open visuals", group: "Panels", icon: "visuals", keywords: "render capture gallery image", run: () => shell.setDockTab("visuals") },
     {
       id: "ai-scope",
