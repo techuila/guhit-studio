@@ -34,6 +34,14 @@ dist-ssr
 # Confidential source document, kept locally only
 /docs/market-research-2026.pdf
 
+# Agent context, decisions and product notes, kept locally only
+/AGENTS.md
+/CLAUDE.md
+/DECISIONS.md
+/GEMINI.md
+/docs/product-context.md
+/docs/research-ai-features.md
+
 # Screenshots of scripts/live-check.mjs and scripts/swarm-check.mjs
 /live-check/
 /swarm-check/
