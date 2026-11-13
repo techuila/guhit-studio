@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AssetCategory, CatalogItem } from "../contract/bindings";
+import type { AssetCategory, CatalogItem, WallRole } from "../contract/bindings";
 import { useApp } from "../state/store";
 import { cx } from "../ui/controls";
 import { Icon } from "../ui/icons";
@@ -44,6 +44,13 @@ function itemMeta(item: CatalogItem, unit: DisplayUnit): string {
 }
 
 /** Common Philippine wall builds. null keeps the project default. */
+/** Building walls make rooms; site walls are the lot fence and boundary
+ * walls (`WallRole`): 1800 mm high, on the site layer, never a room. */
+const WALL_ROLES: Array<{ role: WallRole; label: string; hint: string }> = [
+  { role: "building", label: "Building wall", hint: "rooms and area" },
+  { role: "site", label: "Fence or site wall", hint: "1800 mm" },
+];
+
 const WALL_PRESETS: Array<{ mm: number | null; label: string; hint: string }> = [
   { mm: null, label: "Project default", hint: "" },
   { mm: 100, label: "100 mm", hint: "4 in CHB, interior" },
@@ -122,6 +129,22 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
             >
               <span>{p.mm === null && settings ? `Project default, ${formatLength(settings.default_wall_thickness_mm, unit)}` : p.label}</span>
               {p.hint ? <small>{p.hint}</small> : null}
+            </button>
+          ))}
+          <div className={s.flyoutTitle}>Wall type</div>
+          {WALL_ROLES.map((r) => (
+            <button
+              key={r.role}
+              type="button"
+              aria-pressed={toolOptions.wallRole === r.role}
+              className={cx(s.flyoutItem, toolOptions.wallRole === r.role && s.flyoutItemOn)}
+              onClick={() => {
+                setTool("wall", { wallRole: r.role });
+                onClose();
+              }}
+            >
+              <span>{r.label}</span>
+              <small>{r.hint}</small>
             </button>
           ))}
         </>

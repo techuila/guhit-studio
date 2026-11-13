@@ -48,7 +48,8 @@ export function assetLayer(category: AssetCategory): LayerKey {
 export function layerOf(el: Element): LayerKey {
   switch (el.kind) {
     case "wall":
-      return "walls";
+      // A lot fence or boundary wall is on the site layer.
+      return el.role === "site" ? "site" : "walls";
     case "opening":
       return "openings";
     case "room":

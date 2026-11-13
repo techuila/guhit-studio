@@ -11,6 +11,7 @@ import { useApp, type Tool } from "../state/store";
 import { openRenderCompare, openRenderStudio } from "../viewer3d/render/renderStore";
 import { useViewer, type NavMode, type ShellMode } from "../viewer3d/viewerStore";
 import type { IconName } from "../ui/icons";
+import { commitLatest } from "./commitLatest";
 import { ADD_LEVEL_ABOVE, addedLevel, deleteLevelCommand } from "./levels";
 import { siteOf } from "./site";
 import { useShell, type FlyoutKind } from "./shellStore";
@@ -320,15 +321,11 @@ export function zoomToSelection() {
 }
 
 export function setRoofKind(kind: RoofKind) {
-  const { doc, dispatch } = useApp.getState();
-  if (!doc) return;
-  void dispatch({ type: "set_roof", roof: { ...doc.project.roof, kind } });
+  void commitLatest((doc) => ({ type: "set_roof", roof: { ...doc.project.roof, kind } }));
 }
 
 export function setDisplayUnit(unit: DisplayUnit) {
-  const { doc, dispatch } = useApp.getState();
-  if (!doc) return;
-  void dispatch({ type: "set_project_settings", settings: { ...doc.project.settings, display_unit: unit } });
+  void commitLatest((doc) => ({ type: "set_project_settings", settings: { ...doc.project.settings, display_unit: unit } }));
 }
 
 // ---------------------------------------------------------------- thumbnails
@@ -443,7 +440,7 @@ export function paletteActions(): PaletteAction[] {
   out.push(
     viewer.nav === "orbit"
       ? { id: "nav-walk", title: "Walk through the building", group: "View", icon: "walk", keywords: "walk mode first person eye level inside tour walkthrough 3d", shortcut: `${SHIFT}W`, run: () => void enterNav("walk") }
-      : { id: "nav-orbit", title: "Stop walking and orbit again", group: "View", icon: "view3d", keywords: "orbit walk fly exit leave stop 3d", shortcut: "Esc", run: () => viewer.setNav("orbit") },
+      : { id: "nav-orbit", title: "Stop walking and orbit again", group: "View", icon: "view3d", keywords: "orbit walk fly exit leave stop 3d", shortcut: "Esc Esc", run: () => viewer.setNav("orbit") },
     { id: "nav-fly", title: "Fly through the building", group: "View", icon: "fly", keywords: "fly mode free camera tour 3d", disabled: viewer.nav === "fly", run: () => void enterNav("fly") },
     { id: "walk-settings", title: "Walk settings: eye height and speed", group: "View", icon: "walk", keywords: "walk settings eye height speed slow fast person child wheelchair 3d", run: () => void openWalkSettings() },
     { id: "shell-xray", title: "X-ray the building", group: "View", icon: "xray", keywords: "xray see through transparent ghost walls pipes plumbing 3d", shortcut: nextShell === "xray" ? "X" : undefined, disabled: viewer.shell === "xray", run: () => setShellMode("xray") },

@@ -19,6 +19,7 @@ import { Button, Field, NumberField, ReadOnly, Section, Segmented, Select, Switc
 import type { IconName } from "../ui/icons";
 import { formatAreaMm2, formatLength } from "../ui/units";
 import { DOOR_STYLES, WINDOW_STYLES } from "./actions";
+import { commitLatest, rebase, updateElement } from "./commitLatest";
 import { DeviceBasics, DeviceSections, deviceIcon } from "./DeviceFields";
 import { DEVICE_LABEL, catalogItem, isDevice } from "./devices";
 import { PipeFields } from "./PipeFields";
@@ -28,8 +29,18 @@ import s from "./Inspector.module.css";
 
 type Of<K extends Element["kind"]> = Extract<Element, { kind: K }>;
 
-const dispatch = (command: Command) => void useApp.getState().dispatch(command);
-const update = (element: Element) => dispatch({ type: "update_element", element });
+/** Queued after any edit still on its way, so edits land in the order they were made. */
+const dispatch = (command: Command) => void commitLatest(() => command);
+/** Moves one end of a wall, keeping the other end where it is now. */
+const moveWallEnd = (wall: Of<"wall">, which: "start" | "end", point: Point) =>
+  void commitLatest((doc) => {
+    const now = doc.project.elements.find((e): e is Of<"wall"> => e.id === wall.id && e.kind === "wall");
+    if (!now) return null;
+    const moved = rebase(now[which], wall[which], point);
+    return { type: "set_wall_endpoints", wall_id: wall.id, start: which === "start" ? moved : now.start, end: which === "end" ? moved : now.end };
+  });
+/** Lays the fields this edit changed over the latest element (`commitLatest.ts`). */
+const update = (base: Element, element: Element) => void updateElement(base, element);
 
 const USAGE: Array<{ value: RoomUsage; label: string }> = [
   { value: "living", label: "Living room" },
@@ -183,7 +194,7 @@ function WallFields({ el, doc }: { el: Of<"wall">; doc: DocState }) {
           />
         </Field>
         <Field label="Thickness">
-          <NumberField label="Wall thickness" kind="length" unit={unit} min={20} max={1000} value={el.thickness_mm} onCommit={(thickness_mm) => update({ ...el, thickness_mm })} />
+          <NumberField label="Wall thickness" kind="length" unit={unit} min={20} max={1000} value={el.thickness_mm} onCommit={(thickness_mm) => update(el, { ...el, thickness_mm })} />
         </Field>
         <Field label="Height">
           <NumberField
@@ -195,22 +206,22 @@ function WallFields({ el, doc }: { el: Of<"wall">; doc: DocState }) {
             step={50}
             disabled={el.height_mm === null}
             value={el.height_mm ?? levelHeight}
-            onCommit={(height_mm) => update({ ...el, height_mm })}
+            onCommit={(height_mm) => update(el, { ...el, height_mm })}
           />
         </Field>
         <Field label="">
           <label className={s.inlineSwitch}>
-            <Switch label="Use the level height" checked={el.height_mm === null} onChange={(match) => update({ ...el, height_mm: match ? null : levelHeight })} />
+            <Switch label="Use the level height" checked={el.height_mm === null} onChange={(match) => update(el, { ...el, height_mm: match ? null : levelHeight })} />
             <span>Same as level</span>
           </label>
         </Field>
         <Field label="Material">
-          <MaterialPicker label="Wall material" materials={doc.project.materials} prefer={["wall"]} value={el.material_id} noneLabel="Default wall finish" onChange={(material_id) => update({ ...el, material_id })} />
+          <MaterialPicker label="Wall material" materials={doc.project.materials} prefer={["wall"]} value={el.material_id} noneLabel="Default wall finish" onChange={(material_id) => update(el, { ...el, material_id })} />
         </Field>
       </div>
       <Position>
-        <PointFields label="Start" point={el.start} unit={unit} onCommit={(start) => dispatch({ type: "set_wall_endpoints", wall_id: el.id, start, end: el.end })} />
-        <PointFields label="End" point={el.end} unit={unit} onCommit={(end) => dispatch({ type: "set_wall_endpoints", wall_id: el.id, start: el.start, end })} />
+        <PointFields label="Start" point={el.start} unit={unit} onCommit={(start) => moveWallEnd(el, "start", start)} />
+        <PointFields label="End" point={el.end} unit={unit} onCommit={(end) => moveWallEnd(el, "end", end)} />
       </Position>
     </>
   );
@@ -232,6 +243,7 @@ function OpeningFields({ el, doc }: { el: Of<"opening">; doc: DocState }) {
           onChange={(opening_type) => {
             if (opening_type === el.opening_type) return;
             update(
+              el,
               opening_type === "door"
                 ? { ...el, opening_type, style: "swing_single", sill_mm: 0, height_mm: Math.max(el.height_mm, 2100) }
                 : { ...el, opening_type, style: "sliding", sill_mm: 900, height_mm: Math.min(el.height_mm, 1200) },
@@ -247,30 +259,30 @@ function OpeningFields({ el, doc }: { el: Of<"opening">; doc: DocState }) {
         <Select
           label="Style"
           value={el.style}
-          onChange={(style) => update({ ...el, style })}
+          onChange={(style) => update(el, { ...el, style })}
           options={styles.some((o) => o.value === el.style) ? styles : [...styles, { value: el.style, label: STYLE_LABEL[el.style] }]}
         />
       </Field>
       <Field label="Width">
-        <NumberField label="Width" kind="length" unit={unit} min={200} max={10000} step={50} value={el.width_mm} onCommit={(width_mm) => update({ ...el, width_mm })} />
+        <NumberField label="Width" kind="length" unit={unit} min={200} max={10000} step={50} value={el.width_mm} onCommit={(width_mm) => update(el, { ...el, width_mm })} />
       </Field>
       <Field label="Height">
-        <NumberField label="Height" kind="length" unit={unit} min={200} max={6000} step={50} value={el.height_mm} onCommit={(height_mm) => update({ ...el, height_mm })} />
+        <NumberField label="Height" kind="length" unit={unit} min={200} max={6000} step={50} value={el.height_mm} onCommit={(height_mm) => update(el, { ...el, height_mm })} />
       </Field>
       {isDoor ? null : (
         <Field label="Sill height" hint="Bottom of the window above the floor">
-          <NumberField label="Sill height" kind="length" unit={unit} min={0} max={5000} step={50} value={el.sill_mm} onCommit={(sill_mm) => update({ ...el, sill_mm })} />
+          <NumberField label="Sill height" kind="length" unit={unit} min={0} max={5000} step={50} value={el.sill_mm} onCommit={(sill_mm) => update(el, { ...el, sill_mm })} />
         </Field>
       )}
       <Field label="From wall start" hint="Distance from the start of the wall to the center of the opening">
-        <NumberField label="Offset along the wall" kind="length" unit={unit} min={0} max={host?.length_mm} step={50} value={el.offset_mm} onCommit={(offset_mm) => update({ ...el, offset_mm })} />
+        <NumberField label="Offset along the wall" kind="length" unit={unit} min={0} max={host?.length_mm} step={50} value={el.offset_mm} onCommit={(offset_mm) => update(el, { ...el, offset_mm })} />
       </Field>
       {swings ? (
         <Field label="Swing">
-          <Button size="sm" onClick={() => update({ ...el, flip_side: !el.flip_side })}>
+          <Button size="sm" onClick={() => update(el, { ...el, flip_side: !el.flip_side })}>
             Flip side
           </Button>
-          <Button size="sm" onClick={() => update({ ...el, flip_hinge: !el.flip_hinge })}>
+          <Button size="sm" onClick={() => update(el, { ...el, flip_hinge: !el.flip_hinge })}>
             Flip hinge
           </Button>
         </Field>
@@ -282,7 +294,7 @@ function OpeningFields({ el, doc }: { el: Of<"opening">; doc: DocState }) {
           prefer={isDoor ? ["wood", "metal", "glass"] : ["glass", "metal", "wood"]}
           value={el.material_id}
           noneLabel={isDoor ? "Default door finish" : "Default window finish"}
-          onChange={(material_id) => update({ ...el, material_id })}
+          onChange={(material_id) => update(el, { ...el, material_id })}
         />
       </Field>
     </div>
@@ -295,13 +307,13 @@ function RoomFields({ el, doc }: { el: Of<"room">; doc: DocState }) {
   return (
     <div className={s.group}>
       <Field label="Name">
-        <TextField label="Room name" value={el.name} required onCommit={(name) => update({ ...el, name, auto_named: false })} />
+        <TextField label="Room name" value={el.name} required onCommit={(name) => update(el, { ...el, name, auto_named: false })} />
       </Field>
       <Field label="Use">
-        <Select label="Room use" value={el.usage} options={USAGE} onChange={(usage) => update({ ...el, usage })} />
+        <Select label="Room use" value={el.usage} options={USAGE} onChange={(usage) => update(el, { ...el, usage })} />
       </Field>
       <Field label="Floor finish">
-        <MaterialPicker label="Floor material" materials={doc.project.materials} prefer={["floor", "wood"]} value={el.floor_material_id} noneLabel="Default floor" onChange={(floor_material_id) => update({ ...el, floor_material_id })} />
+        <MaterialPicker label="Floor material" materials={doc.project.materials} prefer={["floor", "wood"]} value={el.floor_material_id} noneLabel="Default floor" onChange={(floor_material_id) => update(el, { ...el, floor_material_id })} />
       </Field>
       <Field label="Net area" hint="Measured on the inner wall faces">
         <ReadOnly>{g ? formatAreaMm2(g.area_mm2) : "Not enclosed"}</ReadOnly>
@@ -325,7 +337,7 @@ function ColumnFields({ el, doc }: { el: Of<"column">; doc: DocState }) {
             label="Column shape"
             stretch
             value={el.shape}
-            onChange={(shape) => update({ ...el, shape })}
+            onChange={(shape) => update(el, { ...el, shape })}
             options={[
               { value: "rect", label: "Rectangular" },
               { value: "round", label: "Round" },
@@ -333,22 +345,22 @@ function ColumnFields({ el, doc }: { el: Of<"column">; doc: DocState }) {
           />
         </Field>
         <Field label={round ? "Diameter" : "Width"}>
-          <NumberField label={round ? "Diameter" : "Width"} kind="length" unit={unit} min={50} max={3000} value={el.width_mm} onCommit={(width_mm) => update({ ...el, width_mm })} />
+          <NumberField label={round ? "Diameter" : "Width"} kind="length" unit={unit} min={50} max={3000} value={el.width_mm} onCommit={(width_mm) => update(el, { ...el, width_mm })} />
         </Field>
         {round ? null : (
           <>
             <Field label="Depth">
-              <NumberField label="Depth" kind="length" unit={unit} min={50} max={3000} value={el.depth_mm} onCommit={(depth_mm) => update({ ...el, depth_mm })} />
+              <NumberField label="Depth" kind="length" unit={unit} min={50} max={3000} value={el.depth_mm} onCommit={(depth_mm) => update(el, { ...el, depth_mm })} />
             </Field>
-            <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update({ ...el, rotation_deg })} />
+            <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update(el, { ...el, rotation_deg })} />
           </>
         )}
         <Field label="Material">
-          <MaterialPicker label="Column material" materials={doc.project.materials} prefer={["wall", "generic"]} value={el.material_id} noneLabel="Default concrete" onChange={(material_id) => update({ ...el, material_id })} />
+          <MaterialPicker label="Column material" materials={doc.project.materials} prefer={["wall", "generic"]} value={el.material_id} noneLabel="Default concrete" onChange={(material_id) => update(el, { ...el, material_id })} />
         </Field>
       </div>
       <Position>
-        <PointFields label="Center" point={el.center} unit={unit} onCommit={(center) => update({ ...el, center })} />
+        <PointFields label="Center" point={el.center} unit={unit} onCommit={(center) => update(el, { ...el, center })} />
       </Position>
     </>
   );
@@ -363,15 +375,15 @@ function StairFields({ el, doc }: { el: Of<"stair">; doc: DocState }) {
     <>
       <div className={s.group}>
         <Field label="Width">
-          <NumberField label="Stair width" kind="length" unit={unit} min={500} max={5000} step={50} value={el.width_mm} onCommit={(width_mm) => update({ ...el, width_mm })} />
+          <NumberField label="Stair width" kind="length" unit={unit} min={500} max={5000} step={50} value={el.width_mm} onCommit={(width_mm) => update(el, { ...el, width_mm })} />
         </Field>
         <Field label="Run" hint="Plan length of the flight">
-          <NumberField label="Stair run" kind="length" unit={unit} min={500} max={20000} step={50} value={el.run_mm} onCommit={(run_mm) => update({ ...el, run_mm })} />
+          <NumberField label="Stair run" kind="length" unit={unit} min={500} max={20000} step={50} value={el.run_mm} onCommit={(run_mm) => update(el, { ...el, run_mm })} />
         </Field>
         <Field label="Risers">
-          <NumberField label="Number of risers" integer min={2} max={40} value={el.riser_count} onCommit={(riser_count) => update({ ...el, riser_count })} />
+          <NumberField label="Number of risers" integer min={2} max={40} value={el.riser_count} onCommit={(riser_count) => update(el, { ...el, riser_count })} />
         </Field>
-        <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update({ ...el, rotation_deg })} />
+        <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update(el, { ...el, rotation_deg })} />
         <Field label="Each riser" hint="Level height divided by the number of risers">
           <ReadOnly>{riser ? formatLength(riser, unit) : "-"}</ReadOnly>
         </Field>
@@ -380,7 +392,7 @@ function StairFields({ el, doc }: { el: Of<"stair">; doc: DocState }) {
         </Field>
       </div>
       <Position>
-        <PointFields label="First riser" point={el.origin} unit={unit} onCommit={(origin) => update({ ...el, origin })} />
+        <PointFields label="First riser" point={el.origin} unit={unit} onCommit={(origin) => update(el, { ...el, origin })} />
       </Position>
     </>
   );
@@ -405,25 +417,25 @@ function AssetFields({ el, doc }: { el: Of<"asset">; doc: DocState }) {
       <>
         <div className={s.group}>
           <Field label="Name">
-            <TextField label="Object name" value={el.name} required onCommit={(name) => update({ ...el, name })} />
+            <TextField label="Object name" value={el.name} required onCommit={(name) => update(el, { ...el, name })} />
           </Field>
           <DeviceBasics el={el} item={item} doc={doc} />
         </div>
         <DeviceSections el={el} item={item} doc={doc} />
         <AssetSize>
           <Field label="Width">
-            <NumberField label="Width" kind="length" unit={unit} min={10} max={20000} value={el.width_mm} onCommit={(width_mm) => update({ ...el, width_mm })} />
+            <NumberField label="Width" kind="length" unit={unit} min={10} max={20000} value={el.width_mm} onCommit={(width_mm) => update(el, { ...el, width_mm })} />
           </Field>
           <Field label="Depth">
-            <NumberField label="Depth" kind="length" unit={unit} min={10} max={20000} value={el.depth_mm} onCommit={(depth_mm) => update({ ...el, depth_mm })} />
+            <NumberField label="Depth" kind="length" unit={unit} min={10} max={20000} value={el.depth_mm} onCommit={(depth_mm) => update(el, { ...el, depth_mm })} />
           </Field>
           <Field label="Height">
-            <NumberField label="Height" kind="length" unit={unit} min={10} max={20000} value={el.height_mm} onCommit={(height_mm) => update({ ...el, height_mm })} />
+            <NumberField label="Height" kind="length" unit={unit} min={10} max={20000} value={el.height_mm} onCommit={(height_mm) => update(el, { ...el, height_mm })} />
           </Field>
-          <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update({ ...el, rotation_deg })} />
+          <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update(el, { ...el, rotation_deg })} />
         </AssetSize>
         <Position>
-          <PointFields label="Center" point={el.position} unit={unit} onCommit={(position) => update({ ...el, position })} />
+          <PointFields label="Center" point={el.position} unit={unit} onCommit={(position) => update(el, { ...el, position })} />
         </Position>
       </>
     );
@@ -432,24 +444,24 @@ function AssetFields({ el, doc }: { el: Of<"asset">; doc: DocState }) {
     <>
       <div className={s.group}>
         <Field label="Name">
-          <TextField label="Object name" value={el.name} required onCommit={(name) => update({ ...el, name })} />
+          <TextField label="Object name" value={el.name} required onCommit={(name) => update(el, { ...el, name })} />
         </Field>
         <Field label="Width">
-          <NumberField label="Width" kind="length" unit={unit} min={10} max={20000} value={el.width_mm} onCommit={(width_mm) => update({ ...el, width_mm })} />
+          <NumberField label="Width" kind="length" unit={unit} min={10} max={20000} value={el.width_mm} onCommit={(width_mm) => update(el, { ...el, width_mm })} />
         </Field>
         <Field label="Depth">
-          <NumberField label="Depth" kind="length" unit={unit} min={10} max={20000} value={el.depth_mm} onCommit={(depth_mm) => update({ ...el, depth_mm })} />
+          <NumberField label="Depth" kind="length" unit={unit} min={10} max={20000} value={el.depth_mm} onCommit={(depth_mm) => update(el, { ...el, depth_mm })} />
         </Field>
         <Field label="Height">
-          <NumberField label="Height" kind="length" unit={unit} min={10} max={20000} value={el.height_mm} onCommit={(height_mm) => update({ ...el, height_mm })} />
+          <NumberField label="Height" kind="length" unit={unit} min={10} max={20000} value={el.height_mm} onCommit={(height_mm) => update(el, { ...el, height_mm })} />
         </Field>
         <Field label="Above floor" hint="Height of the underside above the floor">
-          <NumberField label="Height above the floor" kind="length" unit={unit} min={0} max={20000} step={50} value={el.elevation_mm} onCommit={(elevation_mm) => update({ ...el, elevation_mm })} />
+          <NumberField label="Height above the floor" kind="length" unit={unit} min={0} max={20000} step={50} value={el.elevation_mm} onCommit={(elevation_mm) => update(el, { ...el, elevation_mm })} />
         </Field>
-        <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update({ ...el, rotation_deg })} />
+        <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update(el, { ...el, rotation_deg })} />
       </div>
       <Position>
-        <PointFields label="Center" point={el.position} unit={unit} onCommit={(position) => update({ ...el, position })} />
+        <PointFields label="Center" point={el.position} unit={unit} onCommit={(position) => update(el, { ...el, position })} />
       </Position>
     </>
   );
@@ -460,15 +472,15 @@ function AnnotationFields({ el, doc }: { el: Of<"annotation">; doc: DocState }) 
   return (
     <>
       <div className={s.group}>
-        <TextField label="Text" multiline value={el.text} placeholder="Write a note" onCommit={(text) => update({ ...el, text })} />
+        <TextField label="Text" multiline value={el.text} placeholder="Write a note" onCommit={(text) => update(el, { ...el, text })} />
         <p className={s.note}>Press Ctrl or Cmd with Enter to apply.</p>
         <Field label="Text height" hint="In model units at the project scale">
-          <NumberField label="Text height" kind="length" unit={unit} min={10} max={5000} value={el.size_mm} onCommit={(size_mm) => update({ ...el, size_mm })} />
+          <NumberField label="Text height" kind="length" unit={unit} min={10} max={5000} value={el.size_mm} onCommit={(size_mm) => update(el, { ...el, size_mm })} />
         </Field>
-        <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update({ ...el, rotation_deg })} />
+        <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update(el, { ...el, rotation_deg })} />
       </div>
       <Position>
-        <PointFields label="Anchor" point={el.position} unit={unit} onCommit={(position) => update({ ...el, position })} />
+        <PointFields label="Anchor" point={el.position} unit={unit} onCommit={(position) => update(el, { ...el, position })} />
       </Position>
     </>
   );
@@ -483,15 +495,15 @@ function DimensionFields({ el, doc }: { el: Of<"dimension">; doc: DocState }) {
           <ReadOnly>{formatLength(Math.hypot(el.b.x - el.a.x, el.b.y - el.a.y), unit)}</ReadOnly>
         </Field>
         <Field label="Show text" hint="Leave empty to show the measured length">
-          <TextField label="Replacement text" value={el.text_override ?? ""} placeholder="Measured length" onCommit={(t) => update({ ...el, text_override: t === "" ? null : t })} />
+          <TextField label="Replacement text" value={el.text_override ?? ""} placeholder="Measured length" onCommit={(t) => update(el, { ...el, text_override: t === "" ? null : t })} />
         </Field>
         <Field label="Line offset" hint="Distance of the dimension line from the measured points">
-          <NumberField label="Dimension line offset" kind="length" unit={unit} step={50} value={el.offset_mm} onCommit={(offset_mm) => update({ ...el, offset_mm })} />
+          <NumberField label="Dimension line offset" kind="length" unit={unit} step={50} value={el.offset_mm} onCommit={(offset_mm) => update(el, { ...el, offset_mm })} />
         </Field>
       </div>
       <Position>
-        <PointFields label="From" point={el.a} unit={unit} onCommit={(a) => update({ ...el, a })} />
-        <PointFields label="To" point={el.b} unit={unit} onCommit={(b) => update({ ...el, b })} />
+        <PointFields label="From" point={el.a} unit={unit} onCommit={(a) => update(el, { ...el, a })} />
+        <PointFields label="To" point={el.b} unit={unit} onCommit={(b) => update(el, { ...el, b })} />
       </Position>
     </>
   );
@@ -510,13 +522,13 @@ function CameraFields({ el, doc }: { el: Of<"camera">; doc: DocState }) {
     <>
       <div className={s.group}>
         <Field label="Name">
-          <TextField label="Camera name" value={el.name} required onCommit={(name) => update({ ...el, name })} />
+          <TextField label="Camera name" value={el.name} required onCommit={(name) => update(el, { ...el, name })} />
         </Field>
         <Field label="Preset">
-          <Select label="Camera preset" value={el.preset} options={CAMERA_PRESETS} onChange={(preset) => update({ ...el, preset })} />
+          <Select label="Camera preset" value={el.preset} options={CAMERA_PRESETS} onChange={(preset) => update(el, { ...el, preset })} />
         </Field>
         <Field label="Field of view">
-          <NumberField label="Field of view" suffix="deg" min={10} max={120} step={5} value={el.fov_deg} onCommit={(fov_deg) => update({ ...el, fov_deg })} />
+          <NumberField label="Field of view" suffix="deg" min={10} max={120} step={5} value={el.fov_deg} onCommit={(fov_deg) => update(el, { ...el, fov_deg })} />
         </Field>
         <div className={s.actionsRow}>
           <Button icon="camera" onClick={lookThrough}>
@@ -530,8 +542,8 @@ function CameraFields({ el, doc }: { el: Of<"camera">; doc: DocState }) {
         </div>
       </div>
       <Position>
-        <Vec3Fields label="Camera" value={el.position} unit={unit} onCommit={(position) => update({ ...el, position, preset: "custom" })} />
-        <Vec3Fields label="Looks at" value={el.target} unit={unit} onCommit={(target) => update({ ...el, target, preset: "custom" })} />
+        <Vec3Fields label="Camera" value={el.position} unit={unit} onCommit={(position) => update(el, { ...el, position, preset: "custom" })} />
+        <Vec3Fields label="Looks at" value={el.target} unit={unit} onCommit={(target) => update(el, { ...el, target, preset: "custom" })} />
       </Position>
     </>
   );
@@ -548,28 +560,28 @@ function UnderlayFields({ el, doc }: { el: Of<"underlay">; doc: DocState }) {
           </ReadOnly>
         </Field>
         <Field label="Scale" hint="Millimeters in the real building for each image pixel">
-          <NumberField label="Millimeters per pixel" suffix="mm/px" min={0.01} max={1000} decimals={3} step={0.5} value={el.mm_per_px} onCommit={(mm_per_px) => update({ ...el, mm_per_px })} />
+          <NumberField label="Millimeters per pixel" suffix="mm/px" min={0.01} max={1000} decimals={3} step={0.5} value={el.mm_per_px} onCommit={(mm_per_px) => update(el, { ...el, mm_per_px })} />
         </Field>
         <Field label="">
           <label className={s.inlineSwitch}>
-            <Switch label="Scale checked" checked={el.scale_confirmed} onChange={(scale_confirmed) => update({ ...el, scale_confirmed })} />
+            <Switch label="Scale checked" checked={el.scale_confirmed} onChange={(scale_confirmed) => update(el, { ...el, scale_confirmed })} />
             <span>I checked this scale</span>
           </label>
         </Field>
         {el.scale_confirmed ? null : <p className={s.note}>Measure one known length on the image before tracing. The scale is never guessed.</p>}
         <Field label="Opacity">
-          <NumberField label="Opacity" suffix="%" min={5} max={100} step={5} decimals={0} value={Math.round(el.opacity * 100)} onCommit={(v) => update({ ...el, opacity: v / 100 })} />
+          <NumberField label="Opacity" suffix="%" min={5} max={100} step={5} decimals={0} value={Math.round(el.opacity * 100)} onCommit={(v) => update(el, { ...el, opacity: v / 100 })} />
         </Field>
-        <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update({ ...el, rotation_deg })} />
+        <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update(el, { ...el, rotation_deg })} />
         <Field label="">
           <label className={s.inlineSwitch}>
-            <Switch label="Lock the image" checked={el.locked} onChange={(locked) => update({ ...el, locked })} />
+            <Switch label="Lock the image" checked={el.locked} onChange={(locked) => update(el, { ...el, locked })} />
             <span>Locked in place</span>
           </label>
         </Field>
       </div>
       <Position>
-        <PointFields label="Bottom left" point={el.position} unit={unit} onCommit={(position) => update({ ...el, position })} />
+        <PointFields label="Bottom left" point={el.position} unit={unit} onCommit={(position) => update(el, { ...el, position })} />
       </Position>
     </>
   );
@@ -588,15 +600,15 @@ function LineworkFields({ el, doc }: { el: Of<"linework">; doc: DocState }) {
   return (
     <div className={s.group}>
       <Field label="Name">
-        <TextField label="Linework name" value={el.name} required onCommit={(name) => update({ ...el, name })} />
+        <TextField label="Linework name" value={el.name} required onCommit={(name) => update(el, { ...el, name })} />
       </Field>
-      <LevelField levelId={el.level_id} doc={doc} onChange={(level_id) => update({ ...el, level_id })} />
+      <LevelField levelId={el.level_id} doc={doc} onChange={(level_id) => update(el, { ...el, level_id })} />
       <Field label="Polylines" hint="Traced lines brought in from the source file">
         <ReadOnly>{el.polylines.length}</ReadOnly>
       </Field>
       <Field label="">
         <label className={s.inlineSwitch}>
-          <Switch label="Lock the linework" checked={el.locked} onChange={(locked) => update({ ...el, locked })} />
+          <Switch label="Lock the linework" checked={el.locked} onChange={(locked) => update(el, { ...el, locked })} />
           <span>Locked in place</span>
         </label>
       </Field>
@@ -622,29 +634,29 @@ function ReferenceModelFields({ el, doc }: { el: Of<"reference_model">; doc: Doc
     <>
       <div className={s.group}>
         <Field label="Name">
-          <TextField label="Reference model name" value={el.name} required onCommit={(name) => update({ ...el, name })} />
+          <TextField label="Reference model name" value={el.name} required onCommit={(name) => update(el, { ...el, name })} />
         </Field>
-        <LevelField levelId={el.level_id} doc={doc} onChange={(level_id) => update({ ...el, level_id })} />
+        <LevelField levelId={el.level_id} doc={doc} onChange={(level_id) => update(el, { ...el, level_id })} />
         <Field label="Model unit" hint="What one unit in the file means, so it lands at the right size">
-          <Segmented label="Model unit" stretch value={selectedUnit} onChange={(v) => update({ ...el, scale_to_mm: MODEL_UNITS.find((u) => u.value === v)!.mm })} options={[...MODEL_UNITS]} />
+          <Segmented label="Model unit" stretch value={selectedUnit} onChange={(v) => update(el, { ...el, scale_to_mm: MODEL_UNITS.find((u) => u.value === v)!.mm })} options={[...MODEL_UNITS]} />
         </Field>
         <Field label="Scale to mm" hint="Multiply model units by this to get millimeters">
-          <NumberField label="Scale to millimeters" min={0.0001} decimals={4} value={el.scale_to_mm} onCommit={(scale_to_mm) => update({ ...el, scale_to_mm })} />
+          <NumberField label="Scale to millimeters" min={0.0001} decimals={4} value={el.scale_to_mm} onCommit={(scale_to_mm) => update(el, { ...el, scale_to_mm })} />
         </Field>
         <Field label="Elevation" hint="Height of the model origin above the level floor">
-          <NumberField label="Elevation" kind="length" unit={unit} step={50} value={el.elevation_mm} onCommit={(elevation_mm) => update({ ...el, elevation_mm })} />
+          <NumberField label="Elevation" kind="length" unit={unit} step={50} value={el.elevation_mm} onCommit={(elevation_mm) => update(el, { ...el, elevation_mm })} />
         </Field>
-        <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update({ ...el, rotation_deg })} />
+        <Rotation value={el.rotation_deg} onCommit={(rotation_deg) => update(el, { ...el, rotation_deg })} />
         <Field label="">
           <label className={s.inlineSwitch}>
-            <Switch label="Lock the model" checked={el.locked} onChange={(locked) => update({ ...el, locked })} />
+            <Switch label="Lock the model" checked={el.locked} onChange={(locked) => update(el, { ...el, locked })} />
             <span>Locked in place</span>
           </label>
         </Field>
         <p className={s.note}>Shown in 2D as a marker. Its real shape only shows in the 3D view.</p>
       </div>
       <Position>
-        <PointFields label="Position" point={el.position} unit={unit} onCommit={(position) => update({ ...el, position })} />
+        <PointFields label="Position" point={el.position} unit={unit} onCommit={(position) => update(el, { ...el, position })} />
       </Position>
     </>
   );

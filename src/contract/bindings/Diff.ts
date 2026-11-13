@@ -2,6 +2,14 @@
 
 export type Diff = { added: Array<string>, modified: Array<string>, removed: Array<string>, 
 /**
- * One plain sentence, for example "Moved 1 wall, stretched 2 walls".
+ * One plain sentence, for example "Moved 1 wall, stretched 2 walls;
+ * also moved: Wall 4150 mm, Wall 3000 mm".
  */
-summary: string, };
+summary: string, 
+/**
+ * Walls the command reshaped although it did not name them: walls
+ * joined to a moved wall that stretched or shifted to follow it. Every
+ * edit result names them, so nobody misses a wall that moved on the far
+ * side of a joint. Also in `modified`. Left out of the JSON when empty.
+ */
+also_moved?: Array<string>, };

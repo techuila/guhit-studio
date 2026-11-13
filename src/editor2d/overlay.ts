@@ -1185,15 +1185,20 @@ export function drawOverlay(rc: RenderContext, c: PlanController): void {
     const color = og.placement.valid ? palette.selection : palette.danger;
     const swing = c.anim.value(K.swing, og.opening.flip_side ? -1 : 1);
     const hinge = c.anim.value(K.hinge, og.opening.flip_hinge ? 1 : 0);
-    drawOpening(rc, og.opening, og.host, { color, alpha: oa, swing, hinge }, og.placement.valid);
+    const width = c.anim.value(K.ghostWidth, og.opening.width_mm);
+    drawOpening(rc, { ...og.opening, width_mm: width }, og.host, { color, alpha: oa, swing, hinge }, og.placement.valid);
     if (oa > 0.85 && c.openingGhost) {
+      const bump = 1 + 0.12 * c.anim.value(K.placeRefused, 0);
       if (og.placement.valid) {
         drawClearDims(rc, og.host, og.opening.width_mm, og.placement.offset, og.placement.clearStart, og.placement.clearEnd, swing >= 0 ? -1 : 1);
         if (og.placement.snapped === "center" && cursorScreen) {
           pill(rc, { x: cursorScreen.x + 16, y: cursorScreen.y - 22 }, "Centered", { bg: palette.selection });
         }
+        // Narrowed to fit the wall: say the width it will place.
+        if (og.note && cursorScreen) pill(rc, { x: cursorScreen.x + 16, y: cursorScreen.y + 22 }, og.note, { bg: palette.ink, scale: bump });
       } else if (cursorScreen) {
-        pill(rc, { x: cursorScreen.x + 16, y: cursorScreen.y + 22 }, og.placement.reason === "overlap" ? "Overlaps another opening" : "Wall too short", { bg: palette.danger });
+        const reason = og.note ?? (og.placement.reason === "overlap" ? "Overlaps another opening" : "Wall too short");
+        pill(rc, { x: cursorScreen.x + 16, y: cursorScreen.y + 22 }, reason, { bg: palette.danger, scale: bump });
       }
     }
   }

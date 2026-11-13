@@ -759,6 +759,7 @@ pub fn build_plan(raw: &Raw, file_name: &str, mm: f64, options: &ImportOptions) 
                     closed: false,
                     thickness_mm: Some(wall_lines[chain[0]].thickness_mm),
                     level_id: options.level_id.clone(),
+                    role: None,
                 });
             }
             None => {
@@ -772,6 +773,7 @@ pub fn build_plan(raw: &Raw, file_name: &str, mm: f64, options: &ImportOptions) 
                         height_mm: None,
                         material_id: None,
                         level_id: options.level_id.clone(),
+                        role: None,
                     });
                 }
             }

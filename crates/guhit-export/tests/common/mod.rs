@@ -34,6 +34,7 @@ pub fn options(paper: PaperSize, orientation: Orientation) -> PlanExportOptions 
         show_pipes: true,
         sheet: SheetKind::Plan,
         review_page: false,
+        date: None,
     }
 }
 
@@ -79,6 +80,7 @@ pub fn rich() -> DocState {
             thickness_mm: t,
             height_mm: None,
             material_id: None,
+            role: WallRole::Building,
         })
     };
     let opening = |id: &str,
@@ -472,7 +474,7 @@ pub fn services() -> DocState {
     s.project.name = "Santos Residence".into();
     // T&B walls and door, as in the plumbing demo.
     let t_wall = |id: &str, a: Point, b: Point| {
-        Element::Wall(Wall { id: id.into(), level_id: lvl.clone(), start: a, end: b, thickness_mm: 100.0, height_mm: None, material_id: None })
+        Element::Wall(Wall { id: id.into(), level_id: lvl.clone(), start: a, end: b, thickness_mm: 100.0, height_mm: None, material_id: None, role: WallRole::Building  })
     };
     s.project.elements.push(t_wall("w-tb-south", p(6000.0, 4200.0), p(8000.0, 4200.0)));
     s.project.elements.push(t_wall("w-tb-west", p(6000.0, 4200.0), p(6000.0, 6000.0)));

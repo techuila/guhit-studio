@@ -297,6 +297,7 @@ fn a_wall_standing_inside_a_room_is_in_its_reach() {
             thickness_mm: 100.0,
             height_mm: None,
             material_id: None,
+            role: WallRole::Building,
         })
     };
     project.elements.extend([
@@ -350,6 +351,7 @@ fn new_walls_must_land_in_the_area_within_the_tolerance() {
         closed,
         thickness_mm: None,
         level_id: None,
+        role: None,
     };
     let inside = [p(5500.0, 500.0), p(7500.0, 500.0), p(7500.0, 1500.0)];
     allowed(&project, &[BEDROOM], &chain(&inside, true));
@@ -386,6 +388,7 @@ fn the_area_is_per_level() {
         height_mm: None,
         material_id: None,
         level_id: Some(UPPER.into()),
+        role: None,
     };
     refused(&project, &[BEDROOM], &upstairs);
     // Selected on the upper level, the same spot is inside.
@@ -467,6 +470,7 @@ fn add_element_checks_where_each_kind_lands() {
                 thickness_mm: 100.0,
                 height_mm: None,
                 material_id: None,
+                role: WallRole::Building,
             }),
             Element::Wall(Wall {
                 id: String::new(),
@@ -476,6 +480,7 @@ fn add_element_checks_where_each_kind_lands() {
                 thickness_mm: 100.0,
                 height_mm: None,
                 material_id: None,
+                role: WallRole::Building,
             }),
             "wall",
         ),

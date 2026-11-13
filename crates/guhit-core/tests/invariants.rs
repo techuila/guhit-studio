@@ -241,6 +241,7 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
             },
             material_id: None,
             level_id: Some(level),
+            role: None,
         },
         2 => {
             let n = 2 + rng.below(4);
@@ -249,6 +250,7 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
                 closed: rng.chance(60),
                 thickness_mm: Some(100.0 + rng.below(3) as f64 * 50.0),
                 level_id: Some(level),
+                role: None,
             }
         }
         3 | 4 => Command::AddRectRoom {

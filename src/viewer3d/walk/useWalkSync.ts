@@ -14,9 +14,12 @@ import { switchKeysOf, walkSwitchClick } from "./switches";
 export interface WalkUiState {
   /** The level the walker is on. */
   levelId: string | null;
+  /** The first Escape asked to stop walking: the overlay says "Esc again". Bumps on every ask. */
+  exitAsk: number;
+  exitArmed: boolean;
 }
 
-export const useWalkUi = create<WalkUiState>(() => ({ levelId: null }));
+export const useWalkUi = create<WalkUiState>(() => ({ levelId: null, exitAsk: 0, exitArmed: false }));
 
 export function useWalkSync(engineRef: RefObject<ViewerEngine | null>): void {
   const walk = useViewer((s) => s.walk);
@@ -36,6 +39,14 @@ export function useWalkSync(engineRef: RefObject<ViewerEngine | null>): void {
         if (useWalkUi.getState().levelId !== levelId) useWalkUi.setState({ levelId });
       },
       onWalkClick: (id) => walkSwitchClick(engine, useApp.getState().doc, id, switchKeys),
+      // Escape clears a selection before it asks to stop walking.
+      onEscape: () => {
+        const app = useApp.getState();
+        if (app.selection.length === 0) return false;
+        app.select([]);
+        return true;
+      },
+      onExitArmed: (armed) => useWalkUi.setState((st) => ({ exitArmed: armed, exitAsk: armed ? st.exitAsk + 1 : st.exitAsk })),
     });
     return () => engine.setWalkHandlers({});
   }, [engineRef, switchKeys]);

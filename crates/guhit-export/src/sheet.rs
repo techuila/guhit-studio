@@ -667,20 +667,26 @@ pub(crate) fn drawing_title(level_name: &str) -> String {
     }
 }
 
-/// Date part of an RFC 3339 timestamp, or "-" when it does not look like one.
-fn sheet_date(project: &Project) -> String {
-    let t = project.updated_at.trim();
-    let bytes = t.as_bytes();
-    let ok = bytes.len() >= 10
-        && bytes[..10]
-            .iter()
-            .enumerate()
-            .all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() });
-    if ok {
-        t[..10].to_string()
-    } else {
-        "-".into()
-    }
+/// The DATE cell: the caller's local date (`PlanExportOptions::date`, which
+/// the app fills in), else the date part of the project's last change, or
+/// "-" when neither looks like a date. This module has no clock and no time
+/// zone of its own.
+fn sheet_date(project: &Project, opts: &PlanExportOptions) -> String {
+    let ymd = |t: &str| -> Option<String> {
+        let t = t.trim();
+        let bytes = t.as_bytes();
+        let ok = bytes.len() >= 10
+            && bytes[..10]
+                .iter()
+                .enumerate()
+                .all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() });
+        ok.then(|| t[..10].to_string())
+    };
+    opts.date
+        .as_deref()
+        .and_then(ymd)
+        .or_else(|| ymd(&project.updated_at))
+        .unwrap_or_else(|| "-".into())
 }
 
 /// Model length of one scale bar segment: the largest round length whose four
@@ -923,7 +929,7 @@ pub(crate) fn title_block(
         ],
         [
             ("DESIGNED BY", or_dash(&project.settings.designer), false),
-            ("DATE", sheet_date(project), false),
+            ("DATE", sheet_date(project, opts), false),
         ],
         [
             ("SCALE", block_scale.to_string(), true),

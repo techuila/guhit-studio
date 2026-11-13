@@ -9,7 +9,8 @@ import { useApp } from "../state/store";
 /** How the 3D camera moves. Walk: eye height on the active level, walls
  * block. Fly: free, nothing blocks. While not "orbit" the 3D view owns the
  * keyboard (WASD, arrows, Shift, Escape): the global shortcut handler ignores
- * every key without MOD, and Escape returns to orbit. */
+ * every key without MOD; Escape clears the selection, then two Escapes
+ * return to orbit (engine/walker.ts, ESC_CONFIRM_MS). */
 export type NavMode = "orbit" | "walk" | "fly";
 /** How the building shell (walls, roof, slabs, openings, columns, stairs,
  * objects) is drawn, so pipes stay visible. Pipes are always solid. */

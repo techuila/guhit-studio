@@ -671,6 +671,11 @@ async fn export_plan_writes_a_file_or_reports_a_clean_error() {
         }
     }
     assert_eq!(fail(&app, "export_plan", json!({ "format": "dwg", "options": options, "path": null })).await.code, "bad_args");
+
+    // The title block is dated on this computer's calendar, not in UTC.
+    let out: ExportResult = call(&app, "export_plan", args("svg")).await;
+    let svg = std::fs::read_to_string(&out.path).unwrap();
+    assert!(svg.contains(&format!(">{}<", guhit_app::local_date())), "the sheet carries today's local date");
 }
 
 #[tokio::test]
@@ -769,7 +774,7 @@ fn as_version_1(project: &Project) -> Value {
         .filter(|l| {
             !matches!(
                 l["key"].as_str(),
-                Some("cold_water" | "hot_water" | "drainage" | "vent" | "storm" | "electrical" | "aircon")
+                Some("cold_water" | "hot_water" | "drainage" | "vent" | "storm" | "electrical" | "aircon" | "site")
             )
         })
         .cloned()
@@ -814,18 +819,18 @@ async fn a_version_1_project_opens_with_the_pipe_layers() {
     assert_eq!(opened.project.schema_version, SCHEMA_VERSION);
     let keys: Vec<LayerKey> = opened.project.layers.iter().map(|l| l.key).collect();
     let expected: Vec<LayerKey> = defaults::default_layers().iter().map(|l| l.key).collect();
-    assert_eq!(keys, expected, "all 13 layers, in LayerKey order");
+    assert_eq!(keys, expected, "every layer, in LayerKey order");
     assert_eq!(wall_count(&opened), 1);
 
     // The next save writes version 2.
     let _: ApplyResult = call(&app, "doc_apply", wall(4000.0, 0.0, 4000.0, 3000.0)).await;
     let on_disk: Value = serde_json::from_slice(&std::fs::read(dir.join("project.json")).unwrap()).unwrap();
     assert_eq!(on_disk["schema_version"], json!(SCHEMA_VERSION));
-    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 16);
+    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 17);
 
     // A version 1 snapshot restores with the pipe layers too.
     let restored: DocState = call(&app, "snapshot_restore", json!({ "id": snap_id })).await;
-    assert_eq!(restored.project.layers.len(), 16);
+    assert_eq!(restored.project.layers.len(), 17);
     assert_eq!(restored.project.schema_version, SCHEMA_VERSION);
 }
 
@@ -840,13 +845,17 @@ fn as_version_2(project: &Project) -> Value {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|l| !matches!(l["key"].as_str(), Some("storm" | "electrical" | "aircon")))
+        .filter(|l| !matches!(l["key"].as_str(), Some("storm" | "electrical" | "aircon" | "site")))
         .cloned()
         .collect();
     assert_eq!(layers.len(), 13);
     v["layers"] = json!(layers);
     for e in v["elements"].as_array_mut().unwrap() {
         let map = e.as_object_mut().unwrap();
+        // Schema 4 added the wall role; older walls have none.
+        if map["kind"] == "wall" {
+            map.remove("role");
+        }
         if map["kind"] == "asset" {
             map.remove("light");
             map.remove("links");
@@ -877,18 +886,22 @@ async fn a_version_2_project_opens_with_the_service_layers() {
     std::fs::write(dir.join("project.json"), serde_json::to_vec_pretty(&as_version_2(&saved)).unwrap()).unwrap();
 
     let opened: DocState = call(&app, "hub_open", json!({ "id": id })).await;
-    assert_eq!(opened.project.schema_version, 3);
+    assert_eq!(opened.project.schema_version, SCHEMA_VERSION);
     let keys: Vec<LayerKey> = opened.project.layers.iter().map(|l| l.key).collect();
     let expected: Vec<LayerKey> = defaults::default_layers().iter().map(|l| l.key).collect();
-    assert_eq!(keys, expected, "all 16 layers, in LayerKey order");
+    assert_eq!(keys, expected, "all 17 layers, in LayerKey order");
+    assert!(
+        opened.project.elements.iter().all(|e| !matches!(e, Element::Wall(w) if w.role != WallRole::Building)),
+        "walls without a role are building walls"
+    );
     assert!(opened.project.review.is_empty());
     assert!(opened.derived.schedule.is_empty(), "a bed is not counted");
 
-    // The next save writes version 3 with every layer.
+    // The next save writes the current version with every layer.
     let _: ApplyResult = call(&app, "doc_apply", wall(0.0, -2000.0, 3000.0, -2000.0)).await;
     let on_disk: Value = serde_json::from_slice(&std::fs::read(dir.join("project.json")).unwrap()).unwrap();
-    assert_eq!(on_disk["schema_version"], json!(3));
-    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 16);
+    assert_eq!(on_disk["schema_version"], json!(SCHEMA_VERSION));
+    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 17);
     assert_eq!(on_disk["review"], json!([]));
 }
 

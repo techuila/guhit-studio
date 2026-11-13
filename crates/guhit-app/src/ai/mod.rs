@@ -5,7 +5,8 @@
 //!
 //! Trust rules this module enforces:
 //! - The model never mutates the document. Edit tools stage typed `Command`s
-//!   and the staged batch is validated with `Document::preview`.
+//!   on one working copy (`guhit_core::Staging`), each call run once, and the
+//!   whole batch is validated with `Document::preview` before it is proposed.
 //! - Nothing commits without `ai_resolve(accept = true)`, and only when the
 //!   document is still at the revision the proposal was made on.
 //! - A commit goes through `AppService::commit`, the same path as user edits,
@@ -27,7 +28,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use guhit_core::{CoreError, Document};
+use guhit_core::{CoreError, Document, Staging};
 use guhit_model::*;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
@@ -225,10 +226,17 @@ fn batch(label: &str, commands: &[Command]) -> Command {
     Command::Batch { label: label.to_string(), commands: commands.to_vec() }
 }
 
-/// What the staging of one edit call produced.
+/// The calls of this turn staged so far, on one working copy of the plan.
 struct Staged {
-    preview: ApplyResult,
+    staging: Staging,
+    /// The revision of the plan the staging started from.
+    revision: u32,
+}
+
+/// What the staging of one edit call produced.
+struct StagedStep {
     step: Value,
+    summary: String,
 }
 
 /// Told to the model after every edit the scope refuses.
@@ -255,39 +263,75 @@ fn refused(e: CoreError) -> tools::ToolError {
 }
 
 /// Translate one edit call, append it to the staged commands and validate
-/// the whole batch. With a scope, the call must first stay inside the
+/// it on the staged plan. With a scope, the call must first stay inside the
 /// selection on the staged view. On any error nothing is staged.
+///
+/// Each call runs once on the working copy, so a turn of N calls costs N
+/// calls. When the plan changed since the staging started (the user edited
+/// while the model worked), everything is staged again on the plan as it is
+/// now, which is what validating the whole batch on it used to do.
 #[allow(clippy::too_many_arguments)]
 fn stage_edit(
     doc: &Document,
     label: &str,
     commands: &[Command],
-    staged: Option<&ApplyResult>,
+    staged: &mut Option<Staged>,
     scope: Option<&[Id]>,
     name: &str,
     input: &Value,
     level_id: &Id,
-) -> Result<(Vec<Command>, Staged), tools::ToolError> {
-    let (view, view_derived) = match staged {
-        Some(p) => (&p.state.project, &p.state.derived),
-        None => (doc.project(), doc.derived()),
+) -> Result<(Vec<Command>, StagedStep), tools::ToolError> {
+    let view = match staged.as_ref() {
+        Some(st) => st.staging.project(),
+        None => doc.project(),
     };
     let new_commands = tools::to_commands(view, name, input, level_id)?;
     if let Some(selection) = scope {
-        // What earlier calls of this turn made is in reach, so this call can
-        // build on it: a window on a wall staged a step ago.
-        let made = staged.map(|p| p.diff.added.as_slice()).unwrap_or_default();
+        let staged_derived;
+        let (view_derived, made) = match staged.as_ref() {
+            Some(st) => {
+                staged_derived = st.staging.derived();
+                // What earlier calls of this turn made is in reach, so this
+                // call can build on it: a window on a wall staged a step ago.
+                (&staged_derived, st.staging.diff().added)
+            }
+            None => (doc.derived(), vec![]),
+        };
         let call = match new_commands.as_slice() {
             [one] => one.clone(),
             many => batch(label, many),
         };
-        guhit_core::scope::check_staged(view, view_derived, selection, made, &call).map_err(refused)?;
+        guhit_core::scope::check_staged(view, view_derived, selection, &made, &call).map_err(refused)?;
     }
-    let mut next = commands.to_vec();
-    next.extend(new_commands.iter().cloned());
-    let preview = doc.preview(&batch(label, &next))?;
-    let step = tools::step_diff(view, &preview.state.project);
-    Ok((new_commands, Staged { preview, step }))
+    let moved_before = staged.as_ref().map(|st| st.staging.also_moved().len()).unwrap_or(0);
+    let mut step = match staged.as_mut() {
+        Some(st) if st.revision == doc.revision() => {
+            let before = st.staging.push(&new_commands)?;
+            tools::step_diff(&before, st.staging.project())
+        }
+        _ => {
+            let mut all = commands.to_vec();
+            all.extend(new_commands.iter().cloned());
+            let mut fresh = Staging::new(doc.project(), label);
+            fresh.push(&all)?;
+            let view = match staged.as_ref() {
+                Some(st) => st.staging.project(),
+                None => doc.project(),
+            };
+            let step = tools::step_diff(view, fresh.project());
+            *staged = Some(Staged { staging: fresh, revision: doc.revision() });
+            step
+        }
+    };
+    let summary = staged.as_ref().map(|st| st.staging.diff().summary).unwrap_or_default();
+    // Walls this call reshaped without naming them.
+    if let Some(st) = staged.as_ref() {
+        let new = st.staging.also_moved().get(moved_before..).unwrap_or_default();
+        if !new.is_empty() {
+            step["also_moved"] = tools::also_moved_list(st.staging.project(), new);
+        }
+    }
+    Ok((new_commands, StagedStep { step, summary }))
 }
 
 /// The level new elements go on: the one the user is working on, or the first
@@ -391,7 +435,7 @@ async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> 
 
     let label = batch_label(&message);
     let mut commands: Vec<Command> = vec![];
-    let mut staged: Option<ApplyResult> = None;
+    let mut staged: Option<Staged> = None;
     let mut tools_used: Vec<String> = vec![];
     let mut reply = String::new();
     let mut rounds = 0;
@@ -450,7 +494,7 @@ async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> 
                         doc,
                         &label,
                         &commands,
-                        staged.as_ref(),
+                        &mut staged,
                         scope,
                         &call.name,
                         &call.input,
@@ -458,20 +502,18 @@ async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> 
                     )
                     .map(|(new_commands, done)| {
                         commands.extend(new_commands);
-                        let result = json!({
+                        json!({
                             "staged": true,
                             "staged_steps": commands.len(),
                             "this_step": done.step,
-                            "proposal_so_far": done.preview.diff.summary,
-                        });
-                        staged = Some(done.preview);
-                        result
+                            "proposal_so_far": done.summary,
+                        })
                     }),
                     Some(doc) if tools::is_read(&call.name) => match &staged {
                         // With staged changes, answer from the staged view
                         // and say so, so figures match the proposal.
-                        Some(preview) => {
-                            let view = Document::new(preview.state.project.clone());
+                        Some(st) => {
+                            let view = Document::new(st.staging.project().clone());
                             tools::run_read(&view, &call.name, &call.input).map(|data| {
                                 json!({
                                     "view": "plan with the staged changes of this turn, not applied yet",

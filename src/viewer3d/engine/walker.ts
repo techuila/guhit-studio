@@ -10,7 +10,8 @@
 //
 // With a `WalkNav` (walk/worlds.ts) the walker knows every level and stair of
 // the document: walking onto a flight climbs it as a ramp, leaving it at the
-// head switches to the level at its top, leaving it at the foot switches back
+// head (or sideways off its last treads) switches to the level at its top,
+// leaving it at the foot (or off its first treads) switches back
 // (walk/stairs.ts). Fly mode ignores stairs; landing picks the floor below.
 //
 // Besides the keys, a scroll or a swipe glides the walker a short way (a
@@ -55,6 +56,21 @@ export const MAX_DT_S = 0.1;
 export const NUDGE_MM_PER_PX = 5;
 /** Wheel speed change: the speed is multiplied by exp(-px * this). One notch is about 12 percent. */
 export const SPEED_PER_WHEEL_PX = 0.0012;
+/**
+ * Escape while walking first clears the selection, then asks once ("Esc again
+ * to stop walking"): a second Escape within this long leaves walk mode.
+ */
+export const ESC_CONFIRM_MS = 2000;
+
+/**
+ * What an Escape while walking does: `used` when the app took it (it cleared
+ * a selection), `exit` when it comes within ESC_CONFIRM_MS of the one that
+ * asked (`askedAt`, 0 for none), else `ask`.
+ */
+export function walkEscape(now: number, askedAt: number, used: boolean): "used" | "ask" | "exit" {
+  if (used) return "used";
+  return askedAt > 0 && now - askedAt <= ESC_CONFIRM_MS ? "exit" : "ask";
+}
 /** Velocity reaches ~63 percent of the target in this long. */
 const VELOCITY_TAU_S = 0.07;
 /** Eye height settles (fly to walk, a level change, a new eye height, a stair) this fast. */
@@ -95,8 +111,10 @@ export interface WalkNav {
   elevation(levelId: string): number;
   /** What blocks a walker standing on a level: walls, columns, objects and the strips around its stairs. */
   levelWorld(levelId: string): CollisionWorld;
-  /** What blocks a walker on a flight: its sides, and the walls of its lower level (or of its upper level on the upper half). */
+  /** What blocks a walker on a flight: the walls of its lower level (or of its upper level on the upper half), less what stands on the flight. */
   flightWorld(stair: StairInfo, high: boolean): CollisionWorld;
+  /** Keeps a walker of radius `r` at `p` between the sides of a flight where they are closed (walk/stairs.ts). */
+  holdOnFlight(stair: StairInfo, p: Pt, r: number): Pt;
   /** The flight under `p` that a walker on this level can be on (entered at its foot or at its head). */
   stairAt(levelId: string, p: Pt): StairInfo | null;
   /** Height above the level floor near the foot of a flight, where its walking line starts to rise. 0 elsewhere. */
@@ -198,7 +216,7 @@ export class WalkState {
 
   /** Walk mode: out of anything the walker stands in, and onto the floor or flight under it. */
   settle(): void {
-    const p = pushOut({ x: this.x, y: this.y }, WALKER_RADIUS_MM, this.collisionWorld());
+    const p = this.hold(pushOut({ x: this.x, y: this.y }, WALKER_RADIUS_MM, this.collisionWorld()));
     this.x = p.x;
     this.y = p.y;
     this.updateSupport();
@@ -342,7 +360,7 @@ export class WalkState {
     const dy = this.vy * dt + fy * nf - fx * ns;
     if (dx !== 0 || dy !== 0) {
       let p = { x: this.x + dx, y: this.y + dy };
-      if (!fly) p = moveWithCollision({ x: this.x, y: this.y }, { x: dx, y: dy }, WALKER_RADIUS_MM, this.collisionWorld());
+      if (!fly) p = this.hold(moveWithCollision({ x: this.x, y: this.y }, { x: dx, y: dy }, WALKER_RADIUS_MM, this.collisionWorld()));
       if (this.area) {
         p.x = clamp(p.x, this.area.minX - ROAM_MM, this.area.maxX + ROAM_MM);
         p.y = clamp(p.y, this.area.minY - ROAM_MM, this.area.maxY + ROAM_MM);
@@ -374,6 +392,11 @@ export class WalkState {
     this.z = g.fromZ + (this.eyeHeight() - g.fromZ) * k;
     if (g.t >= g.duration) this.glide = null;
     return true;
+  }
+
+  /** On a flight, back between its sides where they are closed. Elsewhere `p` as it is. */
+  private hold(p: Pt): Pt {
+    return this.stair && this.nav ? this.nav.holdOnFlight(this.stair, p, WALKER_RADIUS_MM) : p;
   }
 
   /** What blocks the walker where it is: the flight it is on (lower or upper half), or its level. */

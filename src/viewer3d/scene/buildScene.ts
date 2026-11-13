@@ -192,8 +192,13 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   // ------------------------------------------------------------------ walls
   lib.category = "wall";
   const wallOutlinesByLevel = new Map<string, Pt[]>();
-  if (visible("walls")) {
+  {
     for (const wall of walls.values()) {
+      // Building walls follow the walls layer, a lot fence or boundary wall
+      // the site layer.
+      const site = wall.role === "site";
+      const wallLayer: LayerKey = site ? "site" : "walls";
+      if (!visible(wallLayer)) continue;
       const level = levels.get(wall.level_id) ?? lowest;
       if (!level || !levelShown(level)) continue;
       const height = wall.height_mm ?? level.height_mm;
@@ -224,11 +229,13 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       );
       if (!ok) continue;
       const mesh = kit.mesh(kit.fromMeshData(md), lib.get(wall.material_id, "mat-chb-painted"), wall.id);
-      if (locked("walls")) mesh.userData.locked = true;
+      if (locked(wallLayer)) mesh.userData.locked = true;
       root.add(mesh);
       const outline = outlines.get(wall.id);
       const pts = outline && outline.length >= 3 ? outline : [wall.start, wall.end];
       acc.add(pts, level.elevation_mm - drop, level.elevation_mm + (cut ?? height));
+      // A fence never sizes the roof.
+      if (site) continue;
       const list = wallOutlinesByLevel.get(level.id) ?? [];
       list.push(...pts);
       wallOutlinesByLevel.set(level.id, list);

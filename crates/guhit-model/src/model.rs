@@ -14,9 +14,10 @@ pub type Id = String;
 
 /// Version 2 added pipes and the four pipe layers. Version 3 added the
 /// electrical, aircon and storm layers, the site, review marks, and light,
-/// links and circuit tags on objects. Older files load and get the missing
-/// layers (`guhit_core::migrate`); every new field has a default.
-pub const SCHEMA_VERSION: u32 = 3;
+/// links and circuit tags on objects. Version 4 added the site layer and
+/// `Wall::role`. Older files load and get the missing layers
+/// (`guhit_core::migrate`); every new field has a default.
+pub const SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -141,6 +142,8 @@ pub enum LayerKey {
     Electrical,
     /// Aircon units, refrigerant line sets and condensate runs.
     Aircon,
+    /// Site walls: the lot fence and boundary walls (`WallRole::Site`).
+    Site,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -320,6 +323,28 @@ impl Element {
     }
 }
 
+/// What a wall is for.
+///
+/// Building walls make the rooms, the building outline and the floor area.
+/// Site walls stand on the lot: a perimeter fence (the CHB fence round a PH
+/// lot) or a boundary wall. They never close a room, never make a building
+/// wall interior and never count in the floor area or the footprint. They
+/// are on the `Site` layer, 1800 mm high when drawn without a height.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum WallRole {
+    #[default]
+    Building,
+    Site,
+}
+
+impl WallRole {
+    pub fn is_building(&self) -> bool {
+        *self == WallRole::Building
+    }
+}
+
 /// A straight wall defined by its centerline.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -332,6 +357,25 @@ pub struct Wall {
     /// None means use the level height.
     pub height_mm: Option<f64>,
     pub material_id: Option<Id>,
+    /// Building (the default, and every wall of an older file) or site.
+    /// Left out of the JSON for a building wall, so those read as before.
+    #[serde(default, skip_serializing_if = "WallRole::is_building")]
+    pub role: WallRole,
+}
+
+impl Wall {
+    /// A lot fence or boundary wall.
+    pub fn is_site(&self) -> bool {
+        self.role == WallRole::Site
+    }
+
+    /// The layer the wall is drawn on: `Walls`, or `Site` for a site wall.
+    pub fn layer(&self) -> LayerKey {
+        match self.role {
+            WallRole::Building => LayerKey::Walls,
+            WallRole::Site => LayerKey::Site,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -435,8 +479,10 @@ pub struct Column {
 }
 
 /// Straight single-flight stair. `origin` is the center of the first riser,
-/// the flight runs along the rotated +y direction. Going depth is
-/// `run_mm / riser_count`; total rise is the level height.
+/// the flight runs along the rotated +y direction; total rise is the level
+/// height. The 2D and 3D drawings split the run into `riser_count` steps, the
+/// last flush with the floor above; the inspector and the IFC count
+/// `riser_count - 1` treads of `run_mm / (riser_count - 1)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Stair {

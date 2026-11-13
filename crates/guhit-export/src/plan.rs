@@ -24,6 +24,8 @@ use crate::ExportError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Cat {
     Furn,
+    /// Site walls: the lot fence and boundary walls (`WallRole::Site`).
+    Site,
     Strs,
     Wall,
     Cols,
@@ -36,8 +38,9 @@ pub enum Cat {
 
 impl Cat {
     /// Back to front draw order.
-    pub const ALL: [Cat; 9] = [
+    pub const ALL: [Cat; 10] = [
         Cat::Furn,
+        Cat::Site,
         Cat::Strs,
         Cat::Wall,
         Cat::Cols,
@@ -51,6 +54,7 @@ impl Cat {
     pub fn dxf_layer(self) -> &'static str {
         match self {
             Cat::Wall => "A-WALL",
+            Cat::Site => "L-SITE",
             Cat::Door => "A-DOOR",
             Cat::Glaz => "A-GLAZ",
             Cat::Cols => "A-COLS",
@@ -65,6 +69,7 @@ impl Cat {
     pub fn svg_id(self) -> &'static str {
         match self {
             Cat::Wall => "walls",
+            Cat::Site => "site-walls",
             Cat::Door => "doors",
             Cat::Glaz => "windows",
             Cat::Cols => "columns",
@@ -327,7 +332,11 @@ pub fn build_items(
         }
     }
 
-    if on(LayerKey::Walls) {
+    // Building walls follow the walls layer, site walls (fences, boundary
+    // walls) the site layer.
+    let drawn: Vec<&Wall> = walls.iter().copied().filter(|w| on(w.layer())).collect();
+    if !drawn.is_empty() {
+        let walls = &drawn;
         let outlines: Vec<Vec<V>> = walls
             .iter()
             .map(|wall| {
@@ -343,7 +352,17 @@ pub fn build_items(
         for (wall, outline) in walls.iter().zip(&outlines) {
             wall_items(wall, outline, &openings_of(wall), &mut out);
         }
-        corner_patches(&walls, &outlines, &mut out);
+        // Corners close among walls of one kind: a fence never patches a
+        // corner of the house.
+        for site in [false, true] {
+            let (ws, os): (Vec<&Wall>, Vec<Vec<V>>) = walls
+                .iter()
+                .zip(&outlines)
+                .filter(|(w, _)| w.is_site() == site)
+                .map(|(w, o)| (*w, o.clone()))
+                .unzip();
+            corner_patches(&ws, &os, wall_cat(site), &mut out);
+        }
     }
 
     if on(LayerKey::Columns) {
@@ -513,7 +532,16 @@ fn point_in_polygon(p: V, poly: &[V]) -> bool {
 /// mitred, the outside of the corner is left open. Fill it with the mitre
 /// parallelogram so the corner reads as one solid mass. Does nothing when
 /// the outlines already cover the corner.
-fn corner_patches(walls: &[&Wall], outlines: &[Vec<V>], out: &mut Vec<Item>) {
+/// The drawing category of a wall: `Wall`, or `Site` for a fence.
+fn wall_cat(site: bool) -> Cat {
+    if site {
+        Cat::Site
+    } else {
+        Cat::Wall
+    }
+}
+
+fn corner_patches(walls: &[&Wall], outlines: &[Vec<V>], cat: Cat, out: &mut Vec<Item>) {
     for i in 0..walls.len() {
         for j in (i + 1)..walls.len() {
             let ends_i = [(walls[i].start, walls[i].end), (walls[i].end, walls[i].start)];
@@ -541,7 +569,7 @@ fn corner_patches(walls: &[&Wall], outlines: &[Vec<V>], out: &mut Vec<Item>) {
                         continue;
                     }
                     out.push(Item {
-                        cat: Cat::Wall,
+                        cat,
                         pen: Pen::Heavy,
                         prim: Prim::Poly {
                             pts: vec![joint - a - b, joint + a - b, joint + a + b, joint - a + b],
@@ -596,7 +624,7 @@ fn wall_items(wall: &Wall, outline: &[V], openings: &[&Opening], out: &mut Vec<I
 
     for pts in pieces {
         out.push(Item {
-            cat: Cat::Wall,
+            cat: wall_cat(wall.is_site()),
             pen: Pen::Heavy,
             prim: Prim::Poly {
                 pts,

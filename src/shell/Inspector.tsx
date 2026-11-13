@@ -2,11 +2,11 @@
 // nothing selected -> project, review, schedules, site, level, roof, layers;
 // one element -> its fields; several -> shared actions.
 import { useEffect, useMemo, useRef } from "react";
-import type { Command, DocState, Element, Layer, LayerKey, PaperSize, ProjectSettings, Roof, Site } from "../contract/bindings";
+import type { DocState, Element, Layer, LayerKey, PaperSize, ProjectSettings, Roof, Site } from "../contract/bindings";
 import { bus } from "../state/bus";
 import { useApp, useVisibleDoc } from "../state/store";
 import { MaterialPicker } from "../ui/MaterialPicker";
-import { Button, Field, IconButton, NumberField, Section, Segmented, Select, TextField, cx } from "../ui/controls";
+import { Button, Field, IconButton, NumberField, Section, Segmented, Select, Switch, TextField, cx } from "../ui/controls";
 import { Icon } from "../ui/icons";
 import { formatArea } from "../ui/units";
 import { DevicesMultiFields } from "./DeviceFields";
@@ -17,13 +17,14 @@ import { PipesMultiFields, PlumbingSection, useReveal } from "./PipeSections";
 import { ReviewSection } from "./ReviewSection";
 import { SchedulesSection } from "./SchedulesSection";
 import { ROOF_KINDS, deleteSelection } from "./actions";
+import { commitLatest, editLayer, editRoof, editSettings, updateElements } from "./commitLatest";
+import { heightEdits, sharedNumber, thicknessEdits, unpinEdits, wallHeight, wallsLabel, type WallEl } from "./multiWalls";
 import { EMPTY_NETWORK, SERVICE_LAYER_COLOR, SERVICE_LAYER_ORDER, isServiceLayer, lengthByLayer } from "./pipes";
 import { hasScheduledDevices } from "./schedules";
 import { CUSTOM_SITE, SITE_PRESETS, editSite, presetByKey, siteFromPreset, siteLabel, siteOf, utcLabel } from "./site";
 import { isReviewShown, useProjectName, useSection, useShell } from "./shellStore";
 import s from "./Inspector.module.css";
 
-const dispatch = (command: Command) => void useApp.getState().dispatch(command);
 
 // ---------------------------------------------------------------- nothing selected
 
@@ -52,13 +53,14 @@ const LAYER_LABEL: Record<LayerKey, string> = {
   storm: "Storm drainage",
   electrical: "Electrical",
   aircon: "Aircon",
+  site: "Site walls and fence",
 };
 
 function ProjectSection({ doc }: { doc: DocState }) {
   const [open, toggle] = useSection("project", true);
   const name = useProjectName();
   const st = doc.project.settings;
-  const set = (patch: Partial<ProjectSettings>) => dispatch({ type: "set_project_settings", settings: { ...st, ...patch } });
+  const set = (patch: Partial<ProjectSettings>) => void editSettings(st, { ...st, ...patch });
   return (
     <Section title="Project" icon="folder" open={open} onToggle={toggle}>
       <Field label="Name">
@@ -81,7 +83,7 @@ function DrawingSection({ doc }: { doc: DocState }) {
   const [open, toggle] = useSection("drawing", false);
   const st = doc.project.settings;
   const unit = st.display_unit;
-  const set = (patch: Partial<ProjectSettings>) => dispatch({ type: "set_project_settings", settings: { ...st, ...patch } });
+  const set = (patch: Partial<ProjectSettings>) => void editSettings(st, { ...st, ...patch });
   const scales = SCALES.includes(st.scale_denominator) ? SCALES : [...SCALES, st.scale_denominator].sort((a, b) => a - b);
   return (
     <Section title="Drawing setup" icon="dimension" open={open} onToggle={toggle}>
@@ -127,7 +129,7 @@ function SiteSection({ doc }: { doc: DocState }) {
   const flash = useReveal("site", ref);
   const st = doc.project.settings;
   const site = siteOf(st);
-  const set = (patch: Partial<ProjectSettings>) => dispatch({ type: "set_project_settings", settings: { ...st, ...patch } });
+  const set = (patch: Partial<ProjectSettings>) => void editSettings(st, { ...st, ...patch });
   const setSite = (next: Site) => set({ site: next });
   return (
     <div ref={ref} className={cx(s.reveal, flash && s.revealFlash)}>
@@ -164,7 +166,7 @@ function RoofSection({ doc }: { doc: DocState }) {
   const [open, toggle] = useSection("roof", true);
   const roof = doc.project.roof;
   const unit = doc.project.settings.display_unit;
-  const set = (patch: Partial<Roof>) => dispatch({ type: "set_roof", roof: { ...roof, ...patch } });
+  const set = (patch: Partial<Roof>) => void editRoof(roof, { ...roof, ...patch });
   const sloped = roof.kind === "shed" || roof.kind === "gable";
   return (
     <Section title="Roof" icon="roof" open={open} onToggle={toggle}>
@@ -222,7 +224,7 @@ function LayerRow({ layer, swatch, meta }: { layer: Layer; swatch?: string; meta
         size={15}
         active={layer.locked}
         className={s.layerButton}
-        onClick={() => dispatch({ type: "set_layer", layer: { ...layer, locked: !layer.locked } })}
+        onClick={() => void editLayer(layer, { ...layer, locked: !layer.locked })}
       />
       <IconButton
         icon={layer.visible ? "eye" : "eyeOff"}
@@ -231,7 +233,7 @@ function LayerRow({ layer, swatch, meta }: { layer: Layer; swatch?: string; meta
         tipSide="top-end"
         size={15}
         className={s.layerButton}
-        onClick={() => dispatch({ type: "set_layer", layer: { ...layer, visible: !layer.visible } })}
+        onClick={() => void editLayer(layer, { ...layer, visible: !layer.visible })}
       />
     </li>
   );
@@ -348,6 +350,56 @@ const KIND_PLURAL: Record<Element["kind"], [string, string]> = {
   pipe: ["pipe", "pipes"],
 };
 
+/** Thickness and height for several walls, each change one batch and one undo step. */
+function WallsMultiFields({ doc, walls }: { doc: DocState; walls: WallEl[] }) {
+  const unit = doc.project.settings.display_unit;
+  const n = walls.length;
+  const thick = sharedNumber(walls.map((w) => w.thickness_mm));
+  const height = sharedNumber(walls.map((w) => wallHeight(doc, w)));
+  const followLevel = walls.every((w) => w.height_mm === null);
+  const someFollow = !followLevel && walls.some((w) => w.height_mm === null);
+  return (
+    <>
+      <Field label="Thickness" hint={`Sets all ${n} walls`}>
+        <NumberField
+          label={`Thickness of the ${n} selected walls`}
+          kind="length"
+          unit={unit}
+          min={20}
+          max={1000}
+          mixed={thick.mixed}
+          value={thick.value}
+          onCommit={(v) => void updateElements(wallsLabel("thickness", n), thicknessEdits(walls, v))}
+        />
+      </Field>
+      <Field label="Height" hint={`Sets all ${n} walls`}>
+        <NumberField
+          label={`Height of the ${n} selected walls`}
+          kind="length"
+          unit={unit}
+          min={100}
+          max={20000}
+          step={50}
+          disabled={followLevel}
+          mixed={height.mixed}
+          value={height.value}
+          onCommit={(v) => void updateElements(wallsLabel("height", n), heightEdits(walls, v))}
+        />
+      </Field>
+      <Field label="">
+        <label className={s.inlineSwitch}>
+          <Switch
+            label="Use the level height for the selected walls"
+            checked={followLevel}
+            onChange={(match) => void updateElements(wallsLabel("height", n), match ? heightEdits(walls, null) : unpinEdits(doc, walls))}
+          />
+          <span>{someFollow ? "Some follow the level" : "Same as level"}</span>
+        </label>
+      </Field>
+    </>
+  );
+}
+
 function MultiInspector({ doc, picked }: { doc: DocState; picked: Element[] }) {
   const catalog = useApp((st) => st.catalog);
   const devices = picked.filter((e): e is AssetEl => e.kind === "asset" && isDevice(e, catalogItem(catalog, e.catalog_key)));
@@ -360,6 +412,7 @@ function MultiInspector({ doc, picked }: { doc: DocState; picked: Element[] }) {
   const withMaterial = picked.filter((e): e is Extract<Element, { material_id: string | null }> => "material_id" in e);
   const rooms = picked.filter((e): e is Extract<Element, { kind: "room" }> => e.kind === "room");
   const pipes = picked.filter((e): e is Extract<Element, { kind: "pipe" }> => e.kind === "pipe");
+  const walls = picked.filter((e): e is WallEl => e.kind === "wall");
   const sharedOf = (values: Array<string | null>) => (values.every((v) => v === values[0]) ? { value: values[0], mixed: false } : { value: null, mixed: true });
   const mat = sharedOf(withMaterial.map((e) => e.material_id));
   const floor = sharedOf(rooms.map((e) => e.floor_material_id));
@@ -376,6 +429,7 @@ function MultiInspector({ doc, picked }: { doc: DocState; picked: Element[] }) {
       </header>
       <div className={s.scroll}>
         <div className={s.group}>
+          {walls.length > 0 ? <WallsMultiFields doc={doc} walls={walls} /> : null}
           {withMaterial.length > 0 ? (
             <Field label="Material">
               <MaterialPicker
@@ -384,7 +438,7 @@ function MultiInspector({ doc, picked }: { doc: DocState; picked: Element[] }) {
                 value={mat.value}
                 mixed={mat.mixed}
                 onChange={(id) => {
-                  if (id) dispatch({ type: "set_material", ids: withMaterial.map((e) => e.id), material_id: id });
+                  if (id) void commitLatest(() => ({ type: "set_material", ids: withMaterial.map((e) => e.id), material_id: id }));
                 }}
               />
             </Field>
@@ -398,11 +452,10 @@ function MultiInspector({ doc, picked }: { doc: DocState; picked: Element[] }) {
                 value={floor.value}
                 mixed={floor.mixed}
                 onChange={(id) =>
-                  dispatch({
-                    type: "batch",
-                    label: "Set floor finish",
-                    commands: rooms.map((r) => ({ type: "update_element", element: { ...r, floor_material_id: id } })),
-                  })
+                  void updateElements(
+                    "Set floor finish",
+                    rooms.map((r) => ({ base: r, next: { ...r, floor_material_id: id } })),
+                  )
                 }
               />
             </Field>

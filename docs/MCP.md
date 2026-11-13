@@ -495,12 +495,12 @@ back in square metres. The plan is +x east, +y north.
 | `list_renders` | Saved 3D visuals |
 | `get_render_image` | A saved visual as a picture, fitted to 1568 px, with its record |
 | `get_session` | The live session: who is in, what they have selected, the latest chat |
-| `get_guide` | The conventions or the PH defaults (`topic`: `conventions` or `ph_defaults`), the same text as the two doc resources, for agents that do not read resources |
-| `add_wall`, `add_wall_chain` | Walls |
+| `get_guide` | The conventions, the workflows or the PH defaults (`topic`: `conventions`, `workflows` or `ph_defaults`), the same text as the three doc resources, for agents that do not read resources |
+| `add_wall`, `add_wall_chain` | Walls. `role: "site"` draws a lot fence or boundary wall: 1800 mm high, on the site layer (`L-SITE` in DXF), never part of a room, the outside walls or the floor area |
 | `add_rect_room` | Four walls plus a named room |
 | `add_level`, `delete_level` | Add a storey on top of the highest level, or delete a level with everything on it |
 | `add_door`, `add_window` | Openings hosted on a wall |
-| `resize_room`, `set_wall_length`, `move_elements` | Reshape |
+| `resize_room`, `set_wall_length`, `move_elements` | Reshape. Joined walls stay straight; a move that would turn a square wall is refused with `stretch_turns_wall` and the wall named |
 | `move_pipe_points`, `set_pipe_segment_length`, `set_pipe_slope`, `insert_pipe_point`, `remove_pipe_point` | Edit pipe runs in 3D: move points, a segment or whole runs, set a segment's length or a slope with the end that holds, add or remove a bend. Joined runs follow with `keep_joins` |
 | `rename_room`, `set_room_usage` | Room data |
 | `set_opening_size`, `delete_elements` | Edit and remove |
@@ -516,7 +516,7 @@ back in square metres. The plan is +x east, +y north.
 | `undo`, `redo` | History, whoever made the change. In a live session someone else's step needs `force` |
 | `save_version` | A named version the user can restore in the app |
 | `export_plan` | PDF, SVG or DXF into the exports folder: the plan or a service sheet (`sheet`), pipes included unless `show_pipes` is false, and a page of review items in a PDF (`review_page`) |
-| `batch` | Several edits atomically, as one undo step |
+| `batch` | Several edits atomically, as one undo step. Each step runs once on one staged copy, outside the session lock: 200 steps take about 0.6 s in a debug build |
 
 Every editing tool (the ones above that change the plan, `batch`,
 `set_review_mark` and `add_camera`) takes an optional `scope`; see "The
@@ -616,6 +616,16 @@ Resources:
   pipe and service run systems, devices and links, review marks.
 - `guhit://docs/ph-defaults` - 150 mm CHB walls, 900 x 2100 doors,
   1200 x 1200 windows with a 900 sill, 3000 mm levels, material ids.
+- `guhit://docs/workflows` - the full working rules the server instructions
+  summarize: drawing a house, site walls, moving walls, pipes and devices, the
+  selection scope, views and renders, live sessions, honesty.
+
+The server instructions stay under 3500 characters, because Claude Code keeps
+only the first 4096 and other clients cut sooner. The honesty rules come first,
+then what needs the user's consent (live session `force`, paid AI
+visualization, deleting a level, chat); everything else is in the guides. A
+test fails when the instructions pass 4000 characters or the honesty rules
+leave the first 1500.
 
 ### The selection and `scope`
 

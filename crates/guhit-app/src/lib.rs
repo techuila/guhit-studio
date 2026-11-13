@@ -420,6 +420,41 @@ impl AppService {
         author: Option<Id>,
         project: Option<&str>,
     ) -> Result<ApplyResult, IpcError> {
+        self.commit_with(s, expected_revision, author, project, |doc, author, at| {
+            doc.apply_at(command, origin, author, at)
+        })
+    }
+
+    /// `commit_if_revision` for a batch staged with `guhit_core::Staging` on
+    /// the project at `expected_revision`. Same checks, same result, but the
+    /// staged result is taken as it is instead of running the batch again,
+    /// so the session lock is held only to swap it in, derive and save. A
+    /// guest sends the batch to the host, which runs it as usual.
+    pub async fn commit_staged_if_revision(
+        &self,
+        staging: guhit_core::Staging,
+        origin: Origin,
+        expected_revision: u32,
+    ) -> Result<ApplyResult, IpcError> {
+        let mut s = self.session.lock().await;
+        if s.live_copy.is_some() {
+            drop(s);
+            return live::guest_apply(self, staging.command(), origin, Some(expected_revision)).await;
+        }
+        let author = self.live.local_author();
+        self.commit_with(&mut s, Some(expected_revision), author, None, |doc, author, at| {
+            doc.apply_staged(staging, origin, author, at)
+        })
+    }
+
+    fn commit_with(
+        &self,
+        s: &mut Session,
+        expected_revision: Option<u32>,
+        author: Option<Id>,
+        project: Option<&str>,
+        apply: impl FnOnce(&mut Document, Option<Id>, &str) -> Result<ApplyResult, guhit_core::CoreError>,
+    ) -> Result<ApplyResult, IpcError> {
         let doc = s.doc.as_mut().ok_or_else(no_document)?;
         if project.is_some_and(|p| doc.project().id != p) {
             return Err(live::not_live("The host closed the project."));
@@ -432,7 +467,7 @@ impl AppService {
             ));
         }
         // The step's time is this computer's clock: the engine has none.
-        let result = doc.apply_at(command, origin, author.clone(), &defaults::now_rfc3339())?;
+        let result = apply(doc, author.clone(), &defaults::now_rfc3339())?;
         self.live.note_change(result.state.revision, author.as_ref());
         // Watchers hear of the change even when it could not be saved: the
         // plan did change.
@@ -748,7 +783,9 @@ impl AppService {
             // ------------------------------------------------------- export
             "export_plan" => {
                 let format: PlanFormat = arg(&args, "format")?;
-                let options: PlanExportOptions = arg(&args, "options")?;
+                let mut options: PlanExportOptions = arg(&args, "options")?;
+                // The title block shows today on this computer's calendar.
+                options.date.get_or_insert_with(local_date);
                 let path: Option<String> = arg(&args, "path")?;
                 let s = self.session.lock().await;
                 let doc = s.open_doc()?;
@@ -900,6 +937,19 @@ impl AppService {
     }
 }
 
+/// Today on this computer's calendar, "YYYY-MM-DD", for the sheet title
+/// block. The engine's timestamps are UTC; a drawing is dated where it is
+/// made.
+pub fn local_date() -> String {
+    let now = chrono::Local::now();
+    local_date_at(now.with_timezone(&chrono::Utc), *now.offset())
+}
+
+/// `local_date` for a given moment and UTC offset.
+pub fn local_date_at(utc: chrono::DateTime<chrono::Utc>, offset: chrono::FixedOffset) -> String {
+    utc.with_timezone(&offset).format("%Y-%m-%d").to_string()
+}
+
 fn export_err(e: guhit_export::ExportError) -> IpcError {
     match e {
         guhit_export::ExportError::Empty(_) => IpcError::new("invalid", e.to_string()),
@@ -984,5 +1034,24 @@ pub(crate) fn export_target(
             files::create_dir(exports)?;
             Ok(files::unique_path(exports, &format!("{stem}-{}", files::file_timestamp()), ext))
         }
+    }
+}
+
+#[cfg(test)]
+mod date_tests {
+    use super::*;
+
+    /// 18:48 UTC on 3 Nov is 02:48 on 4 Nov in Manila (+08:00): the sheet
+    /// reads the Manila date.
+    #[test]
+    fn the_sheet_date_is_the_local_calendar_date() {
+        let utc = chrono::DateTime::parse_from_rfc3339("2026-11-03T18:48:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let manila = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        let utc_zone = chrono::FixedOffset::east_opt(0).unwrap();
+        assert_eq!(local_date_at(utc, manila), "2026-11-04");
+        assert_eq!(local_date_at(utc, utc_zone), "2026-11-03");
+        assert_eq!(local_date().len(), 10);
     }
 }

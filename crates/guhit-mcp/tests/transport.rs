@@ -217,7 +217,7 @@ async fn with_the_app_down_the_proxy_answers_the_handshake_itself() {
         guhit_mcp::tool_list().len()
     );
     assert_eq!(by_id(&lines, 3)["result"], json!({}));
-    assert_eq!(by_id(&lines, 4)["result"]["resources"].as_array().unwrap().len(), 3);
+    assert_eq!(by_id(&lines, 4)["result"]["resources"].as_array().unwrap().len(), 4);
     assert_eq!(by_id(&lines, 5)["result"]["prompts"], json!([]));
     for id in [6, 7] {
         let result = &by_id(&lines, id)["result"];

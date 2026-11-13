@@ -221,6 +221,26 @@ fn ifc_guids_are_stable_across_re_exports() {
     assert!(a.contains(&format!("IFCWALL('{}'", guid(&wall_id))));
 }
 
+/// R2: run 4000 with 17 risers is 16 treads of 250, as the inspector says.
+/// The file used to write 235.29 (the run over the risers), and 16 of those
+/// are not 4000.
+#[test]
+fn ifc_stair_treads_add_up_to_the_run() {
+    let mut s = rich();
+    for e in s.project.elements.iter_mut() {
+        if let Element::Stair(st) = e {
+            st.run_mm = 4000.0;
+            st.riser_count = 17;
+        }
+    }
+    let ifc = model_ifc(&s.project, &s.derived).unwrap();
+    let flight = ifc.lines().find(|l| l.contains("IFCSTAIRFLIGHT(")).expect("a flight");
+    assert!(flight.ends_with(",17,16,176.470588,250.,.STRAIGHT.);"), "{flight}");
+    assert!(ifc.contains("IFCPROPERTYSINGLEVALUE('TreadLength',$,IFCLENGTHMEASURE(250.),$)"));
+    assert!(ifc.contains("IFCPROPERTYSINGLEVALUE('NumberOfTreads',$,IFCCOUNTMEASURE(16),$)"));
+    assert!(!ifc.contains("235.29"));
+}
+
 #[test]
 fn ifc_carries_the_contract_properties() {
     let s = rich();

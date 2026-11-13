@@ -179,17 +179,32 @@ pub fn analyze(project: &Project) -> Analysis {
         }
     }
     for level_id in level_ids {
-        let walls: Vec<&Wall> = project
-            .elements
-            .iter()
-            .filter_map(|e| match e {
-                Element::Wall(w) if w.level_id == level_id && usable(w) => Some(w),
-                _ => None,
-            })
-            .collect();
-        let (topo, wt) = analyze_level(&level_id, &walls);
+        let on_level = |site: bool| -> Vec<&Wall> {
+            project
+                .elements
+                .iter()
+                .filter_map(|e| match e {
+                    Element::Wall(w) if w.level_id == level_id && usable(w) && w.is_site() == site => Some(w),
+                    _ => None,
+                })
+                .collect()
+        };
+        // Building walls alone make the rooms, the footprints and the
+        // exterior flags, so a lot fence never turns the yard into a room or
+        // the house walls into interior ones.
+        let (topo, wt) = analyze_level_cached(&level_id, &on_level(false));
         for w in wt {
             wall_topos.insert(w.wall_id.clone(), w);
+        }
+        // Site walls join among themselves for their outlines; whatever they
+        // enclose is not a room. They stand outside, so they read exterior.
+        let site = on_level(true);
+        if !site.is_empty() {
+            let (_, wt) = analyze_level_cached(&level_id, &site);
+            for mut w in wt {
+                w.exterior = true;
+                wall_topos.insert(w.wall_id.clone(), w);
+            }
         }
         analysis.levels.push(topo);
     }
@@ -212,6 +227,119 @@ pub fn analyze(project: &Project) -> Analysis {
         }
     }
     analysis
+}
+
+/// What `analyze_level` reads of its walls, as exact bits: the level, then
+/// each wall's id, ends and thickness, in order. Two equal keys give equal
+/// results, because `analyze_level` is a pure function of exactly these.
+#[derive(PartialEq, Eq)]
+struct LevelKey {
+    level_id: Id,
+    walls: Vec<(Id, [u64; 5])>,
+}
+
+impl LevelKey {
+    fn new(level_id: &str, walls: &[&Wall]) -> Self {
+        Self {
+            level_id: level_id.to_string(),
+            walls: walls
+                .iter()
+                .map(|w| {
+                    let bits = [
+                        w.start.x.to_bits(),
+                        w.start.y.to_bits(),
+                        w.end.x.to_bits(),
+                        w.end.y.to_bits(),
+                        w.thickness_mm.to_bits(),
+                    ];
+                    (w.id.clone(), bits)
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Levels analyzed lately, newest last. One command analyzes
+/// the project before and after it, and `compute_derived` the result again,
+/// and most commands (an object, a door, a rename) leave the walls of every
+/// level as they were. A staged batch of 200 steps analyzed each level about
+/// 600 times; most of those are now a lookup. Small, so it never holds much.
+const LEVEL_CACHE: usize = 8;
+
+type CachedLevel = (LevelKey, LevelTopo, Vec<WallTopo>);
+
+/// Shared by every thread: an MCP batch may stage on one runtime thread and
+/// commit on another.
+static LEVELS: std::sync::Mutex<Vec<CachedLevel>> = std::sync::Mutex::new(Vec::new());
+
+fn levels() -> std::sync::MutexGuard<'static, Vec<CachedLevel>> {
+    // A panic elsewhere cannot leave a half written entry: entries are
+    // pushed whole. So a poisoned lock is still a good cache.
+    LEVELS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// `analyze_level`, answered from the recent results when the walls are the
+/// same. The answer is identical either way.
+fn analyze_level_cached(level_id: &str, walls: &[&Wall]) -> (LevelTopo, Vec<WallTopo>) {
+    let key = LevelKey::new(level_id, walls);
+    let hit = {
+        let mut c = levels();
+        c.iter().position(|(k, _, _)| *k == key).map(|i| {
+            let entry = c.remove(i);
+            let out = (entry.1.clone(), entry.2.clone());
+            c.push(entry);
+            out
+        })
+    };
+    if let Some(out) = hit {
+        return out;
+    }
+    let (topo, wt) = analyze_level(level_id, walls);
+    let mut c = levels();
+    if c.len() >= LEVEL_CACHE {
+        c.remove(0);
+    }
+    c.push((key, topo.clone(), wt.clone()));
+    (topo, wt)
+}
+
+/// Label points worked out lately, by the exact bits of the
+/// room outline and its islands. Finding one is the costly part of a level
+/// analysis, and adding a wall changes only the faces it touches, so the
+/// other rooms' points are looked up. Cleared when it grows past this.
+const LABEL_CACHE: usize = 4096;
+
+static LABELS: std::sync::Mutex<BTreeMap<Vec<u64>, Option<Point>>> = std::sync::Mutex::new(BTreeMap::new());
+
+fn labels() -> std::sync::MutexGuard<'static, BTreeMap<Vec<u64>, Option<Point>>> {
+    LABELS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// `label_point(net, holes, 10.0)`, which is a pure function of its input,
+/// so the cached answer is the same answer.
+fn cached_label_point(net: &[Point], holes: &[Vec<Point>]) -> Option<Point> {
+    let mut key: Vec<u64> = Vec::with_capacity(2 + 2 * net.len());
+    let mut ring = |r: &[Point]| {
+        key.push(r.len() as u64);
+        for p in r {
+            key.push(p.x.to_bits());
+            key.push(p.y.to_bits());
+        }
+    };
+    ring(net);
+    for h in holes {
+        ring(h);
+    }
+    if let Some(hit) = labels().get(&key).copied() {
+        return hit;
+    }
+    let label = label_point(net, holes, 10.0);
+    let mut c = labels();
+    if c.len() >= LABEL_CACHE {
+        c.clear();
+    }
+    c.insert(key, label);
+    label
 }
 
 /// Half-edge `edge * 2 + dir`; dir 0 runs a to b.
@@ -501,7 +629,7 @@ fn analyze_level(level_id: &str, walls: &[&Wall]) -> (LevelTopo, Vec<WallTopo>) 
         if area < MIN_ROOM_AREA_MM2 {
             continue;
         }
-        let Some(label) = label_point(&net, &holes, 10.0) else {
+        let Some(label) = cached_label_point(&net, &holes) else {
             continue;
         };
         let mut wall_ids: Vec<Id> = vec![];
@@ -785,9 +913,50 @@ mod tests {
                 thickness_mm: *t,
                 height_mm: None,
                 material_id: None,
+                role: WallRole::Building,
             }));
         }
         p
+    }
+
+    /// The caches answer exactly what a fresh analysis does, a changed wall
+    /// is never answered from an older plan, and a label point read back is
+    /// the one worked out.
+    #[test]
+    fn cached_analysis_equals_a_fresh_one() {
+        let mut project = crate::templates::plumbing_demo();
+        let fresh_of = |project: &Project, level: &str| {
+            let walls: Vec<&Wall> = project
+                .elements
+                .iter()
+                .filter_map(|e| match e {
+                    Element::Wall(w) if w.level_id == level && usable(w) => Some(w),
+                    _ => None,
+                })
+                .collect();
+            (format!("{:?}", analyze_level(level, &walls)), format!("{:?}", analyze_level_cached(level, &walls)))
+        };
+        let levels: Vec<Id> = project.levels.iter().map(|l| l.id.clone()).collect();
+        for level in &levels {
+            for _ in 0..2 {
+                let (fresh, cached) = fresh_of(&project, level);
+                assert_eq!(fresh, cached);
+            }
+        }
+        // Nudge one wall by a tenth of a millimetre: a new key, a new answer.
+        let before = fresh_of(&project, &levels[0]).1;
+        if let Some(Element::Wall(w)) = project.elements.iter_mut().find(|e| matches!(e, Element::Wall(_))) {
+            w.end.x += 0.1;
+        }
+        let (fresh, cached) = fresh_of(&project, &levels[0]);
+        assert_eq!(fresh, cached);
+        assert_ne!(before, cached);
+
+        for level in &analyze(&project).levels {
+            for f in &level.faces {
+                assert_eq!(cached_label_point(&f.net, &f.holes), label_point(&f.net, &f.holes, 10.0));
+            }
+        }
     }
 
     fn bungalow() -> Project {

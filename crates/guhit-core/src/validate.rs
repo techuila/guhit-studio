@@ -40,6 +40,8 @@ pub fn layer_of(kind: ElementKind) -> Option<LayerKey> {
 pub fn element_layer(el: &Element) -> Option<LayerKey> {
     match el {
         Element::Pipe(p) => Some(p.system.layer()),
+        // Site walls (fences, boundary walls) are on `site`.
+        Element::Wall(w) => Some(w.layer()),
         Element::Asset(a) => Some(asset_layer(a.category)),
         other => layer_of(other.kind()),
     }
@@ -72,6 +74,7 @@ pub fn layer_name(key: LayerKey) -> &'static str {
         LayerKey::Storm => "Storm drainage",
         LayerKey::Electrical => "Electrical",
         LayerKey::Aircon => "Aircon",
+        LayerKey::Site => "Site",
     }
 }
 
@@ -108,6 +111,15 @@ fn locked_error(key: LayerKey, ids: Vec<Id>) -> CoreError {
 /// Reject a new element on a locked layer.
 pub fn ensure_unlocked(project: &Project, kind: ElementKind) -> Result<(), CoreError> {
     match is_locked(project, kind) {
+        Some(key) => Err(locked_error(key, vec![])),
+        None => Ok(()),
+    }
+}
+
+/// Reject a new element on `key` when that layer is locked: a new site
+/// wall on `site`, a building wall on `walls`.
+pub fn ensure_layer_unlocked(project: &Project, key: LayerKey) -> Result<(), CoreError> {
+    match locked_key(project, key) {
         Some(key) => Err(locked_error(key, vec![])),
         None => Ok(()),
     }

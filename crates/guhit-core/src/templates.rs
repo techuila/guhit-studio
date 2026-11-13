@@ -29,6 +29,7 @@ pub fn sample_bungalow() -> Project {
             thickness_mm: t,
             height_mm: None,
             material_id: Some(defaults::MAT_WALL_DEFAULT.into()),
+            role: WallRole::Building,
         })
     };
     // 8.0 x 6.0 m shell on centerlines, one partition at x = 5000.
@@ -240,6 +241,7 @@ pub fn plumbing_demo() -> Project {
                 thickness_mm: *t,
                 height_mm: None,
                 material_id: Some(defaults::MAT_WALL_DEFAULT.into()),
+                role: WallRole::Building,
             })
         })
         .collect();

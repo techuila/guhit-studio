@@ -3,18 +3,18 @@
 // that says what goes with it (never window.confirm), and edit the active
 // level's height and elevation. Every change is one undo step.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Command, DocState, Level } from "../contract/bindings";
+import type { DocState, Level } from "../contract/bindings";
 import { useApp } from "../state/store";
 import { Button, Field, IconButton, NumberField, Section, cx } from "../ui/controls";
 import { useSlidingIndicator } from "../ui/motionDom";
 import { useListPresence } from "../ui/useListPresence";
 import { addLevelAbove, deleteLevel } from "./actions";
+import { editLevel } from "./commitLatest";
 import { deleteLevelQuestion, elementsOnLevel, elevationLabel, levelsTopDown } from "./levels";
 import { useReveal } from "./PipeSections";
 import { useSection, useShell } from "./shellStore";
 import s from "./Inspector.module.css";
 
-const dispatch = (command: Command) => void useApp.getState().dispatch(command);
 const levelKey = (l: Level) => l.id;
 
 /** Height reveal (MOTION.md rule 5); collapsed content is inert. */
@@ -38,7 +38,7 @@ function RenameField({ level, onDone }: { level: Level; onDone: () => void }) {
     if (done.current) return;
     done.current = true;
     const name = value.trim();
-    if (name && name !== level.name) dispatch({ type: "update_level", level: { ...level, name } });
+    if (name && name !== level.name) void editLevel(level, { ...level, name });
     onDone();
   };
   return (
@@ -105,7 +105,7 @@ export function LevelsSection({ doc }: { doc: DocState }) {
   }, [confirming]);
 
   if (!active) return null;
-  const setLevel = (patch: Partial<Level>) => dispatch({ type: "update_level", level: { ...active, ...patch } });
+  const setLevel = (patch: Partial<Level>) => void editLevel(active, { ...active, ...patch });
 
   return (
     <div ref={sectionRef} className={cx(s.reveal, flash && s.revealFlash)}>

@@ -8,7 +8,8 @@ import { groupFootprints } from "../scene/buildScene";
 import { EYE_HEIGHT_MM } from "./cameraMath";
 import { crossesWall, isClear, levelResolver, pushOut, WALKER_RADIUS_MM, type CollisionWorld } from "./collision";
 import type { Pt } from "./coords";
-import { boundsOf, ensureCCW, longAxis, orientedRect, pointInPolygon } from "./polygon";
+import { boundsOf, ensureCCW, orientedRect, pointInPolygon, signedArea } from "./polygon";
+import { stairLocal, stairsOf } from "../walk/stairs";
 
 export interface WalkPose {
   x: number;
@@ -64,28 +65,126 @@ function clearPointInRoom(polygon: Pt[], near: Pt, world: CollisionWorld, r: num
   return null;
 }
 
+/** A view is measured this far at most, mm. */
+const VIEW_MAX_MM = 30000;
+/** Headings tried from each spot: every 5 degrees. */
+const VIEW_RAYS = 72;
+/** A view is the mean over this many rays either side (10 degrees): a slot through a door is not an open view. */
+const VIEW_CONE = 2;
+/** Where a walk starts, the walker keeps this far from walls when it can. */
+const START_CLEAR_MM = 400;
+
 /**
- * The start rule. Inside the room under the orbit target when there is one,
- * keeping the orbit camera's heading. Otherwise just outside the first
+ * Distance from `p` along plan heading `yaw` to the first wall (doors are
+ * gaps, windows are wall) or out of the building, up to `max`.
+ */
+export function viewDistance(p: Pt, yaw: number, edges: [Pt, Pt][], max = VIEW_MAX_MM): number {
+  const dx = Math.cos(yaw);
+  const dy = Math.sin(yaw);
+  let best = max;
+  for (const [a, b] of edges) {
+    const ex = b.x - a.x;
+    const ey = b.y - a.y;
+    const den = dx * ey - dy * ex;
+    if (Math.abs(den) < 1e-9) continue;
+    const ax = a.x - p.x;
+    const ay = a.y - p.y;
+    const t = (ax * ey - ay * ex) / den;
+    const u = (ax * dy - ay * dx) / den;
+    if (t > 1e-6 && t < best && u >= 0 && u <= 1) best = t;
+  }
+  return best;
+}
+
+/** Edges a view stops at on a level: the wall pieces and the building outlines. */
+function viewEdges(doc: DocState, levelId: string, world: CollisionWorld): [Pt, Pt][] {
+  const out: [Pt, Pt][] = [];
+  const add = (poly: Pt[]) => poly.forEach((a, i) => out.push([a, poly[(i + 1) % poly.length]]));
+  world.wallPieces.forEach(add);
+  groupFootprints(doc.derived?.footprints, levelResolver(doc)(levelId)?.id ?? levelId).forEach(add);
+  return out;
+}
+
+/** The heading with the longest open view from `p`, and how long it is (the mean over a 20 degree cone). */
+export function longestView(p: Pt, edges: [Pt, Pt][]): { yaw: number; length: number } {
+  const d: number[] = [];
+  for (let k = 0; k < VIEW_RAYS; k++) d.push(viewDistance(p, (k / VIEW_RAYS) * Math.PI * 2, edges));
+  let best = { yaw: 0, length: -1 };
+  for (let k = 0; k < VIEW_RAYS; k++) {
+    let sum = 0;
+    for (let j = -VIEW_CONE; j <= VIEW_CONE; j++) sum += d[(k + j + VIEW_RAYS) % VIEW_RAYS];
+    const length = sum / (2 * VIEW_CONE + 1);
+    if (length > best.length + 1e-6) best = { yaw: wrap((k / VIEW_RAYS) * Math.PI * 2), length };
+  }
+  return best;
+}
+
+function wrap(a: number): number {
+  return a > Math.PI ? a - Math.PI * 2 : a;
+}
+
+/**
+ * Where to stand in a room and which way to look: of clear spots on a grid
+ * over the room (and its label point), the one with the longest open view,
+ * looking along it. As a person shows a room: from one side, across it.
+ */
+export function bestViewInRoom(
+  room: { polygon: Pt[]; label: Pt },
+  edges: [Pt, Pt][],
+  world: CollisionWorld,
+  r = WALKER_RADIUS_MM,
+  avoid: (p: Pt) => boolean = () => false,
+): { x: number; y: number; yaw: number; length: number } | null {
+  const b = boundsOf(room.polygon);
+  if (!b) return null;
+  const area = Math.abs(signedArea(room.polygon));
+  const step = Math.max(400, Math.sqrt(area) / 7);
+  const spots: Pt[] = [room.label];
+  for (let x = b.minX + step / 2; x < b.maxX; x += step) for (let y = b.minY + step / 2; y < b.maxY; y += step) spots.push({ x, y });
+  for (const clearance of [START_CLEAR_MM, 20]) {
+    let best: { x: number; y: number; yaw: number; length: number } | null = null;
+    for (const p of spots) {
+      if (!pointInPolygon(p, room.polygon) || avoid(p) || !isClear(p, r + clearance, world)) continue;
+      const v = longestView(p, edges);
+      if (!best || v.length > best.length + 1) best = { x: p.x, y: p.y, yaw: v.yaw, length: v.length };
+    }
+    if (best) return best;
+  }
+  const p = clearPointInRoom(room.polygon, room.label, world, r);
+  return p ? { ...p, ...longestView(p, edges) } : null;
+}
+
+/**
+ * The start rule. Inside the largest room of the level, on the spot with the
+ * longest open view and looking along it. Otherwise just outside the first
  * exterior door, facing in. Otherwise south of the model, facing north.
+ * `target` and `heading` (the orbit camera's) only break a tie between two
+ * rooms of the same size: the one under the target wins.
  */
 export function walkStartPose(
   doc: DocState,
   levelId: string,
   world: CollisionWorld,
   target: Pt | null,
-  heading: number | null,
+  _heading: number | null,
   r = WALKER_RADIUS_MM,
 ): WalkStart {
-  const rooms = roomsOn(doc, levelId);
-  if (target) {
-    const room = rooms.find((rm) => pointInPolygon(target, rm.polygon));
-    if (room) {
-      const p = clearPointInRoom(room.polygon, target, world, r) ?? clearPointInRoom(room.polygon, room.label, world, r);
-      if (p) {
-        const yaw = heading ?? Math.atan2(longAxis(room.polygon).dir.y, longAxis(room.polygon).dir.x);
-        return { x: p.x, y: p.y, yaw, pitch: -0.05, from: "room" };
-      }
+  const rooms = roomsOn(doc, levelId)
+    .map((rm) => ({ ...rm, area: Math.abs(signedArea(rm.polygon)), under: target !== null && pointInPolygon(target, rm.polygon) }))
+    .sort((a, b) => b.area - a.area || Number(b.under) - Number(a.under));
+  if (rooms.length > 0) {
+    const edges = viewEdges(doc, levelId, world);
+    // Never on a stair: not on its flight, its approach or in its stairwell.
+    const level = levelResolver(doc)(levelId)?.id ?? levelId;
+    const flights = stairsOf(doc).filter((st) => st.levelId === level || st.topLevelId === level);
+    const onStair = (p: Pt) =>
+      flights.some((st) => {
+        const { u, v } = stairLocal(st, p);
+        return u > -st.going - r && u < st.run + r && Math.abs(v) < st.width / 2 + r;
+      });
+    for (const room of rooms) {
+      const v = bestViewInRoom(room, edges, world, r, onStair);
+      if (v) return { x: v.x, y: v.y, yaw: v.yaw, pitch: -0.05, from: "room" };
     }
   }
 

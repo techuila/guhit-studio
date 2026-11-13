@@ -79,6 +79,26 @@ fn svg_contains_rooms_areas_and_title_block() {
     assert!(!svg.contains('\u{2014}') && !svg.contains('\u{2013}'), "no long dashes");
 }
 
+/// R2: exported at 02:48 on 4 Nov in Manila the title block read 2026-11-03,
+/// the UTC date of the last change. The caller's local date wins; the
+/// project's own date is only the fallback.
+#[test]
+fn title_block_date_is_the_callers_local_date() {
+    let mut s = fixture();
+    s.project.updated_at = "2026-11-03T18:48:00Z".into();
+    let mut opts = options(PaperSize::A3, Orientation::Landscape);
+    let svg = plan_svg(&s.project, &s.derived, &opts).unwrap().data;
+    assert!(svg.contains(">2026-11-03<"), "no local date given: the project's date");
+    opts.date = Some("2026-11-04".into());
+    let svg = plan_svg(&s.project, &s.derived, &opts).unwrap().data;
+    assert!(svg.contains(">2026-11-04<"));
+    assert!(!svg.contains(">2026-11-03<"));
+    // Something that is not a date falls back rather than printing junk.
+    opts.date = Some("soon".into());
+    let svg = plan_svg(&s.project, &s.derived, &opts).unwrap().data;
+    assert!(svg.contains(">2026-11-03<"));
+}
+
 #[test]
 fn svg_auto_scale_fits_and_is_a_common_scale() {
     let s = fixture();
@@ -458,6 +478,7 @@ fn dxf_swing_side_and_hinge_follow_the_flags() {
                 thickness_mm: 200.0,
                 height_mm: None,
                 material_id: None,
+                role: WallRole::Building,
             }),
             Element::Opening(door(flip_side, flip_hinge)),
         ];
@@ -569,6 +590,7 @@ fn corner_patches_only_where_outlines_leave_a_gap() {
             thickness_mm: 200.0,
             height_mm: None,
             material_id: None,
+            role: WallRole::Building,
         })
     };
     s.project.elements = vec![wall("a", (0.0, 0.0), (4000.0, 0.0)), wall("b", (4000.0, 0.0), (4000.0, 3000.0))];

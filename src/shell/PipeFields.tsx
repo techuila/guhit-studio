@@ -28,6 +28,7 @@ import { Button, Field, NumberField, ReadOnly, Section, Segmented, Select, TextF
 import { Icon } from "../ui/icons";
 import { formatLength } from "../ui/units";
 import { walkTo } from "./actions";
+import { updateElement } from "./commitLatest";
 import {
   PIPE_COLOR,
   PIPE_MATERIAL_LABEL,
@@ -55,7 +56,8 @@ type PipeOf = Extract<Element, { kind: "pipe" }>;
 type Unit = "mm" | "m";
 
 const run = (command: Command | null): Promise<unknown> => (command ? useApp.getState().dispatch(command) : Promise.resolve(null));
-const update = (element: Element) => void run({ type: "update_element", element });
+/** Lays the fields this edit changed over the latest element (`commitLatest.ts`). */
+const update = (base: Element, element: Element) => void updateElement(base, element);
 
 function pct(value: number, digits: number): string {
   return `${value.toFixed(digits)}%`;
@@ -298,17 +300,17 @@ export function PipeFields({ el, doc }: { el: PipeOf; doc: DocState }) {
     <>
       <div className={s.group}>
         <Field label="Name">
-          <TextField label="Run name" value={el.name} placeholder={tradeOf(el.system).group === "plumbing" ? "For example, sink waste" : tradeOf(el.system).group === "electrical" ? "For example, kitchen outlets" : "For example, bedroom line set"} onCommit={(name) => update({ ...el, name })} />
+          <TextField label="Run name" value={el.name} placeholder={tradeOf(el.system).group === "plumbing" ? "For example, sink waste" : tradeOf(el.system).group === "electrical" ? "For example, kitchen outlets" : "For example, bedroom line set"} onCommit={(name) => update(el, { ...el, name })} />
         </Field>
         <Field label="System" hint="Each system has its own layer">
           <span className={s.pipeSwatch} style={{ background: PIPE_COLOR[el.system] }} aria-hidden />
-          <Select label="Pipe system" value={el.system} options={PIPE_SYSTEMS.map((o) => ({ value: o.value, label: o.label }))} onChange={(system) => update(withSystem(el, system))} />
+          <Select label="Pipe system" value={el.system} options={PIPE_SYSTEMS.map((o) => ({ value: o.value, label: o.label }))} onChange={(system) => update(el, withSystem(el, system))} />
         </Field>
         <Field label="Material">
-          <Select label="Pipe material" value={el.material} options={materialOptions} onChange={(material) => update(withMaterial(el, material))} />
+          <Select label="Pipe material" value={el.material} options={materialOptions} onChange={(material) => update(el, withMaterial(el, material))} />
         </Field>
         <Field label={el.system === "refrigerant" ? "Gas line" : "Size"} hint={`Nominal size${el.system === "refrigerant" ? " of the gas line; the liquid line is 6.35 mm" : ""}. Sizing is for ${tradeOf(el.system).pro}.`}>
-          <Select label="Pipe size" value={String(el.diameter_mm)} options={sizeOptions} onChange={(v) => update({ ...el, diameter_mm: Number(v) })} />
+          <Select label="Pipe size" value={String(el.diameter_mm)} options={sizeOptions} onChange={(v) => update(el, { ...el, diameter_mm: Number(v) })} />
         </Field>
         <Field label="Length" hint="Centerline, along every segment">
           <ReadOnly>{formatLength(pipeLength(el.points), unit)}</ReadOnly>
@@ -326,7 +328,7 @@ export function PipeFields({ el, doc }: { el: PipeOf; doc: DocState }) {
         ) : null}
         <div className={s.actionsRow}>
           {drainage ? (
-            <Button size="sm" icon="flip" onClick={() => update(reversed(el))}>
+            <Button size="sm" icon="flip" onClick={() => update(el, reversed(el))}>
               Reverse flow
             </Button>
           ) : null}

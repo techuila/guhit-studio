@@ -3,93 +3,166 @@
 //! teaches a model how to draw here is reviewed as a whole.
 
 /// Server instructions. Sent once at `initialize`, so every later tool call
-/// already has the conventions in context.
+/// already has the rules in context.
+///
+/// Claude Code keeps only the first 4096 characters, and other clients cut
+/// sooner, so this stays under 3500 and the rules that protect the user come
+/// first: honesty, then what needs the user's consent. The rest of the detail
+/// lives in the guides (`get_guide`, the `guhit://docs/...` resources).
 pub const INSTRUCTIONS: &str = "\
-Guhit Studio is a semantic 2D floor plan editor for Philippine residential work. \
-These tools drive the open document in the running desktop app: every edit is \
-validated by the same Rust engine the app's own tools use, is saved right away \
-and shows up in the window within a second.
+Guhit Studio edits the floor plan open in the running desktop app, for Philippine \
+residential work. Every edit is checked by the app's own engine, saved at once and \
+shown in the window.
 
-Units and coordinates:
-- Every length in every argument and every result is MILLIMETERS. 4 m is 4000.
-- The plan is +x east, +y north. Angles are degrees, counter-clockwise.
-- Areas come back in square metres (m2) because that is how plans are read.
+Honesty rules:
+- Review items are suggestions to check. Never present anything from this server as \
+  permit approval, structural certification or code compliance. You are not checking \
+  the National Building Code. Guhit never sizes pipes, wiring or aircon: those plans are \
+  signed by a registered Master Plumber, a Professional Electrical Engineer or a \
+  Professional Mechanical Engineer.
+- Areas, lengths and counts come from the engine. Report the numbers the tools return; \
+  never estimate them yourself.
+- A failed edit returns the engine's exact message. Fix the arguments and try again; \
+  never work around a refusal.
+- A review item set aside with `set_review_mark` is never approved. Only set one aside \
+  when the user asks and says why.
+
+Ask the user first:
+- Other people may be editing this plan from their own computers (`get_session`). \
+  `open_project`, `create_project` and `close_project` end a live session this \
+  computer hosts, for everyone, and refuse with `live_session`; `undo` refuses a step \
+  someone else made. Pass `force` only after the user confirms.
+- `visualize_render` costs the user money: only when they ask for one. Its image is \
+  labelled \"AI visualization\" and never changes the model.
+- `delete_level` removes a level with everything on it: only when the user names it.
+- `send_chat_message` posts to the session chat as the user: only when they ask.
+- When the user says \"this\" or \"the selection\", call `get_selection` and pass \
+  `scope: \"selection\"`. `out_of_scope` means the edit reached outside it: change only \
+  what is in scope, or tell the user what else would have to change.
+
+Units: every length in every argument and result is MILLIMETERS (4 m is 4000). The \
+plan is +x east, +y north; angles are degrees, counter-clockwise. Areas are m2.
 
 How to draw:
-- Open or create a project first. `create_project` and `open_project` switch the \
+- Open or create a project first; every other tool acts on the open one.
+- `add_rect_room` takes the south-west corner and CENTERLINE sizes (`width_mm` east, \
+  `depth_mm` north). Neighbouring rooms share a wall: start the next room on the last \
+  one's centerline. Wall ends within 1 mm join.
+- Doors go on shared walls, windows on exterior walls. Wall ids come from `list_rooms` \
+  or `list_elements`.
+- A lot fence or boundary wall is a site wall: `add_wall` or `add_wall_chain` with \
+  `role: \"site\"`. It never makes a room or changes the house's outside walls or area.
+- For many edits use `batch`: one undo step, all or nothing, and ids made by earlier \
+  steps stay valid for later ones.
+- Upper floors: `add_level`, then pass its name as `level`.
+- An edit result lists under `also_moved` the walls it reshaped that the call did not \
+  name. Tell the user about them.
+- After a run of edits call `list_review_items` and report what it says.
+
+Before drawing read `get_guide` topic \"conventions\". Topic \"workflows\" covers pipes, \
+devices, the selection, views, renders and live sessions in full; \"ph_defaults\" has \
+sizes and material ids.";
+
+/// `guhit://docs/workflows`: the detail the instructions leave out, for
+/// clients that read guides.
+pub const WORKFLOWS: &str = "\
+# Guhit Studio workflows
+
+Every length is millimeters. The plan is +x east, +y north.
+
+## Drawing a house
+- Open or create a project first. `create_project` and `open_project` switch the
   document; every other tool acts on whatever is open.
-- Build rooms with `add_rect_room`, one call per room. Give the origin as the \
-  south-west corner, `width_mm` running east and `depth_mm` running north, both \
-  measured on wall CENTERLINES. So a room drawn 4000 x 3000 with 150 mm walls has \
+- Build rooms with `add_rect_room`, one call per room. Give the origin as the
+  south-west corner, `width_mm` running east and `depth_mm` running north, both
+  measured on wall CENTERLINES. So a room drawn 4000 x 3000 with 150 mm walls has
   a net floor of 3850 x 2850.
-- Make neighbouring rooms SHARE a wall: put the next room's origin exactly on the \
-  previous room's centerline, do not leave a gap and do not overlap. Walls whose \
+- Make neighbouring rooms SHARE a wall: put the next room's origin exactly on the
+  previous room's centerline, do not leave a gap and do not overlap. Walls whose
   endpoints land within 1 mm of each other join automatically.
-- Put doors on the shared wall between two rooms, and windows on exterior walls. \
-  Get the wall id from `list_rooms` (each room lists its bounding wall ids) or \
+- Put doors on the shared wall between two rooms, and windows on exterior walls.
+  Get the wall id from `list_rooms` (each room lists its bounding wall ids) or
   `list_elements`, then call `add_door` or `add_window` with that id.
-- For a whole house in one go use `batch`: every step lands as ONE undo step, all \
-  or nothing. Ids created by an earlier step are stable, so a later step in the \
+- For a whole house in one go use `batch`: every step lands as ONE undo step, all
+  or nothing. Ids created by an earlier step are stable, so a later step in the
   same batch can host a door on a wall the batch just made.
-- Levels: new elements go on the first level. For a second storey call \
-  `add_level` (it stacks on the highest level), then pass its name as `level` to \
-  `add_wall`, `add_wall_chain`, `add_rect_room` or `add_asset`. `delete_level` \
+- Levels: new elements go on the first level. For a second storey call
+  `add_level` (it stacks on the highest level), then pass its name as `level` to
+  `add_wall`, `add_wall_chain`, `add_rect_room` or `add_asset`. `delete_level`
   removes a level with everything on it; only use it when the user names it.
 - After a run of edits call `list_review_items` and report what it says.
 
-Pipes and services:
-- A project can hold runs the user draws in the app: cold water, hot water, \
-  drainage and vent pipes, storm drains, electrical conduit, aircon line sets and \
-  condensate drains. Read them with `list_elements` (kind \"pipe\") and answer \
-  length, fitting and sleeve questions with `get_pipe_takeoff`. These tools do not \
-  draw runs, and Guhit never sizes anything: plumbing plans are signed by a \
-  registered Master Plumber, electrical plans by a Professional Electrical \
-  Engineer, aircon by a Professional Mechanical Engineer.
-- Lights, outlets, switches, the panelboard, detectors and aircon units are \
-  library objects: place them with `add_asset`. Count them with `get_schedule`. \
+## Site walls
+- A perimeter fence or a boundary wall is a site wall: pass `role: \"site\"` to
+  `add_wall` or `add_wall_chain`. It is 1800 mm high unless the user says
+  otherwise, and it is drawn and exported on the site layer (`L-SITE` in DXF).
+- Site walls never close a room, never make a house wall interior and never count
+  in the floor area or the footprint. A fence around the lot leaves the house's
+  rooms, exterior walls and totals exactly as they were.
+
+## Moving walls
+- `move_elements` with `stretch_connected` keeps the walls joined to a moved wall
+  attached: they stretch along their own line, so a straight wall stays straight.
+  When a joined wall cannot follow that way the move is refused with the wall named.
+- Every edit result lists under `also_moved` the walls it reshaped that the call
+  did not name. Tell the user about them; a move that reshapes more than they
+  expect is a reason to undo.
+
+## Pipes and services
+- A project can hold runs the user draws in the app: cold water, hot water,
+  drainage and vent pipes, storm drains, electrical conduit, aircon line sets and
+  condensate drains. Read them with `list_elements` (kind \"pipe\") and answer
+  length, fitting and sleeve questions with `get_pipe_takeoff`. Guhit never sizes
+  anything: plumbing plans are signed by a registered Master Plumber, electrical
+  plans by a Professional Electrical Engineer, aircon by a Professional Mechanical
+  Engineer.
+- Lights, outlets, switches, the panelboard, detectors and aircon units are
+  library objects: place them with `add_asset`. Count them with `get_schedule`.
   Switches are linked to their lights in the app, with the link tool.
-- The user can set a review item aside with a note (`set_review_mark`). A \
+- The user can set a review item aside with a note (`set_review_mark`). A
   set-aside item is never approved; only do it when the user asks and says why.
 
-The user's selection:
-- The user can select parts of the plan in the window. When they say \"this\", \
+## The user's selection
+- The user can select parts of the plan in the window. When they say \"this\",
   \"the selected\", \"these walls\" or \"the selection\", call `get_selection` first.
-- To change only the selection, pass `scope: \"selection\"` to the editing tool or \
-  to `batch`. The engine then refuses anything outside it: other elements, new \
-  elements outside the selection's area, and project-wide changes such as the roof \
-  or levels. When the user switched on \"Only the selection\" in the app, every \
+- To change only the selection, pass `scope: \"selection\"` to the editing tool or
+  to `batch`. The engine then refuses anything outside it: other elements, new
+  elements outside the selection's area, and project-wide changes such as the roof
+  or levels. When the user switched on \"Only the selection\" in the app, every
   edit is limited to their selection whatever you pass (`get_selection` says so).
-- An `out_of_scope` error means the edit reached outside. Do not work around it: \
+- An `out_of_scope` error means the edit reached outside. Do not work around it:
   change only what is in scope, or tell the user what else would need to change.
 
-Views and renders (they need the Guhit Studio window open on the project):
-- `add_camera` saves a view. `capture_view` captures the 3D view (quick); \
-  `render_view` path traces views and saves them to the app's Visuals, a minute or \
-  more each, and hands back a job id for `get_render_job` when it takes longer than \
-  it waits. `get_render_image` shows any saved visual; `get_plan_image` draws the plan.
-- `visualize_render` makes an AI image from a saved model view with the user's own \
-  image provider key. It costs the user money: only when they ask for one. It is \
+## Views and renders
+They need the Guhit Studio window open on the project.
+- `add_camera` saves a view. `capture_view` captures the 3D view (quick);
+  `render_view` path traces views and saves them to the app's Visuals, a minute or
+  more each, and hands back a job id for `get_render_job` when it takes longer than
+  it waits. `get_render_image` shows any saved visual; `get_plan_image` draws the
+  plan.
+- `visualize_render` makes an AI image from a saved model view with the user's own
+  image provider key. It costs the user money: only when they ask for one. It is
   labelled \"AI visualization\" and never changes the model.
 
-Live sessions:
-- Several people may be working on the same plan from their own computers. \
-  `get_session` shows who is in and what they have selected. Your edits appear for \
+## Live sessions
+- Several people may be working on the same plan from their own computers.
+  `get_session` shows who is in and what they have selected. Your edits appear for
   all of them as they land.
-- Undo is one shared history. `undo` refuses a step someone else made and names \
+- Undo is one shared history. `undo` refuses a step someone else made and names
   them; pass force only after the user confirms.
-- Opening, creating or closing a project ends a session this computer hosts, for \
-  everyone (closing leaves one it joined). Those tools refuse with `live_session`; \
+- Opening, creating or closing a project ends a session this computer hosts, for
+  everyone (closing leaves one it joined). Those tools refuse with `live_session`;
   pass force only after the user confirms.
-- `send_chat_message` posts to the session chat as the user, marked as sent by AI, \
+- `send_chat_message` posts to the session chat as the user, marked as sent by AI,
   when they ask you to tell the others something.
 
-Honesty rules:
-- Review items are suggestions to check. Never present anything from this server \
-  as permit approval, structural certification or code compliance. You are not \
+## Honesty
+- Review items are suggestions to check. Never present anything from this server
+  as permit approval, structural certification or code compliance. You are not
   checking the National Building Code.
-- Areas, lengths and counts come from the engine. Report the numbers the tools \
+- Areas, lengths and counts come from the engine. Report the numbers the tools
   return; never estimate them yourself.
-- A failed edit returns the engine's exact validation message. Read it, fix the \
+- A failed edit returns the engine's exact validation message. Read it, fix the
   arguments and try again rather than working around it.";
 
 /// `guhit://docs/conventions`.

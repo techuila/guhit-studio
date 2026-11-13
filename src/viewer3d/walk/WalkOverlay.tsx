@@ -8,7 +8,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { useApp } from "../../state/store";
 import { usePresence } from "../../ui/motion";
 import type { ViewerEngine } from "../engine/ViewerEngine";
-import { EYE_MAX_MM, EYE_MIN_MM, SPEED_MAX_MM_S, SPEED_MIN_MM_S, type TouchMove } from "../engine/walker";
+import { ESC_CONFIRM_MS, EYE_MAX_MM, EYE_MIN_MM, SPEED_MAX_MM_S, SPEED_MIN_MM_S, type TouchMove } from "../engine/walker";
 import { useViewer, type NavMode } from "../viewerStore";
 import v3 from "../Viewer3D.module.css";
 import { useWalkUi } from "./useWalkSync";
@@ -79,6 +79,7 @@ export function WalkOverlay(props: {
       <div className={v3.crosshair} aria-hidden="true" />
       <WalkMap canvasRef={minimapRef} engineRef={engineRef} />
       <SpeedReadout quiet={settingsOpen} />
+      <ExitAsk />
       <div className={s.hintRow}>
         <div
           className={v3.walkHint}
@@ -96,7 +97,7 @@ export function WalkOverlay(props: {
               <kbd>A</kbd>
               <kbd>S</kbd>
               <kbd>D</kbd> fly · <kbd>E</kbd> up · <kbd>Q</kbd> down · drag to look · scroll to move · double-click to go there · <kbd>Shift</kbd>{" "}
-              faster · <kbd>F</kbd> walk · <kbd>Esc</kbd> orbit
+              faster · <kbd>F</kbd> walk · <kbd>Esc</kbd> <kbd>Esc</kbd> orbit
             </>
           ) : (
             <>
@@ -104,7 +105,7 @@ export function WalkOverlay(props: {
               <kbd>A</kbd>
               <kbd>S</kbd>
               <kbd>D</kbd> or scroll to walk · drag to look · double-click to go there · <kbd>Shift</kbd> run · <kbd>F</kbd> fly · <kbd>X</kbd> shell ·{" "}
-              <kbd>Esc</kbd> orbit
+              <kbd>Esc</kbd> <kbd>Esc</kbd> orbit
             </>
           )}
         </div>
@@ -211,6 +212,34 @@ function SpeedReadout(props: { quiet: boolean }) {
   return (
     <div className={s.speed} data-on={on} data-testid="walk-speed" role="status" aria-live="polite">
       Speed {speed.toFixed(1)} m/s
+    </div>
+  );
+}
+
+/**
+ * The first Escape while walking asks before it ends the walk: "Press Esc
+ * again to stop walking" rises in above the hint and fades after
+ * ESC_CONFIRM_MS, when an Escape would ask again.
+ */
+function ExitAsk() {
+  const ask = useWalkUi((st) => st.exitAsk);
+  const armed = useWalkUi((st) => st.exitArmed);
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    if (!armed) {
+      setOn(false);
+      return;
+    }
+    setOn(true);
+    const t = window.setTimeout(() => {
+      setOn(false);
+      useWalkUi.setState({ exitArmed: false });
+    }, ESC_CONFIRM_MS);
+    return () => window.clearTimeout(t);
+  }, [armed, ask]);
+  return (
+    <div className={`${s.speed} ${s.exitAsk}`} data-on={on} data-testid="walk-exit-ask" role="status" aria-live="polite">
+      Press <kbd>Esc</kbd> again to stop walking
     </div>
   );
 }

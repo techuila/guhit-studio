@@ -543,6 +543,7 @@ async fn export_model(app: &AppService, args: Value) -> IpcResult {
                 show_pipes: true,
                 sheet: SheetKind::Plan,
                 review_page: false,
+                date: None,
             };
             let dxf = guhit_export::plan_dxf(&project, &derived, &opts).map_err(export_err)?;
             let dir = data_dir.clone();

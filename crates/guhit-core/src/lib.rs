@@ -236,13 +236,47 @@ impl Document {
         let mut next = self.project.clone();
         let outcome = exec::execute(&mut next, &command)?;
         let diff = diff_projects(&self.project, &next, &outcome);
+        Ok(self.commit_next(next, outcome.label, diff, origin, author, at))
+    }
+
+    /// Commit a staged batch as one undo step: the same result as `apply_at`
+    /// of `staging.command()`. When the project is still the one staging
+    /// started from, the staged result is taken as it is, without running
+    /// the batch a second time (running a command is deterministic).
+    /// Otherwise, say after a rename, the batch runs on the project as it is
+    /// now, like `apply_at`.
+    pub fn apply_staged(
+        &mut self,
+        staging: Staging,
+        origin: Origin,
+        author: Option<Id>,
+        at: &str,
+    ) -> Result<ApplyResult, CoreError> {
+        if staging.commands.is_empty() || staging.base != self.project {
+            return self.apply_at(staging.command(), origin, author, at);
+        }
+        let diff = staging.diff();
+        let label = staging.batch_label();
+        Ok(self.commit_next(staging.project, label, diff, origin, author, at))
+    }
+
+    /// Make `next` the project, as one undo step.
+    fn commit_next(
+        &mut self,
+        mut next: Project,
+        label: String,
+        diff: Diff,
+        origin: Origin,
+        author: Option<Id>,
+        at: &str,
+    ) -> ApplyResult {
         next.updated_at = defaults::now_rfc3339();
         let before = std::mem::replace(&mut self.project, next);
         self.derived = compute_derived(&self.project);
         self.revision += 1;
         let ids = diff.added.iter().chain(&diff.modified).take(MAX_STEP_IDS).cloned().collect();
         self.undo.push(HistoryEntry {
-            label: outcome.label,
+            label,
             origin,
             author,
             at: at.to_string(),
@@ -255,10 +289,10 @@ impl Document {
             self.undo.remove(0);
         }
         self.redo.clear();
-        Ok(ApplyResult {
+        ApplyResult {
             state: self.state(),
             diff,
-        })
+        }
     }
 
     /// The undo and redo stacks, newest first: `undo[0]` is what `undo`
@@ -360,6 +394,174 @@ impl Document {
     }
 }
 
+/// A batch built one step at a time on one working copy of the project, for
+/// callers that check every step as it is added: MCP `batch` and the AI
+/// copilot's turn.
+///
+/// Each step runs once, on the project as the steps before it left it, so
+/// staging N steps costs N steps. Re-previewing the whole staged batch for
+/// every new step cost N squared and held the session lock for seconds.
+/// Derived data is worked out only when a caller asks for it.
+///
+/// The result is exactly what `Document::preview` of the whole batch gives
+/// on the same project: commands run in the same order on the same state,
+/// and new ids are seeded per leaf command from the project right before it,
+/// never from the enclosing batch (see `ids`). A refusal reads the same too:
+/// "Step 4 of 9: ...", counting every command staged so far.
+pub struct Staging {
+    label: String,
+    base: Project,
+    project: Project,
+    commands: Vec<Command>,
+    /// Walls the staged steps reshaped without naming them, in order.
+    also_moved: Vec<Id>,
+}
+
+impl Staging {
+    /// Start staging on a copy of `project`. `label` is the batch's undo
+    /// label, as `Command::Batch` would carry it.
+    pub fn new(project: &Project, label: &str) -> Self {
+        Self {
+            label: label.to_string(),
+            base: project.clone(),
+            project: project.clone(),
+            commands: vec![],
+            also_moved: vec![],
+        }
+    }
+
+    /// Stage `commands` again on `project`, for when the project changed
+    /// under a turn that has staged steps already. Fails as `push` would.
+    pub fn rebuilt(project: &Project, label: &str, commands: &[Command]) -> Result<Self, CoreError> {
+        let mut staging = Self::new(project, label);
+        staging.push(commands)?;
+        Ok(staging)
+    }
+
+    /// The project with every staged step applied.
+    pub fn project(&self) -> &Project {
+        &self.project
+    }
+
+    /// The project staging started from.
+    pub fn base(&self) -> &Project {
+        &self.base
+    }
+
+    /// Walls the staged steps reshaped without naming them, in the order
+    /// they first moved (`Diff::also_moved`).
+    pub fn also_moved(&self) -> &[Id] {
+        &self.also_moved
+    }
+
+    /// Every command staged so far, in order.
+    pub fn commands(&self) -> &[Command] {
+        &self.commands
+    }
+
+    pub fn into_commands(self) -> Vec<Command> {
+        self.commands
+    }
+
+    /// The staged batch as one command, ready to commit.
+    pub fn command(&self) -> Command {
+        Command::Batch {
+            label: self.label.clone(),
+            commands: self.commands.clone(),
+        }
+    }
+
+    /// Run `commands` after the steps already staged. All or nothing: on
+    /// error the staging is exactly as it was. Returns the project as it was
+    /// before these commands, for a per-step diff.
+    pub fn push(&mut self, commands: &[Command]) -> Result<Project, CoreError> {
+        if self.commands.is_empty() && commands.is_empty() {
+            return Err(CoreError::invalid("empty_batch", "The batch has no commands."));
+        }
+        let before = self.project.clone();
+        let total = self.commands.len() + commands.len();
+        let mut also_moved = vec![];
+        for (j, c) in commands.iter().enumerate() {
+            let step = self.commands.len() + j + 1;
+            // The same wording as the batch loop in `exec`.
+            match exec::execute(&mut self.project, c) {
+                Ok(done) => also_moved.extend(done.also_moved),
+                Err(e) => {
+                    self.project = before;
+                    return Err(match e {
+                        CoreError::Invalid {
+                            code,
+                            message,
+                            element_ids,
+                        } => CoreError::Invalid {
+                            code,
+                            message: format!("Step {step} of {total}: {message}"),
+                            element_ids,
+                        },
+                        other => other,
+                    });
+                }
+            }
+        }
+        self.commands.extend(commands.iter().cloned());
+        for id in also_moved {
+            if !self.also_moved.contains(&id) {
+                self.also_moved.push(id);
+            }
+        }
+        Ok(before)
+    }
+
+    /// What the staged batch adds, changes and removes against the project
+    /// it started from: the `diff` of `Document::preview` of the batch.
+    pub fn diff(&self) -> Diff {
+        diff_projects(
+            &self.base,
+            &self.project,
+            &exec::Outcome {
+                label: self.batch_label(),
+                summary: None,
+                also_moved: self.also_moved.clone(),
+            },
+        )
+    }
+
+    /// The undo label, as the batch loop in `exec` trims it.
+    fn batch_label(&self) -> String {
+        let label = self.label.trim();
+        if label.is_empty() { "Batch" } else { label }.to_string()
+    }
+
+    /// Derived data of the staged project. Worked out on every call.
+    pub fn derived(&self) -> Derived {
+        compute_derived(&self.project)
+    }
+}
+
+/// "; also moved: Wall 4150 mm, Wall 3000 mm", naming each wall by its new
+/// length, at most four of them.
+fn also_moved_sentence(ids: &[Id], after: &BTreeMap<&Id, &Element>) -> Option<String> {
+    if ids.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = ids
+        .iter()
+        .filter_map(|id| match after.get(id) {
+            Some(Element::Wall(w)) => {
+                let (dx, dy) = (w.end.x - w.start.x, w.end.y - w.start.y);
+                Some(format!("Wall {:.0} mm", (dx * dx + dy * dy).sqrt()))
+            }
+            _ => None,
+        })
+        .collect();
+    let shown = names.len().min(4);
+    let mut list = names[..shown].join(", ");
+    if names.len() > shown {
+        list.push_str(&format!(" and {} more", names.len() - shown));
+    }
+    Some(format!("; also moved: {list}"))
+}
+
 fn diff_projects(before: &Project, after: &Project, outcome: &exec::Outcome) -> Diff {
     let mut diff = Diff::default();
     let mut counts: [BTreeMap<&'static str, usize>; 3] =
@@ -395,6 +597,15 @@ fn diff_projects(before: &Project, after: &Project, outcome: &exec::Outcome) -> 
             .collect();
         Some(format!("{verb} {}", items.join(", ")))
     };
+    // Walls reshaped without being named: only those that were there before
+    // and did change. Named in the summary so nobody misses one.
+    diff.also_moved = outcome
+        .also_moved
+        .iter()
+        .filter(|id| diff.modified.contains(id))
+        .cloned()
+        .collect();
+    let also = also_moved_sentence(&diff.also_moved, &new);
     diff.summary = match &outcome.summary {
         Some(s) => s.clone(),
         None => {
@@ -413,5 +624,8 @@ fn diff_projects(before: &Project, after: &Project, outcome: &exec::Outcome) -> 
             }
         }
     };
+    if let Some(also) = also {
+        diff.summary.push_str(&also);
+    }
     diff
 }

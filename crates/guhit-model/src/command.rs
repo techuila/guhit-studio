@@ -59,16 +59,26 @@ pub enum Command {
         start: Point,
         end: Point,
         thickness_mm: Option<f64>,
+        /// None: the level height, or `SITE_WALL_HEIGHT_MM` for a site wall.
         height_mm: Option<f64>,
         material_id: Option<Id>,
         level_id: Option<Id>,
+        /// None is a building wall. Left out of the JSON when None, so a
+        /// building wall's command (and the ids it seeds) is what it was.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<WallRole>,
     },
     /// Add connected walls through `points`. `closed` joins last to first.
+    /// Site walls get `SITE_WALL_HEIGHT_MM`; building walls the level height.
     AddWallChain {
         points: Vec<Point>,
         closed: bool,
         thickness_mm: Option<f64>,
         level_id: Option<Id>,
+        /// None is a building wall. Left out of the JSON when None, so a
+        /// building wall's command (and the ids it seeds) is what it was.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<WallRole>,
     },
     /// Add four walls forming a rectangle. `origin` is the south-west corner.
     /// `width_mm` (x) and `depth_mm` (y) are wall CENTERLINE dimensions.

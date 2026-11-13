@@ -425,8 +425,11 @@ pub fn review(
             let mut nearest: Option<(f64, &Id)> = None;
             for (oi, o) in walls.iter().enumerate() {
                 // Walls already joined to this one are not a near miss.
+                // Site walls join only site walls, building walls only
+                // building walls: a fence ending on the house is no gap.
                 if oi == wi
                     || o.level_id != w.level_id
+                    || o.role != w.role
                     || topo.joined_at_start.contains(&o.id)
                     || topo.joined_at_end.contains(&o.id)
                 {
@@ -447,7 +450,9 @@ pub fn review(
                     ),
                     vec![w.id.clone(), other.clone()],
                 )),
-                _ if level_has_rooms => issues.push(issue(
+                // A fence or boundary wall often stops free, at a gate or
+                // the lot line.
+                _ if level_has_rooms && !w.is_site() => issues.push(issue(
                     &format!("wall_dangling_{end_name}"),
                     Severity::Info,
                     format!("The {end_name} of this wall is not joined to anything."),
