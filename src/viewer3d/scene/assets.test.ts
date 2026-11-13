@@ -153,15 +153,19 @@ describe("catalog forms", () => {
   it("puts the septic tank below the ground, faint, with solid covers at grade", () => {
     const it = item("septic-tank");
     const { g } = build(it);
+    // The form's underside is at y = 0 (buildScene stands it at its real
+    // elevation); the floor, the default grade, is -elevation above that.
+    const grade = -it.elevation / 1000;
     const box = new THREE.Box3().setFromObject(g);
-    expect(box.min.y).toBeCloseTo(it.elevation / 1000, 3);
-    expect(box.max.y).toBeLessThan(0.02);
+    expect(box.min.y).toBeCloseTo(0, 3);
+    expect(box.max.y).toBeLessThan(grade + 0.02);
+    expect(box.max.y).toBeGreaterThan(grade - 0.02);
     const faint = meshes(g).filter((m) => (m.material as THREE.Material).transparent);
     const solid = meshes(g).filter((m) => !(m.material as THREE.Material).transparent);
     expect(faint.length).toBeGreaterThan(0);
     expect(solid.length).toBeGreaterThan(0);
     for (const m of faint) expect((m.material as THREE.Material).opacity).toBeLessThan(0.5);
-    for (const m of solid) expect(new THREE.Box3().setFromObject(m).min.y).toBeGreaterThan(-0.1);
+    for (const m of solid) expect(new THREE.Box3().setFromObject(m).min.y).toBeGreaterThan(grade - 0.1);
   });
 
   it("cuts devices above the cutaway like the furniture", () => {

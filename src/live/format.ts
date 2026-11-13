@@ -2,7 +2,7 @@
 // and colors, who is where, chat grouping and time labels, invites.
 // No DOM, no store. Tested in format.test.ts.
 
-import type { ChatMessage, LiveMode, LiveRelay, LiveStatus, Participant, Presence } from "../contract/bindings";
+import type { ChatMessage, LiveMode, LiveRelay, LiveStatus, NavMode, Participant, Presence } from "../contract/bindings";
 
 /** Participant colors: `Participant::color` indexes `--peer-0` to `--peer-7`. */
 export const PEER_COLORS = 8;
@@ -144,6 +144,90 @@ export function peerSelections(status: LiveStatus, peers: Peers): PeerSelection[
   return out;
 }
 
+/**
+ * Who follows participant `id` (DECISIONS D37), in the host's order. The
+ * person followed sees them, and sends its plan area and camera while
+ * there is anyone.
+ */
+export function followerIds(status: LiveStatus, peers: Peers, id: string | null): string[] {
+  if (status.mode === "off" || !id) return [];
+  const out: string[] = [];
+  for (const p of status.participants) {
+    if (p.id === status.self_id || p.id === id) continue;
+    if (peers[p.id]?.presence.following === id) out.push(p.id);
+  }
+  return out;
+}
+
+/**
+ * Following `from`'s chain of who follows whom reaches `target`. Following
+ * someone whose chain comes back to you would loop: each window fits the
+ * other's area to its own shape, so the views would keep growing.
+ */
+export function followLoops(status: LiveStatus, peers: Peers, from: string | null, target: string | null): boolean {
+  if (!from || !target) return false;
+  let at: string | null = from;
+  for (let i = 0; at && i <= status.participants.length; i++) {
+    if (at === target) return true;
+    at = at === status.self_id ? null : (peers[at]?.presence.following ?? null);
+  }
+  return false;
+}
+
+/**
+ * Someone can be followed: their presence says what they show. A version
+ * before follow mode (0.3) never sends `view_mode`, so its presence has none
+ * while live, and it would never send its plan area or camera either. Until
+ * their first presence arrives, they count as followable.
+ */
+export function canFollow(peers: Peers, id: string): boolean {
+  const pr = peers[id]?.presence;
+  return !pr || (pr.view_mode ?? null) !== null;
+}
+
+/**
+ * Two people clicked each other at once, so following loops back to this
+ * window through `following`. Exactly one of the loop stops, the same one on
+ * every computer: the one with the lowest id. True when that is this window.
+ */
+export function breaksFollowLoop(status: LiveStatus, peers: Peers, following: string | null): boolean {
+  const self = status.self_id;
+  if (!self || !following) return false;
+  const ids = [self];
+  let at: string | null = following;
+  while (at && at !== self && ids.length <= status.participants.length) {
+    ids.push(at);
+    at = peers[at]?.presence.following ?? null;
+  }
+  return at === self && ids.every((id) => self <= id);
+}
+
+/**
+ * Tooltip of an avatar in the top bar: "Ana Reyes, host. Click to follow",
+ * "Following Ana. Click to stop", "Ben is following you", or that their
+ * version cannot be followed.
+ */
+export function avatarFollowTip(p: Participant, selfId: string | null, followed: boolean, followsMe: boolean, followable = true): string {
+  const first = firstName(p.name);
+  if (followed) return `Following ${first}. Click to stop`;
+  if (followsMe) return `${first} is following you`;
+  if (!followable) return `${avatarTip(p, selfId)}. ${possessive(first)} version of Guhit cannot be followed`;
+  return `${avatarTip(p, selfId)}. Click to follow`;
+}
+
+/** The toast when someone's version cannot be followed. */
+export function oldVersionLine(name: string): string {
+  const first = firstName(name);
+  return `${possessive(first)} version of Guhit cannot be followed. Ask ${first} to update.`;
+}
+
+/** "Ana is walking" while the person followed walks or flies in 3D, null otherwise. */
+export function navLine(name: string, nav: NavMode | null | undefined): string | null {
+  if (nav === "walk") return `${firstName(name)} is walking`;
+  if (nav === "fly") return `${firstName(name)} is flying`;
+  return null;
+}
+
 /** Same selections in the same colors: the plan need not redraw. */
 export function sameSelections(a: readonly PeerSelection[], b: readonly PeerSelection[]): boolean {
   if (a.length !== b.length) return false;
@@ -270,9 +354,10 @@ export const INVITE_PREFIX = "guhit-live:";
 
 export interface InviteInfo {
   project: string | null;
-  addrs: string[];
   /** The host also takes guests through a relay (DECISIONS D32): the invite works over the internet. */
   relay: boolean;
+  /** The host takes direct connections. Where it listens is never shown: version 3 invites seal the addresses. */
+  direct: boolean;
 }
 
 function fromBase64Url(text: string): string | null {
@@ -289,9 +374,10 @@ function fromBase64Url(text: string): string | null {
 
 /**
  * Reads what an invite says about the session, to show before joining:
- * the project name, the host's addresses and whether a relay carries it.
- * Null when the text is not a Guhit invite. The secret, pin and relay are
- * checked by the engine, not here.
+ * the project name, whether a relay carries it and whether the host takes
+ * direct connections, never where the host is. Null when the text is not a
+ * Guhit invite. The secret, pin, seal and relay are checked by the engine,
+ * not here.
  */
 export function parseInvite(text: string): InviteInfo | null {
   const t = text.trim();
@@ -301,10 +387,14 @@ export function parseInvite(text: string): InviteInfo | null {
   try {
     const v = JSON.parse(json) as Record<string, unknown>;
     if (typeof v !== "object" || v === null || typeof v.secret !== "string" || typeof v.pin !== "string") return null;
-    const addrs = Array.isArray(v.addrs) ? v.addrs.filter((a): a is string => typeof a === "string") : [];
+    // Version 3 seals the addresses; versions 1 and 2 list them in plain text.
+    const sealed = typeof v.v === "number" && v.v >= 3;
+    const direct = sealed
+      ? typeof v.sealed === "string" && v.sealed !== ""
+      : Array.isArray(v.addrs) && v.addrs.some((a) => typeof a === "string");
     const r = v.relay as Record<string, unknown> | null | undefined;
     const relay = typeof r === "object" && r !== null && typeof r.url === "string" && typeof r.room === "string";
-    return { project: typeof v.project === "string" && v.project.trim() !== "" ? v.project : null, addrs, relay };
+    return { project: typeof v.project === "string" && v.project.trim() !== "" ? v.project : null, relay, direct };
   } catch {
     return null;
   }

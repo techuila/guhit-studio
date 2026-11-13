@@ -35,6 +35,7 @@ mod exec;
 mod geom;
 mod ids;
 mod issues;
+mod pipe_edit;
 mod pipes;
 mod query;
 mod rooms;
@@ -85,14 +86,40 @@ pub fn migrate(project: &mut Project) {
 
 struct HistoryEntry {
     label: String,
-    #[allow(dead_code)]
     origin: Origin,
     /// Who made the step: a live session participant id (DECISIONS D29).
     /// None outside a live session.
     author: Option<Id>,
+    /// When it was made, RFC 3339, as the caller of `apply_at` gave it.
+    /// Empty from `apply` and `apply_as`.
+    at: String,
+    /// `Diff::summary` of the step.
+    summary: String,
+    /// What the step added, then what it changed, at most `MAX_STEP_IDS`.
+    ids: Vec<Id>,
+    /// What it removed, at most `MAX_STEP_IDS`.
+    removed: Vec<Id>,
     /// For an undo entry: the project before the command.
     /// For a redo entry: the project after it.
     project: Project,
+}
+
+impl HistoryEntry {
+    /// The step as `history_list` shows it. Names and colors are the app's
+    /// to fill in: the engine only knows participant ids.
+    fn step(&self) -> HistoryStep {
+        HistoryStep {
+            label: self.label.clone(),
+            summary: self.summary.clone(),
+            origin: self.origin,
+            author_id: self.author.clone(),
+            author_name: None,
+            color: None,
+            at: self.at.clone(),
+            ids: self.ids.clone(),
+            removed: self.removed.clone(),
+        }
+    }
 }
 
 /// An open project with derived data and undo history.
@@ -107,7 +134,12 @@ pub struct Document {
     redo: Vec<HistoryEntry>,
 }
 
-const MAX_HISTORY: usize = 200;
+/// Undo steps kept. The oldest goes when a step past this is made.
+pub const MAX_HISTORY: usize = 200;
+/// Ids a step keeps of what it added or changed, and of what it removed,
+/// for the History panel to show (DECISIONS D38). A step that touched more
+/// keeps the first ones.
+pub const MAX_STEP_IDS: usize = 200;
 
 impl Document {
     pub fn new(project: Project) -> Self {
@@ -188,6 +220,19 @@ impl Document {
         origin: Origin,
         author: Option<Id>,
     ) -> Result<ApplyResult, CoreError> {
+        self.apply_at(command, origin, author, "")
+    }
+
+    /// `apply_as`, recording when the step was made as well: `at` is the
+    /// caller's clock (RFC 3339), so the engine stays free of it. `history`
+    /// reports it with the step (DECISIONS D38).
+    pub fn apply_at(
+        &mut self,
+        command: Command,
+        origin: Origin,
+        author: Option<Id>,
+        at: &str,
+    ) -> Result<ApplyResult, CoreError> {
         let mut next = self.project.clone();
         let outcome = exec::execute(&mut next, &command)?;
         let diff = diff_projects(&self.project, &next, &outcome);
@@ -195,10 +240,15 @@ impl Document {
         let before = std::mem::replace(&mut self.project, next);
         self.derived = compute_derived(&self.project);
         self.revision += 1;
+        let ids = diff.added.iter().chain(&diff.modified).take(MAX_STEP_IDS).cloned().collect();
         self.undo.push(HistoryEntry {
             label: outcome.label,
             origin,
             author,
+            at: at.to_string(),
+            summary: diff.summary.clone(),
+            ids,
+            removed: diff.removed.iter().take(MAX_STEP_IDS).cloned().collect(),
             project: before,
         });
         if self.undo.len() > MAX_HISTORY {
@@ -209,6 +259,16 @@ impl Document {
             state: self.state(),
             diff,
         })
+    }
+
+    /// The undo and redo stacks, newest first: `undo[0]` is what `undo`
+    /// takes back, `redo[0]` what `redo` brings back. Authors are
+    /// participant ids only; `author_name` and `color` are None.
+    pub fn history(&self) -> HistoryList {
+        HistoryList {
+            undo: self.undo.iter().rev().map(HistoryEntry::step).collect(),
+            redo: self.redo.iter().rev().map(HistoryEntry::step).collect(),
+        }
     }
 
     /// Dry run. Returns exactly what `apply` would return for the same
@@ -236,31 +296,61 @@ impl Document {
     }
 
     pub fn undo(&mut self) -> Result<DocState, CoreError> {
-        let entry = self.undo.pop().ok_or(CoreError::NothingToUndo)?;
-        let current = std::mem::replace(&mut self.project, entry.project);
-        self.redo.push(HistoryEntry {
-            label: entry.label,
-            origin: entry.origin,
-            author: entry.author,
-            project: current,
-        });
+        self.undo_steps(1)
+    }
+
+    pub fn redo(&mut self) -> Result<DocState, CoreError> {
+        self.redo_steps(1)
+    }
+
+    /// Take back the `n` newest steps at once: one revision, the project
+    /// exactly as it was before the oldest of them, and the steps on the
+    /// redo stack in order, so `redo_steps(n)` brings all of them back. All
+    /// or nothing: with fewer than `n` steps, or `n` 0, nothing changes.
+    pub fn undo_steps(&mut self, n: usize) -> Result<DocState, CoreError> {
+        Self::check_steps(n, self.undo.len(), CoreError::NothingToUndo, "undone")?;
+        Self::move_steps(&mut self.project, &mut self.undo, &mut self.redo, n);
         self.derived = compute_derived(&self.project);
         self.revision += 1;
         Ok(self.state())
     }
 
-    pub fn redo(&mut self) -> Result<DocState, CoreError> {
-        let entry = self.redo.pop().ok_or(CoreError::NothingToRedo)?;
-        let current = std::mem::replace(&mut self.project, entry.project);
-        self.undo.push(HistoryEntry {
-            label: entry.label,
-            origin: entry.origin,
-            author: entry.author,
-            project: current,
-        });
+    /// Bring back the `n` newest undone steps at once, the mirror of
+    /// `undo_steps`.
+    pub fn redo_steps(&mut self, n: usize) -> Result<DocState, CoreError> {
+        Self::check_steps(n, self.redo.len(), CoreError::NothingToRedo, "redone")?;
+        Self::move_steps(&mut self.project, &mut self.redo, &mut self.undo, n);
         self.derived = compute_derived(&self.project);
         self.revision += 1;
         Ok(self.state())
+    }
+
+    fn check_steps(n: usize, available: usize, none: CoreError, done: &str) -> Result<(), CoreError> {
+        if n == 0 {
+            return Err(CoreError::invalid("bad_steps", "Undo or redo at least one step."));
+        }
+        if available == 0 {
+            return Err(none);
+        }
+        if n > available {
+            let steps = if available == 1 { "step" } else { "steps" };
+            return Err(CoreError::invalid(
+                "too_many_steps",
+                format!("Only {available} {steps} can be {done}, not {n}."),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Move the top `n` entries of `from` onto `to`, one at a time, each
+    /// swapping its snapshot with the project, as `n` single steps would.
+    /// The caller checked there are `n`.
+    fn move_steps(project: &mut Project, from: &mut Vec<HistoryEntry>, to: &mut Vec<HistoryEntry>, n: usize) {
+        for _ in 0..n {
+            let Some(mut entry) = from.pop() else { return };
+            std::mem::swap(project, &mut entry.project);
+            to.push(entry);
+        }
     }
 
     /// Answer a question from model data. The result is JSON meant for the

@@ -45,7 +45,15 @@ compliance; plumbing plans are signed by a registered Master Plumber (RA 1378).
   `--pipe-storm`, `--pipe-conduit`, `--pipe-refrigerant`, `--pipe-condensate`
   in `src/styles/tokens.css`. The 3D view, 2D plan, legends and exports use
   the same four colors.
-- Tool defaults (`defaults::pipe_defaults`, mirrored by the frontend):
+- Tool defaults (`defaults::pipe_defaults`, mirrored by the frontend). The
+  start height of a new run on a real level is `defaults::pipe_start_height_mm`
+  (TS `pipeStartHeightMm(system, level, levels)` in `src/contract/pipes.ts`):
+  the table, except conduit, which starts 100 mm
+  (`CONDUIT_ABOVE_CEILING_MM`) above the level's ceiling, that is its height
+  or the underside of the next level's 200 mm slab when that is lower. So it
+  sits inside the slab above, or above the ceiling on the top level
+  (DECISIONS D40). The table's conduit value is that rule on a one storey
+  level of the default 3000 mm.
 
 | System | Material | Size mm | Start height mm | Size menu |
 |---|---|---|---|---|
@@ -54,7 +62,7 @@ compliance; plumbing plans are signed by a registered Master Plumber (RA 1378).
 | drainage | upvc | 50 | -300 | uPVC 32 50 75 100 150 |
 | vent | upvc | 50 | 300 | uPVC 32 50 75 100 |
 | storm | upvc | 100 | -300 | uPVC 75 100 150 |
-| conduit | pvc | 20 | 2800 | PVC 20 25 32 40 50, EMT 15 20 25, IMC 20 25, flexible 15 20 |
+| conduit | pvc | 20 | ceiling + 100 (3100) | PVC 20 25 32 40 50, EMT 15 20 25, IMC 20 25, flexible 15 20 |
 | refrigerant | copper | 9.52 | 2400 | copper 9.52 12.7 15.88 (gas line; the liquid line is 6.35) |
 | condensate | pvc | 20 | 2300 | PVC 20 25 32 |
 
@@ -73,6 +81,69 @@ compliance; plumbing plans are signed by a registered Master Plumber (RA 1378).
   the new height. Snapping onto another run of a joinable system goes level
   (or falls) to the join, then rises or drops to its height; a drain that
   would have to climb slopes up instead and gets a `drain_slope_low` item.
+  Snapping onto a fixture joins at its connection height
+  (`fixtureConnectionZ`, DECISIONS D40), always with a vertical riser at the
+  fixture, a drain included (never a slope to it); a run that starts at a
+  fixture keeps the pen height and drops or climbs to it with a riser. With
+  no height chosen the tool starts at `pipeStartHeightMm` for the active level.
+- Editing on the plan (DECISIONS D39, `src/editor2d/pipeEdit.ts`): a pick is
+  the whole run, a segment or a point (`usePipePick`). A point stands for its
+  plan node: a plan move carries every point a riser joins, and so does a
+  height edit of the point; a segment's height edit moves its own two points.
+  Every edit sends one of the commands below with `keep_joins` true (Alt while
+  dragging sends false); values out of the engine's range are sent so its
+  refusal says why. The drag preview follows joins by the same rules as the
+  engine (`followers`, a port of `rests` and `support`). The inspector's Start and End height of a run that
+  falls is one `SetPipeSlope` over the whole run holding the other end; of
+  any other run, a `MovePipePoints` of that end and the points level with it.
+
+Pipe editing commands (DECISIONS D39, `crates/guhit-core/src/pipe_edit.rs`).
+Each is one undo step and works inside a `Batch`. Points are numbered from 0
+in `Pipe::points` order; segment n runs from point n to point n + 1. Lengths
+are 3D. They set geometry only: no command sizes a pipe or judges a fall
+(D19).
+
+| Command | What changes | Label |
+|---|---|---|
+| `MovePipePoints { targets, delta, keep_joins }` | each target's points (empty `indices`: every point) move by `delta` (x, y, z) | "Move pipe point", "Move pipe points", "Move pipe" or "Move pipes" (whole runs) |
+| `SetPipeSegmentLength { pipe_id, segment, length_mm, hold, keep_joins }` | `hold: start` keeps point n; point n + 1 and every point after it move along the segment by the change. `end` the other way round. The rest of the run keeps its shape and slopes | "Set pipe length" |
+| `SetPipeSlope { pipe_id, from_segment, to_segment, slope_pct, hold, keep_joins }` | from the held end, each segment of the range falls `slope_pct` percent of its plan length (negative rises); a riser (the rule above) or a segment steeper than 100 percent (an offset, such as a drop into a trap) keeps its own rise. Points past the other end of the range move up or down by the same amount | "Set pipe slope" |
+| `InsertPipePoint { pipe_id, segment, at }` | a new point `at` between points n and n + 1 | "Add bend" |
+| `RemovePipePoint { pipe_id, index }` | the point goes; at least two stay | "Remove bend", or "Remove pipe end" for an end |
+
+- `keep_joins`: run ends follow what they rest on, joined as `Derived::pipes`
+  below joins them on the geometry before the edit (joinable systems only,
+  within the larger radius and at least 1 mm, absolute heights). Each end has
+  one support at most:
+  - a tee branch (an end on another run's body, the nearest body, the earlier
+    run on a tie) keeps its place along that segment and follows only the
+    part of the move across it, height included, interpolated where the
+    segment's two points move differently, and kept on the moved segment
+    when it would fall off an end. Along is the plan direction, or height on
+    a riser. So a longer main or a main slid along its own axis leaves its
+    tees where they are, and a branch a quarter along a segment whose far end
+    rose 400 mm rises 100 mm. A branch on a bend moves with the bend;
+  - two run ends meeting (an elbow or coupling) follow each other;
+  - where three or more ends meet, every end follows the end of the run the
+    tee is on (the larger of the two that line up best, or the one that
+    arrives), and that one follows nothing there.
+  A branch never drags the run it rests on. The runs the command names move
+  only as the command says, never as followers. What follows carries what
+  rests on it in turn. Without `keep_joins` only the named runs change.
+- Summaries: "Moved 2 pipe points 300 mm up, 1 joined run followed", "Set
+  the length of segment 0 of Kitchen sink waste to 1500 mm", "Set 2 segments
+  of Kitchen sink waste to fall 2 percent".
+- Errors (`CoreError::Invalid`, naming the pipe): `unknown_pipe`,
+  `not_a_pipe`, `no_pipe_points` (no targets), `duplicate_pipe` (a run listed
+  twice), `bad_point_index`, `duplicate_point`, `bad_segment` (out of range,
+  or `from_segment` after `to_segment`), `not_finite`, `no_move` (a zero
+  `delta`), `pipe_segment_short` (under `MIN_PIPE_SEGMENT_MM`, 10 mm),
+  `bad_slope` (beyond plus or minus 100 percent), `no_slope_segment` (every
+  segment of the range is a riser), `bend_on_point` (`at` within 1 mm of
+  point n or n + 1), `pipe_too_short` (removing from a two point run). Then
+  the usual checks of every command: `pipe_zero_segment` when two points in a
+  row end up under 1 mm apart, `layer_locked` when a run that would change,
+  edited or following, is on a locked layer.
 
 `Derived::pipes` (`PipeNetwork`), recomputed after every change. Positions are
 plan x, y and z above the floor of `level_id`:
@@ -292,6 +363,7 @@ another cannot cross the room between them.
 | `add_element` | its anchor (wall centerline, asset position, column center, stair origin, text position, dimension ends, pipe points and segments, room seed) is in the area on its level; an opening as `add_opening`; a camera always (a view changes no part of the plan); an underlay, linework or reference model never |
 | `update_element` | the element is in reach; an opening moved to another wall as `add_opening` on that wall |
 | `set_wall_endpoints`, `set_wall_length`, `split_wall`, `resize_room`, `delete_elements`, `move_elements`, `rotate_elements`, `set_material` | every target is in reach |
+| `move_pipe_points`, `set_pipe_segment_length`, `set_pipe_slope`, `insert_pipe_point`, `remove_pipe_point` | every run the command names is in reach; joined runs that follow with `keep_joins` are a side effect, like walls stretching |
 | `duplicate_elements` | every target is in reach, and every copy lands as `add_element` would; a door or window copied without its wall stays on that wall |
 | `set_review_mark` | an element target in reach, or a finding whose elements are all in reach (a finding the checks no longer make is read from its id, `code:ids`); a whole check never |
 | `set_roof`, `set_project_settings`, `update_level`, `add_level`, `delete_level`, `set_layer`, `upsert_material` | never: they change the whole project |
@@ -302,8 +374,8 @@ element in plain words ("Wall 3000 mm is outside the selection this edit is
 limited to.") with its id in `element_ids`. It reaches IPC as `IpcError {
 code: "invalid" }` with the element ids, and the model as a tool error that
 starts with `out_of_scope:`. Side effects are allowed: connected walls
-stretching, dimensions following (D12), links removed (D21), rooms appearing
-in closed faces (D7). A scope naming an element that is not in the plan, or
+stretching, joined pipe runs following (D39), dimensions following (D12),
+links removed (D21), rooms appearing in closed faces (D7). A scope naming an element that is not in the plan, or
 a command naming a target that is not, is refused with `not_found`. The area
 follows the staged plan, so once a step deletes a selected element its area
 is gone: a turn that replaces a selected element adds the new one first.
@@ -417,7 +489,8 @@ DECISIONS D29 and D32. Types: `crates/guhit-model/src/live.rs`. Code:
   the high bit of the length; the limits count the JSON, and inflating
   stops past them. The frame messages are internal to `guhit-app` (host
   and guest are the same code, `live/wire.rs`, `PROTOCOL_VERSION` 2; a
-  hello with another version is refused): guest to host `hello`,
+  hello with another version is refused; additions an older build can
+  ignore, with serde defaults, keep the version): guest to host `hello`,
   `request` (apply, undo, redo, chat, file get, file put; the reply carries
   its id), `presence`, `ping`, `bye`; host to guest `welcome`, `refused`,
   `reply`, `doc`, `presence`, `participants`, `chat`, `ping`, `end`. A
@@ -428,9 +501,9 @@ DECISIONS D29 and D32. Types: `crates/guhit-model/src/live.rs`. Code:
   guest whose queue is full for a document, chat, participants or reply
   frame is disconnected (it reconnects and gets the current plan).
 - The host sends a document frame (project, revision, undo meta, who made
-  the change, and the host's change counter, which orders the frames)
-  after every change of its document, whoever made it, and before the
-  reply to the guest edit that made it. So a guest's `doc_apply`,
+  the change, the host's change counter, which orders the frames, and its
+  `history`, below) after every change of its document, whoever made it,
+  and before the reply to the guest edit that made it. So a guest's `doc_apply`,
   `doc_undo` and `doc_redo` return its copy at the new revision or later
   (with the host's diff for `doc_apply`). Renaming the open project also
   notifies watchers, so guests get the new name.
@@ -438,16 +511,33 @@ DECISIONS D29 and D32. Types: `crates/guhit-model/src/live.rs`. Code:
   model limit fits under the frame limit. The host stores them with the
   same name, type and size checks as the window's own uploads.
 - Invite: `guhit-live:` then base64url (no padding) of
-  `{"v":2,"secret":...,"pin":...,"addrs":["192.168.1.20:1460",...],"project":"Bungalow","relay":{"url":"wss://relay.example.com","room":...}}`.
+  `{"v":3,"secret":...,"pin":...,"sealed":...,"project":"Bungalow","relay":{"url":"wss://relay.example.com","room":...}}`.
   `secret` is 128 random bits. `pin` is the SHA-256 of the certificate
   (base64url). `relay` is there when the host uses one: its address and the
   session's room, 128 random bits. The key that proves the room is the
-  host's (256 bits) goes only to the relay, never into the invite. `addrs`
-  may be empty only with a relay. Version 1 invites (no relay) are still
-  read. A guest accepts only the pinned certificate (no CA, no host name
-  check). It tries every address at once, 4 s each, and the relay after
-  600 ms (at once when every address has failed), and keeps the first
-  connection whose TLS handshake passes the pin; the others are dropped.
+  host's (256 bits) goes only to the relay, never into the invite.
+  `sealed` holds the host's direct addresses, so the invite text never
+  shows them: base64url of a 12-byte random nonce, then the
+  ChaCha20-Poly1305 ciphertext and tag of the JSON array of addresses
+  (`["192.168.1.20:1460",...]`), keyed by HKDF-SHA256 over the 16 secret
+  bytes (no salt, info `guhit-live invite addrs v3`), with the 32 pin bytes
+  as associated data, so a seal moved to another invite does not open. A
+  host that takes no direct connections leaves `sealed` out, which needs a
+  relay. A seal that does not open makes the invite `bad_args` ("This is
+  not a Guhit live session invite."); a plain `addrs` in version 3 is
+  ignored. The guest's app opens the seal in memory to connect; no
+  screen, notice or error shows a guest the host's address
+  (`LiveStatus::addresses` is empty for a guest). The key comes from the
+  invite, so the seal keeps addresses out of sight, not away from someone
+  who decodes the invite on purpose; a direct connection's peer address is
+  also visible to the operating system's network tools. A host with
+  `live_direct: false` never gives guests its address at all. Versions 1
+  (no relay) and 2 (plain `addrs`) are still read; above 3 is "from a
+  newer version". A guest accepts only the pinned certificate (no CA, no
+  host name check). It tries every address at once, 4 s each, and the
+  relay after 600 ms (at once when every address has failed), and keeps
+  the first connection whose TLS handshake passes the pin; the others are
+  dropped.
   The host compares the secret in constant time, answers a wrong secret
   after a 1 s delay and keeps at most 8 connections waiting to
   authenticate, direct and relayed together.
@@ -482,9 +572,10 @@ DECISIONS D29 and D32. Types: `crates/guhit-model/src/live.rs`. Code:
   host's participant id stays the same for every session while the app
   runs, so its steps stay its own.
 - Why a join failed goes into `LiveStatus::notice` too. `live_unreachable`
-  says why nothing answered: the addresses tried, and through the relay
-  whether the host is not online (the session may have ended), did not
-  answer, the relay is busy, or the relay could not be reached.
+  says why nothing answered: whether the host was tried directly, and
+  through the relay whether the host is not online (the session may have
+  ended), did not answer, the relay is busy, or the relay could not be
+  reached. Neither it nor `live_pin` names an address.
 - Ends: the host's `live_leave`, or the host closing or switching the
   project (`hub_close`, `hub_open` of another, `hub_create`, `bundle_open`,
   `hub_delete` of it, from the window or an MCP client) ends the session
@@ -522,15 +613,50 @@ Refused while joined, with `host_only` and "Leave the live session first":
 `hub_open`, `hub_create`, `bundle_open`. `hub_set_thumbnail` of the shared
 project does nothing on a guest.
 
-History in a live session: every commit records its author
-(`Document::apply_as`), `DocState::undo_by` and `redo_by` say whose step is
-on top. `doc_undo` and `doc_redo` take back or bring back the step on top
-of the one shared history. When that step is someone else's (another
+History in a live session: every commit records its author and the time
+on the app's clock (`Document::apply_at`), `DocState::undo_by` and
+`redo_by` say whose step is on top. `doc_undo` and `doc_redo` take back or
+bring back the step on top of the one shared history, or with `steps` that
+many as one revision and one document frame (a guest sends them to the
+host as one request). When any of those steps is someone else's (another
 participant's, or on a guest a step made before the session) and `force`
 is not true, they fail with `other_author` and a sentence naming the
 person and the step ("Ana made the last change: Move wall. Undo it
-anyway?"); the window asks and calls again with `force`. On the host, steps
-with no author (made before the session) are its own.
+anyway?"), or for several steps everyone and how many are theirs ("Takes
+back 4 steps, 2 by Ana. Undo anyway?", "Takes back 5 steps, 1 by Cy and 2
+by Ben.", "Brings back 2 steps, all by Ben. Redo anyway?"); the window asks
+and calls again with `force` and `expected_revision`, the revision the
+question was asked at, so an edit made while it was open is never taken
+back unasked: the answer then fails with `stale` ("the plan moved on from
+revision 7 to 8, so nothing was undone") and the window says so. A guest
+sends `expected_revision` to the host with the request (the wire field
+has a serde default; an older host ignores it). More steps than there are
+fail with `invalid` ("Only 3 steps can be undone, not 4.") without asking. On the
+host, steps with no author (made before the session) are its own.
+
+Edit history (DECISIONS D38): `history_list` returns `HistoryList`, the
+undo and redo stacks newest first (`undo[0]` is what an undo takes back,
+`redo[0]` what a redo brings back), each a `HistoryStep`: label, summary
+(`Diff::summary`), origin (`ai` for the copilot and MCP clients), author,
+time (RFC 3339, second precision; empty for a step an older host made),
+`ids` (added, then changed) and `removed`, at most 200 each
+(`guhit_core::MAX_STEP_IDS`; a step that touched more keeps the first). At
+most 200 steps (`guhit_core::MAX_HISTORY`), in memory only: they go when
+the project closes or a version is restored, and Versions stay the lasting
+record. A step with no `author_id` is this computer's own, in a session
+or not: the host's own steps have none, and on a guest neither do the
+guest's. Other steps carry the participant id with `author_name` and
+`color` as they were when the step was made, kept after the person leaves
+and into the next session while the app runs (the host remembers
+everyone who joined, as chat messages keep `author_name`; a guest that
+never met someone keeps the name and color the host sent). Guests get the
+host's history in every document frame and in the welcome
+(`DocFrame::history`), with the host's steps from before the session
+named as the host's; a guest's `history_list` answers from the last
+frame. An older host's frames carry no history: a guest then lists only
+the top undo and redo step from the undo meta, without time or elements,
+and refuses `steps` over 1 with `invalid` instead of asking that host for
+one step.
 
 Presence: `presence_set` stores this window's `Presence`. MCP
 `get_selection` reads it. In a session it goes to the others at most 20
@@ -540,6 +666,49 @@ is cut to 160 characters and `selection` to 2000 ids, and ids longer than
 arrives as `AppEvent::Presence`; `presence_list` returns the latest of
 each, for a window that loads mid-session. A participant who leaves gets
 `presence: None`.
+
+Follow mode (DECISIONS D37). Presence fields, all `Option` with
+`#[serde(default)]`, so a field an older version leaves out reads as null:
+`following` (the participant this window follows), `view_mode` (`"2d"`,
+`"3d"` or `"split"`, the store's `ViewMode`), `plan_view` (`PlanView`: the
+center and size in mm of the plan area on screen, so a window of another
+shape shows the same area), `camera` (`LiveCamera`: position and target in
+mm with z up from project zero like `Camera`, `fov_deg`, and `nav` orbit,
+walk or fly; walking, the target is 3 m ahead of the eyes) and
+`pointer_3d` (the model point under the pointer in 3D, null off the
+model). `clean_presence` drops an id that is not an id, a value that is
+not finite and an area with no size, rounds to 1 mm and keeps `fov_deg` in
+5 to 110. The window (`src/live/presenceSync.ts`) rounds the same way and
+compares every field, so a camera-only change still goes out.
+- While live, a window always sends `following`, `view_mode` and
+  `pointer_3d`. It sends `plan_view` and `camera` only while some other
+  participant's `following` is its id, and each only while that view is on
+  screen (no `plan_view` in `"3d"`, no `camera` in `"2d"`); the camera from
+  `ViewerEngine.liveCamera()` once, then `onCameraChange`.
+- Clicking an avatar in the top bar follows that person (`src/live/follow.ts`);
+  clicking it again, Stop or Esc stops. The follower takes their level and
+  view mode, eases the plan (`PlanController.followView`) and the camera
+  (`ViewerEngine.follow`) there over `--dur-scene`, then glides linearly over
+  `--dur-press` x 0.75 per update; a resized plan fits the same area again.
+  The follower stays in orbit (`endFollow` when it stops).
+- Following stops on: Esc (before walk mode and the plan see it, unless a
+  dialog or text field has the key), Stop, the avatar again, `user_view`
+  from either view, `zoom_to_fit`, `focus_elements`, `focus_point`,
+  `apply_camera` and `walk_to` asked for in this window, a level or view
+  mode change that is not the followed person's, starting a walk or flight,
+  leaving the editor, and with a toast when the person followed leaves or
+  the session ends (reconnecting keeps it). Pressing either view is a
+  `user_view`. Hover, pointer moves and a selection made off the canvas do
+  not stop it.
+- No loops: following someone whose chain of `following` comes back to you
+  is refused with a toast ("Ana is following you already."). When two
+  people click each other at once, the one with the lowest participant id
+  in the loop stops, the same on every computer.
+- A version before follow mode never sends `view_mode`, so a peer whose
+  presence has none while live cannot be followed: the click is refused
+  with a toast ("Ana's version of Guhit cannot be followed. Ask Ana to
+  update."), and a follow started before their first presence arrived
+  stops with the same line. Their avatar's tooltip says so too.
 
 Chat: `chat_send` (live only, `not_live` otherwise). Text is trimmed, with
 control characters other than line breaks and tabs removed, 1 to 2000
@@ -583,7 +752,10 @@ doc.state() -> DocState
 doc.apply(command, origin) -> Result<ApplyResult, CoreError>   // one undo step, atomic
 doc.apply_as(command, origin, author) -> Result<ApplyResult, CoreError> // same, recording a live session participant (DocState::undo_by)
 doc.preview(&command) -> Result<ApplyResult, CoreError>        // same result, commits nothing
+doc.apply_at(command, origin, author, at) -> Result<ApplyResult, CoreError> // same, recording when (the caller's clock, RFC 3339)
 doc.undo() / doc.redo() -> Result<DocState, CoreError>
+doc.undo_steps(n) / doc.redo_steps(n) -> Result<DocState, CoreError> // n steps as one revision, all or nothing (bad_steps for 0, too_many_steps)
+doc.history() -> HistoryList                               // newest first; author ids only, names are the app's to fill in
 doc.query(&query) -> Result<serde_json::Value, CoreError>
 compute_derived(&project) -> Derived
 templates::sample_bungalow() -> Project
@@ -623,7 +795,8 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | `doc_state` | | `DocState or null` | |
 | `doc_apply` | `command` | `ApplyResult` | autosaves |
 | `doc_preview` | `command` | `ApplyResult` | |
-| `doc_undo`, `doc_redo` | `force?` | `DocState` | autosaves. In a live session someone else's step needs `force` (`other_author`) |
+| `doc_undo`, `doc_redo` | `force?`, `steps?`, `expected_revision?` | `DocState` | autosaves. `steps` (default 1) takes back or brings back that many as one revision; 0 is `bad_args`, more than there are `invalid`. In a live session someone else's step among them needs `force` (`other_author`). With `expected_revision`, a document that moved on from it fails with `stale` and nothing changes |
+| `history_list` | | `HistoryList` | the undo and redo stacks with who made each step and when, newest first ("Edit history" under "Live sessions") |
 | `doc_query` | `query` | JSON | |
 | `doc_revision` | | `{revision, project_id}` | cheap poll for external changes |
 | `snapshot_create` | `label` | `SnapshotMeta` | named version |
@@ -742,4 +915,4 @@ Rules:
 - Respect `project.layers` (visible, locked) and `activeLevelId`.
 - Backend pushes (live session, presence, chat, window requests) arrive through `onAppEvent`; one connection serves every subscriber.
 - `useApp().aiScope` is the "Only the selection" switch (D30): the copilot sends it as `AiRequest::scope`, and it rides this window's presence so MCP clients are held to it too.
-- `useApp().undoConfirm` holds an undo or redo the engine refused as someone else's (`other_author`); the shell asks and calls `resolveUndoConfirm`.
+- `useApp().undoConfirm` holds an undo or redo the engine refused as someone else's (`other_author`); the shell asks and calls `resolveUndoConfirm`. `undoSteps(n, expectedRevision?)` and `redoSteps(n, expectedRevision?)` take several steps as one revision (History's "Undo to here", D38), asking through `undoConfirm` when the engine says `other_author`. `UndoConfirm::steps` says how many and `revision` the revision the question was asked at; "Undo anyway" sends it, and a `stale` answer turns into a toast.

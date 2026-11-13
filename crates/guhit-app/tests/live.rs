@@ -694,8 +694,9 @@ async fn a_wrong_secret_a_wrong_certificate_and_no_host_are_told_apart() {
     assert_eq!(err.code, "live_pin");
     assert_eq!(
         err.message,
-        format!("The computer at {} is not the host this invite is for. Ask for a new invite.", invite.addrs[0])
+        "Another computer answered instead of the host this invite is for. Ask for a new invite."
     );
+    assert!(!err.message.contains(&invite.addrs[0]), "a guest is not told where the host is");
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let closed = listener.local_addr().unwrap();
@@ -704,7 +705,10 @@ async fn a_wrong_secret_a_wrong_certificate_and_no_host_are_told_apart() {
     nowhere.addrs = vec![closed.to_string()];
     let err = fail(&ben.app, "live_join", json!({ "invite": nowhere.encode() })).await;
     assert_eq!(err.code, "live_unreachable");
-    assert!(err.message.contains(&closed.to_string()) && err.message.contains("same network or VPN"), "{}", err.message);
+    assert_eq!(
+        err.message,
+        "Could not reach the host directly. Check that you are on the same network or VPN as the host, and that the host's firewall lets Guhit Studio accept connections."
+    );
 
     // None of it touched the session.
     let copy = join(&ben, started.invite.as_deref().unwrap()).await;
@@ -716,7 +720,7 @@ async fn a_wrong_secret_a_wrong_certificate_and_no_host_are_told_apart() {
 async fn a_guest_tries_every_address_at_once() {
     let (_host, started) = hosting("Ana").await;
     let invite = Invite::decode(started.invite.as_deref().unwrap()).unwrap();
-    assert_eq!((invite.v, invite.relay.as_ref()), (2, None));
+    assert_eq!((invite.v, invite.relay.as_ref()), (3, None));
     // An address that never answers (TEST-NET-1, not routed anywhere) comes
     // first. Tried one after the other, it would hold the join up for 4 s.
     let mut slow = invite.clone();
@@ -753,7 +757,8 @@ async fn a_relay_that_cannot_be_reached_is_named_in_the_reason() {
     both.addrs = vec![closed.to_string()];
     let err = fail(&ben.app, "live_join", json!({ "invite": both.encode() })).await;
     assert_eq!(err.code, "live_unreachable");
-    assert_eq!(err.message, format!("Could not reach the host at {closed}, or through the relay. The relay could not be reached."));
+    assert_eq!(err.message, "Could not reach the host directly or through the relay. The relay could not be reached.");
+    assert!(!err.message.contains(&closed.to_string()), "a guest is not told where the host is");
     assert_eq!(status(&ben.app).await.notice.as_deref(), Some(err.message.as_str()));
 }
 
@@ -1166,17 +1171,16 @@ async fn a_session_runs_through_the_relay_with_direct_connections_off() {
     let (mut host, started) = hosting_through(&relay, "Ana").await;
     let invite = started.invite.clone().unwrap();
 
-    // The invite: no addresses, the relay and the session's room, and not
-    // the key that proves the room is the host's.
+    // The invite: no addresses, sealed or not, the relay and the session's
+    // room, and not the key that proves the room is the host's.
     let json = invite_json(&invite);
-    assert_eq!(json["v"], 2);
-    assert_eq!(json["addrs"], json!([]));
+    assert_eq!(json["v"], 3);
     assert_eq!(json["relay"]["url"], relay.url());
     let room = json["relay"]["room"].as_str().unwrap();
     assert_eq!(URL_SAFE_NO_PAD.decode(room).unwrap().len(), 16);
     let mut keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
     keys.sort_unstable();
-    assert_eq!(keys, ["addrs", "pin", "project", "relay", "secret", "v"]);
+    assert_eq!(keys, ["pin", "project", "relay", "secret", "v"]);
     assert_eq!(json["relay"].as_object().unwrap().len(), 2, "{json}");
 
     // A guest gets in through the relay, the only way there is.
@@ -1340,4 +1344,319 @@ async fn relay_says(socket: &mut tokio_tungstenite::WebSocketStream<TcpStream>) 
         }
     };
     tokio::time::timeout(WAIT, next).await.expect("nothing from the relay in time")
+}
+
+// ------------------------------------------------------------ edit history
+
+async fn history(app: &AppService) -> HistoryList {
+    call(app, "history_list", json!({})).await
+}
+
+fn authors(list: &[HistoryStep]) -> Vec<(Option<String>, Option<String>, Option<u8>)> {
+    list.iter().map(|s| (s.author_id.clone(), s.author_name.clone(), s.color)).collect()
+}
+
+#[tokio::test]
+async fn a_guest_sees_the_hosts_history_with_names() {
+    let host = peer("Ana").await;
+    let _: DocState = call(&host.app, "hub_create", json!({ "name": "Bahay" })).await;
+    let first: ApplyResult = call(&host.app, "doc_apply", apply(wall(0.0, 0.0, 4000.0, 0.0))).await;
+    let started: LiveStatus = call(&host.app, "live_host", json!({})).await;
+    let ana = me(&started);
+    let ben = peer("Ben").await;
+    join(&ben, started.invite.as_deref().unwrap()).await;
+    let bens = me(&status(&ben.app).await);
+    assert_ne!(bens.color, ana.color);
+
+    // On join, the host's history came with the plan: its step from before
+    // the session is the host's, named.
+    let copy = history(&ben.app).await;
+    assert_eq!(authors(&copy.undo), vec![(Some(ana.id.clone()), Some("Ana".into()), Some(0))]);
+    assert_eq!(copy.undo[0].ids, first.diff.added);
+    assert_eq!(copy.undo[0].label, "Add wall");
+    assert!(!copy.undo[0].at.is_empty());
+
+    // Each document frame brings it up to date.
+    let bens_wall: ApplyResult = call(&ben.app, "doc_apply", apply(wall(4000.0, 0.0, 4000.0, 3000.0))).await;
+    let copy = history(&ben.app).await;
+    assert_eq!(copy.undo.len(), 2);
+    // To the guest its own step has no author, like the host's own to the host.
+    assert_eq!(authors(&copy.undo)[0], (None, None, None));
+    assert_eq!(copy.undo[0].ids, bens_wall.diff.added);
+    let hosts = history(&host.app).await;
+    assert_eq!(
+        authors(&hosts.undo),
+        vec![(Some(bens.id.clone()), Some("Ben".into()), Some(bens.color)), (None, None, None)]
+    );
+    // The same steps, with the same times and summaries.
+    assert_eq!(hosts.undo[0].at, copy.undo[0].at);
+    assert_eq!(hosts.undo[0].summary, copy.undo[0].summary);
+
+    // The host's undo reaches the guest's redo list.
+    let _: DocState = call(&host.app, "doc_undo", json!({ "force": true })).await;
+    until("the undo to reach the guest", || async { history(&ben.app).await.redo.len() == 1 }).await;
+    let copy = history(&ben.app).await;
+    assert_eq!(authors(&copy.redo), vec![(None, None, None)], "still Ben's own");
+
+    // Names and colors stay after someone leaves, and in the next session.
+    let _: LiveStatus = call(&ben.app, "live_leave", json!({})).await;
+    until("Ben to leave", || async { status(&host.app).await.participants.len() == 1 }).await;
+    let hosts = history(&host.app).await;
+    assert_eq!(authors(&hosts.redo), vec![(Some(bens.id.clone()), Some("Ben".into()), Some(bens.color))]);
+    let _: LiveStatus = call(&host.app, "live_leave", json!({})).await;
+    let alone = history(&host.app).await;
+    assert_eq!(authors(&alone.redo)[0].1.as_deref(), Some("Ben"));
+    assert_eq!(authors(&alone.undo), vec![(None, None, None)]);
+}
+
+#[tokio::test]
+async fn several_steps_back_ask_first_when_any_is_someone_elses() {
+    let (host, started) = hosting("Ana").await;
+    let invite = started.invite.clone().unwrap();
+    let ben = peer("Ben").await;
+    join(&ben, &invite).await;
+    let cy = peer("Cy").await;
+    join(&cy, &invite).await;
+
+    // Newest first: Ana, Cy, Ben, Ben, Ana.
+    let _: ApplyResult = call(&host.app, "doc_apply", apply(wall(0.0, 0.0, 4000.0, 0.0))).await;
+    let _: ApplyResult = call(&ben.app, "doc_apply", apply(wall(0.0, 1000.0, 4000.0, 1000.0))).await;
+    let _: ApplyResult = call(&ben.app, "doc_apply", apply(wall(0.0, 2000.0, 4000.0, 2000.0))).await;
+    let _: ApplyResult = call(&cy.app, "doc_apply", apply(wall(0.0, 3000.0, 4000.0, 3000.0))).await;
+    let top: ApplyResult = call(&host.app, "doc_apply", apply(wall(0.0, 4000.0, 4000.0, 4000.0))).await;
+    let revision = top.state.revision;
+
+    let asks = |message: &'static str| move |e: IpcError| {
+        assert_eq!((e.code.as_str(), e.message.as_str()), ("other_author", message));
+    };
+    asks("Takes back 4 steps, 1 by Cy and 2 by Ben. Undo anyway?")(
+        fail(&host.app, "doc_undo", json!({ "steps": 4 })).await,
+    );
+    asks("Takes back 2 steps, 1 by Ana and 1 by Cy. Undo anyway?")(fail(&ben.app, "doc_undo", json!({ "steps": 2 })).await);
+    // One step keeps the sentence it always had.
+    asks("Ana made the last change: Add wall. Undo it anyway?")(fail(&cy.app, "doc_undo", json!({ "steps": 1 })).await);
+    // Asking changed nothing.
+    assert_eq!(doc(&host.app).await.unwrap().revision, revision);
+
+    // A guest takes all five back as one request: one revision, and every
+    // copy gets it in one document frame.
+    let undone: DocState = call(&ben.app, "doc_undo", json!({ "steps": 5, "force": true })).await;
+    assert_eq!((walls(&undone), undone.revision), (0, revision + 1));
+    let hosts = doc(&host.app).await.unwrap();
+    assert_eq!((walls(&hosts), hosts.revision), (0, revision + 1));
+    until("Cy's copy", || async { doc(&cy.app).await.unwrap().revision == revision + 1 }).await;
+    assert_eq!(history(&cy.app).await.redo.len(), 5);
+
+    // Redo asks the same way.
+    asks("Brings back 3 steps, 1 by Ana. Redo anyway?")(fail(&ben.app, "doc_redo", json!({ "steps": 3 })).await);
+    let _: DocState = call(&host.app, "doc_redo", json!({})).await;
+    // Ben's own two come back without asking.
+    let redone: DocState = call(&ben.app, "doc_redo", json!({ "steps": 2 })).await;
+    assert_eq!(walls(&redone), 3);
+    asks("Takes back 2 steps, all by Ben. Undo anyway?")(fail(&host.app, "doc_undo", json!({ "steps": 2 })).await);
+    asks("Brings back 2 steps, 1 by Cy. Redo anyway?")(fail(&host.app, "doc_redo", json!({ "steps": 2 })).await);
+    let redone: DocState = call(&host.app, "doc_redo", json!({ "steps": 2, "force": true })).await;
+    assert_eq!(walls(&redone), 5);
+
+    // More steps than there are is refused without asking.
+    let err = fail(&cy.app, "doc_undo", json!({ "steps": 9 })).await;
+    assert_eq!((err.code.as_str(), err.message.as_str()), ("invalid", "Only 5 steps can be undone, not 9."));
+}
+
+#[tokio::test]
+async fn a_guest_who_joins_late_still_sees_who_left() {
+    let (host, started) = hosting("Ana").await;
+    let invite = started.invite.clone().unwrap();
+    let ben = peer("Ben").await;
+    join(&ben, &invite).await;
+    let bens = me(&status(&ben.app).await);
+    let _: ApplyResult = call(&ben.app, "doc_apply", apply(wall(0.0, 0.0, 4000.0, 0.0))).await;
+    let _: LiveStatus = call(&ben.app, "live_leave", json!({})).await;
+    until("Ben to leave", || async { status(&host.app).await.participants.len() == 1 }).await;
+
+    // Cy never met Ben: the host's frame names him.
+    let cy = peer("Cy").await;
+    join(&cy, &invite).await;
+    let cys = me(&status(&cy.app).await);
+    assert_eq!(cys.color, bens.color, "Ben's color is free again, so Cy may get it");
+    let copy = history(&cy.app).await;
+    assert_eq!(authors(&copy.undo), vec![(Some(bens.id.clone()), Some("Ben".into()), Some(bens.color))]);
+    let _: ApplyResult = call(&cy.app, "doc_apply", apply(wall(0.0, 1000.0, 4000.0, 1000.0))).await;
+    let copy = history(&cy.app).await;
+    assert_eq!(authors(&copy.undo)[1], (Some(bens.id.clone()), Some("Ben".into()), Some(bens.color)));
+}
+
+#[tokio::test]
+async fn an_answer_to_undo_anyway_is_refused_once_the_plan_moved_on() {
+    let (host, started) = hosting("Ana").await;
+    let ben = peer("Ben").await;
+    join(&ben, started.invite.as_deref().unwrap()).await;
+    let applied: ApplyResult = call(&ben.app, "doc_apply", apply(wall(0.0, 0.0, 4000.0, 0.0))).await;
+
+    // Ana is asked about Ben's step, at the revision she sees.
+    let asked = doc(&host.app).await.unwrap().revision;
+    assert_eq!(asked, applied.state.revision);
+    let err = fail(&host.app, "doc_undo", json!({ "expected_revision": asked })).await;
+    assert_eq!(err.code, "other_author");
+    // While she reads it, Ben makes another change.
+    let _: ApplyResult = call(&ben.app, "doc_apply", apply(wall(0.0, 1000.0, 4000.0, 1000.0))).await;
+    // Her "Undo anyway" takes nothing: not Ben's new wall, not the old one.
+    let err = fail(&host.app, "doc_undo", json!({ "force": true, "expected_revision": asked })).await;
+    assert_eq!(err.code, "stale");
+    assert_eq!(walls(&doc(&host.app).await.unwrap()), 2);
+
+    // The same from a guest, through the host.
+    let top: ApplyResult = call(&host.app, "doc_apply", apply(wall(0.0, 2000.0, 4000.0, 2000.0))).await;
+    let seen = top.state.revision;
+    until("Ben's copy", || async { doc(&ben.app).await.unwrap().revision == seen }).await;
+    let err = fail(&ben.app, "doc_undo", json!({ "steps": 2, "expected_revision": seen })).await;
+    assert_eq!((err.code.as_str(), err.message.as_str()), ("other_author", "Takes back 2 steps, 1 by Ana. Undo anyway?"));
+    let _: ApplyResult = call(&host.app, "doc_apply", apply(wall(0.0, 3000.0, 4000.0, 3000.0))).await;
+    let err = fail(&ben.app, "doc_undo", json!({ "steps": 2, "force": true, "expected_revision": seen })).await;
+    assert_eq!(err.code, "stale");
+    assert_eq!(walls(&doc(&host.app).await.unwrap()), 4);
+    // Asked again at the new revision, it goes.
+    let seen = doc(&host.app).await.unwrap().revision;
+    until("Ben's copy", || async { doc(&ben.app).await.unwrap().revision == seen }).await;
+    let undone: DocState = call(&ben.app, "doc_undo", json!({ "steps": 2, "force": true, "expected_revision": seen })).await;
+    assert_eq!(walls(&undone), 2);
+}
+
+/// Read frames until one that `pick` takes, as raw JSON.
+async fn frame_where<R: tokio::io::AsyncRead + Unpin>(stream: &mut R, mut pick: impl FnMut(&Value) -> bool) -> Value {
+    let next = async {
+        loop {
+            let bytes = wire::read_frame(stream, wire::MAX_FRAME_BYTES, WAIT, WAIT).await.expect("a frame");
+            let value: Value = serde_json::from_slice(&bytes).unwrap();
+            if pick(&value) {
+                return value;
+            }
+        }
+    };
+    tokio::time::timeout(WAIT, next).await.expect("the frame in time")
+}
+
+#[tokio::test]
+async fn an_older_guest_still_talks_to_a_newer_host() {
+    let (host, started) = hosting("Ana").await;
+    for y in [0.0, 1000.0] {
+        let _: ApplyResult = call(&host.app, "doc_apply", apply(wall(0.0, y, 4000.0, y))).await;
+    }
+    let invite = Invite::decode(started.invite.as_deref().unwrap()).unwrap();
+    let addr: SocketAddr = invite.addrs[0].parse().unwrap();
+    let mut old = tls::connect(addr, &invite.pin).await.unwrap();
+    let hello = json!({ "type": "hello", "v": wire::PROTOCOL_VERSION, "secret": invite.secret, "name": "Old Ben" });
+    old.write_all(&wire::encode(&hello, wire::MAX_HELLO_BYTES).unwrap()).await.unwrap();
+    old.flush().await.unwrap();
+
+    // The welcome carries the history, which a 0.3 guest's frame type does
+    // not know and skips.
+    let welcome = frame_where(&mut old, |v| v["type"] == "welcome").await;
+    assert_eq!(welcome["doc"]["history"]["undo"].as_array().unwrap().len(), 2);
+    #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
+    struct OlderFrame {
+        project: Project,
+        revision: u32,
+        seq: u64,
+        undo: wire::UndoMeta,
+        by: Option<Id>,
+    }
+    let frame: OlderFrame = serde_json::from_value(welcome["doc"].clone()).unwrap();
+    assert!(frame.undo.can_undo);
+
+    // Its undo has no `steps`: one step, as before.
+    let undo = json!({ "type": "request", "id": 1, "request": { "type": "undo", "force": true } });
+    old.write_all(&wire::encode(&undo, wire::MAX_FRAME_BYTES).unwrap()).await.unwrap();
+    old.flush().await.unwrap();
+    let reply = frame_where(&mut old, |v| v["type"] == "reply" && v["id"] == 1).await;
+    assert_eq!(reply["error"], Value::Null, "{reply}");
+    assert_eq!(walls(&doc(&host.app).await.unwrap()), 1, "one step back, not two");
+}
+
+#[tokio::test]
+async fn a_newer_guest_still_talks_to_an_older_host() {
+    // A host as 0.3 was: its frames carry the top labels, no history.
+    let identity = tls::HostIdentity::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let secret = URL_SAFE_NO_PAD.encode([9u8; 16]);
+    let invite = Invite {
+        v: guhit_app::live::invite::INVITE_VERSION,
+        secret: secret.clone(),
+        pin: identity.pin.clone(),
+        addrs: vec![listener.local_addr().unwrap().to_string()],
+        project: "Lumang bahay".into(),
+        relay: None,
+    }
+    .encode();
+    let mut project = defaults::new_project("Lumang bahay");
+    project.id = defaults::new_id();
+    let frame = |revision: u32, seq: u64, can_undo: bool| wire::DocFrame {
+        project: project.clone(),
+        revision,
+        seq,
+        undo: wire::UndoMeta {
+            can_undo,
+            can_redo: !can_undo,
+            undo_label: can_undo.then(|| "Move wall".to_string()),
+            redo_label: (!can_undo).then(|| "Move wall".to_string()),
+            // A step from before its session: no author.
+            undo_by: None,
+            redo_by: None,
+        },
+        by: None,
+        history: None,
+    };
+    let old_host = Participant { id: "old-host".into(), name: "Lola".into(), color: 0, role: ParticipantRole::Host };
+    let welcome = wire::ToGuest::Welcome(Box::new(wire::Welcome {
+        participant_id: "g1".into(),
+        rejoin_token: "t".into(),
+        participants: vec![
+            old_host.clone(),
+            Participant { id: "g1".into(), name: "Ben".into(), color: 1, role: ParticipantRole::Guest },
+        ],
+        doc: frame(4, 1, true),
+        chat: vec![],
+        presence: vec![],
+    }));
+    let welcome = wire::encode(&welcome, wire::MAX_FRAME_BYTES).unwrap();
+    assert!(!String::from_utf8_lossy(&welcome).contains("history"), "an older host's welcome");
+    let undone = wire::encode(&wire::ToGuest::Doc(Box::new(frame(5, 2, false))), wire::MAX_FRAME_BYTES).unwrap();
+    let seen = Arc::new(Mutex::new(vec![]));
+    let requests = seen.clone();
+    let host: JoinHandle<()> = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut tls = identity.acceptor.accept(Box::new(tcp) as tls::BoxIo).await.unwrap();
+        frame_where(&mut tls, |v| v["type"] == "hello").await;
+        tls.write_all(&welcome).await.unwrap();
+        tls.flush().await.unwrap();
+        loop {
+            let request = frame_where(&mut tls, |v| v["type"] == "request").await;
+            requests.lock().unwrap().push(request["request"].clone());
+            tls.write_all(&undone).await.unwrap();
+            let reply = json!({ "type": "reply", "id": request["id"], "ok": { "revision": 5 } });
+            tls.write_all(&wire::encode(&reply, wire::MAX_FRAME_BYTES).unwrap()).await.unwrap();
+            tls.flush().await.unwrap();
+        }
+    });
+
+    let ben = peer("Ben").await;
+    join(&ben, &invite).await;
+    // Only the top step is known, named as the host's.
+    let list = history(&ben.app).await;
+    assert_eq!(authors(&list.undo), vec![(Some("old-host".into()), Some("Lola".into()), Some(0))]);
+    assert_eq!((list.undo[0].label.as_str(), list.undo[0].at.as_str()), ("Move wall", ""));
+    assert!(list.redo.is_empty());
+
+    // It would take back only one, so several are refused here.
+    let err = fail(&ben.app, "doc_undo", json!({ "steps": 2, "force": true })).await;
+    assert_eq!(err.code, "invalid");
+    assert!(err.message.contains("older version"), "{}", err.message);
+    assert!(seen.lock().unwrap().is_empty(), "nothing went to the host");
+    let state: DocState = call(&ben.app, "doc_undo", json!({ "force": true })).await;
+    assert_eq!(state.revision, 5);
+    assert_eq!(*seen.lock().unwrap(), vec![json!({ "type": "undo", "force": true, "steps": 1 })]);
+    let list = history(&ben.app).await;
+    assert_eq!((list.undo.len(), list.redo.len()), (0, 1));
+    host.abort();
 }

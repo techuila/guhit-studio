@@ -17,11 +17,13 @@ import type {
   PipeMaterial,
   PipeSystem,
   Point,
+  ViewMode as ContractViewMode,
 } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
 
 export type Screen = "hub" | "editor";
-export type ViewMode = "2d" | "3d" | "split";
+/** "2d", "3d" or "split": the contract's `ViewMode`, which presence sends. */
+export type ViewMode = ContractViewMode;
 
 export type Tool =
   | "select"
@@ -77,6 +79,10 @@ export interface UndoConfirm {
   redo: boolean;
   /** The engine's sentence: who made the step and what it was. */
   message: string;
+  /** Steps taken back or brought back together, as one revision. 1 when absent. */
+  steps?: number;
+  /** The revision the question was asked at. "Undo anyway" takes nothing once the plan moved on from it. */
+  revision?: number;
 }
 
 const AI_SCOPE_KEY = "guhit.aiScope";
@@ -96,6 +102,13 @@ export interface AppState {
   preview: ApplyResult | null;
   selection: string[];
   hoverId: string | null;
+  /**
+   * Elements tinted for a moment in someone's color, over the selection
+   * and the peers' outlines: the History row under the pointer (DECISIONS
+   * D38). `color` is a participant color index (`--peer-N`), null for this
+   * computer's own steps (the accent).
+   */
+  historyTint: { ids: string[]; color: number | null } | null;
   tool: Tool;
   toolOptions: ToolOptions;
   viewMode: ViewMode;
@@ -129,6 +142,15 @@ export interface AppState {
   /** In a live session, someone else's step asks first (`undoConfirm`). */
   undo: () => Promise<void>;
   redo: () => Promise<void>;
+  /**
+   * Undo (or redo) `steps` steps at once, as one revision: History's "Undo
+   * to here" (DECISIONS D38). Someone else's step among them in a live
+   * session asks the engine's question, as `undo` does. `expectedRevision`
+   * is the revision the caller counted the steps at: nothing happens (a
+   * toast) once the plan moved on from it.
+   */
+  undoSteps: (steps: number, expectedRevision?: number) => Promise<void>;
+  redoSteps: (steps: number, expectedRevision?: number) => Promise<void>;
   /** Answers `undoConfirm`: true takes the step back anyway. */
   resolveUndoConfirm: (accept: boolean) => Promise<void>;
   setAiScope: (on: boolean) => void;
@@ -137,6 +159,7 @@ export interface AppState {
   setPreview: (preview: ApplyResult | null) => void;
   select: (ids: string[], additive?: boolean) => void;
   setHover: (id: string | null) => void;
+  setHistoryTint: (tint: { ids: string[]; color: number | null } | null) => void;
   setTool: (tool: Tool, options?: Partial<ToolOptions>) => void;
   setViewMode: (mode: ViewMode) => void;
   setActiveCamera: (id: string | null) => void;
@@ -165,6 +188,7 @@ export const useApp = create<AppState>((set, get) => ({
   preview: null,
   selection: [],
   hoverId: null,
+  historyTint: null,
   tool: "select",
   toolOptions: {
     wallThicknessMm: null,
@@ -216,10 +240,20 @@ export const useApp = create<AppState>((set, get) => ({
     await stepHistory(true, false);
   },
 
+  undoSteps: async (steps, expectedRevision) => {
+    if (!get().doc?.can_undo || steps < 1) return;
+    await stepHistory(false, false, steps, expectedRevision);
+  },
+
+  redoSteps: async (steps, expectedRevision) => {
+    if (!get().doc?.can_redo || steps < 1) return;
+    await stepHistory(true, false, steps, expectedRevision);
+  },
+
   resolveUndoConfirm: async (accept) => {
     const pending = get().undoConfirm;
     set({ undoConfirm: null });
-    if (pending && accept) await stepHistory(pending.redo, true);
+    if (pending && accept) await stepHistory(pending.redo, true, pending.steps ?? 1, pending.revision);
   },
 
   setAiScope: (aiScope) => {
@@ -258,6 +292,7 @@ export const useApp = create<AppState>((set, get) => ({
     }),
 
   setHover: (hoverId) => set({ hoverId }),
+  setHistoryTint: (historyTint) => set({ historyTint }),
 
   setTool: (tool, options) =>
     set((s) => ({ tool, toolOptions: { ...s.toolOptions, ...options } })),
@@ -338,16 +373,26 @@ export const useApp = create<AppState>((set, get) => ({
   registerExportScene: (exportScene) => set({ exportScene }),
 }));
 
-/** One undo or redo. `other_author` turns into a question instead of a toast. */
-async function stepHistory(redo: boolean, force: boolean): Promise<void> {
+/**
+ * One undo or redo of `steps` steps, one revision. `other_author` turns into
+ * a question, asked at the revision this window shows (or the caller's), so
+ * the answer takes only the steps it named: when the plan moved on while it
+ * was open, the engine refuses (`stale`) and a toast says so.
+ */
+async function stepHistory(redo: boolean, force: boolean, steps = 1, expectedRevision?: number): Promise<void> {
   const app = useApp;
+  const revision = expectedRevision ?? app.getState().doc?.revision;
   app.setState((s) => ({ saving: s.saving + 1 }));
   try {
-    app.getState().setDoc(await (redo ? ipc.docRedo(force) : ipc.docUndo(force)));
+    app.getState().setDoc(await (redo ? ipc.docRedo(force, steps, expectedRevision) : ipc.docUndo(force, steps, expectedRevision)));
   } catch (e) {
     const err = toIpcError(e);
-    if (err.code === "other_author" && !force) app.setState({ undoConfirm: { redo, message: err.message } });
-    else app.getState().reportError(err);
+    if (err.code === "other_author" && !force) app.setState({ undoConfirm: { redo, message: err.message, steps, revision } });
+    else if (err.code === "stale") {
+      app.getState().toast("info", `The plan changed meanwhile, so nothing was ${redo ? "redone" : "undone"}. Look again and retry.`);
+      const fresh = await ipc.docState().catch(() => null);
+      if (fresh) app.getState().setDoc(fresh);
+    } else app.getState().reportError(err);
   } finally {
     app.setState((s) => ({ saving: s.saving - 1 }));
   }

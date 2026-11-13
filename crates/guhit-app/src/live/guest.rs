@@ -12,7 +12,6 @@
 //! (`wire::write_loop`) and its presence sender live as long as it does.
 
 use std::collections::{HashMap, VecDeque};
-use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -327,10 +326,10 @@ async fn connect(
     }
 }
 
-/// One way to the host.
+/// One way to the host: one of the invite's addresses, or the relay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Route {
-    Direct(SocketAddr),
+    Direct,
     Relay,
 }
 
@@ -373,14 +372,13 @@ impl Misses {
 
     /// `live_pin` when another computer answered anywhere: that is the
     /// likelier mistake. Otherwise `live_unreachable`, with what was tried
-    /// and what the relay said.
+    /// and what the relay said. Never names an address: a guest is not told
+    /// where the host is.
     fn error(&self, invite: &Invite) -> IpcError {
-        // The first wrong host in the invite's order, the relay last.
-        let direct = invite.socket_addrs().into_iter().find(|a| self.wrong_host.contains(&Route::Direct(*a)));
-        if let Some(addr) = direct {
+        if self.wrong_host.contains(&Route::Direct) {
             return IpcError::new(
                 "live_pin",
-                format!("The computer at {addr} is not the host this invite is for. Ask for a new invite."),
+                "Another computer answered instead of the host this invite is for. Ask for a new invite.",
             );
         }
         if self.wrong_host.contains(&Route::Relay) {
@@ -389,19 +387,16 @@ impl Misses {
                 "The computer that answered through the relay is not the host this invite is for. Ask for a new invite.",
             );
         }
-        let addrs = invite.addrs.join(" or ");
         if invite.relay.is_none() {
             return IpcError::new(
                 "live_unreachable",
-                format!(
-                    "Could not reach the host at {addrs}. Check that you are on the same network or VPN as the host, and that the host's firewall lets Guhit Studio accept connections."
-                ),
+                "Could not reach the host directly. Check that you are on the same network or VPN as the host, and that the host's firewall lets Guhit Studio accept connections.",
             );
         }
-        let tried = if addrs.is_empty() {
-            "Could not reach the host through the relay.".to_string()
+        let tried = if invite.addrs.is_empty() {
+            "Could not reach the host through the relay."
         } else {
-            format!("Could not reach the host at {addrs}, or through the relay.")
+            "Could not reach the host directly or through the relay."
         };
         let why = match self.relay.unwrap_or(JoinError::Unreachable) {
             JoinError::NotOnline => "The host is not online, so the session may have ended.",
@@ -422,7 +417,7 @@ async fn race(invite: &Invite) -> Result<GuestTls, Misses> {
     let mut attempts: JoinSet<(Route, Result<GuestTls, Miss>)> = JoinSet::new();
     for addr in invite.socket_addrs() {
         let pin = invite.pin.clone();
-        attempts.spawn(async move { (Route::Direct(addr), tls::connect(addr, &pin).await.map_err(Miss::from)) });
+        attempts.spawn(async move { (Route::Direct, tls::connect(addr, &pin).await.map_err(Miss::from)) });
     }
     let start_relay = |attempts: &mut JoinSet<_>, relay: InviteRelay| {
         let pin = invite.pin.clone();
@@ -538,7 +533,12 @@ pub(crate) async fn join(app: &AppService, invite: &str) -> Result<DocState, Ipc
     let guest = Arc::new(Guest::new(epoch, invite, name, &welcome, app.local_presence()));
     let status = status_of(&guest, &welcome);
     let copy = Document::with_revision(welcome.doc.project.clone(), welcome.doc.revision);
-    let meta = CopyMeta { epoch, seq: welcome.doc.seq, undo: welcome.doc.undo.clone() };
+    let meta = CopyMeta {
+        epoch,
+        seq: welcome.doc.seq,
+        undo: welcome.doc.undo.clone(),
+        history: welcome.doc.history.clone(),
+    };
     // Requests can go out as soon as the session is visible.
     let conn = open(&guest, stream);
     let installed = {
@@ -567,7 +567,7 @@ pub(crate) async fn join(app: &AppService, invite: &str) -> Result<DocState, Ipc
         }
     };
     for p in &welcome.participants {
-        app.live.remember_name(&p.id, &p.name);
+        app.live.remember(p);
     }
     app.emit(AppEvent::Live { status });
     for entry in &welcome.presence {
@@ -673,6 +673,7 @@ async fn rejoined(
         let meta = s.live_copy.as_mut().filter(|c| c.epoch == guest.epoch)?;
         meta.seq = welcome.doc.seq;
         meta.undo = welcome.doc.undo.clone();
+        meta.history = welcome.doc.history.clone();
         s.doc = Some(copy);
         *lock(&guest.me) = Rejoin { id: welcome.participant_id.clone(), token: welcome.rejoin_token.clone() };
         // Requests can go out again before anyone hears the guest is back.
@@ -683,7 +684,7 @@ async fn rejoined(
     };
     guest.copy_revision.send_replace(welcome.doc.revision);
     for p in &welcome.participants {
-        app.live.remember_name(&p.id, &p.name);
+        app.live.remember(p);
     }
     guest.presence_reset(app, &welcome.presence);
     *lock(&guest.chat) = welcome.chat.into_iter().collect();
@@ -776,6 +777,7 @@ async fn apply_doc(app: &AppService, guest: &Guest, frame: DocFrame) {
         };
         meta.seq = frame.seq;
         meta.undo = frame.undo;
+        meta.history = frame.history;
         s.doc = Some(copy);
         app.notify(&s);
     }
@@ -787,7 +789,7 @@ fn participants_changed(app: &AppService, guest: &Arc<Guest>, participants: Vec<
         return;
     }
     for p in &participants {
-        app.live.remember_name(&p.id, &p.name);
+        app.live.remember(p);
     }
     let gone: Vec<Id> = {
         let mut others = lock(&guest.others);
@@ -862,12 +864,33 @@ pub(crate) async fn apply(
     Ok(ApplyResult { state, diff: applied.diff })
 }
 
-/// A guest's undo or redo, on the host's one shared history.
-pub(crate) async fn step(app: &AppService, redo: bool, force: bool) -> Result<DocState, IpcError> {
+/// A guest's undo or redo of `steps` steps, on the host's one shared
+/// history, as one request: one revision, one document frame. An older host
+/// (its frames carry no history) is asked for one step at a time only.
+pub(crate) async fn step(
+    app: &AppService,
+    redo: bool,
+    force: bool,
+    steps: u32,
+    expected_revision: Option<u32>,
+) -> Result<DocState, IpcError> {
     let Role::Guest(guest) = app.live.role() else {
         return Err(live_lost());
     };
-    let request = if redo { Request::Redo { force } } else { Request::Undo { force } };
+    if steps > 1 {
+        let s = app.session.lock().await;
+        if s.live_copy.as_ref().is_some_and(|c| c.history.is_none()) {
+            return Err(IpcError::new(
+                "invalid",
+                "The host's Guhit Studio is an older version that takes back one step at a time. Undo or redo one step at a time, or ask the host to update.",
+            ));
+        }
+    }
+    let request = if redo {
+        Request::Redo { force, steps, expected_revision }
+    } else {
+        Request::Undo { force, steps, expected_revision }
+    };
     let stepped: Stepped = serde_json::from_value(guest.request(request).await?).map_err(odd_answer)?;
     guest.wait_for_copy(stepped.revision).await?;
     app.session.lock().await.state()

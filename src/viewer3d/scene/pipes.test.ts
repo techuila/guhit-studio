@@ -3,11 +3,12 @@ import * as THREE from "three";
 import type { DocState, Element, Pipe, PipeNetwork } from "../../contract/bindings";
 import { PIPE_COLOR_HEX, PIPE_COLOR_VAR, PIPE_SYSTEM_ORDER } from "../../contract/pipes";
 import fixture from "../../../fixtures/sample-bungalow.docstate.json";
+import { tracePipesOnce } from "../render/renderScene";
 import { BuildCache } from "./buildCache";
-import { buildScene } from "./buildScene";
+import { buildScene, CUTAWAY_MM } from "./buildScene";
 import { buildExportGroup } from "./exportScene";
 import { MaterialLibrary } from "./materials";
-import { buildPipeParts, PIPE_PICK_LAYER } from "./pipes";
+import { buildPipeParts, cutRun, PIPE_PICK_LAYER, pipeTopMm, pipeWorldPoints } from "./pipes";
 
 const base = fixture as unknown as DocState;
 const LEVEL = base.project.levels[0].id;
@@ -230,6 +231,231 @@ describe("pipes in buildScene", () => {
       built.pipes.promote([]);
       expect(Array.from(index.array as Uint32Array)).toEqual(before);
       built.pipes.meshesOf(cold.id).forEach((m) => expect(m.layers.mask).toBe(1 << PIPE_PICK_LAYER));
+    } finally {
+      built.kit.dispose();
+      lib.dispose();
+    }
+  });
+});
+
+describe("pipes in the cutaway", () => {
+  const none = () => undefined;
+  const ys = (b: { positions: number[] }) => b.positions.filter((_, i) => i % 3 === 1);
+
+  it("cuts a run at the cut height and drops the parts above it", () => {
+    const pts = [
+      { x: 0, y: 0, z: 300 },
+      { x: 1000, y: 0, z: 300 },
+      { x: 1000, y: 0, z: 2400 },
+      { x: 3000, y: 0, z: 2400 },
+      { x: 3000, y: 0, z: 600 },
+      { x: 4000, y: 0, z: 600 },
+    ];
+    const pieces = cutRun(pts, 1200);
+    expect(pieces).toEqual([
+      [pts[0], pts[1], { x: 1000, y: 0, z: 1200 }],
+      [{ x: 3000, y: 0, z: 1200 }, pts[4], pts[5]],
+    ]);
+    // Wholly above or wholly below.
+    expect(cutRun([{ x: 0, y: 0, z: 2450 }, { x: 3000, y: 0, z: 2450 }], 1200)).toEqual([]);
+    expect(cutRun(pts.slice(0, 2), 1200)).toEqual([pts.slice(0, 2)]);
+    // A point exactly at the cut stays; a run that only touches the cut leaves nothing.
+    expect(cutRun([{ x: 0, y: 0, z: 1200 }, { x: 0, y: 0, z: 2000 }], 1200)).toEqual([]);
+  });
+
+  it("caps a riser at the cut, flush with the cut walls", () => {
+    const riser: Pipe = { ...cold, id: "riser", points: [{ x: 0, y: 0, z: 300 }, { x: 0, y: 0, z: 2600 }] };
+    const whole = buildPipeParts(riser, 0, [], [], () => 0, none);
+    const cut = buildPipeParts(riser, 0, [], [], () => 0, none, 1200);
+    // Same parts: one tube and two caps, the top cap now at the cut.
+    expect(tris(cut.body)).toBe(tris(whole.body));
+    expect(Math.max(...ys(cut.body))).toBeCloseTo(1.2, 6);
+    expect(Math.max(...ys(whole.body))).toBeCloseTo(2.6, 6);
+    // Counted from the level floor.
+    expect(Math.max(...ys(buildPipeParts(riser, 3000, [], [], () => 0, none, 1200).body))).toBeCloseTo(4.2, 6);
+  });
+
+  it("leaves out fittings and sleeves above the cut", () => {
+    const high = { ...network.fittings[0], position: { x: 4500, y: 3000, z: 1100 } };
+    const low = network.fittings[1];
+    const tee = buildPipeParts(cold, 0, [low], [], () => 0, (id) => (id === branch.id ? branch : undefined), 700);
+    const plain = buildPipeParts(cold, 0, [], [], () => 0, none, 700);
+    expect(tris(tee.body)).toBeGreaterThan(tris(plain.body));
+    const elbow = buildPipeParts(cold, 0, [high], [], () => 0, none, 700);
+    expect(tris(elbow.body)).toBe(tris(plain.body));
+    const wallSleeve = { ...network.penetrations[0], kind: "wall" as const, position: { x: 1000, y: 5000, z: 1500 } };
+    expect(tris(buildPipeParts(drain, 0, [], [wallSleeve], () => 210, none, 1200).sleeves)).toBe(0);
+    expect(tris(buildPipeParts(drain, 0, [], network.penetrations, () => 210, none, 1200).sleeves)).toBeGreaterThan(0);
+  });
+
+  const tall: Pipe = {
+    id: "pipe-vent",
+    level_id: LEVEL,
+    system: "vent",
+    material: "upvc",
+    diameter_mm: 50,
+    name: "Vent stack",
+    points: [
+      { x: 1000, y: 5000, z: 200 },
+      { x: 1000, y: 5000, z: 3450 },
+    ],
+  };
+  const hot: Pipe = {
+    id: "pipe-hot",
+    level_id: LEVEL,
+    system: "hot_water",
+    material: "ppr",
+    diameter_mm: 20,
+    name: "Hot water",
+    points: [
+      { x: 0, y: 2000, z: 2450 },
+      { x: 3000, y: 2000, z: 2450 },
+    ],
+  };
+  const topOf = (built: ReturnType<typeof buildScene>, id: string): number => {
+    let top = -Infinity;
+    built.pipes.solos.get(id)?.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry.computeBoundingBox();
+      top = Math.max(top, mesh.geometry.boundingBox!.max.y);
+    });
+    return top;
+  };
+  const withTall = (patch?: (d: DocState) => void) =>
+    withPipes((d) => {
+      d.project.elements.push({ kind: "pipe", ...tall } as Element, { kind: "pipe", ...hot } as Element);
+      patch?.(d);
+    });
+
+  it("cuts runs on the active level with the walls, and keeps them whole without the cutaway", () => {
+    const lib = new MaterialLibrary();
+    const open = buildScene(withTall(), lib, { cutaway: false, activeLevelId: LEVEL });
+    const cut = buildScene(withTall(), lib, { cutaway: true, activeLevelId: LEVEL });
+    try {
+      expect(topOf(open, tall.id)).toBeCloseTo(3.45, 4);
+      expect(topOf(cut, tall.id)).toBeCloseTo(CUTAWAY_MM / 1000, 4);
+      // A run wholly above the cut keeps an empty solo, so the engine still counts it as shown.
+      expect(cut.pipes.solos.has(hot.id)).toBe(true);
+      expect(cut.byElement.get(hot.id)).toBeUndefined();
+      // Batches draw the cut geometry too.
+      const vents = cut.pipes.batches.find((b) => b.has(tall.id))!;
+      vents.mesh.geometry.computeBoundingBox();
+      expect(vents.mesh.geometry.boundingBox!.max.y).toBeLessThanOrEqual(CUTAWAY_MM / 1000 + 1e-6);
+    } finally {
+      open.kit.dispose();
+      cut.kit.dispose();
+      lib.dispose();
+    }
+  });
+
+  it("keeps runs whole for X-ray and hidden, and on the levels below the active one", () => {
+    const lib = new MaterialLibrary();
+    const whole = buildScene(withTall(), lib, { cutaway: true, activeLevelId: LEVEL, pipesWhole: true });
+    const upper = withTall((d) => {
+      d.project.levels.push({ id: "level-2", name: "Second Floor", elevation_mm: 3000, height_mm: 2800 });
+    });
+    const fromAbove = buildScene(upper, lib, { cutaway: true, activeLevelId: "level-2" });
+    try {
+      expect(topOf(whole, tall.id)).toBeCloseTo(3.45, 4);
+      expect(topOf(fromAbove, tall.id)).toBeCloseTo(3.45, 4);
+    } finally {
+      whole.kit.dispose();
+      fromAbove.kit.dispose();
+      lib.dispose();
+    }
+  });
+
+  it("cuts a run from a lower level at the active level's cut height", () => {
+    const lib = new MaterialLibrary();
+    const two = withTall((d) => {
+      d.project.levels.push({ id: "level-2", name: "Second Floor", elevation_mm: 2800, height_mm: 2800 });
+      const stack = d.project.elements.find((e) => e.id === tall.id);
+      // New points: the test runs share theirs.
+      if (stack?.kind === "pipe") stack.points = [stack.points[0], { ...stack.points[1], z: 6500 }];
+    });
+    const built = buildScene(two, lib, { cutaway: true, activeLevelId: "level-2" });
+    try {
+      // The upper level's cut: 2800 + 1200 mm, in world meters.
+      expect(topOf(built, tall.id)).toBeCloseTo(4.0, 4);
+      // A ground floor run under that height is not touched.
+      expect(topOf(built, cold.id)).toBeCloseTo(1.1, 4);
+    } finally {
+      built.kit.dispose();
+      lib.dispose();
+    }
+  });
+
+  it("keeps runs wholly under the cut as they are, cache included", () => {
+    const lib = new MaterialLibrary();
+    const cache = new BuildCache();
+    const d = withTall();
+    const a = buildScene(d, lib, { cutaway: false, activeLevelId: LEVEL, cache });
+    const coldA = a.pipes.solos.get(cold.id);
+    for (const o of [...a.root.children]) o.removeFromParent();
+    const b = buildScene(d, lib, { cutaway: true, activeLevelId: LEVEL, cache });
+    try {
+      expect(b.pipes.solos.get(cold.id)).toBe(coldA);
+    } finally {
+      a.kit.dispose();
+      b.kit.dispose();
+      cache.dispose();
+      lib.dispose();
+    }
+  });
+
+  it("finds a run's points in world meters, for a focus with nothing drawn", () => {
+    const pts = pipeWorldPoints(withTall(), tall.id);
+    expect(pts.map((p) => [p.x, p.y, p.z])).toEqual([
+      [1, 0.2, -5],
+      [1, 3.45, -5],
+    ]);
+    expect(pipeWorldPoints(base, "nope")).toEqual([]);
+  });
+
+  it("caches cut and whole runs apart", () => {
+    const lib = new MaterialLibrary();
+    const cache = new BuildCache();
+    const d = withTall();
+    const a = buildScene(d, lib, { cutaway: false, activeLevelId: LEVEL, cache });
+    const soloA = a.pipes.solos.get(tall.id);
+    for (const o of [...a.root.children]) o.removeFromParent();
+    const b = buildScene(d, lib, { cutaway: true, activeLevelId: LEVEL, cache });
+    try {
+      expect(b.pipes.solos.get(tall.id)).not.toBe(soloA);
+      expect(topOf(b, tall.id)).toBeCloseTo(CUTAWAY_MM / 1000, 4);
+    } finally {
+      a.kit.dispose();
+      b.kit.dispose();
+      cache.dispose();
+      lib.dispose();
+    }
+  });
+
+  it("knows the highest pipe point, for the cutaway sweep", () => {
+    expect(pipeTopMm(withTall())).toBe(3450);
+    expect(pipeTopMm(base)).toBeNull();
+  });
+});
+
+describe("pipes in the path traced render", () => {
+  it("go into the render once: solos hidden, batches drawn", () => {
+    const lib = new MaterialLibrary();
+    const built = buildScene(withPipes(), lib, { cutaway: false, activeLevelId: null });
+    try {
+      tracePipesOnce(built);
+      const seen = new Map<string, number>();
+      let batches = 0;
+      // What the tracer gathers: every visible mesh, layers ignored.
+      built.root.traverseVisible((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        if (mesh.userData.batch) batches++;
+        if (mesh.userData.pipe) seen.set(mesh.userData.elementId, (seen.get(mesh.userData.elementId) ?? 0) + 1);
+      });
+      expect(seen.size).toBe(0);
+      expect(batches).toBe(built.pipes.batches.length);
+      for (const id of [cold.id, branch.id, drain.id]) expect(built.pipes.batches.some((b) => b.has(id))).toBe(true);
     } finally {
       built.kit.dispose();
       lib.dispose();

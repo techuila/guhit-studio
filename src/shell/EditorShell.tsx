@@ -8,6 +8,7 @@ import { Spinner, cx } from "../ui/controls";
 import { PanelBoundary } from "../ui/feedback";
 import { Icon } from "../ui/icons";
 import { Presence, useLastTruthy, useSlidingIndicator } from "../ui/motionDom";
+import { FollowFrame } from "../live/FollowFrame";
 import { UnreadBadge } from "../live/UnreadBadge";
 import { useViewer } from "../viewer3d/viewerStore";
 import { CommandPalette } from "./CommandPalette";
@@ -135,6 +136,7 @@ function CanvasArea() {
       ) : null}
       {/* Keeps the canvases from swallowing the pointer while a divider moves. */}
       {drag.dragging ? <div className={s.dragShield} /> : null}
+      <FollowFrame />
     </div>
   );
 }

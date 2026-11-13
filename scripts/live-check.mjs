@@ -1,4 +1,4 @@
-// Live session check on one computer (DECISIONS D29, D30, D31, D32).
+// Live session check on one computer (DECISIONS D29, D30, D31, D32, D37).
 //
 // Two dev bridges stand in for two computers, each with its own data folder;
 // one Vite dev server serves the UI, and two browser tabs point at the two
@@ -7,7 +7,9 @@
 // it, so Ben's connection crosses the relay as it would over the internet.
 // Ana hosts the services demo from the Share dialog, Ben joins from the hub
 // with the invite. Then it checks, both ways: the
-// other's pointer on the plan, cursor chat, the Chat panel, an edit crossing
+// other's pointer on the plan, cursor chat, follow mode (Ben follows Ana's
+// view mode, plan and 3D camera, Ana sees it, Ben's own move stops it), the
+// Chat panel, an edit crossing
 // over, undo of someone else's step asking first, opening a bundle asking
 // first, and the end of the session. It also drives the MCP endpoint of
 // Ana's bridge: get_selection, the "Only the selection" limit, get_session,
@@ -229,7 +231,10 @@ try {
   const invite = await until("the invite", async () => ana.locator('[aria-label="Invite"]').inputValue(), 15000);
   check("Ana hosts and gets an invite", invite.startsWith("guhit-live:"), `${invite.length} characters`);
   const body = inviteBody(invite);
-  check("the invite names the relay and no addresses", body.v === 2 && body.addrs.length === 0 && body.relay?.url === relayUrl && !("key" in body.relay), JSON.stringify({ addrs: body.addrs, relay: body.relay }));
+  // Version 3 seals direct addresses; Ana takes none, so there is no seal either.
+  const { relay: bodyRelay, ...rest } = body;
+  const noAddress = !("addrs" in body) && !("sealed" in body) && !/\d+\.\d+\.\d+\.\d+/.test(JSON.stringify(rest));
+  check("the invite names the relay and no addresses", body.v === 3 && noAddress && bodyRelay?.url === relayUrl && !("key" in bodyRelay), JSON.stringify(body));
   const onRelay = await until("the relay to take the session", async () => ((await ipc(A, "live_status")).relay === "ready" ? true : null), 15000).catch(() => false);
   check("Ana's session is registered with the relay", onRelay);
   // Settled on it: an answer older than the relay's news must not bring back
@@ -283,6 +288,60 @@ try {
     return list.find((m) => m.text === "Dito ang kusina") ?? null;
   }, 10000).catch(() => null);
   check("the cursor chat message is in Ben's chat history", !!chat && chat.author_name === A.name && !!chat.at, chat ? `${chat.author_name} at ${JSON.stringify(chat.at)}` : "missing");
+
+  // ---- Follow mode (DECISIONS D37): Ben clicks Ana's avatar.
+  const planOf = (page) => page.evaluate(() => window.__planController?.planView() ?? null);
+  const pressed = (page) => page.locator('[aria-label="People in the live session"] [aria-pressed="true"]').count();
+  const modes = [await ana.evaluate(() => window.__app.getState().viewMode), await ben.evaluate(() => window.__app.getState().viewMode)];
+  await ana.evaluate(() => window.__app.getState().setViewMode("2d"));
+  await ben.evaluate(() => window.__app.getState().setViewMode("2d"));
+  await ben.locator('[aria-label="People in the live session"] [aria-label$="Click to follow"]').first().click();
+  const pill = await ben.getByRole("status", { name: /^Following Ana/ }).textContent({ timeout: 5000 }).catch(() => null);
+  check("Ben follows Ana: the pill and the ring show", !!pill && pill.includes("Following Ana") && (await pressed(ben)) === 1, pill);
+  const followMark = await until("Ana to see that Ben follows", async () => (await ana.locator('[aria-label="Ben is following you"]').count()) > 0, 8000).catch(() => false);
+  check("Ana sees that Ben follows her", followMark && (await ana.locator('[aria-label="Ben is following you"] [data-on="true"]').count()) === 1);
+  await shot(ana, "03a-ana-followed");
+  // Ana moves her plan; Ben's plan shows the same area.
+  const anaCanvas = await planPoint(ana, room.label_point.x, room.label_point.y);
+  await ana.mouse.move(anaCanvas.x, anaCanvas.y);
+  await ana.mouse.wheel(0, -300);
+  await ana.waitForTimeout(200);
+  await ana.mouse.wheel(0, -300);
+  const anaArea = await until("Ana's plan to settle", async () => planOf(ana), 3000);
+  const sameArea = (a, b) => !!a && !!b && Math.abs(a.center.x - b.center.x) < 3 && Math.abs(a.center.y - b.center.y) < 3 && Math.abs(a.width_mm - b.width_mm) / a.width_mm < 0.01 && Math.abs(a.height_mm - b.height_mm) / a.height_mm < 0.01;
+  const benArea = await until("Ben's plan to show Ana's area", async () => {
+    const [a, b] = [await planOf(ana), await planOf(ben)];
+    return sameArea(a, b) ? b : null;
+  }, 8000).catch(async () => planOf(ben));
+  check("Ana moves her plan and Ben's plan shows her area", sameArea(await planOf(ana), benArea), JSON.stringify({ ana: anaArea, ben: benArea }));
+  await ben.waitForTimeout(600);
+  await shot(ben, "03b-ben-follows-ana");
+  // Ana opens the 3D view beside the plan: Ben's view mode and camera go along.
+  await ana.evaluate(() => window.__app.getState().setViewMode("split"));
+  const benSplit = await until("Ben's view mode to follow", async () => (await ben.evaluate(() => window.__app.getState().viewMode)) === "split", 8000).catch(() => false);
+  check("Ben takes Ana's view mode", benSplit);
+  await until("both 3D views", async () => (await ana.evaluate(() => !!window.__viewer3d)) && (await ben.evaluate(() => !!window.__viewer3d)), 15000).catch(() => false);
+  await ana.waitForTimeout(1500);
+  await ana.locator('[data-testid="preset-fit"]').click().catch(() => undefined);
+  const camOf = (page) => page.evaluate(() => window.__viewer3d?.liveCamera() ?? null);
+  const near = (a, b) => !!a && !!b && Math.hypot(a.position.x - b.position.x, a.position.y - b.position.y, a.position.z - b.position.z) < 50 && Math.hypot(a.target.x - b.target.x, a.target.y - b.target.y, a.target.z - b.target.z) < 50;
+  const benCam = await until("Ben's camera to reach Ana's", async () => {
+    const [a, b] = [await camOf(ana), await camOf(ben)];
+    return near(a, b) ? b : null;
+  }, 15000).catch(async () => camOf(ben));
+  const anaCam = await camOf(ana);
+  check("Ben's 3D camera follows Ana's", near(anaCam, benCam), JSON.stringify({ ana: anaCam?.position, ben: benCam?.position }));
+  await shot(ben, "03c-ben-follows-ana-3d");
+  // Ben moves his own plan: following stops, and Ana sees it.
+  const benCanvas = await planPoint(ben, room.label_point.x, room.label_point.y);
+  await ben.mouse.move(benCanvas.x, benCanvas.y);
+  await ben.mouse.wheel(0, 200);
+  const stopped = await until("Ben's follow to stop", async () => (await ben.getByRole("status", { name: /^Following Ana/ }).count()) === 0 && (await pressed(ben)) === 0, 5000).catch(() => false);
+  check("Ben's own zoom stops following", stopped);
+  const markGone = await until("Ana's follow mark to go", async () => (await ana.locator('[aria-label="People in the live session"] [data-on="true"]').count()) === 0, 8000).catch(() => false);
+  check("Ana sees that Ben stopped following", markGone);
+  await ana.evaluate((m) => window.__app.getState().setViewMode(m), modes[0]);
+  await ben.evaluate((m) => window.__app.getState().setViewMode(m), modes[1]);
 
   // ---- Ben answers from the Chat panel.
   await ben.getByRole("tab", { name: /Chat/ }).click();

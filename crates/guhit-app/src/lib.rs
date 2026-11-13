@@ -431,7 +431,8 @@ impl AppService {
                 format!("the plan moved on from revision {expected} to {revision}, so nothing was applied"),
             ));
         }
-        let result = doc.apply_as(command, origin, author.clone())?;
+        // The step's time is this computer's clock: the engine has none.
+        let result = doc.apply_at(command, origin, author.clone(), &defaults::now_rfc3339())?;
         self.live.note_change(result.state.revision, author.as_ref());
         // Watchers hear of the change even when it could not be saved: the
         // plan did change.
@@ -441,14 +442,20 @@ impl AppService {
         Ok(result)
     }
 
-    /// Undo or redo under the session lock. In a live session the host
-    /// takes back or brings back someone else's step only with `force`;
-    /// `requester` is the guest asking, None this computer.
+    /// Undo or redo `steps` steps under the session lock, as one revision.
+    /// In a live session the host takes back or brings back someone else's
+    /// step only with `force`; `requester` is the guest asking, None this
+    /// computer. With `expected_revision` it does nothing (`stale`) once the
+    /// document moved on from it: the steps a question named are the ones
+    /// taken, never others made while it was asked.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn step_locked(
         &self,
         s: &mut Session,
         redo: bool,
         force: bool,
+        steps: u32,
+        expected_revision: Option<u32>,
         requester: Option<&Id>,
         project: Option<&str>,
     ) -> Result<DocState, IpcError> {
@@ -456,10 +463,19 @@ impl AppService {
         if project.is_some_and(|p| doc.project().id != p) {
             return Err(live::not_live("The host closed the project."));
         }
-        if !force {
-            self.live.check_step(doc, redo, requester)?;
+        let revision = doc.revision();
+        if let Some(expected) = expected_revision.filter(|e| *e != revision) {
+            let what = if redo { "redone" } else { "undone" };
+            return Err(IpcError::new(
+                "stale",
+                format!("the plan moved on from revision {expected} to {revision}, so nothing was {what}"),
+            ));
         }
-        let state = if redo { doc.redo()? } else { doc.undo()? };
+        let steps = steps as usize;
+        if !force {
+            self.live.check_step(doc, redo, steps, requester)?;
+        }
+        let state = if redo { doc.redo_steps(steps)? } else { doc.undo_steps(steps)? };
         self.live.note_change(state.revision, requester);
         let saved = s.after_change();
         self.notify(s);
@@ -657,14 +673,27 @@ impl AppService {
             "doc_undo" | "doc_redo" => {
                 // In a live session someone else's step needs `force`
                 // (docs/CONTRACT.md, "Live sessions"). Alone, every step is yours.
+                // `steps` takes back or brings back that many as one revision.
                 let force: Option<bool> = arg(&args, "force")?;
-                let (redo, force) = (cmd == "doc_redo", force.unwrap_or(false));
+                let steps: Option<u32> = arg(&args, "steps")?;
+                let expected_revision: Option<u32> = arg(&args, "expected_revision")?;
+                let (redo, force, steps) = (cmd == "doc_redo", force.unwrap_or(false), steps.unwrap_or(1));
+                if steps == 0 {
+                    return Err(IpcError::new("bad_args", "argument `steps`: undo or redo at least one step"));
+                }
                 let mut s = self.session.lock().await;
                 if s.live_copy.is_some() {
                     drop(s);
-                    return to_value(&live::guest_step(self, redo, force).await?);
+                    return to_value(&live::guest_step(self, redo, force, steps, expected_revision).await?);
                 }
-                to_value(&self.step_locked(&mut s, redo, force, None, None)?)
+                to_value(&self.step_locked(&mut s, redo, force, steps, expected_revision, None, None)?)
+            }
+            // Who made each step and when, newest first (DECISIONS D38). On
+            // a live session guest, the host's history from its last frame.
+            "history_list" => {
+                let s = self.session.lock().await;
+                let doc = s.open_doc()?;
+                to_value(&self.live.history(doc, s.live_copy.as_ref()))
             }
             "doc_query" => {
                 let query: Query = arg(&args, "query")?;

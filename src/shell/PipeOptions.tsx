@@ -32,7 +32,11 @@ export function PipeOptions() {
   const toolOptions = useApp((st) => st.toolOptions);
   const setTool = useApp((st) => st.setTool);
   const unit = useApp((st) => st.doc?.project.settings.display_unit ?? "mm");
-  const cur = pipeToolSettings(toolOptions);
+  const levels = useApp((st) => st.doc?.project.levels);
+  const activeLevelId = useApp((st) => st.activeLevelId);
+  // The active level's start height, the one the plan's tool draws with.
+  const place = levels ? { level: levels.find((l) => l.id === activeLevelId), levels } : undefined;
+  const cur = pipeToolSettings(toolOptions, place);
   const set = (patch: Partial<ToolOptions>) => setTool("pipe", patch);
   const materials = materialsFor(cur.system);
   const sizes = sizesFor(cur.system, cur.material);
@@ -48,7 +52,7 @@ export function PipeOptions() {
             {t.systems.map((sys) => {
               // What the tool would draw after switching: a chosen size is kept
               // when the other system's menu has it, else its default.
-              const next = pipeToolSettings(switchToolSystem(toolOptions, sys.value));
+              const next = pipeToolSettings(switchToolSystem(toolOptions, sys.value), place);
               const on = cur.system === sys.value;
               return (
                 <button

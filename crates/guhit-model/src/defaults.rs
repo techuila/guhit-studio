@@ -95,9 +95,16 @@ pub fn default_layers() -> Vec<Layer> {
     .collect()
 }
 
+/// A new conduit run starts this far above its level's ceiling: inside the
+/// slab of the level above, or above the ceiling on the top level
+/// (DECISIONS D40).
+pub const CONDUIT_ABOVE_CEILING_MM: f64 = 100.0;
+
 /// Tool defaults per pipe system: material, nominal size in mm, and the
 /// height above the floor a new run starts at. Suggestions for drawing, not
-/// sizing. The frontend mirrors this table (docs/CONTRACT.md).
+/// sizing. The frontend mirrors this table (docs/CONTRACT.md). The conduit
+/// height here is for a one storey level of the default height; use
+/// `pipe_start_height_mm` for a real level.
 pub fn pipe_defaults(system: PipeSystem) -> (PipeMaterial, f64, f64) {
     match system {
         PipeSystem::ColdWater => (PipeMaterial::Ppr, 20.0, 300.0),
@@ -106,10 +113,27 @@ pub fn pipe_defaults(system: PipeSystem) -> (PipeMaterial, f64, f64) {
         PipeSystem::Vent => (PipeMaterial::Upvc, 50.0, 300.0),
         PipeSystem::Storm => (PipeMaterial::Upvc, 100.0, -300.0),
         // Conduit usually runs above the ceiling and drops in the wall.
-        PipeSystem::Conduit => (PipeMaterial::Pvc, 20.0, 2800.0),
+        PipeSystem::Conduit => (
+            PipeMaterial::Pvc,
+            20.0,
+            DEFAULT_LEVEL_HEIGHT_MM + CONDUIT_ABOVE_CEILING_MM,
+        ),
         // A line set leaves the indoor unit near its top.
         PipeSystem::Refrigerant => (PipeMaterial::Copper, 9.52, 2400.0),
         PipeSystem::Condensate => (PipeMaterial::Pvc, 20.0, 2300.0),
+    }
+}
+
+/// Height above the level floor a new run of `system` starts at, on a level
+/// whose ceiling is `ceiling_mm` above its floor (its height, or the
+/// underside of the slab above when that is lower). Conduit starts
+/// `CONDUIT_ABOVE_CEILING_MM` above the ceiling; every other system at its
+/// `pipe_defaults` height. Mirrored by `pipeStartHeightMm` in
+/// src/contract/pipes.ts.
+pub fn pipe_start_height_mm(system: PipeSystem, ceiling_mm: f64) -> f64 {
+    match system {
+        PipeSystem::Conduit if ceiling_mm.is_finite() => ceiling_mm + CONDUIT_ABOVE_CEILING_MM,
+        other => pipe_defaults(other).2,
     }
 }
 

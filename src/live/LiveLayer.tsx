@@ -1,6 +1,8 @@
 // The live session over the plan (DECISIONS D29): everyone else's cursor in
 // their color with their name, what they type in cursor chat, what they
 // selected, and this window's own cursor chat bubble. Mounted by PlanCanvas.
+// It also hands the plan to follow mode (follow.ts, DECISIONS D37) and tints
+// the History row under the pointer (`historyTint`, DECISIONS D38).
 //
 // Cost rules. A remote pointer moving never redraws the canvas and never
 // re-renders React: its position goes straight to two CSS variables
@@ -25,6 +27,7 @@ import { useLastTruthy } from "../ui/motionDom";
 import { play } from "../ui/motionWaapi";
 import { useListPresence } from "../ui/useListPresence";
 import { useViewer } from "../viewer3d/viewerStore";
+import { attachPlan } from "./follow";
 import { CURSOR_CHAT_MAX, canChat, cursorIds, participant, peerIndex, peerSelections, peerVar } from "./format";
 import { SENT_MS, useLive } from "./liveStore";
 import { bubbleAt, labelFlip, planToCanvas } from "./placement";
@@ -115,8 +118,10 @@ export function LiveLayer({ controller, rootRef }: { controller: PlanController;
     const b = new CursorBoard(layer);
     setBoard(b);
     const stop = controller.onViewChange((view, width, height) => b.setView(view, width, height));
+    const detach = attachPlan(controller);
     return () => {
       stop();
+      detach();
       setBoard(null);
     };
   }, [controller]);
@@ -136,29 +141,46 @@ export function LiveLayer({ controller, rootRef }: { controller: PlanController;
 
 // ---------------------------------------------------------------- selections
 
-/** Pushes other people's selections to the plan, in their resolved colors. */
+/** The History row's tint goes to the plan as one more outline, under this id. */
+const HISTORY_TINT = "history-tint";
+
+/**
+ * Pushes other people's selections to the plan, in their resolved colors,
+ * and the History row under the pointer in its author's color (the accent
+ * for this computer's own steps).
+ */
 function usePeerSelections(controller: PlanController, rootRef: RefObject<HTMLDivElement | null>): void {
   useEffect(() => {
-    const colors = new Map<number, string>();
-    const colorOf = (index: number): string => {
-      const i = peerIndex(index);
-      let c = colors.get(i);
+    const colors = new Map<string, string>();
+    const resolve = (name: string, fallback: string): string => {
+      let c = colors.get(name);
       if (!c) {
         const el = rootRef.current ?? document.documentElement;
-        c = getComputedStyle(el).getPropertyValue(`--peer-${i}`).trim() || "#495057";
-        colors.set(i, c);
+        c = getComputedStyle(el).getPropertyValue(name).trim() || fallback;
+        colors.set(name, c);
       }
       return c;
     };
+    const colorOf = (index: number): string => resolve(`--peer-${peerIndex(index)}`, "#495057");
     const push = () => {
       const st = useLive.getState();
-      controller.setPeerSelections(peerSelections(st.status, st.peers).map((p) => ({ id: p.id, color: colorOf(p.color), ids: p.ids })));
+      const list = peerSelections(st.status, st.peers).map((p) => ({ id: p.id, color: colorOf(p.color), ids: p.ids }));
+      const tint = useApp.getState().historyTint;
+      if (tint && tint.ids.length > 0) list.push({ id: HISTORY_TINT, color: tint.color === null ? resolve("--accent", "#0e8a8f") : colorOf(tint.color), ids: tint.ids });
+      controller.setPeerSelections(list);
     };
     push();
     // The plan compares, so a presence event that only moved a pointer costs nothing.
-    return useLive.subscribe((st, prev) => {
+    const offLive = useLive.subscribe((st, prev) => {
       if (st.peers !== prev.peers || st.status !== prev.status) push();
     });
+    const offApp = useApp.subscribe((st, prev) => {
+      if (st.historyTint !== prev.historyTint) push();
+    });
+    return () => {
+      offLive();
+      offApp();
+    };
   }, [controller, rootRef]);
 }
 

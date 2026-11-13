@@ -11,9 +11,12 @@
 //   ?live=reconnecting  joined, the connection to Ana dropped
 //   ?live=off           no session, the project keeps a past chat (default)
 // `window.__liveDemo` drives it from the console or a ui-check step file:
-// setMode, setRelay, pause, resume, move, select, type, say, leave.
+// setMode, setRelay, pause, resume, move, select, type, say, leave, and for
+// follow mode (DECISIONS D37): view, walk, follow. Ana works in split view
+// and Ben on the plan; like the engine's peers, they send their plan area and
+// camera only while this window follows them.
 
-import type { AppEvent, ChatMessage, DocState, IpcError, LiveMode, LiveRelay, LiveStatus, Participant, Point, Presence, ProjectMeta } from "../../contract/bindings";
+import type { AppEvent, ChatMessage, DocState, IpcError, LiveCamera, LiveMode, LiveRelay, LiveStatus, NavMode, Participant, PlanView, Point, Presence, ProjectMeta, Vec3, ViewMode } from "../../contract/bindings";
 
 export interface LiveMockHost {
   /** The mock's IPC handler table: live handlers are added to it. */
@@ -57,6 +60,10 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
   let participants: Participant[] = [];
   let notice: string | null = null;
   const peers = new Map<string, Presence>();
+  /** What each peer would send while followed: their plan area and camera. */
+  const views = new Map<string, { plan: PlanView | null; camera: LiveCamera | null }>();
+  /** Who this window follows, from its last `presence_set`. */
+  let selfFollowing: string | null = null;
   let paused = false;
   let seq = 1;
   const t0 = Date.now();
@@ -84,12 +91,46 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
   });
 
   const emitStatus = () => host.emit({ type: "live", status: status() });
-  const presence = (over: Partial<Presence>): Presence => ({ cursor: null, level_id: host.levelId, selection: [], typing: null, ai_scope: false, ...over });
+  const presence = (over: Partial<Presence>): Presence => ({
+    cursor: null,
+    level_id: host.levelId,
+    selection: [],
+    typing: null,
+    ai_scope: false,
+    following: null,
+    view_mode: "2d",
+    plan_view: null,
+    camera: null,
+    pointer_3d: null,
+    ...over,
+  });
+  /** A peer's plan area and camera ride along only while this window follows them. */
+  const withViews = (id: string, p: Presence): Presence => {
+    const v = selfFollowing === id ? views.get(id) : undefined;
+    const plan = p.view_mode !== "3d" ? (v?.plan ?? null) : null;
+    const camera = p.view_mode !== "2d" ? (v?.camera ?? null) : null;
+    return { ...p, plan_view: plan, camera };
+  };
   const setPeer = (id: string, over: Partial<Presence>) => {
     if (mode === "off" || !participants.some((p) => p.id === id)) return;
-    const next = { ...(peers.get(id) ?? presence({})), ...over };
+    const next = withViews(id, { ...(peers.get(id) ?? presence({})), ...over });
+    const before = peers.get(id);
     peers.set(id, next);
+    if (before && JSON.stringify(before) === JSON.stringify(next)) return;
     host.emit({ type: "presence", participant_id: id, presence: next });
+  };
+  /** The area around a pointer, 9 by 6 m, as a peer's screen would show it. */
+  const areaAt = (c: Point): PlanView => ({ center: { x: c.x, y: c.y }, width_mm: 9000, height_mm: 6000 });
+  /** An orbit camera circling the plan at `u` radians, looking at the middle of the house. */
+  const orbitAt = (u: number, nav: NavMode = "orbit"): LiveCamera => {
+    const target: Vec3 = { x: 4500, y: 3500, z: 1200 };
+    if (nav !== "orbit") return { position: { x: Math.round(2500 + 600 * Math.cos(u)), y: Math.round(3000 + 600 * Math.sin(u)), z: 1600 }, target: { x: Math.round(2500 + 3000 * Math.cos(u + 0.6)), y: Math.round(3000 + 3000 * Math.sin(u + 0.6)), z: 1600 }, fov_deg: 60, nav };
+    return { position: { x: Math.round(target.x + 14000 * Math.cos(u)), y: Math.round(target.y + 14000 * Math.sin(u)), z: 9000 }, target, fov_deg: 45, nav };
+  };
+  /** A peer's plan area and camera, sent when followed. */
+  const setView = (id: string, plan: PlanView | null, camera: LiveCamera | null) => {
+    views.set(id, { plan, camera });
+    setPeer(id, {});
   };
   const say = (id: string, text: string, at: Point | null = null, viaAi = false) => {
     const p = participants.find((x) => x.id === id);
@@ -102,6 +143,7 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
   const enter = (next: DemoMode) => {
     notice = null;
     peers.clear();
+    views.clear();
     relay = next === "demo" ? "ready" : "off";
     if (next === "off") {
       mode = "off";
@@ -123,8 +165,10 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
     }
     emitStatus();
     if (mode !== "off") {
-      setPeer(ANA, { cursor: { x: 2200, y: 3600 } });
-      setPeer(BEN, { cursor: { x: 6600, y: 1800 } });
+      views.set(ANA, { plan: areaAt({ x: 2200, y: 3600 }), camera: orbitAt(0.6) });
+      views.set(BEN, { plan: areaAt({ x: 6600, y: 1800 }), camera: null });
+      setPeer(ANA, { cursor: { x: 2200, y: 3600 }, view_mode: "split", pointer_3d: { x: 3000, y: 2500, z: 1200 } });
+      setPeer(BEN, { cursor: { x: 6600, y: 1800 }, view_mode: "2d" });
     }
   };
 
@@ -139,7 +183,15 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
       participants = participants.map((p) => (p.id === SELF ? { ...p, name } : p));
       return { name };
     },
-    presence_set: () => null,
+    presence_set: (a: Record<string, unknown>) => {
+      const next = ((a.presence as Presence | undefined)?.following ?? null) as string | null;
+      if (next !== selfFollowing) {
+        selfFollowing = next;
+        // Followed now, or no longer: the peers start or stop sending their views.
+        for (const id of [...peers.keys()]) setPeer(id, {});
+      }
+      return null;
+    },
     presence_list: () => (mode === "off" ? [] : [...peers].map(([participant_id, presence]) => ({ participant_id, presence }))),
     live_status: () => status(),
     live_host: async () => {
@@ -161,7 +213,8 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
         if (mode !== "hosting" || participants.some((p) => p.id === ANA)) return;
         participants = [...participants, { id: ANA, name: "Ana Reyes", color: 1, role: "guest" }];
         emitStatus();
-        setPeer(ANA, { cursor: { x: 2200, y: 3600 } });
+        views.set(ANA, { plan: areaAt({ x: 2200, y: 3600 }), camera: orbitAt(0.6) });
+        setPeer(ANA, { cursor: { x: 2200, y: 3600 }, view_mode: "split" });
       }, 2500);
       return status();
     },
@@ -178,7 +231,7 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
         fail("live_refused", "That invite is not for a live session.");
       }
       // A project named "... unreachable" tries the failure path.
-      if (/unreachable/i.test(project)) fail("live_unreachable", "Could not reach the host at 192.168.1.20:1460, and the relay says the host is not online: the live session may have ended.");
+      if (/unreachable/i.test(project)) fail("live_unreachable", "Could not reach the host directly or through the relay. The host is not online, so the session may have ended.");
       const doc = host.openShared();
       enter("guest");
       return doc;
@@ -220,6 +273,7 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
   let lastTyped = -1;
   let lastBeat = -1;
   let benSaid = false;
+  let anaNav: NavMode = "orbit";
 
   const tick = () => {
     if (paused || (mode !== "hosting" && mode !== "joined")) return;
@@ -227,7 +281,10 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
     // Ana: wanders the living room, stops at the partition, asks, moves on.
     if (t < 6 || t >= 12) {
       const u = (Date.now() - t0) / 1000;
-      setPeer(ANA, { cursor: { x: Math.round(2500 + 1700 * Math.sin(u * 0.55)), y: Math.round(3000 + 1600 * Math.sin(u * 0.83 + 1)) } });
+      const cursor = { x: Math.round(2500 + 1700 * Math.sin(u * 0.55)), y: Math.round(3000 + 1600 * Math.sin(u * 0.83 + 1)) };
+      // Her view drifts behind her pointer; her camera circles slowly.
+      views.set(ANA, { plan: areaAt({ x: Math.round(2500 + 800 * Math.sin(u * 0.55)), y: Math.round(3000 + 700 * Math.sin(u * 0.83 + 1)) }), camera: orbitAt(0.6 + u * 0.05, anaNav) });
+      setPeer(ANA, { cursor, pointer_3d: { x: cursor.x, y: cursor.y, z: 900 } });
     } else if (t < 11) {
       if (lastBeat !== 1) {
         lastBeat = 1;
@@ -258,7 +315,9 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
     if (b < 14) {
       benSaid = false;
       const u = (Date.now() - t0) / 1000;
-      setPeer(BEN, { cursor: { x: Math.round(6500 + 900 * Math.cos(u * 0.4)), y: Math.round(2600 + 1200 * Math.sin(u * 0.4)) } });
+      const cursor = { x: Math.round(6500 + 900 * Math.cos(u * 0.4)), y: Math.round(2600 + 1200 * Math.sin(u * 0.4)) };
+      views.set(BEN, { plan: areaAt({ x: 6500, y: 2600 }), camera: views.get(BEN)?.camera ?? null });
+      setPeer(BEN, { cursor });
     } else if (!benSaid) {
       benSaid = true;
       say(BEN, "Looks good. I will add the kitchen window after lunch.");
@@ -303,6 +362,20 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
       host.emit({ type: "presence", participant_id: id, presence: null });
       emitStatus();
     },
+    /** Their view mode, plan area (null keeps it) and camera. */
+    view: (who: "ana" | "ben", viewMode: ViewMode, center: Point | null = null) => {
+      const id = who === "ana" ? ANA : BEN;
+      const v = views.get(id);
+      views.set(id, { plan: center ? areaAt(center) : (v?.plan ?? null), camera: viewMode === "2d" ? null : (v?.camera ?? orbitAt(0.6, anaNav)) });
+      setPeer(id, { view_mode: viewMode });
+    },
+    /** Ana walks, flies or orbits in 3D: a follower sees "Ana is walking". */
+    walk: (nav: NavMode) => {
+      anaNav = nav;
+      setView(ANA, views.get(ANA)?.plan ?? null, orbitAt(0.6, nav));
+    },
+    /** Someone follows someone: "self" is this window. */
+    follow: (who: "ana" | "ben", target: "ana" | "ben" | "self" | null) => setPeer(who === "ana" ? ANA : BEN, { following: target === null ? null : target === "self" ? SELF : target === "ana" ? ANA : BEN }),
     walls: host.wallIds,
     rooms: host.roomIds,
   };

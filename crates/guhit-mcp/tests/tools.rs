@@ -345,7 +345,7 @@ async fn the_pipe_takeoff_of_the_plumbing_demo() {
     ok(&app, "create_project", json!({"name": "Pipes", "template": "plumbing-demo"})).await;
 
     let takeoff = ok(&app, "get_pipe_takeoff", json!({})).await;
-    assert_eq!(takeoff["total_length_m"], 59.654);
+    assert_eq!(takeoff["total_length_m"], 59.399);
     assert_eq!(takeoff["elbow_count"], 29);
     assert_eq!(takeoff["tee_count"], 9);
     assert_eq!(takeoff["sleeve_count"], 9);
@@ -368,8 +368,38 @@ async fn the_pipe_takeoff_of_the_plumbing_demo() {
     )
     .await;
     assert_eq!(moved["changed"][0]["kind"], "pipe");
-    assert_eq!(ok(&app, "get_pipe_takeoff", json!({})).await["total_length_m"], 59.654);
+    assert_eq!(ok(&app, "get_pipe_takeoff", json!({})).await["total_length_m"], 59.399);
     ok(&app, "undo", json!({})).await;
+
+    // The pipe tools edit a run in 3D, one undo step each. The septic tank
+    // outlet is one straight segment: 1200 mm long, falling 25 mm.
+    let outlet = "00000000-0000-4000-8000-000000016015";
+    let longer = ok(
+        &app,
+        "set_pipe_segment_length",
+        json!({"pipe_id": outlet, "segment": 0, "length_mm": 2000, "hold": "start", "keep_joins": true}),
+    )
+    .await;
+    assert_eq!(longer["changed"][0]["id"], outlet);
+    let described = ok(&app, "describe_elements", json!({"ids": [outlet]})).await;
+    assert_eq!(described["elements"][0]["length_mm"], 2000.0);
+    let lowered = ok(
+        &app,
+        "move_pipe_points",
+        json!({"pipes": [{"pipe_id": outlet, "indices": [1]}], "dx_mm": 0, "dy_mm": 0, "dz_mm": -100, "keep_joins": true}),
+    )
+    .await;
+    assert_eq!(lowered["changed"][0]["id"], outlet);
+    let refused = fail(
+        &app,
+        "remove_pipe_point",
+        json!({"pipe_id": outlet, "index": 0}),
+    )
+    .await;
+    assert!(refused.contains("at least two"), "unexpected: {refused}");
+    ok(&app, "undo", json!({})).await;
+    ok(&app, "undo", json!({})).await;
+    assert_eq!(ok(&app, "get_pipe_takeoff", json!({})).await["total_length_m"], 59.399);
 }
 
 #[tokio::test]
@@ -377,7 +407,7 @@ async fn the_schedule_of_the_services_demo() {
     let (app, _dir) = app();
     ok(&app, "create_project", json!({"name": "Services", "template": "plumbing-demo"})).await;
     let schedule = ok(&app, "get_schedule", json!({})).await;
-    assert_eq!(schedule["levels"][0]["total"], 27);
+    assert_eq!(schedule["levels"][0]["total"], 30);
     // The kitchen sink is a plumbing fixture, listed first in its room.
     assert_eq!(schedule["rows"][0]["room"], "Living / Kitchen");
     assert_eq!(schedule["rows"][0]["group"], "plumbing");

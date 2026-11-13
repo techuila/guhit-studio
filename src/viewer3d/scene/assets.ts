@@ -52,6 +52,8 @@ interface Ctx {
   baseY: number;
   /** Signed underside height above the floor, meters: below zero for a septic tank. */
   elevation: number;
+  /** Height of the ground above this asset's underside, meters: what a buried object reaches up to (a septic tank's access covers). */
+  grade: number;
   /** Height of the ceiling above this asset's underside, meters. A pendant's cord reaches it. */
   ceiling: number;
   /** Material of the glowing part: the shared lamp material, or a plain diffuser when the fixture gives no light. */
@@ -627,14 +629,14 @@ const BUILDERS: Record<string, Builder> = {
   "septic-tank": (c) => {
     // Below grade: the tank and its baffle are faint so they read through the
     // ground (which writes no depth); only the access covers at grade are solid.
-    const sink = Math.min(c.elevation, 0);
+    // The form stands at its real elevation (buildScene), underside at y = 0.
     const faint = c.lib.ghost("#8f9aa1", 0.3);
-    const top = sink + c.h;
-    mbox(c, faint, c.w, c.h, c.d, 0, sink, 0);
-    mbox(c, faint, 0.08, c.h * 0.9, c.d * 0.98, -c.w / 2 + (2 * c.w) / 3, sink, 0);
+    const top = c.h;
+    mbox(c, faint, c.w, c.h, c.d, 0, 0, 0);
+    mbox(c, faint, 0.08, c.h * 0.9, c.d * 0.98, -c.w / 2 + (2 * c.w) / 3, 0, 0);
     const cover = paint(c, "#a9a79f", 0.9);
     const s = Math.min(0.6, c.d * 0.45, (c.w / 3) * 0.8);
-    const coverY = Math.max(top, 0) - 0.04;
+    const coverY = Math.max(top, c.grade) - 0.04;
     // Access openings over the middle of each chamber, as in the plan symbol.
     for (const x of [-c.w / 6, c.w / 3]) {
       if (top < coverY - 0.01) mbox(c, faint, s * 0.8, coverY - top, s * 0.8, x, top, -0.18 * c.d);
@@ -927,6 +929,8 @@ const DEFAULT_CEILING_MM = 3000;
 export interface AssetFormOptions {
   /** Height of the ceiling above the level floor, mm: where a pendant's cord ends. Default 3000. */
   ceilingMm?: number;
+  /** Height of the ground above the asset's underside, mm, for an object below grade. Default: the level floor. */
+  gradeMm?: number;
 }
 
 /**
@@ -957,6 +961,7 @@ export function buildAssetForm(kit: Kit, lib: MaterialLibrary, asset: Asset, bas
     lift,
     baseY,
     elevation: elevationMm / 1000,
+    grade: (opts.gradeMm ?? -Math.min(elevationMm, 0)) / 1000,
     ceiling: Math.max(ceilingMm / 1000 - lift, 0),
     glow: light ? glowMaterial(lib, asset, light) : lib.plain("#f4f2ed", 0.35),
   };

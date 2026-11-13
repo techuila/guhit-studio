@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LiveLayer } from "../live/LiveLayer";
 import { useApp } from "../state/store";
-import { usePresence, type PresenceStage } from "../ui/motion";
+import { dur, motionOK, usePresence, type PresenceStage } from "../ui/motion";
 import { PlanController, type UiState } from "./controller";
 import styles from "./PlanCanvas.module.css";
 
@@ -113,8 +113,23 @@ function TypedBox({ typed, stage }: { typed: NonNullable<UiState["typed"]>; stag
 
 type EditorUi = NonNullable<UiState["editor"]>;
 
-/** Rooms: centered on the label. Text: the point is the left end of the baseline. */
+function pipeEditorLabel(editor: EditorUi): string {
+  switch (editor.pipe?.field) {
+    case "height":
+      return "Height above the floor";
+    case "fall":
+      return "Fall in percent";
+    default:
+      return "Segment length";
+  }
+}
+
+/** Rooms: centered on the label. Text: the point is the left end of the baseline. A pipe tag value: centered on the tag. */
 function editorStyle(editor: EditorUi, value: string): React.CSSProperties {
+  if (editor.mode === "pipe") {
+    const width = Math.max(64, (value.length + 3) * 7.5);
+    return { left: editor.x - width / 2, top: editor.y - 11, width, minWidth: 0, fontSize: 11, fontFamily: "var(--font-mono)", textAlign: "center" };
+  }
   const fontPx = Math.min(Math.max(editor.fontPx, 11), 40);
   const width = Math.max(90, (value.length + 2) * fontPx * 0.62);
   return editor.mode === "room"
@@ -143,31 +158,48 @@ function InlineEditor({
     onValue(editor.value);
   }, [editor.value, onValue]);
 
-  const finish = (v: string | null): void => {
+  const finish = (v: string | null, fromBlur = false): void => {
     if (done.current) return;
     done.current = true;
-    controller.closeEditor(v);
+    // A refused value keeps the box open (a pipe tag value that is not a number).
+    if (!controller.closeEditor(v, fromBlur)) done.current = false;
   };
 
+  // Each refusal shakes the box once (MOTION.md: an invalid entry shakes 4 px).
+  useEffect(() => {
+    const el = ref.current;
+    if (!editor.errorSeq || !el || !motionOK()) return;
+    el.animate([{ translate: "0" }, { translate: "-4px" }, { translate: "3px" }, { translate: "-2px" }, { translate: "0" }], { duration: dur("panel"), easing: "ease-out" });
+  }, [editor.errorSeq]);
+
+  const box = editorStyle(editor, value);
   return (
-    <input
-      ref={ref}
-      className={styles.editor}
-      style={editorStyle(editor, value)}
-      data-stage={stage}
-      value={value}
-      placeholder={editor.mode === "new_text" ? "Type, then Enter" : undefined}
-      data-testid="inline-editor"
-      onChange={(e) => {
-        setValue(e.target.value);
-        onValue(e.target.value);
-      }}
-      onBlur={() => finish(value)}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") finish(value);
-        else if (e.key === "Escape") finish(null);
-      }}
-    />
+    <>
+      <input
+        ref={ref}
+        className={styles.editor}
+        style={box}
+        data-stage={stage}
+        value={value}
+        placeholder={editor.mode === "new_text" ? "Type, then Enter" : undefined}
+        aria-label={editor.mode === "pipe" ? pipeEditorLabel(editor) : undefined}
+        data-testid="inline-editor"
+        onChange={(e) => {
+          setValue(e.target.value);
+          onValue(e.target.value);
+        }}
+        onBlur={() => finish(value, true)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") finish(value);
+          else if (e.key === "Escape") finish(null);
+        }}
+      />
+      {editor.error ? (
+        <div key={editor.errorSeq} className={styles.editorError} style={{ left: box.left, top: Number(box.top ?? 0) + 26 }} role="alert" data-testid="inline-editor-error">
+          {editor.error}
+        </div>
+      ) : null}
+    </>
   );
 }

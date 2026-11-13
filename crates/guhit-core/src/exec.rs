@@ -566,6 +566,13 @@ fn leaf(project: &mut Project, command: &Command, ids: &mut IdGen) -> Result<Out
     match command {
         Command::Batch { .. } => unreachable!("batches are handled by run"),
 
+        // Pipe editing (DECISIONS D39).
+        Command::MovePipePoints { .. }
+        | Command::SetPipeSegmentLength { .. }
+        | Command::SetPipeSlope { .. }
+        | Command::InsertPipePoint { .. }
+        | Command::RemovePipePoint { .. } => crate::pipe_edit::apply(project, command),
+
         Command::AddWall {
             start,
             end,

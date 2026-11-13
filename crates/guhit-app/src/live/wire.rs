@@ -29,6 +29,12 @@ use tokio::sync::{mpsc, watch};
 
 /// Version of the messages below. A hello with another version is refused.
 /// 2: frames may be deflated.
+///
+/// Additions an older build can ignore keep the version, so builds that
+/// differ only by them still talk: the history in document frames and
+/// `steps` in undo and redo (DECISIONS D38) have serde defaults. An older
+/// host's frames have no history; a newer guest then shows its top steps
+/// only and never asks it for more than one step at a time.
 pub const PROTOCOL_VERSION: u32 = 2;
 /// Largest frame before the guest is authenticated: its hello.
 pub const MAX_HELLO_BYTES: usize = 64 * 1024;
@@ -97,13 +103,24 @@ pub enum Request {
         #[serde(default)]
         expected_revision: Option<u32>,
     },
+    /// Take back the `steps` newest steps as one revision. An older guest
+    /// sends no `steps`: one. `expected_revision` makes it fail with `stale`
+    /// when the plan moved on, so a step asked about is the step taken.
     Undo {
         #[serde(default)]
         force: bool,
+        #[serde(default = "one_step")]
+        steps: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_revision: Option<u32>,
     },
     Redo {
         #[serde(default)]
         force: bool,
+        #[serde(default = "one_step")]
+        steps: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_revision: Option<u32>,
     },
     Chat {
         text: String,
@@ -128,6 +145,10 @@ pub enum Request {
         /// Standard base64 of the piece.
         data: String,
     },
+}
+
+fn one_step() -> u32 {
+    1
 }
 
 /// The files a guest can read and store: the shared project's underlay
@@ -203,6 +224,11 @@ pub struct DocFrame {
     /// Who made the change: a participant id. None in a welcome.
     #[serde(default)]
     pub by: Option<Id>,
+    /// The host's undo and redo stacks with names and colors, newest first
+    /// (DECISIONS D38); steps made before the session are the host's. None
+    /// from an older host, which sends only `undo`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history: Option<HistoryList>,
 }
 
 /// The host's history, as `DocState` reports it. A guest's copy has no
@@ -617,6 +643,7 @@ mod tests {
             seq: 9,
             undo: UndoMeta { can_undo: true, undo_label: Some("Add wall".into()), ..UndoMeta::default() },
             by: Some("p1".into()),
+            history: None,
         }));
         let frame = encode(&doc, MAX_FRAME_BYTES).unwrap();
         let mut r = &frame[..];
@@ -629,5 +656,67 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    /// The history additions (DECISIONS D38) keep `PROTOCOL_VERSION`: an
+    /// older build's messages still read, and it can read the new ones.
+    #[test]
+    fn the_history_additions_talk_to_an_older_build() {
+        // An older guest's undo has no `steps`: one step.
+        let old: ToHost = serde_json::from_str(r#"{"type":"request","id":4,"request":{"type":"undo","force":true}}"#).unwrap();
+        assert!(matches!(
+            old,
+            ToHost::Request { id: 4, request: Request::Undo { force: true, steps: 1, expected_revision: None } }
+        ));
+        let old: ToHost = serde_json::from_str(r#"{"type":"request","id":5,"request":{"type":"redo"}}"#).unwrap();
+        assert!(matches!(old, ToHost::Request { request: Request::Redo { force: false, steps: 1, expected_revision: None }, .. }));
+
+        // An older host's document frame has no history.
+        let project = defaults::new_project("Shared");
+        let old = serde_json::json!({
+            "type": "doc", "project": project, "revision": 3, "seq": 7,
+            "undo": { "can_undo": true, "can_redo": false, "undo_label": "Move wall", "redo_label": null, "undo_by": null, "redo_by": null },
+            "by": "p1",
+        });
+        match serde_json::from_value::<ToGuest>(old).unwrap() {
+            ToGuest::Doc(frame) => assert_eq!(frame.history, None),
+            other => panic!("unexpected {other:?}"),
+        }
+
+        // A frame without history is byte for byte what an older host sends,
+        // and one with history still reads as an older frame (unknown
+        // fields are ignored).
+        let frame = |history| DocFrame { project: project.clone(), revision: 3, seq: 7, undo: UndoMeta::default(), by: None, history };
+        let plain = serde_json::to_value(frame(None)).unwrap();
+        assert!(plain.get("history").is_none());
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct OlderFrame {
+            project: Project,
+            revision: u32,
+            seq: u64,
+            undo: UndoMeta,
+            #[serde(default)]
+            by: Option<Id>,
+        }
+        let step = HistoryStep {
+            label: "Move wall".into(),
+            summary: "Move wall: changed 1 wall".into(),
+            origin: Origin::User,
+            author_id: Some("p1".into()),
+            author_name: Some("Ana".into()),
+            color: Some(0),
+            at: "2026-10-07T01:02:03Z".into(),
+            ids: vec!["w1".into()],
+            removed: vec![],
+        };
+        let newer = serde_json::to_string(&frame(Some(HistoryList { undo: vec![step], redo: vec![] }))).unwrap();
+        assert!(newer.contains(r#""history":{"undo":[{"label":"Move wall""#), "{newer}");
+        let read: OlderFrame = serde_json::from_str(&newer).unwrap();
+        assert_eq!(read.revision, 3);
+        let undo = serde_json::to_string(&Request::Undo { force: false, steps: 4, expected_revision: None }).unwrap();
+        assert_eq!(undo, r#"{"type":"undo","force":false,"steps":4}"#);
+        let undo = serde_json::to_string(&Request::Undo { force: true, steps: 1, expected_revision: Some(9) }).unwrap();
+        assert_eq!(undo, r#"{"type":"undo","force":true,"steps":1,"expected_revision":9}"#);
     }
 }

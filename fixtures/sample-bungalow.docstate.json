@@ -849,5 +849,7 @@
   "can_undo": false,
   "can_redo": false,
   "undo_label": null,
-  "redo_label": null
+  "redo_label": null,
+  "undo_by": null,
+  "redo_by": null
 }

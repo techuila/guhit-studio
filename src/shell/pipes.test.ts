@@ -102,6 +102,16 @@ describe("pipe tool options", () => {
     });
   });
 
+  it("starts conduit by default in the slab above the active level (DECISIONS D40)", () => {
+    const ground = { elevation_mm: 0, height_mm: 3000 };
+    const upper = { elevation_mm: 3200, height_mm: 3000 };
+    const place = { level: ground, levels: [ground, upper] };
+    expect(pipeToolSettings({ ...none, pipeSystem: "conduit" }, place).elevationMm).toBe(3100);
+    expect(pipeToolSettings({ ...none, pipeSystem: "conduit" }, { level: upper, levels: [ground, upper] }).elevationMm).toBe(3100);
+    expect(pipeToolSettings({ ...none, pipeSystem: "conduit", pipeElevationMm: 2700 }, place).elevationMm).toBe(2700);
+    expect(pipeToolSettings({ ...none, pipeSystem: "drainage" }, place).elevationMm).toBe(-300);
+  });
+
   it("uses chosen values", () => {
     const s = pipeToolSettings({ ...none, pipeMaterial: "gi", pipeDiameterMm: 25, pipeElevationMm: 2400 });
     expect(s).toMatchObject({ material: "gi", diameterMm: 25, elevationMm: 2400, sizeIsDefault: false, elevationIsDefault: false });

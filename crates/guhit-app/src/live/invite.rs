@@ -1,49 +1,69 @@
 //! The invite a host sends to the people who should join (docs/CONTRACT.md,
 //! "Live sessions"): `guhit-live:` then base64url, without padding, of
-//! `{"v":2,"secret":...,"pin":...,"addrs":["192.168.1.20:1460",...],"project":"Bungalow","relay":{"url":"wss://relay.example.com","room":...}}`.
+//! `{"v":3,"secret":...,"pin":...,"sealed":...,"project":"Bungalow","relay":{"url":"wss://relay.example.com","room":...}}`.
 //!
 //! `secret` is the session's 128-bit secret, `pin` the SHA-256 of the host's
 //! certificate, `room` the session's 128-bit room on the relay (DECISIONS
 //! D32), all base64url. `relay` is left out when the host has no relay, and
-//! `addrs` is empty when the host takes no direct connections; one of the two
-//! is always there. The key that proves to the relay that a connection is the
+//! `sealed` when the host takes no direct connections; one of the two is
+//! always there. The key that proves to the relay that a connection is the
 //! host's never leaves the host, so an invite lets a guest join the room, not
 //! take it. Anyone with the invite can join while the session runs.
 //!
-//! Version 1 invites (addresses only, no relay) are still read.
+//! `sealed` holds the host's direct addresses, so neither the invite text
+//! nor a guest's screen shows where the host is: base64url of a 12-byte
+//! random nonce, then the ChaCha20-Poly1305 ciphertext and tag of the JSON
+//! array of addresses. The key is HKDF-SHA256 over the 16 secret bytes (no
+//! salt, info `SEAL_INFO`), and the 32 pin bytes are the associated data, so
+//! a seal moved to another invite does not open. The guest's app opens it in
+//! memory to connect (`Invite::addrs`). The key comes from the invite, so
+//! this keeps the addresses out of sight, not out of reach of someone who
+//! decodes the invite on purpose.
+//!
+//! Versions 1 (addresses only, no relay) and 2 (plain `addrs` and `relay`)
+//! are still read.
 
 use std::net::SocketAddr;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use guhit_model::IpcError;
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305, NONCE_LEN};
+use ring::hkdf;
+use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 
 use super::relay;
 
 pub const INVITE_PREFIX: &str = "guhit-live:";
-/// Version of the invite format. 2 added `relay`.
-pub const INVITE_VERSION: u32 = 2;
-/// Longest invite accepted, in characters. Real ones are about 250, or 400
-/// with a relay.
+/// Version of the invite format. 2 added `relay`, 3 sealed the addresses.
+pub const INVITE_VERSION: u32 = 3;
+/// Longest invite accepted, in characters. Real ones are about 340, or 440
+/// with a relay; the longest a host can make (8 addresses, the longest
+/// relay address and project name) is about 1800.
 const MAX_INVITE_CHARS: usize = 4096;
 /// Most addresses an invite may list.
 pub const MAX_ADDRS: usize = 8;
 const MAX_PROJECT_CHARS: usize = 120;
+/// HKDF info for the key that seals the addresses.
+const SEAL_INFO: &[u8] = b"guhit-live invite addrs v3";
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// An invite as the app holds it. Never serialized as is: `encode` seals the
+/// addresses.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Invite {
+    /// The version the invite was written in. `encode` always writes
+    /// `INVITE_VERSION`.
     pub v: u32,
     pub secret: String,
     pub pin: String,
     /// Where the host listens for direct connections. A guest tries them all
-    /// at once. Empty when the host takes none.
-    #[serde(default)]
+    /// at once. Empty when the host takes none. Only in memory: version 3
+    /// carries them sealed.
     pub addrs: Vec<String>,
     /// The shared project's name, for display before joining.
     pub project: String,
     /// The relay the host registered the session with.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay: Option<InviteRelay>,
 }
 
@@ -56,18 +76,96 @@ pub struct InviteRelay {
     pub room: String,
 }
 
+/// Version 3 as it travels.
+#[derive(Serialize, Deserialize)]
+struct Wire {
+    v: u32,
+    secret: String,
+    pin: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sealed: Option<String>,
+    project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    relay: Option<InviteRelay>,
+}
+
+/// Versions 1 and 2, addresses in plain text.
+#[derive(Deserialize)]
+struct WireV2 {
+    secret: String,
+    pin: String,
+    #[serde(default)]
+    addrs: Vec<String>,
+    project: String,
+    #[serde(default)]
+    relay: Option<InviteRelay>,
+}
+
 fn not_an_invite() -> IpcError {
     IpcError::new("bad_args", "This is not a Guhit live session invite.")
 }
 
+/// The bytes of base64url text, when it decodes to exactly `len` of them.
+fn b64url_of(text: &str, len: usize) -> Option<Vec<u8>> {
+    URL_SAFE_NO_PAD.decode(text.as_bytes()).ok().filter(|b| b.len() == len)
+}
+
 /// True for base64url text that decodes to exactly `len` bytes.
 fn is_b64url_of(text: &str, len: usize) -> bool {
-    URL_SAFE_NO_PAD.decode(text.as_bytes()).is_ok_and(|b| b.len() == len)
+    b64url_of(text, len).is_some()
+}
+
+/// The key that seals an invite's addresses, from the session secret.
+fn seal_key(secret: &[u8]) -> Option<LessSafeKey> {
+    let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(secret);
+    let okm = prk.expand(&[SEAL_INFO], &CHACHA20_POLY1305).ok()?;
+    Some(LessSafeKey::new(UnboundKey::from(okm)))
+}
+
+/// `addrs` sealed for an invite with this secret and pin (both base64url).
+/// None when either does not decode or this computer gives no random
+/// numbers: the invite then carries no direct addresses rather than plain
+/// ones.
+fn seal(secret: &str, pin: &str, addrs: &[String]) -> Option<String> {
+    let secret = URL_SAFE_NO_PAD.decode(secret.as_bytes()).ok()?;
+    let pin = URL_SAFE_NO_PAD.decode(pin.as_bytes()).ok()?;
+    let key = seal_key(&secret)?;
+    let mut nonce = [0u8; NONCE_LEN];
+    SystemRandom::new().fill(&mut nonce).ok()?;
+    let mut sealed = serde_json::to_vec(addrs).ok()?;
+    key.seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::from(&pin), &mut sealed).ok()?;
+    let mut out = nonce.to_vec();
+    out.extend_from_slice(&sealed);
+    Some(URL_SAFE_NO_PAD.encode(out))
+}
+
+/// The addresses a seal holds. None when it does not open with this secret
+/// and pin (raw bytes), or holds something else.
+fn open(secret: &[u8], pin: &[u8], sealed: &str) -> Option<Vec<String>> {
+    let mut bytes = URL_SAFE_NO_PAD.decode(sealed.as_bytes()).ok()?;
+    if bytes.len() < NONCE_LEN + CHACHA20_POLY1305.tag_len() {
+        return None;
+    }
+    let (nonce, in_out) = bytes.split_at_mut(NONCE_LEN);
+    let nonce = Nonce::try_assume_unique_for_key(nonce).ok()?;
+    let plain = seal_key(secret)?.open_in_place(nonce, Aad::from(pin), in_out).ok()?;
+    serde_json::from_slice(plain).ok()
 }
 
 impl Invite {
+    /// The invite text, in the current version. With no direct addresses,
+    /// `sealed` is left out.
     pub fn encode(&self) -> String {
-        let json = serde_json::to_vec(self).unwrap_or_default();
+        let sealed = if self.addrs.is_empty() { None } else { seal(&self.secret, &self.pin, &self.addrs) };
+        let wire = Wire {
+            v: INVITE_VERSION,
+            secret: self.secret.clone(),
+            pin: self.pin.clone(),
+            sealed,
+            project: self.project.clone(),
+            relay: self.relay.clone(),
+        };
+        let json = serde_json::to_vec(&wire).unwrap_or_default();
         format!("{INVITE_PREFIX}{}", URL_SAFE_NO_PAD.encode(json))
     }
 
@@ -84,7 +182,7 @@ impl Invite {
             .map_err(|_| not_an_invite())?;
         let raw: serde_json::Value = serde_json::from_slice(&json).map_err(|_| not_an_invite())?;
         let version = match raw.get("v").and_then(|v| v.as_u64()) {
-            Some(v) if (1..=INVITE_VERSION as u64).contains(&v) => v,
+            Some(v) if (1..=INVITE_VERSION as u64).contains(&v) => v as u32,
             Some(v) if v > INVITE_VERSION as u64 => {
                 return Err(IpcError::new(
                     "bad_args",
@@ -93,11 +191,25 @@ impl Invite {
             }
             _ => return Err(not_an_invite()),
         };
-        let mut invite: Invite = serde_json::from_value(raw).map_err(|_| not_an_invite())?;
-        if version == 1 {
+        let mut invite = if version >= 3 {
+            let wire: Wire = serde_json::from_value(raw).map_err(|_| not_an_invite())?;
+            // The seal opens with the secret and pin, so they are checked
+            // first. A plain `addrs` is ignored: addresses come sealed.
+            let addrs = match &wire.sealed {
+                Some(sealed) => {
+                    let secret = b64url_of(&wire.secret, 16).ok_or_else(not_an_invite)?;
+                    let pin = b64url_of(&wire.pin, 32).ok_or_else(not_an_invite)?;
+                    open(&secret, &pin, sealed).ok_or_else(not_an_invite)?
+                }
+                None => vec![],
+            };
+            Invite { v: version, secret: wire.secret, pin: wire.pin, addrs, project: wire.project, relay: wire.relay }
+        } else {
+            let wire: WireV2 = serde_json::from_value(raw).map_err(|_| not_an_invite())?;
             // Version 1 had no relay.
-            invite.relay = None;
-        }
+            let relay = if version == 1 { None } else { wire.relay };
+            Invite { v: version, secret: wire.secret, pin: wire.pin, addrs: wire.addrs, project: wire.project, relay }
+        };
         // The secret is 128 bits and the pin a SHA-256, both base64url.
         if !is_b64url_of(&invite.secret, 16) || !is_b64url_of(&invite.pin, 32) {
             return Err(not_an_invite());
@@ -134,6 +246,7 @@ impl Invite {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{json, Value};
 
     fn sample() -> Invite {
         Invite {
@@ -153,9 +266,20 @@ mod tests {
         format!("{INVITE_PREFIX}{}", URL_SAFE_NO_PAD.encode(json))
     }
 
-    fn json_of(text: &str) -> serde_json::Value {
+    /// The JSON inside an invite, as text.
+    fn body_of(text: &str) -> String {
         let json = URL_SAFE_NO_PAD.decode(text.strip_prefix(INVITE_PREFIX).unwrap()).unwrap();
-        serde_json::from_slice(&json).unwrap()
+        String::from_utf8(json).unwrap()
+    }
+
+    fn json_of(text: &str) -> Value {
+        serde_json::from_str(&body_of(text)).unwrap()
+    }
+
+    /// `decode` refuses `v` as not an invite.
+    fn refused(v: &Value) {
+        let err = Invite::decode(&with_json(&v.to_string())).unwrap_err();
+        assert_eq!((err.code.as_str(), err.message.as_str()), ("bad_args", "This is not a Guhit live session invite."), "{v}");
     }
 
     #[test]
@@ -168,12 +292,17 @@ mod tests {
         assert_eq!(invite.socket_addrs().len(), 2);
         // The JSON inside is the documented shape.
         let v = json_of(&text);
-        assert_eq!(v["v"], 2);
-        assert_eq!(v["addrs"][0], "192.168.1.20:1460");
+        assert_eq!(v["v"], 3);
+        assert!(v.get("addrs").is_none(), "the addresses travel sealed: {v}");
+        let sealed = URL_SAFE_NO_PAD.decode(v["sealed"].as_str().unwrap()).unwrap();
+        let plain = serde_json::to_vec(&invite.addrs).unwrap();
+        assert_eq!(sealed.len(), NONCE_LEN + plain.len() + 16, "nonce, ciphertext, tag");
         assert_eq!(v["relay"]["url"], "wss://relay.example.com");
         assert_eq!(v["relay"]["room"].as_str().unwrap().len(), 22);
         assert_eq!(v["project"], "Bungalow");
         assert_eq!(v.as_object().unwrap().len(), 6, "no key but the documented ones: {v}");
+        // Every invite gets its own nonce.
+        assert_ne!(json_of(&invite.encode())["sealed"], v["sealed"]);
 
         // Without a relay the key is left out.
         let mut direct = sample();
@@ -182,14 +311,106 @@ mod tests {
         assert!(json_of(&text).get("relay").is_none());
         assert_eq!(Invite::decode(&text).unwrap(), direct);
 
-        // Through the relay only: no addresses.
+        // Through the relay only: no addresses, so no seal.
         let mut relayed = sample();
         relayed.addrs.clear();
-        assert_eq!(Invite::decode(&relayed.encode()).unwrap(), relayed);
+        let text = relayed.encode();
+        let v = json_of(&text);
+        assert!(v.get("sealed").is_none() && v.get("addrs").is_none(), "{v}");
+        assert_eq!(v.as_object().unwrap().len(), 5);
+        assert_eq!(Invite::decode(&text).unwrap(), relayed);
     }
 
     #[test]
-    fn version_1_invites_are_still_read() {
+    fn the_invite_text_names_no_address() {
+        let mut invite = sample();
+        invite.addrs = ["192.168.1.20:1460", "100.101.102.103:1460", "10.0.0.5:1460", "127.0.0.1:1460"]
+            .map(String::from)
+            .to_vec();
+        for relay in [invite.relay.clone(), None] {
+            invite.relay = relay;
+            let text = invite.encode();
+            let body = body_of(&text);
+            for needle in ["192.168", "100.101.102.103", "10.0.0.5", "127.0.0.1", ":1460", "addrs"] {
+                assert!(!body.contains(needle), "{needle} in {body}");
+            }
+            // No dotted quad of any kind.
+            let quads = body.split(|c: char| !(c.is_ascii_digit() || c == '.')).filter(|t| t.matches('.').count() == 3);
+            assert_eq!(quads.count(), 0, "{body}");
+            assert_eq!(Invite::decode(&text).unwrap().addrs, invite.addrs);
+        }
+    }
+
+    #[test]
+    fn a_tampered_seal_is_refused() {
+        let text = sample().encode();
+        let good = json_of(&text);
+        let bytes = URL_SAFE_NO_PAD.decode(good["sealed"].as_str().unwrap()).unwrap();
+        // One bit flipped in the nonce, the ciphertext and the tag.
+        for i in [0, NONCE_LEN, bytes.len() - 1] {
+            let mut flipped = bytes.clone();
+            flipped[i] ^= 1;
+            let mut v = good.clone();
+            v["sealed"] = URL_SAFE_NO_PAD.encode(&flipped).into();
+            refused(&v);
+        }
+        let short = URL_SAFE_NO_PAD.encode(&bytes[..NONCE_LEN + 15]);
+        for sealed in [json!(short), json!(""), json!("!!not base64!!"), json!(7), json!(["192.168.1.20:1460"])] {
+            let mut v = good.clone();
+            v["sealed"] = sealed;
+            refused(&v);
+        }
+        // Another secret does not open it.
+        let mut v = good.clone();
+        v["secret"] = URL_SAFE_NO_PAD.encode([8u8; 16]).into();
+        refused(&v);
+        // Nor does a seal of something that is not a list of addresses.
+        let key = seal_key(&[7u8; 16]).unwrap();
+        let mut plain = br#"{"addrs":1}"#.to_vec();
+        key.seal_in_place_append_tag(Nonce::assume_unique_for_key([0; NONCE_LEN]), Aad::from([9u8; 32]), &mut plain)
+            .unwrap();
+        let mut v = good.clone();
+        v["sealed"] = URL_SAFE_NO_PAD.encode([&[0u8; NONCE_LEN][..], &plain].concat()).into();
+        refused(&v);
+        // Untouched, it still opens.
+        assert_eq!(Invite::decode(&text).unwrap(), sample());
+    }
+
+    #[test]
+    fn a_seal_from_another_invite_does_not_open() {
+        let from = json_of(&sample().encode());
+        // Same secret, another certificate: the pin is bound to the seal.
+        let mut other = sample();
+        other.pin = URL_SAFE_NO_PAD.encode([3u8; 32]);
+        other.addrs = vec!["10.9.8.7:1460".into()];
+        let mut v = json_of(&other.encode());
+        assert!(Invite::decode(&with_json(&v.to_string())).is_ok());
+        v["sealed"] = from["sealed"].clone();
+        refused(&v);
+        // Another session.
+        let mut other = sample();
+        other.secret = URL_SAFE_NO_PAD.encode([8u8; 16]);
+        let mut v = json_of(&other.encode());
+        v["sealed"] = from["sealed"].clone();
+        refused(&v);
+    }
+
+    #[test]
+    fn version_3_takes_addresses_only_sealed() {
+        let secret = URL_SAFE_NO_PAD.encode([7u8; 16]);
+        let pin = URL_SAFE_NO_PAD.encode([9u8; 32]);
+        let room = URL_SAFE_NO_PAD.encode([5u8; 16]);
+        // Plain addresses in a version 3 invite are ignored.
+        let plain = json!({ "v": 3, "secret": secret, "pin": pin, "addrs": ["10.0.0.5:1460"], "project": "Bahay" });
+        refused(&plain);
+        let mut relayed = plain.clone();
+        relayed["relay"] = json!({ "url": "wss://relay.example.com", "room": room });
+        let invite = Invite::decode(&with_json(&relayed.to_string())).unwrap();
+        assert_eq!((invite.v, invite.addrs.len()), (3, 0));
+    }
+
+    #[test]
+    fn versions_1_and_2_are_still_read() {
         let secret = URL_SAFE_NO_PAD.encode([7u8; 16]);
         let pin = URL_SAFE_NO_PAD.encode([9u8; 32]);
         let v1 = format!(r#"{{"v":1,"secret":"{secret}","pin":"{pin}","addrs":["10.0.0.5:1460"],"project":"Bahay"}}"#);
@@ -202,6 +423,28 @@ mod tests {
             r#"{{"v":1,"secret":"{secret}","pin":"{pin}","addrs":[],"relay":{{"url":"wss://relay.example.com","room":"{room}"}},"project":"Bahay"}}"#
         );
         assert_eq!(Invite::decode(&with_json(&odd)).unwrap_err().code, "bad_args");
+
+        let v2 = json!({
+            "v": 2, "secret": secret, "pin": pin, "addrs": ["10.0.0.5:1460", "127.0.0.1:1460"], "project": "Bahay",
+            "relay": { "url": "wss://relay.example.com", "room": room },
+        });
+        let invite = Invite::decode(&with_json(&v2.to_string())).unwrap();
+        assert_eq!(invite.v, 2);
+        assert_eq!(invite.addrs, vec!["10.0.0.5:1460".to_string(), "127.0.0.1:1460".to_string()]);
+        assert_eq!(invite.relay.as_ref().map(|r| r.url.as_str()), Some("wss://relay.example.com"));
+        let mut relayed = v2.clone();
+        relayed["addrs"] = json!([]);
+        assert!(Invite::decode(&with_json(&relayed.to_string())).unwrap().addrs.is_empty());
+        let mut too_many = v2.clone();
+        too_many["addrs"] = json!((0..=MAX_ADDRS).map(|i| format!("10.0.0.{i}:1460")).collect::<Vec<_>>());
+        refused(&too_many);
+
+        // Written again, it is version 3 with the addresses sealed.
+        let again = json_of(&invite.encode());
+        assert_eq!(again["v"], 3);
+        assert!(again.get("addrs").is_none());
+        let back = Invite::decode(&invite.encode()).unwrap();
+        assert_eq!((back.v, &back.addrs), (3, &invite.addrs));
     }
 
     #[test]
@@ -227,6 +470,7 @@ mod tests {
         bad(&with_json("{}"));
         bad(&with_json(r#"{"v":1}"#));
         bad(&with_json(r#"{"v":2}"#));
+        bad(&with_json(r#"{"v":3}"#));
         bad(&with_json(r#"{"v":0}"#));
         bad(&format!("guhit-live:{}", "A".repeat(MAX_INVITE_CHARS)));
 
@@ -263,15 +507,14 @@ mod tests {
         bad(&relay("not a url", &room));
         assert!(Invite::decode(&relay("ws://127.0.0.1:1470", &room)).is_ok(), "a relay on this computer");
 
-        let mut newer = sample();
-        newer.v = 3;
-        assert!(bad(&newer.encode()).contains("newer version"));
+        assert!(bad(&with_json(r#"{"v":4}"#)).contains("newer version"));
     }
 
     #[test]
     fn the_longest_invite_a_host_makes_is_still_read() {
         let mut invite = sample();
-        invite.addrs = (0..MAX_ADDRS).map(|i| format!("255.255.255.{i}:65535")).collect();
+        // The widest addresses a host lists (IPv4 only, docs/CONTRACT.md).
+        invite.addrs = (0..MAX_ADDRS).map(|i| format!("255.255.255.{}:65535", 200 + i)).collect();
         // 120 characters, the longest project name, of the widest kind.
         invite.project = "\u{1F3E0}\"".repeat(60);
         let room = invite.relay.as_ref().unwrap().room.clone();

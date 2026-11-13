@@ -229,9 +229,13 @@ export function buildCollisionWorld(doc: DocState | null, levelId: string | null
   return { levelId: level.id, colliders, wallPieces: pieces, doorGaps, windows };
 }
 
-/** Taller than 300 mm, and not hung above the walker's eyes. */
+/**
+ * More than 300 mm of it above the floor, and not hung above the walker's
+ * eyes. What is buried (a septic tank, a water meter pit) never blocks.
+ */
 export function objectBlocks(heightMm: number, elevationMm: number, eyeMm = EYE_HEIGHT_MM): boolean {
-  return heightMm > OBJECT_BLOCK_MIN_HEIGHT_MM && Math.max(elevationMm, 0) < eyeMm;
+  const above = elevationMm + heightMm - Math.max(elevationMm, 0);
+  return above > OBJECT_BLOCK_MIN_HEIGHT_MM && Math.max(elevationMm, 0) < eyeMm;
 }
 
 /** The point on a polygon's boundary nearest to `p`, and the distance to it. */

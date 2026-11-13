@@ -20,6 +20,7 @@ import {
   isPipeLayer,
   isServiceLayer,
   pipeFalls,
+  pipeStartHeightMm,
   type ServiceGroup,
 } from "../contract/pipes";
 
@@ -153,13 +154,22 @@ export interface PipeToolSettings {
   elevationIsDefault: boolean;
 }
 
+/** The level a new run is drawn on, for its default start height (`pipeStartHeightMm`). */
+export interface PipeLevelPlace {
+  level: { elevation_mm: number; height_mm: number } | undefined;
+  levels: readonly { elevation_mm: number }[];
+}
+
 /**
  * What the pipe tool draws with: the chosen options, or the system defaults
  * while they are null. A material and size that do not belong to the system
- * (left over from another system) fall back to the default.
+ * (left over from another system) fall back to the default. With `place` the
+ * default start height is the level's own (conduit starts in the slab above,
+ * DECISIONS D40), as the plan's pipe tool uses it.
  */
-export function pipeToolSettings(o: PipeToolOptions): PipeToolSettings {
+export function pipeToolSettings(o: PipeToolOptions, place?: PipeLevelPlace): PipeToolSettings {
   const d = pipeDefaults(o.pipeSystem);
+  if (place) d.elevationMm = pipeStartHeightMm(o.pipeSystem, place.level, place.levels);
   const material = o.pipeMaterial ?? d.material;
   const diameter = o.pipeDiameterMm ?? d.diameterMm;
   const valid = inMenu(o.pipeSystem, material, diameter);

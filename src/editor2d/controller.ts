@@ -13,23 +13,28 @@ import type {
   LayerKey,
   Mount,
   OpeningStyle,
+  PipeEnd,
   PipeSystem,
+  PlanView,
   Room,
   Stair,
   Vec3,
   Wall,
 } from "../contract/bindings";
 import { ipc } from "../contract/ipc";
-import { PIPE_LAYER } from "../contract/pipes";
+import { PIPE_LAYER, fixtureConnectionZ, pipeStartHeightMm } from "../contract/pipes";
 import { bus } from "../state/bus";
 import { useApp, type AppState, type Tool } from "../state/store";
 import { dur, ease, motionOK } from "../ui/motion";
+import { lengthToInput, parseLength, parseNumber } from "../ui/units";
+import { useLive } from "../live/liveStore";
+import { isModalOpen } from "../ui/Dialog";
 import { useViewer } from "../viewer3d/viewerStore";
 import { Anim, breathe, mix, mixP } from "./anim";
 import type { Grip } from "./edit";
 import { gripsFor, hitGrip, jointInset, normalDelta, rotationFromGrip } from "./edit";
 import type { P, Rect, Seg } from "./geom";
-import { add, angleDeg, cross, dirDeg, dist, dot, mul, normDeg, rectFromPoints, rectIsEmpty, sub, unit } from "./geom";
+import { add, angleDeg, cross, dirDeg, dist, dot, mul, normDeg, projectParam, rectFromPoints, rectIsEmpty, sub, unit } from "./geom";
 import { hitTest, hitsElement, marqueeSelect } from "./hit";
 import type { AssetEl, Linkable, LinkPair } from "./links";
 import { allLinks, defaultBow, deviceKindOf, linkArc, linkKey, linkables, linksOf, resolveLinkClick, threeWaySwitches, trimLink } from "./links";
@@ -59,20 +64,48 @@ import {
   PIPE_HEIGHT_STEP_FINE,
   PIPE_SYSTEM_LABEL,
   addRunPoint,
+  cleanRun,
   finishRun,
   fixturePoints,
   isServiceFixture,
-  movePipeNode,
+  pipeBandHalfPx,
   pipeNodes,
   pipeSpec,
   planOf,
   popRunPoint,
+  segmentFallPct,
   snapToPipes,
   toolFallPct,
   withPendingRiser,
 } from "./pipe";
 import type { ElementStyle, Palette, RenderContext } from "./render";
 import { DEFAULT_PALETTE, drawElement, drawFlash, drawGrid, drawHighlight, drawModel, drawOrigin, drawPeerOutline, labelHeightMm, readPalette } from "./render";
+import type { PipePick } from "./pipePick";
+import { usePipePick } from "./pipePick";
+import {
+  CONTINUE_HANDLE_PX,
+  continuedPoints,
+  endDirection,
+  followers,
+  heightSetCommand,
+  heightStepCommand,
+  lengthCommand,
+  moveCommand,
+  movedPoints,
+  nodeAt,
+  nodeOf,
+  normalOnly,
+  openEnds,
+  planIndices,
+  pointHeightCommand,
+  segmentAt,
+  segmentLength,
+  segmentMid,
+  slopeCommand,
+  typedDragDelta,
+  validPick,
+} from "./pipeEdit";
+import { isTypingTarget, planKeyBlocked, selectionKey } from "./keys";
 import { decideResize } from "./resizePolicy";
 import type { SnapResult, SnapScene } from "./snap";
 import { computeIntersections, emptyScene, snap } from "./snap";
@@ -81,7 +114,7 @@ import type { Box } from "./tags";
 import type { TypedState } from "./typed";
 import { emptyTyped, formatArea, isTypedKey, typedIsEmpty, typedKey, typedValues } from "./typed";
 import type { View } from "./view";
-import { fitRect, panBy, snapStep, toScreen, toWorld, zoomAt } from "./view";
+import { clampScale, fitRect, panBy, snapStep, toScreen, toWorld, zoomAt } from "./view";
 
 export const SNAP_PX = 10;
 const DRAG_PX = 4;
@@ -173,6 +206,13 @@ export const K = {
   peerSel: "psel:",
   /** The ring that marks where `focus_point` centered the view. */
   focusRing: "focus.ring",
+  /** The picked segment or point of the selected run fading in, and the one before it fading out (DECISIONS D39). */
+  pipePick: "pipe.pick",
+  pipePickOut: "pipe.pickx",
+  /** `ptag:<id>`: a click to type pipe tag under the pointer. */
+  tagHover: "ptag:",
+  /** Runs that follow a pipe drag: their ghost fades in on pick up. */
+  pipeFollow: "pipe.follow",
 } as const;
 
 /** Another participant's selection as the plan outlines it. `color` is a CSS color. */
@@ -209,25 +249,78 @@ const BREATH_MS = 1600;
 export type Op =
   | { kind: "idle" }
   | { kind: "pan"; last: P }
-  | { kind: "press"; downScreen: P; downWorld: P; hitId: string | null; additive: boolean; alt: boolean }
+  | { kind: "press"; downScreen: P; downWorld: P; hitId: string | null; additive: boolean; alt: boolean; pipe?: PipePress }
   | { kind: "marquee"; start: P; current: P; additive: boolean }
   | { kind: "move"; ids: string[]; ref: P; delta: P; duplicate: boolean; committing: boolean }
   | { kind: "slide"; opening: OpeningEl; host: Wall; placement: OpeningPlacement; committing: boolean }
   | { kind: "grip"; grip: Grip; element: Element; current: P; z: number | null; committing: boolean }
   | { kind: "wall"; points: P[]; typed: TypedState | null; committing: boolean }
-  | { kind: "pipe"; points: Vec3[]; penZ: number; typed: TypedState | null; committing: boolean }
+  /** `extend`: continuing that run from one of its ends (its "+" handle) instead of drawing a new one. */
+  | { kind: "pipe"; points: Vec3[]; penZ: number; typed: TypedState | null; committing: boolean; extend?: PipeExtend }
   | { kind: "rect"; origin: P; downScreen: P; typed: TypedState | null; committing: boolean }
   | { kind: "dimension"; a: P; b: P | null; committing: boolean }
   | { kind: "camera"; position: P; committing: boolean }
   /** Link tool with a device picked: each click on a load toggles its link. */
-  | { kind: "link"; sourceId: string; committing: boolean };
+  | { kind: "link"; sourceId: string; committing: boolean }
+  /**
+   * A point or segment of the selected run being dragged (DECISIONS D39).
+   * `delta` is the move so far, `ref` the plan point it is measured from,
+   * `grab` the pointer's offset from `ref` at pick up.
+   */
+  | {
+      kind: "pipe_drag";
+      pipe: PipeEl;
+      pick: PipePick;
+      indices: number[];
+      ref: P;
+      grab: P;
+      delta: Vec3;
+      typed: TypedState | null;
+      keepJoins: boolean;
+      /** The segment's middle handle: it moves sideways only, its neighbours stretch. */
+      sideways: boolean;
+      committing: boolean;
+    };
+
+/**
+ * Continuing a run from one end with its "+" handle: the run's own system,
+ * material and size draw on, and the tool options stay the user's.
+ */
+interface PipeExtend {
+  pipeId: string;
+  end: PipeEnd;
+  spec: PipeSpec;
+}
+
+/** A press on the selected run: what a click there picks, and whether a drag moves that part (else the run). */
+interface PipePress {
+  pick: PipePick | null;
+  drag: boolean;
+  /** Pressed on the picked segment's middle handle. */
+  sideways?: boolean;
+}
+
+/** A pipe tag that opens a typed value on click: a point height, a fall or the picked segment's length. */
+export interface PipeTagTarget {
+  pipeId: string;
+  field: "height" | "fall" | "length";
+  /** Point index (height) or segment index (fall, length). */
+  index: number;
+  /** Height only: move that one point, not its whole node (one end of a riser). */
+  only: boolean;
+}
 
 export interface InlineEditor {
-  mode: "room" | "annotation" | "new_text";
+  mode: "room" | "annotation" | "new_text" | "pipe";
   id: string | null;
   world: P;
   value: string;
   fontPx: number;
+  /** mode "pipe": the value a pipe tag edits. */
+  pipe?: PipeTagTarget;
+  /** Why the typed value was not taken, and a count that shakes the box once per refusal. */
+  error?: string | null;
+  errorSeq?: number;
 }
 
 export interface UiState {
@@ -321,6 +414,19 @@ export class PlanController {
   heightEntry: TypedState | null = null;
   /** Where the pipe tool last placed a point, for its settle ring. */
   pipePulse: { at: P; system: PipeSystem } | null = null;
+  /** Who the height typed after `h` is for: the pipe tool, or the selected run (DECISIONS D39). */
+  private heightFor: "tool" | "selection" = "tool";
+  /** A height key edit of the selected run in flight, and the steps pressed meanwhile (sent as one). */
+  private pipeKeyBusy = false;
+  private pipeKeyPending = 0;
+  /** The click to type pipe tag under the pointer. */
+  hoverTag: string | null = null;
+  /** The pick before the current one, drawn while its highlight fades out. */
+  lastPick: PipePick | null = null;
+  /** Alt is held: a pipe drag breaks its joins. */
+  alt = false;
+  /** A press on a click to type pipe tag, opened on release. */
+  private tagPress: { id: string; box: Box; screen: P } | null = null;
   /** Index into `gripList()` of the grip under the pointer. */
   hoverGrip: number | null = null;
   openingGhost: OpeningGhost | null = null;
@@ -435,11 +541,17 @@ export class PlanController {
     onWin("blur", () => {
       this.shift = false;
       this.space = false;
+      this.alt = false;
     }, false);
 
     this.cleanups.push(bus.on("zoom_to_fit", () => this.zoomToFit()));
     this.cleanups.push(bus.on("focus_elements", (ids) => this.focusElements(ids)));
     this.cleanups.push(bus.on("focus_point", ({ point, level_id }) => this.focusPoint(point, level_id)));
+    this.cleanups.push(
+      usePipePick.subscribe((st, pv) => {
+        if (st.pick !== pv.pick) this.onPickChange(pv.pick, st.pick);
+      }),
+    );
 
     let prev = useApp.getState();
     this.cleanups.push(
@@ -523,8 +635,9 @@ export class PlanController {
     if (this.heightEntry && this.cursorScreen) {
       return { x: this.cursorScreen.x, y: this.cursorScreen.y, state: this.heightEntry, labels: [`Height ${unitName}`, ""] };
     }
-    if ((op.kind !== "wall" && op.kind !== "rect" && op.kind !== "pipe") || !op.typed || !this.cursorScreen) return null;
-    const labels: [string, string] = op.kind === "rect" ? [`Width ${unitName}`, `Depth ${unitName}`] : [`Length ${unitName}`, "Angle"];
+    if ((op.kind !== "wall" && op.kind !== "rect" && op.kind !== "pipe" && op.kind !== "pipe_drag") || !op.typed || !this.cursorScreen) return null;
+    const labels: [string, string] =
+      op.kind === "rect" ? [`Width ${unitName}`, `Depth ${unitName}`] : op.kind === "pipe_drag" ? [`Distance ${unitName}`, "Angle"] : [`Length ${unitName}`, "Angle"];
     return { x: this.cursorScreen.x, y: this.cursorScreen.y, state: op.typed, labels };
   }
 
@@ -533,7 +646,8 @@ export class PlanController {
     const tool = useApp.getState().tool;
     if (this.space || tool === "pan") return "grab";
     if (tool === "select") {
-      if (this.op.kind === "move" || this.op.kind === "grip" || this.op.kind === "slide") return "grabbing";
+      if (this.op.kind === "move" || this.op.kind === "grip" || this.op.kind === "slide" || this.op.kind === "pipe_drag") return "grabbing";
+      if (this.hoverTag) return "text";
       if (this.hoverGrip !== null) return "grab";
       return useApp.getState().hoverId || this.hoverHandle ? "pointer" : "default";
     }
@@ -571,6 +685,8 @@ export class PlanController {
         return "Click where the text goes";
       case "camera":
         return op.kind === "camera" ? "Click what the camera looks at" : "Click where the camera stands";
+      case "select":
+        return this.pipeHint();
       case "pipe": {
         if (op.kind === "pipe") return "Click the next point. PageUp, PageDown or h adds a riser. Enter finishes, Escape steps back";
         const system = this.pipeSpec().system;
@@ -628,6 +744,7 @@ export class PlanController {
   private syncDoc(): void {
     const s = useApp.getState();
     const visible = s.preview?.state ?? s.doc;
+    const before = this.index;
     this.index = visible ? buildIndex(visible, s.activeLevelId) : null;
     this.realIndex = s.preview && s.doc ? buildIndex(s.doc, s.activeLevelId) : null;
     this.sceneCache = null;
@@ -657,6 +774,7 @@ export class PlanController {
       this.fitted = true;
     }
     this.loadUnderlays();
+    this.syncPick(before);
     this.refreshToolGhost();
     this.invalidate();
   }
@@ -821,6 +939,7 @@ export class PlanController {
   zoomStep(inOut: 1 | -1): void {
     if (this.width === 0) return;
     this.autoFit = false;
+    bus.emit("user_view", { view: "plan" });
     const at = this.cursorScreen && this.pointerInside ? this.cursorScreen : { x: this.width / 2, y: this.height / 2 };
     this.setView(zoomAt(this.view, at, inOut > 0 ? 1.25 : 1 / 1.25), dur("press"));
   }
@@ -829,12 +948,14 @@ export class PlanController {
    * Moves the view. `this.view` is always the final transform, so hit testing
    * and the scripted checks never wait: only what is drawn eases there.
    */
-  private setView(next: View, ms: number): void {
+  private setView(next: View, ms: number, easing: (t: number) => number = ease.inOut): void {
     if (ms > 0 && motionOK() && this.width > 0) {
-      this.viewFrom = this.drawView();
+      // Clock first: the ease starts from where the view is now, not from the
+      // last drawn frame, so steady updates (follow mode) never lag behind.
       this.anim.setClock(performance.now());
+      this.viewFrom = this.drawView();
       this.anim.clear(K.view);
-      this.anim.to(K.view, 1, ms, { from: 0, easing: ease.inOut, drop: true });
+      this.anim.to(K.view, 1, ms, { from: 0, easing, drop: true });
     } else {
       this.settleView();
     }
@@ -867,6 +988,27 @@ export class PlanController {
   }
 
   // ------------------------------------------------------------ live session
+
+  /**
+   * Follow mode (DECISIONS D37): shows the plan area someone else sees,
+   * centered and scaled to fit this canvas. `linear` for the steady updates
+   * while following, so one glide runs into the next; the first move eases.
+   * `ms` 0 jumps. Never emits `user_view`: it is not this user's input.
+   */
+  followView(area: PlanView, ms: number, linear = false): void {
+    if (this.width === 0 || !Number.isFinite(area.center.x) || !Number.isFinite(area.center.y)) return;
+    this.autoFit = false;
+    const scale = clampScale(Math.min(this.width / Math.max(area.width_mm, 1), this.height / Math.max(area.height_mm, 1)));
+    const next = { scale, ox: this.width / 2 - area.center.x * scale, oy: this.height / 2 + area.center.y * scale };
+    this.setView(next, ms, linear ? (t) => t : ease.inOut);
+  }
+
+  /** The plan area this canvas shows (the view it is easing to), for presence while someone follows. */
+  planView(): PlanView | null {
+    if (this.width === 0 || this.height === 0) return null;
+    const c = toWorld(this.view, { x: this.width / 2, y: this.height / 2 });
+    return { center: { x: c.x, y: c.y }, width_mm: this.width / this.view.scale, height_mm: this.height / this.view.scale };
+  }
 
   /** Plan mm to canvas CSS pixels, with the transform on screen right now. */
   planToScreen(p: P): P {
@@ -1257,7 +1399,7 @@ export class PlanController {
 
   /** A rejected drag does not snap back: its ghost eases to where it started. */
   private easeBack(op: Op): void {
-    if (op.kind !== "move" && op.kind !== "slide" && op.kind !== "grip") return;
+    if (op.kind !== "move" && op.kind !== "slide" && op.kind !== "grip" && op.kind !== "pipe_drag") return;
     if (exitDur("base") <= 0) return;
     this.returning = op;
     this.animate(K.back, 0, exitDur("base"), { from: 1, easing: ease.inOut, drop: true });
@@ -1275,6 +1417,8 @@ export class PlanController {
         return { ...op, placement: { ...op.placement, offset: mix(op.opening.offset_mm, op.placement.offset, v) } };
       case "grip":
         return { ...op, current: mixP(op.grip.pos, op.current, v) };
+      case "pipe_drag":
+        return { ...op, delta: { x: op.delta.x * v, y: op.delta.y * v, z: op.delta.z * v } };
       default:
         return null;
     }
@@ -1589,7 +1733,9 @@ export class PlanController {
     if (s.tool !== "select" || s.selection.length !== 1 || !this.index) return [];
     const el = this.index.byId.get(s.selection[0]);
     if (!el || !this.index.visibleIds.has(el.id) || isLocked(el, this.index)) return [];
-    return gripsFor(el, 1 / this.view.scale);
+    const grips = gripsFor(el, 1 / this.view.scale);
+    if (el.kind === "pipe") grips.push(...this.pipeExtraGrips(el));
+    return grips;
   }
 
   private scene(exclude: readonly string[] = [], extraPoints: readonly P[] = []): SnapScene {
@@ -1654,6 +1800,8 @@ export class PlanController {
     if (this.editor) return; // the inline input commits on blur first
     // A press lands on what is on screen now, so a running view ease ends here.
     this.settleView();
+    // Pressing the plan stops following someone (DECISIONS D37).
+    bus.emit("user_view", { view: "plan" });
     const screen = this.eventPoint(e);
     const world = toWorld(this.view, screen);
     this.cursorScreen = screen;
@@ -1750,6 +1898,7 @@ export class PlanController {
     this.cursorScreen = screen;
     this.cursorWorld = toWorld(this.view, screen);
     this.shift = e.shiftKey;
+    this.alt = e.altKey;
     this.pointerInside = true;
     this.handleMove(e.altKey);
   };
@@ -1767,6 +1916,7 @@ export class PlanController {
     switch (op.kind) {
       case "pan":
         this.autoFit = false;
+        bus.emit("user_view", { view: "plan" });
         this.view = panBy(this.view, screen.x - op.last.x, screen.y - op.last.y);
         op.last = screen;
         break;
@@ -1785,17 +1935,24 @@ export class PlanController {
       case "grip":
         if (!op.committing) this.updateGrip(op, world);
         break;
+      case "pipe_drag":
+        if (!op.committing) this.updatePipeDrag(op, world);
+        break;
       default:
         this.updateToolHover(world);
     }
     if (this.op.kind === "idle" && s.tool === "select") {
+      // Handles win over the tags that overlap them, as a press does.
       const grips = this.gripList();
       const grip = grips.length > 0 && !this.hoverHandle ? hitGrip(grips, world, GRIP_PX / this.view.scale) : null;
       this.setHoverGrip(grip ? grips.indexOf(grip) : null);
-      const id = this.hoverHandle ? null : hitTest(world, this.index, this.hitOptions());
+      const tag = this.hoverHandle || grip || !this.pointerInside ? null : this.pipeTagAt(screen);
+      this.setHoverTag(tag?.id ?? null);
+      const id = this.hoverHandle || tag ? null : hitTest(world, this.index, this.hitOptions());
       if (id !== s.hoverId) s.setHover(id);
     } else {
       this.setHoverGrip(null);
+      this.setHoverTag(null);
     }
     const snapped = this.snapResult as SnapResult | null;
     const p = snapped?.point ?? world;
@@ -1887,7 +2044,7 @@ export class PlanController {
 
   private isDragOp(): boolean {
     const k = this.op.kind;
-    return k === "pan" || k === "press" || k === "marquee" || k === "move" || k === "slide" || k === "grip";
+    return k === "pan" || k === "press" || k === "marquee" || k === "move" || k === "slide" || k === "grip" || k === "pipe_drag";
   }
 
   private isBusy(): boolean {
@@ -1903,15 +2060,24 @@ export class PlanController {
     } catch {
       // Not captured.
     }
+    const tagPress = this.tagPress;
+    this.tagPress = null;
+    if (tagPress && op.kind === "idle" && dist(this.eventPoint(e), tagPress.screen) <= DRAG_PX) this.openPipeTag(tagPress.id, tagPress.box, tagPress.screen);
     switch (op.kind) {
       case "pan":
         this.op = this.panReturn;
         this.panReturn = { kind: "idle" };
         break;
       case "press":
-        if (op.hitId) s.select([op.hitId], op.additive);
+        // A click on the selected run picks the part under it; the selection stays.
+        if (op.pipe) {
+          if (op.pipe.pick) usePipePick.getState().setPick(op.pipe.pick);
+        } else if (op.hitId) s.select([op.hitId], op.additive);
         else if (!op.additive) s.select([]);
         this.op = { kind: "idle" };
+        break;
+      case "pipe_drag":
+        this.commitPipeDrag(op);
         break;
       case "marquee": {
         if (this.index) {
@@ -1997,6 +2163,7 @@ export class PlanController {
     // Wheel, pinch and trackpad pan are 1:1 and always win over a view ease.
     this.settleView();
     this.autoFit = false;
+    bus.emit("user_view", { view: "plan" });
     const screen = this.eventPoint(e);
     const legacy = (e as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY;
     if (e.ctrlKey || e.metaKey) {
@@ -2030,6 +2197,27 @@ export class PlanController {
       this.flipBow(handle);
       return;
     }
+    // The selected run (DECISIONS D39): its handles first (an open end's "+",
+    // the picked segment's middle, the points), then a click to type tag,
+    // then the run itself. Tags sit close enough to overlap the handles.
+    const cont = e.shiftKey ? null : this.continueAt(world);
+    if (cont) {
+      this.startContinue(cont.pipe, cont.end);
+      return;
+    }
+    const handlePress = e.shiftKey ? null : this.pipeHandlePressAt(world);
+    const tag = e.shiftKey || handlePress ? null : this.pipeTagAt(screen);
+    if (tag) {
+      // It opens on release: the browser's focus handling for this press would blur it right away.
+      this.tagPress = { id: tag.id, box: tag.box, screen };
+      return;
+    }
+    const pipePress = handlePress ?? (e.shiftKey ? null : this.pipeBodyPressAt(world));
+    if (pipePress) {
+      const pipe = this.selectedPipe();
+      this.op = { kind: "press", downScreen: screen, downWorld: world, hitId: pipe?.id ?? null, additive: false, alt: e.altKey, pipe: pipePress };
+      return;
+    }
     const grip = hitGrip(this.gripList(), world, GRIP_PX / this.view.scale);
     if (grip) {
       const el = this.index.byId.get(grip.elementId);
@@ -2052,6 +2240,7 @@ export class PlanController {
       this.op = { kind: "marquee", start: op.downWorld, current: this.cursorWorld ?? op.downWorld, additive: op.additive };
       return;
     }
+    if (op.pipe?.drag && op.pipe.pick && this.beginPipeDrag(op, op.pipe.pick, !!op.pipe.sideways)) return;
     let ids = s.selection.includes(op.hitId) ? [...s.selection] : [op.hitId];
     if (!s.selection.includes(op.hitId)) s.select(ids);
     const hit = index.byId.get(op.hitId);
@@ -2204,18 +2393,7 @@ export class PlanController {
         op.current = r.point;
         break;
       }
-      case "pipe_node": {
-        if (el.kind !== "pipe") return;
-        // Ortho runs from the neighbouring node. A pipe never snaps to itself.
-        const nodes = pipeNodes(el.points);
-        const i = nodes.findIndex((n) => n.index === op.grip.index);
-        const anchor = nodes[i - 1]?.point ?? nodes[i + 1]?.point ?? null;
-        const r = this.snapPipeAt(world, anchor, { system: el.system, penZ: nodes[i]?.zOut ?? 0, exclude: [el.id] });
-        this.snapResult = r;
-        op.current = r.point;
-        op.z = r.z ?? null;
-        break;
-      }
+      // Pipe point handles drag as a `pipe_drag` (pipe editing below), never as a grip.
     }
   }
 
@@ -2248,11 +2426,6 @@ export class PlanController {
         return el.kind === "camera" ? { ...el, position: { ...el.position, x: op.current.x, y: op.current.y } } : null;
       case "cam_target":
         return el.kind === "camera" ? { ...el, target: { ...el.target, x: op.current.x, y: op.current.y } } : null;
-      case "pipe_node": {
-        if (el.kind !== "pipe" || op.grip.index === undefined) return null;
-        const points = movePipeNode(el.points, op.grip.index, op.grip.count ?? 1, op.current, op.z);
-        return points ? { ...el, points } : null;
-      }
       default:
         return null;
     }
@@ -2275,8 +2448,6 @@ export class PlanController {
       }
     }
     if (!command) {
-      // A pipe node dropped where the run would lose too many points eases back.
-      if (op.grip.kind === "pipe_node" && dist(op.current, op.grip.pos) >= 0.5) this.easeBack(op);
       this.op = { kind: "idle" };
       return;
     }
@@ -2387,7 +2558,15 @@ export class PlanController {
 
   /** System, material, size and start height the pipe tool draws with. */
   pipeSpec(): PipeSpec {
-    return pipeSpec(useApp.getState().toolOptions);
+    if (this.op.kind === "pipe" && this.op.extend) return this.op.extend.spec;
+    const o = useApp.getState().toolOptions;
+    const spec = pipeSpec(o);
+    if (o.pipeElevationMm !== null) return spec;
+    // No height chosen: the level's own start height, so conduit starts in the
+    // slab above or above the top level's ceiling (DECISIONS D40).
+    const levels = this.index?.doc.project.levels ?? [];
+    const level = levels.find((l) => l.id === this.levelId());
+    return { ...spec, startHeightMm: pipeStartHeightMm(spec.system, level, levels) };
   }
 
   /** The layer of the system being drawn. Locked stops the tool, hidden only warns. */
@@ -2407,7 +2586,11 @@ export class PlanController {
       for (const el of this.index.visible) {
         if (skip.has(el.id)) continue;
         if (el.kind === "pipe") pipes.push(el);
-        else if (el.kind === "asset" && isServiceFixture(el, system, deviceKindOf(el, catalog))) fixtures.push(...fixturePoints(el));
+        else if (el.kind === "asset" && isServiceFixture(el, system, deviceKindOf(el, catalog))) {
+          // A run ends at the fixture's connection height with a riser (DECISIONS D40).
+          const z = fixtureConnectionZ(el, system);
+          for (const f of fixturePoints(el)) fixtures.push({ ...f, z });
+        }
       }
     }
     return { pipes, fixtures };
@@ -2433,14 +2616,14 @@ export class PlanController {
     return this.snapAt(world, anchor, { extra: o.extra });
   }
 
-  /** Plan point and joined height of the next click: the typed length, else the snapped cursor. */
-  private pipeTarget(op: Extract<Op, { kind: "pipe" }>): { point: P; z: number | null } | null {
+  /** Plan point and joined height of the next click: the typed length, else the snapped cursor. `fixture`: the height is a fixture connection. */
+  private pipeTarget(op: Extract<Op, { kind: "pipe" }>): { point: P; z: number | null; fixture?: boolean } | null {
     if (op.typed) {
       const p = this.typedPipePoint(op);
       if (p) return { point: p, z: null };
     }
     const r = this.snapResult;
-    if (r) return { point: r.point, z: r.z ?? null };
+    if (r) return { point: r.point, z: r.z ?? null, fixture: r.type === "fixture" };
     return this.cursorWorld ? { point: this.cursorWorld, z: null } : null;
   }
 
@@ -2454,7 +2637,7 @@ export class PlanController {
     const placed = withPendingRiser(op);
     const target = op.committing ? null : this.pipeTarget(op);
     if (!target) return { placed, band: [] };
-    const next = addRunPoint(op, target.point, { fallPct: toolFallPct(this.pipeSpec()), snapZ: target.z });
+    const next = addRunPoint(op, target.point, { fallPct: this.pipeFallPct(op), snapZ: target.z, fixture: target.fixture });
     return { placed, band: next.points.slice(placed.length - 1) };
   }
 
@@ -2477,7 +2660,7 @@ export class PlanController {
     if (this.op.kind !== "pipe") {
       if (this.pipeLayer().locked) return;
       const r = this.snapResult ?? this.snapPipeAt(world, null, { system: spec.system, penZ: spec.startHeightMm });
-      const draft = addRunPoint({ points: [], penZ: spec.startHeightMm }, r.point, { fallPct: null, snapZ: r.z ?? null });
+      const draft = addRunPoint({ points: [], penZ: spec.startHeightMm }, r.point, { fallPct: null, snapZ: r.z ?? null, fixture: r.type === "fixture" });
       this.op = { kind: "pipe", points: draft.points, penZ: draft.penZ, typed: null, committing: false };
       this.pulsePipePoint(r.point, spec.system);
       return;
@@ -2493,9 +2676,9 @@ export class PlanController {
     if (target) this.pushPipePoint(op, target);
   }
 
-  private pushPipePoint(op: Extract<Op, { kind: "pipe" }>, target: { point: P; z: number | null }): void {
+  private pushPipePoint(op: Extract<Op, { kind: "pipe" }>, target: { point: P; z: number | null; fixture?: boolean }): void {
     const before = op.points.length;
-    const next = addRunPoint(op, target.point, { fallPct: toolFallPct(this.pipeSpec()), snapZ: target.z });
+    const next = addRunPoint(op, target.point, { fallPct: this.pipeFallPct(op), snapZ: target.z, fixture: target.fixture });
     op.typed = null;
     op.points = next.points;
     op.penZ = next.penZ;
@@ -2504,6 +2687,10 @@ export class PlanController {
 
   private finishPipe(op: Extract<Op, { kind: "pipe" }>): void {
     if (op.committing) return;
+    if (op.extend) {
+      this.finishContinue(op, op.extend);
+      return;
+    }
     const level = this.levelId();
     const points = finishRun(op);
     if (!points || !level) {
@@ -2528,6 +2715,26 @@ export class PlanController {
     void this.run({ type: "add_element", element });
   }
 
+  /** A continued run: the drawn points join the run at its end, as one step, then back to Select with it selected. */
+  private finishContinue(op: Extract<Op, { kind: "pipe" }>, extend: PipeExtend): void {
+    const drawn = finishRun(op);
+    const run = this.index?.byId.get(extend.pipeId);
+    if (!drawn || !run || run.kind !== "pipe") {
+      this.resetOp();
+      useApp.getState().setTool("select");
+      return;
+    }
+    const points = cleanRun(continuedPoints(run.points, extend.end, drawn));
+    op.committing = true;
+    op.typed = null;
+    this.heightEntry = null;
+    void this.run({ type: "update_element", element: { ...run, points } }, () => {
+      const s = useApp.getState();
+      s.setTool("select");
+      s.select([run.id]);
+    });
+  }
+
   /**
    * Sets the height of the next point. While drawing, the run climbs or drops
    * there as a riser at its last point; before the first click it is the
@@ -2538,7 +2745,8 @@ export class PlanController {
     const v = Math.round(z * 1000) / 1000;
     if (this.op.kind === "pipe") this.op.penZ = v;
     this.pulsePipeHeight();
-    useApp.getState().setTool("pipe", { pipeElevationMm: v });
+    // Continuing a run keeps the user's own start height option.
+    if (!(this.op.kind === "pipe" && this.op.extend)) useApp.getState().setTool("pipe", { pipeElevationMm: v });
     this.refreshToolGhost();
     this.invalidate();
   }
@@ -2556,7 +2764,10 @@ export class PlanController {
     this.heightEntry = null;
     if (entry && this.index) {
       const v = typedValues(entry, this.index.doc.project.settings.display_unit).a;
-      if (v !== null) this.setPipeHeight(v);
+      if (v !== null) {
+        if (this.heightFor === "selection") this.setSelectionHeight(v);
+        else this.setPipeHeight(v);
+      }
     }
     this.updateUi();
   }
@@ -2598,8 +2809,12 @@ export class PlanController {
     } else if (e.key === "Escape" || (e.key === "Backspace" && !op.typed)) {
       // Escape steps back: the pending riser, then the last point, then the run.
       const back = popRunPoint(op);
-      if (!back) this.resetOp();
-      else {
+      if (!back) {
+        // Backing out of continuing a run returns to Select with it.
+        const cont = op.extend;
+        this.resetOp();
+        if (cont) useApp.getState().setTool("select");
+      } else {
         op.points = back.points;
         op.penZ = back.penZ;
       }
@@ -2608,7 +2823,7 @@ export class PlanController {
       this.setPipeHeight(op.penZ + (e.key === "PageUp" ? step : -step));
     } else if (k === "h" && !e.altKey) {
       op.typed = null;
-      this.heightEntry = emptyTyped("height");
+      this.startHeightEntry("tool");
     } else if (isTypedKey(e.key) || (op.typed && (e.key === "Tab" || e.key === "Backspace"))) {
       op.typed = typedKey(op.typed ?? emptyTyped("polar"), e.key);
     } else if (e.key === "Enter") {
@@ -2622,6 +2837,442 @@ export class PlanController {
     }
     this.handleMove();
     this.updateUi();
+  }
+
+  // ------------------------------------------------------------ pipe editing (DECISIONS D39)
+
+  /** The one selected run, when the select tool can edit it: visible and not on a locked layer. */
+  selectedPipe(): PipeEl | null {
+    const s = useApp.getState();
+    if (s.tool !== "select" || s.selection.length !== 1 || !this.index) return null;
+    const el = this.index.byId.get(s.selection[0]);
+    if (!el || el.kind !== "pipe" || !this.index.visibleIds.has(el.id) || isLocked(el, this.index)) return null;
+    return el;
+  }
+
+  /** The picked segment or point of the selected run, or null for the whole run. */
+  pipePick(): PipePick | null {
+    const pipe = this.selectedPipe();
+    const pick = usePipePick.getState().pick;
+    return pipe && pick && pick.pipeId === pipe.id ? validPick(pipe.points, pick) : null;
+  }
+
+  /**
+   * After a document change (an undo, a remote edit). A drag of a run that
+   * changed under it is cancelled: its copy is stale. A pick is dropped when
+   * its run is gone or gained or lost points, since its index would name
+   * another part; otherwise it is kept where it still fits.
+   */
+  private syncPick(before: DocIndex | null): void {
+    const op = this.op;
+    if (op.kind === "pipe_drag" && !op.committing) {
+      const now = this.index?.byId.get(op.pipe.id);
+      if (!now || now.kind !== "pipe" || !samePoints(now.points, op.pipe.points)) {
+        this.op = { kind: "idle" };
+        this.snapResult = null;
+        this.setLift(false);
+      }
+    }
+    const st = usePipePick.getState();
+    const pick = st.pick;
+    if (!pick) return;
+    const el = this.index?.byId.get(pick.pipeId);
+    const old = before?.byId.get(pick.pipeId);
+    if (!el || el.kind !== "pipe" || (old?.kind === "pipe" && old.points.length !== el.points.length)) {
+      st.setPick(null);
+      return;
+    }
+    const next = validPick(el.points, pick);
+    if (!next) st.setPick(null);
+    else if (next.index !== pick.index) st.setPick(next);
+  }
+
+  /** The picked part's highlight fades in; the one it replaces fades out. */
+  private onPickChange(prev: PipePick | null, next: PipePick | null): void {
+    if (prev) {
+      this.lastPick = prev;
+      this.anim.clear(K.pipePickOut);
+      this.animate(K.pipePickOut, 0, exitDur("hover"), { from: 1, easing: ease.in, drop: true });
+    }
+    this.anim.clear(K.pipePick);
+    if (next) this.animate(K.pipePick, 0, dur("hover"), { from: 1, easing: ease.out, drop: true });
+    this.invalidate();
+    this.updateUi();
+  }
+
+  /** Pick radius of a run's centerline in mm: half its drawn band plus the usual pick tolerance. */
+  private pipeTol(pipe: PipeEl): number {
+    return pipeBandHalfPx(pipe, this.view.scale) / this.view.scale + this.hitOptions().tol * 0.5;
+  }
+
+  private openEndCache: { index: DocIndex; pipe: PipeEl; ends: PipeEnd[] } | null = null;
+
+  /** The ends of the run that join nothing, cached per document and run. */
+  private openEndsOf(pipe: PipeEl): PipeEnd[] {
+    const index = this.index;
+    if (!index) return [];
+    const c = this.openEndCache;
+    if (c && c.index === index && c.pipe === pipe) return c.ends;
+    const catalog = this.catalogMap();
+    const others: PipeEl[] = [];
+    const fixtures: P[] = [];
+    for (const el of index.visible) {
+      if (el.kind === "pipe" && el.id !== pipe.id) others.push(el);
+      else if (el.kind === "asset" && isServiceFixture(el, pipe.system, deviceKindOf(el, catalog))) fixtures.push(...fixturePoints(el).map((f) => f.point));
+    }
+    const ends = openEnds(pipe, others, fixtures);
+    this.openEndCache = { index, pipe, ends };
+    return ends;
+  }
+
+  /**
+   * Handles the selected run has beyond its point handles: the picked
+   * segment's middle (drag it sideways) and a "+" past each open end
+   * (continue the run from there).
+   */
+  private pipeExtraGrips(pipe: PipeEl): Grip[] {
+    const out: Grip[] = [];
+    const pick = this.pipePick();
+    if (pick?.kind === "segment") {
+      const m = segmentMid(pipe.points, pick.index);
+      if (m) out.push({ elementId: pipe.id, kind: "pipe_mid", pos: m, index: pick.index });
+    }
+    const n = pipe.points.length;
+    for (const end of this.openEndsOf(pipe)) {
+      const p = planOf(end === "start" ? pipe.points[0] : pipe.points[n - 1]);
+      const pos = add(p, mul(endDirection(pipe.points, end), CONTINUE_HANDLE_PX / this.view.scale));
+      out.push({ elementId: pipe.id, kind: "pipe_continue", pos, index: end === "start" ? 0 : 1 });
+    }
+    return out;
+  }
+
+  /** The "+" handle of the selected run under a plan point. */
+  private continueAt(world: P): { pipe: PipeEl; end: PipeEnd } | null {
+    const pipe = this.selectedPipe();
+    if (!pipe || this.pipeLayerLocked(pipe)) return null;
+    const g = hitGrip(this.pipeExtraGrips(pipe).filter((x) => x.kind === "pipe_continue"), world, GRIP_PX / this.view.scale);
+    return g ? { pipe, end: g.index === 0 ? "start" : "end" } : null;
+  }
+
+  private pipeLayerLocked(pipe: PipeEl): boolean {
+    return !!this.index?.doc.project.layers.find((l) => l.key === PIPE_LAYER[pipe.system])?.locked;
+  }
+
+  /**
+   * The "+" of an open end: the pipe tool takes over with the run's system,
+   * size and that end's height, drawing on from the end. Finishing writes
+   * the new points into the same run (one step) and comes back to Select.
+   */
+  private startContinue(pipe: PipeEl, end: PipeEnd): void {
+    const p = end === "start" ? pipe.points[0] : pipe.points[pipe.points.length - 1];
+    // The tool options are left alone: the run's spec rides on the operation.
+    useApp.getState().setTool("pipe");
+    const spec: PipeSpec = { system: pipe.system, material: pipe.material, diameterMm: pipe.diameter_mm, startHeightMm: p.z };
+    this.op = { kind: "pipe", points: [{ x: p.x, y: p.y, z: p.z }], penZ: p.z, typed: null, committing: false, extend: { pipeId: pipe.id, end, spec } };
+    this.pulsePipePoint(planOf(p), pipe.system);
+    this.refreshToolGhost();
+    this.updateUi();
+    this.invalidate();
+  }
+
+  /** Fall of the next segment while drawing: the tool's, turned into a rise when continuing a run back from its start. */
+  private pipeFallPct(op: Extract<Op, { kind: "pipe" }>): number | null {
+    const f = toolFallPct(this.pipeSpec());
+    return f !== null && op.extend?.end === "start" ? -f : f;
+  }
+
+  /**
+   * A press on the selected run: a point handle picks that point and drags
+   * it; the run itself picks the segment under the cursor, and drags that
+   * segment once a part is picked (with no part picked a drag moves the run).
+   */
+  private pipeHandlePressAt(world: P): PipePress | null {
+    const pipe = this.selectedPipe();
+    if (!pipe || !this.index) return null;
+    const handleTol = GRIP_PX / this.view.scale;
+    const mid = hitGrip(this.pipeExtraGrips(pipe).filter((g) => g.kind === "pipe_mid"), world, handleTol);
+    if (mid && mid.index !== undefined) return { pick: { pipeId: pipe.id, kind: "segment", index: mid.index }, drag: true, sideways: true };
+    const node = nodeAt(pipe.points, world, handleTol);
+    return node === null ? null : { pick: { pipeId: pipe.id, kind: "point", index: node }, drag: true };
+  }
+
+  private pipeBodyPressAt(world: P): PipePress | null {
+    const pipe = this.selectedPipe();
+    if (!pipe || !this.index) return null;
+    const seg = segmentAt(pipe.points, world, this.pipeTol(pipe));
+    const pick: PipePick | null = seg === null ? null : { pipeId: pipe.id, kind: "segment", index: seg };
+    if (!pick && !hitsElement(world, pipe, this.index, this.hitOptions())) return null;
+    return { pick, drag: !!pick && this.pipePick() !== null };
+  }
+
+  private beginPipeDrag(op: Extract<Op, { kind: "press" }>, pick: PipePick, sideways = false): boolean {
+    const pipe = this.selectedPipe();
+    if (!pipe) return false;
+    const pts = pipe.points;
+    let ref: P;
+    if (pick.kind === "point") {
+      const node = pipeNodes(pts).find((n) => n.index === nodeOf(pts, pick.index).index);
+      if (!node) return false;
+      ref = node.point;
+    } else {
+      const a = planOf(pts[pick.index]);
+      const b = planOf(pts[pick.index + 1]);
+      const t = sideways ? 0.5 : Math.max(0, Math.min(1, projectParam(op.downWorld, a, b)));
+      ref = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    usePipePick.getState().setPick(pick);
+    this.op = {
+      kind: "pipe_drag",
+      pipe,
+      pick,
+      indices: planIndices(pts, pick),
+      ref,
+      grab: sub(op.downWorld, ref),
+      delta: { x: 0, y: 0, z: 0 },
+      typed: null,
+      keepJoins: !(op.alt || this.alt),
+      sideways: sideways && pick.kind === "segment",
+      committing: false,
+    };
+    this.setHoverGrip(null);
+    this.setLift(true);
+    this.anim.clear(K.pipeFollow);
+    this.animate(K.pipeFollow, 0, dur("hover"), { from: 1, easing: ease.out, drop: true });
+    if (this.cursorWorld) this.updatePipeDrag(this.op, this.cursorWorld);
+    return true;
+  }
+
+  /**
+   * Tracks the pointer 1:1. A point snaps like the pipe tool (and joins a
+   * pipe it lands on at that pipe's height); a segment moves in grid steps,
+   * ortho with Shift. A typed distance replaces the length along the drag.
+   */
+  private updatePipeDrag(op: Extract<Op, { kind: "pipe_drag" }>, world: P): void {
+    const s = useApp.getState();
+    const pts = op.pipe.points;
+    op.keepJoins = !this.alt;
+    const target = sub(world, op.grab);
+    let d: P;
+    let dz = 0;
+    if (op.pick.kind === "point") {
+      const nodes = pipeNodes(pts);
+      const node = nodeOf(pts, op.pick.index);
+      const i = nodes.findIndex((n) => n.index === node.index);
+      const anchor = nodes[i - 1]?.point ?? nodes[i + 1]?.point ?? null;
+      const r = this.snapPipeAt(target, anchor, { system: op.pipe.system, penZ: nodes[i]?.zOut ?? 0, exclude: [op.pipe.id] });
+      this.snapResult = r;
+      d = sub(r.point, op.ref);
+      // A single point joining another run takes its height; a fixture keeps the drag flat.
+      if (node.count === 1 && r.type !== "fixture" && r.z !== undefined && r.z !== null) dz = r.z - pts[node.index].z;
+    } else if (op.sideways) {
+      // Along the segment's normal only, in grid steps.
+      const a = pts[op.pick.index];
+      const b = pts[op.pick.index + 1];
+      d = normalOnly(sub(target, op.ref), a, b);
+      const step = this.gridStep();
+      const len = Math.hypot(d.x, d.y);
+      if (step > 0 && len > 1e-9) d = mul(d, (Math.round(len / step) * step) / len);
+    } else {
+      d = sub(target, op.ref);
+      if (s.orthoEnabled || this.shift) d = Math.abs(d.x) >= Math.abs(d.y) ? { x: d.x, y: 0 } : { x: 0, y: d.y };
+      const step = this.gridStep();
+      if (step > 0) d = { x: Math.round(d.x / step) * step, y: Math.round(d.y / step) * step };
+    }
+    if (op.typed && this.index) {
+      // Along the pointer's own direction, not the snapped one (sideways: along the normal).
+      let raw = sub(target, op.ref);
+      if (op.sideways) {
+        const a = pts[op.pick.index];
+        const b = pts[op.pick.index + 1];
+        raw = normalOnly(raw, a, b);
+        // Nothing moved yet: the left of the segment.
+        if (Math.hypot(raw.x, raw.y) < 1e-6) raw = normalOnly({ x: -(b.y - a.y), y: b.x - a.x }, a, b);
+      }
+      const typed = typedDragDelta(raw, op.typed, this.index.doc.project.settings.display_unit, !op.sideways);
+      if (typed) {
+        d = typed;
+        dz = 0;
+        this.snapResult = null;
+      }
+    }
+    op.delta = { x: d.x, y: d.y, z: dz };
+  }
+
+  /** The dragged run as it will be, and the runs that follow it (with keep_joins). */
+  pipeDragPreview(op: Extract<Op, { kind: "pipe_drag" }>): { pipe: PipeEl; followers: PipeEl[] } {
+    const pipe = { ...op.pipe, points: movedPoints(op.pipe.points, op.indices, op.delta) };
+    if (!op.keepJoins || !this.index) return { pipe, followers: [] };
+    // Every run in the project, with absolute heights: joins reach across levels as the engine's do.
+    const project = this.index.doc.project;
+    const others = project.elements.filter((e): e is PipeEl => e.kind === "pipe" && e.id !== op.pipe.id);
+    const floors = new Map(project.levels.map((l) => [l.id, l.elevation_mm] as const));
+    const floorOf = (id: string | undefined): number => (id ? (floors.get(id) ?? 0) : 0);
+    return { pipe, followers: followers(op.pipe, op.indices, op.delta, others, floorOf) as PipeEl[] };
+  }
+
+  private commitPipeDrag(op: Extract<Op, { kind: "pipe_drag" }>): void {
+    if (op.committing) return;
+    const d = op.delta;
+    if (Math.hypot(d.x, d.y, d.z) < 0.5) {
+      this.op = { kind: "idle" };
+      return;
+    }
+    op.committing = true;
+    op.typed = null;
+    void this.run(moveCommand(op.pipe.id, op.indices, d, op.keepJoins));
+  }
+
+  /** Keys while dragging a pipe part: a typed distance, Enter applies it, Escape clears it or cancels. */
+  private pipeDragKey(e: KeyboardEvent, op: Extract<Op, { kind: "pipe_drag" }>): void {
+    if (e.key === "Escape") {
+      if (op.typed) op.typed = null;
+      else {
+        this.easeBack(op);
+        this.op = { kind: "idle" };
+        this.snapResult = null;
+        this.setLift(false);
+      }
+    } else if (isTypedKey(e.key) || (op.typed && (e.key === "Tab" || e.key === "Backspace"))) {
+      op.typed = typedKey(op.typed ?? emptyTyped("polar"), e.key);
+    } else if (e.key === "Enter" && !typedIsEmpty(op.typed)) {
+      if (this.cursorWorld) this.updatePipeDrag(op, this.cursorWorld);
+      this.commitPipeDrag(op);
+    } else if (e.key === "Alt") {
+      this.alt = true;
+    }
+    this.handleMove(this.alt);
+    this.updateUi();
+  }
+
+  /** PageUp and PageDown on the selected run: the picked part moves up or down. Steps pressed during a send go out as one. */
+  private pipeHeightStep(dz: number): void {
+    if (this.pipeKeyBusy) {
+      this.pipeKeyPending += dz;
+      return;
+    }
+    const pipe = this.selectedPipe();
+    const command = pipe ? heightStepCommand(pipe, this.pipePick(), dz) : null;
+    if (command) void this.sendPipeKeyEdit(command);
+  }
+
+  /** `h` then a number on the selected run: the picked part moves so its height reads the value. */
+  private setSelectionHeight(z: number): void {
+    const pipe = this.selectedPipe();
+    const command = pipe ? heightSetCommand(pipe, this.pipePick(), z) : null;
+    if (command) void this.sendPipeKeyEdit(command);
+  }
+
+  private async sendPipeKeyEdit(command: Command): Promise<void> {
+    this.pipeKeyBusy = true;
+    this.pulsePipeHeight();
+    try {
+      await useApp.getState().dispatch(command);
+    } catch {
+      // dispatch already reports errors.
+    } finally {
+      this.pipeKeyBusy = false;
+      const more = this.pipeKeyPending;
+      this.pipeKeyPending = 0;
+      if (Math.abs(more) > 1e-6) this.pipeHeightStep(more);
+      this.invalidate();
+    }
+  }
+
+  private startHeightEntry(target: "tool" | "selection"): void {
+    this.heightFor = target;
+    this.heightEntry = emptyTyped("height");
+    this.updateUi();
+  }
+
+  /** The click to type tag of the selected run under a screen point, from the last drawn layout. */
+  pipeTagAt(screen: P): { id: string; box: Box } | null {
+    const pipe = this.selectedPipe();
+    const layout = this.tagLayout;
+    if (!pipe || !layout || !this.pointerInside) return null;
+    const prefix = `${pipe.id}:`;
+    for (let i = layout.placed.length - 1; i >= 0; i--) {
+      const t = layout.placed[i];
+      if (!t.id.startsWith(prefix)) continue;
+      const b = t.box;
+      if (screen.x >= b.x - 1 && screen.x <= b.x + b.w + 1 && screen.y >= b.y - 1 && screen.y <= b.y + b.h + 1) return t;
+    }
+    return null;
+  }
+
+  private setHoverTag(id: string | null): void {
+    if (id === this.hoverTag) return;
+    if (this.hoverTag) this.animate(`${K.tagHover}${this.hoverTag}`, 0, exitDur("hover"), { drop: true });
+    if (id) this.animate(`${K.tagHover}${id}`, 1, dur("hover"), { from: 0 });
+    this.hoverTag = id;
+    this.updateUi();
+  }
+
+  /**
+   * Opens the typed value of a tag of the selected run, where the tag is:
+   * a point height (one end of a riser for its half of the tag), a fall or
+   * the picked segment's length. The part it belongs to becomes the pick.
+   */
+  private openPipeTag(tagId: string, box: Box, screen: P): void {
+    const pipe = this.selectedPipe();
+    if (!pipe || !this.index) return;
+    const [kind, n] = tagId.slice(pipe.id.length + 1).split(":");
+    const index = Number(n);
+    if (!Number.isInteger(index)) return;
+    const unitName = this.index.doc.project.settings.display_unit;
+    const pts = pipe.points;
+    let target: PipeTagTarget;
+    let value: string;
+    if (kind === "h") {
+      const node = nodeOf(pts, index);
+      const zs = pts.slice(node.index, node.index + node.count).map((v) => v.z);
+      const riser = node.count > 1 && Math.max(...zs) - Math.min(...zs) >= 1;
+      const i = riser && screen.x > box.x + box.w / 2 ? node.index + node.count - 1 : node.index;
+      target = { pipeId: pipe.id, field: "height", index: i, only: riser };
+      value = lengthToInput(pts[i].z, unitName);
+      usePipePick.getState().setPick({ pipeId: pipe.id, kind: "point", index: node.index });
+    } else if (kind === "f" || kind === "l") {
+      if (index < 0 || index + 1 >= pts.length) return;
+      target = { pipeId: pipe.id, field: kind === "f" ? "fall" : "length", index, only: false };
+      const pct = segmentFallPct(pts[index], pts[index + 1]) ?? 0;
+      value = kind === "f" ? String(Math.round(pct * 100) / 100) : lengthToInput(segmentLength(pts, index), unitName);
+      usePipePick.getState().setPick({ pipeId: pipe.id, kind: "segment", index });
+    } else return;
+    const center = { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+    this.setHoverTag(null);
+    this.openEditor({ mode: "pipe", id: tagId, world: toWorld(this.view, center), value, fontPx: 11, pipe: target });
+  }
+
+  /**
+   * The command a typed tag value sends, joins kept; a fall and a length hold
+   * the end the inspector holds. A value out of the engine's range is still
+   * sent, so its refusal says why. `error` when the text is not a value at all.
+   */
+  private pipeTagCommand(target: PipeTagTarget, text: string): { command: Command | null; error: string | null } {
+    const el = this.index?.byId.get(target.pipeId);
+    if (!el || el.kind !== "pipe" || !this.index) return { command: null, error: null };
+    const unitName = this.index.doc.project.settings.display_unit;
+    const hold: PipeEnd = usePipePick.getState().hold;
+    if (target.field === "height") {
+      const z = parseLength(text.replace(/^\+/, ""), unitName);
+      return z === null ? { command: null, error: `Type a height in ${unitName}, such as ${unitName === "m" ? "1.2" : "1200"}` } : { command: pointHeightCommand(el, target.index, z, target.only), error: null };
+    }
+    if (target.field === "fall") {
+      const pct = parseNumber(text.replace(/fall|%/gi, "").trim());
+      return pct === null ? { command: null, error: "Type a fall in percent, such as 2" } : { command: slopeCommand(el, target.index, target.index, pct, hold), error: null };
+    }
+    const len = parseLength(text, unitName);
+    return len === null ? { command: null, error: `Type a length in ${unitName}, such as ${unitName === "m" ? "1.5" : "1500"}` } : { command: lengthCommand(el, target.index, len, hold), error: null };
+  }
+
+  /** What the select tool can do with the selected run right now. */
+  private pipeHint(): string | null {
+    const op = this.op;
+    if (op.kind === "pipe_drag") return op.keepJoins ? "Type a distance and press Enter. Joined runs follow, hold Alt to break the joins" : "Joins break on drop. Release Alt to keep them";
+    if (op.kind !== "idle" || !this.selectedPipe()) return null;
+    const pick = this.pipePick();
+    if (!pick) return "Click a segment or a point to edit it. PageUp or PageDown moves the run, or type h and a height";
+    const part = pick.kind === "point" ? "point" : "segment";
+    return `Drag the ${part}, or PageUp, PageDown or h for its height. Click a tag to type a value. Escape picks the whole run`;
   }
 
   // ------------------------------------------------------------ rect room tool
@@ -3061,18 +3712,40 @@ export class PlanController {
     this.updateUi();
   }
 
-  /** Called by the inline input. `value` null cancels. */
-  closeEditor(value: string | null): void {
+  /**
+   * Called by the inline input. `value` null cancels. False when it stays
+   * open: a pipe value that is not a number, typed with Enter, keeps the box
+   * with the reason and a shake; on blur it closes and the reason shows as a toast.
+   */
+  closeEditor(value: string | null, fromBlur = false): boolean {
     const ed = this.editor;
-    if (!ed) return;
+    if (!ed) return true;
+    let pipeCommand: Command | null = null;
+    if (ed.mode === "pipe" && ed.pipe && value !== null && value.trim() !== "" && value.trim() !== ed.value.trim()) {
+      const r = this.pipeTagCommand(ed.pipe, value.trim());
+      if (r.error && !fromBlur) {
+        this.editor = { ...ed, error: r.error, errorSeq: (ed.errorSeq ?? 0) + 1 };
+        this.updateUi();
+        return false;
+      }
+      if (r.error) useApp.getState().toast("error", r.error);
+      pipeCommand = r.command;
+    }
     this.editor = null;
     this.invalidate();
     this.updateUi();
     const text = value?.trim() ?? "";
-    if (value === null || text === "" || !this.index) return;
+    if (value === null || text === "" || !this.index) return true;
+    if (ed.mode === "pipe") {
+      if (pipeCommand) {
+        this.pulsePipeHeight();
+        void this.run(pipeCommand);
+      }
+      return true;
+    }
     if (ed.mode === "new_text") {
       const level = this.levelId();
-      if (!level) return;
+      if (!level) return true;
       const element: Annotation & { kind: "annotation" } = {
         kind: "annotation",
         id: "",
@@ -3083,16 +3756,17 @@ export class PlanController {
         rotation_deg: 0,
       };
       void this.run({ type: "add_element", element });
-      return;
+      return true;
     }
     const el = ed.id ? this.index.byId.get(ed.id) : null;
-    if (!el) return;
+    if (!el) return true;
     if (el.kind === "room" && text !== el.name) {
       const next: Room & { kind: "room" } = { ...el, name: text, auto_named: false };
       void this.run({ type: "update_element", element: next });
     } else if (el.kind === "annotation" && text !== el.text) {
       void this.run({ type: "update_element", element: { ...el, text } });
     }
+    return true;
   }
 
   // ------------------------------------------------------------ keyboard
@@ -3142,16 +3816,17 @@ export class PlanController {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
-    const target = e.target as HTMLElement | null;
-    const typing = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+    const typing = isTypingTarget(e.target);
     if (e.key === "Shift") {
       this.shift = true;
       if (this.inOperation() || this.pointerInside) this.handleMove();
       return;
     }
+    if (e.key === "Alt") this.alt = true;
     // Walking or flying in 3D: that view owns every key without MOD (docs/CONTRACT.md).
     if (useViewer.getState().nav !== "orbit") return;
-    if (typing) return;
+    // A field, a dialog, or (Escape) following someone has the key first.
+    if (planKeyBlocked(e.key, { defaultPrevented: e.defaultPrevented, typing, modal: isModalOpen(), following: !!useLive.getState().following })) return;
     if (e.key === " " || e.code === "Space") {
       if (this.pointerInside || this.op.kind === "pan") {
         this.space = true;
@@ -3169,10 +3844,11 @@ export class PlanController {
       this.invalidate();
     };
 
-    // A height typed after `h` (pipe tool) takes digits, Enter and Escape first,
-    // so h1500 never reaches the 1, 2, 3 view shortcuts.
+    // A height typed after `h` (the pipe tool, or the selected run) takes
+    // digits, Enter and Escape first, so h1500 never reaches the 1, 2, 3 view shortcuts.
     if (this.heightEntry) {
-      if (s.tool !== "pipe") this.heightEntry = null;
+      const live = this.heightFor === "selection" ? s.tool === "select" && !!this.selectedPipe() && op.kind === "idle" : s.tool === "pipe";
+      if (!live) this.heightEntry = null;
       else if (this.heightKey(e)) {
         swallow();
         return;
@@ -3186,6 +3862,11 @@ export class PlanController {
       }
       if (op.kind === "pipe") {
         this.pipeOpKey(e, op);
+        swallow();
+        return;
+      }
+      if (op.kind === "pipe_drag") {
+        this.pipeDragKey(e, op);
         swallow();
         return;
       }
@@ -3272,11 +3953,20 @@ export class PlanController {
         return;
       }
       if (k === "h") {
-        this.heightEntry = emptyTyped("height");
-        this.updateUi();
+        this.startHeightEntry("tool");
         swallow();
         return;
       }
+    }
+    // The selected run (DECISIONS D39): the same height keys as drawing move
+    // the picked part, and Escape steps out of a picked segment or point.
+    const selKey = s.tool === "select" && this.selectedPipe() ? selectionKey(e.key, { shift: e.shiftKey, alt: e.altKey }, { pointerInside: this.pointerInside, picked: !!this.pipePick() }) : null;
+    if (selKey) {
+      if (selKey.kind === "step") this.pipeHeightStep(selKey.dz);
+      else if (selKey.kind === "height") this.startHeightEntry("selection");
+      else usePipePick.getState().setPick(null);
+      swallow();
+      return;
     }
     if ((s.tool === "asset" || s.tool === "stair" || s.tool === "column") && this.pointerInside && k === "r") {
       this.turns = (this.turns + 1) % 4;
@@ -3289,6 +3979,10 @@ export class PlanController {
     if (e.key === "Shift") {
       this.shift = false;
       if (this.inOperation() || this.pointerInside) this.handleMove();
+    }
+    if (e.key === "Alt") {
+      this.alt = false;
+      if (this.op.kind === "pipe_drag") this.handleMove();
     }
     if (e.key === " " || e.code === "Space") {
       this.space = false;
@@ -3303,6 +3997,10 @@ export class PlanController {
 }
 
 type Ctx2D = CanvasRenderingContext2D;
+
+function samePoints(a: readonly Vec3[], b: readonly Vec3[]): boolean {
+  return a.length === b.length && a.every((v, i) => v.x === b[i].x && v.y === b[i].y && v.z === b[i].z);
+}
 
 function sameIds(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;

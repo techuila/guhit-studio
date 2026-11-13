@@ -2,7 +2,7 @@
 // and a composer. Without a session it shows the project's past chat, read
 // only, with a way to start or join one. Messages are saved with the project
 // on the host (DECISIONS D29).
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import type { ChatMessage } from "../contract/bindings";
 import { ipc } from "../contract/ipc";
 import { useShell } from "../shell/shellStore";
@@ -13,6 +13,7 @@ import { motionOK, usePresence } from "../ui/motion";
 import { useLastTruthy } from "../ui/motionDom";
 import { play } from "../ui/motionWaapi";
 import { Avatar } from "./Avatar";
+import { chatInput } from "./chatNotify";
 import { CHAT_MAX, avatarTip, canChat, firstName, fullTime, groupMessages, peerVar, timeLabel, type ChatGroup } from "./format";
 import { useLive } from "./liveStore";
 import { focusParticipant, focusPlanPoint, openJoin, openShare } from "./session";
@@ -218,6 +219,14 @@ function Composer({ disabled }: { disabled: boolean }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const iconRef = useRef<HTMLSpanElement>(null);
   const canSend = !disabled && !sending && draft.trim() !== "";
+
+  // Reply on the chat card puts the cursor here (chatNotify.ts).
+  useEffect(() => {
+    chatInput.current = inputRef.current;
+    return () => {
+      chatInput.current = null;
+    };
+  }, []);
 
   const send = async () => {
     const text = draft.trim();

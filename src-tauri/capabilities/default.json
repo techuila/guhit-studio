@@ -7,6 +7,8 @@
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-request-user-attention",
+    "core:window:allow-set-badge-count",
     "opener:default",
     {
       "identifier": "opener:allow-open-url",

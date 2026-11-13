@@ -137,7 +137,7 @@ async fn first_request_has_system_prompt_context_and_strict_tools() {
     assert!(!req.system.contains('\u{2014}') && !req.system.contains('\u{2013}'));
     let user = req.messages.last().unwrap()["content"].as_str().unwrap().to_string();
     assert!(user.contains("<project_context>") && user.ends_with("hello"));
-    assert_eq!(req.tools.len(), 25);
+    assert_eq!(req.tools.len(), 30);
     // The library listing names what each device key is.
     let add_asset = req.tools.iter().find(|t| t["name"] == "add_asset").unwrap();
     let doc = add_asset["description"].as_str().unwrap();
@@ -682,6 +682,19 @@ fn every_edit_tool_translates_to_a_typed_command() {
         flip_hinge: false,
         material_id: None,
     }));
+    project.elements.push(Element::Pipe(Pipe {
+        id: "p1".into(),
+        level_id: level_id.clone(),
+        system: PipeSystem::Drainage,
+        material: PipeMaterial::Upvc,
+        diameter_mm: 50.0,
+        points: vec![
+            Vec3 { x: 0.0, y: 500.0, z: -300.0 },
+            Vec3 { x: 2000.0, y: 500.0, z: -340.0 },
+            Vec3 { x: 2000.0, y: 1500.0, z: -360.0 },
+        ],
+        name: "Sink waste".into(),
+    }));
     let p = json!({"x": 0, "y": 0});
     let cases = vec![
         ("add_wall", wall(0.0, 0.0, 1.0, 1.0)),
@@ -692,6 +705,11 @@ fn every_edit_tool_translates_to_a_typed_command() {
         ("resize_room", json!({"room_id": "r1", "side": "east", "delta_mm": 300})),
         ("set_wall_length", json!({"wall_id": "w1", "length_mm": 3500, "anchor": "start"})),
         ("move_elements", json!({"ids": ["w1"], "dx_mm": 100, "dy_mm": 0, "stretch_connected": true})),
+        ("move_pipe_points", json!({"pipes": [{"pipe_id": "p1", "indices": []}], "dx_mm": 0, "dy_mm": 0, "dz_mm": -300, "keep_joins": true})),
+        ("set_pipe_segment_length", json!({"pipe_id": "p1", "segment": 0, "length_mm": 1500, "hold": "start", "keep_joins": true})),
+        ("set_pipe_slope", json!({"pipe_id": "p1", "from_segment": 0, "to_segment": 1, "slope_pct": 2, "hold": "end", "keep_joins": false})),
+        ("insert_pipe_point", json!({"pipe_id": "p1", "segment": 0, "at": {"x": 1000, "y": 500, "z": -320}})),
+        ("remove_pipe_point", json!({"pipe_id": "p1", "index": 1})),
         ("rename_room", json!({"room_id": "r1", "name": "Master Bedroom"})),
         ("set_room_usage", json!({"room_id": "r1", "usage": "master_bedroom"})),
         ("set_opening_size", json!({"opening_id": "o1", "width_mm": 800})),
@@ -727,6 +745,32 @@ fn every_edit_tool_translates_to_a_typed_command() {
         .0
         .contains("Known material ids"));
     assert!(super::tools::to_command(&project, "resize_room", &json!({"room_id": "w1", "side": "east", "delta_mm": 300}), &level_id).is_err());
+
+    // Pipe tools: the typed command, and the slips caught before staging.
+    let pipe = |name: &str, input: Value| super::tools::to_command(&project, name, &input, &level_id);
+    match pipe("move_pipe_points", json!({"pipes": [{"pipe_id": "p1", "indices": [1, 2]}], "dx_mm": 0, "dy_mm": 0, "dz_mm": -300, "keep_joins": true})).unwrap() {
+        Command::MovePipePoints { targets, delta, keep_joins } => {
+            assert_eq!(targets, vec![PipePoints { pipe_id: "p1".into(), indices: vec![1, 2] }]);
+            assert_eq!(delta, Vec3 { x: 0.0, y: 0.0, z: -300.0 });
+            assert!(keep_joins);
+        }
+        other => panic!("{other:?}"),
+    }
+    match pipe("set_pipe_slope", json!({"pipe_id": "p1", "from_segment": 0, "to_segment": 1, "slope_pct": 2, "hold": "end", "keep_joins": false})).unwrap() {
+        Command::SetPipeSlope { from_segment, to_segment, slope_pct, hold, keep_joins, .. } => {
+            assert_eq!((from_segment, to_segment, slope_pct, hold, keep_joins), (0, 1, 2.0, PipeEnd::End, false));
+        }
+        other => panic!("{other:?}"),
+    }
+    let err = |name: &str, input: Value| pipe(name, input).unwrap_err().0;
+    assert!(err("move_pipe_points", json!({"pipes": [{"pipe_id": "p1", "indices": []}], "dx_mm": 0, "dy_mm": 0, "dz_mm": 0, "keep_joins": true})).contains("nothing would move"));
+    assert!(err("move_pipe_points", json!({"pipes": [], "dx_mm": 0, "dy_mm": 0, "dz_mm": 10, "keep_joins": true})).contains("at least one run"));
+    assert!(err("move_pipe_points", json!({"pipes": [{"pipe_id": "w1", "indices": []}], "dx_mm": 0, "dy_mm": 0, "dz_mm": 10, "keep_joins": true})).contains("not a pipe"));
+    assert!(err("move_pipe_points", json!({"pipes": [{"pipe_id": "p1", "indices": [-1]}], "dx_mm": 0, "dy_mm": 0, "dz_mm": 10, "keep_joins": true})).starts_with("invalid arguments"));
+    assert!(err("set_pipe_segment_length", json!({"pipe_id": "p1", "segment": 0, "length_mm": -5, "hold": "start", "keep_joins": true})).contains("greater than 0"));
+    assert!(err("set_pipe_segment_length", json!({"pipe_id": "p1", "segment": 0, "length_mm": 500, "hold": "middle", "keep_joins": true})).starts_with("invalid arguments"));
+    assert!(err("insert_pipe_point", json!({"pipe_id": "nope", "segment": 0, "at": {"x": 1, "y": 1, "z": 1}})).starts_with("not_found"));
+    assert!(err("remove_pipe_point", json!({"pipe_id": "r1", "index": 0})).contains("not a pipe"));
 }
 
 // ---------------------------------------------------------------------- pipes
@@ -771,7 +815,7 @@ async fn pipe_questions_are_answered_from_the_takeoff() {
         s.doc.as_ref().unwrap().query(&Query::PipeTakeoff).unwrap()
     };
     assert_eq!(takeoff, expected, "the answer is the engine's own query");
-    assert_eq!(takeoff["total_length_m"], 59.654);
+    assert_eq!(takeoff["total_length_m"], 59.399);
     assert_eq!(takeoff["tee_count"], 9);
     let list: Value = serde_json::from_str(results[1]["content"].as_str().unwrap()).unwrap();
     assert_eq!(list["count"], 20);
@@ -820,6 +864,61 @@ async fn staged_edits_move_pipes_and_respect_a_locked_pipe_layer() {
     let applied = r.resolve(&proposal.id, true).await.unwrap().applied.unwrap();
     assert_eq!(applied.state.project.elements, proposal.preview.state.project.elements);
     assert_eq!(applied.state.derived, proposal.preview.state.derived);
+}
+
+#[tokio::test]
+async fn the_copilot_edits_pipe_runs_in_3d_and_nothing_applies_before_accept() {
+    let r = plumbing_rig(ScriptedClient::new(vec![
+        ScriptedClient::tools(&[
+            ("describe_elements", json!({"ids": [SINK_WASTE]})),
+            // The long run under the slab: 2 percent, keeping its outlet end.
+            ("set_pipe_slope", json!({"pipe_id": SINK_WASTE, "from_segment": 1, "to_segment": 1, "slope_pct": 2, "hold": "end", "keep_joins": true})),
+            // Lift the stretch through the T&B door over the door head.
+            ("move_pipe_points", json!({"pipes": [{"pipe_id": HEATER_FEED, "indices": [2, 3]}], "dx_mm": 0, "dy_mm": 0, "dz_mm": 700, "keep_joins": true})),
+            ("remove_pipe_point", json!({"pipe_id": HEATER_FEED, "index": 0})),
+        ]),
+        ScriptedClient::text("Staged: the sink waste falls 2 percent, the heater feed clears the door."),
+    ]))
+    .await;
+    let before = r.project().await;
+    let turn = r.chat("give the sink waste 2 percent and get the heater feed over the T&B door").await.unwrap();
+    assert_eq!(
+        turn.tools_used,
+        vec!["describe_elements", "set_pipe_slope", "move_pipe_points", "remove_pipe_point"]
+    );
+
+    let results = tool_results(&r.model, 1);
+    for result in &results[..3] {
+        assert!(result.get("is_error").is_none(), "{result}");
+    }
+    let sloped: Value = serde_json::from_str(results[1]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(sloped["this_step"]["modified"][0]["label"], "Kitchen sink waste (drainage, 50 mm)");
+    // Removing the end on the chase shortens the run (it leaves the chase).
+    assert!(results[3].get("is_error").is_none(), "{}", results[3]);
+
+    let proposal = turn.proposal.expect("the pipe edits are proposed");
+    let codes: Vec<&str> = proposal.preview.state.derived.issues.iter().map(|i| i.code.as_str()).collect();
+    assert!(!codes.contains(&"drain_slope_low"), "{codes:?}");
+    assert!(!codes.contains(&"pipe_across_opening"), "{codes:?}");
+    let points = |project: &Project, id: &str| match project.elements.iter().find(|e| e.id() == id) {
+        Some(Element::Pipe(p)) => p.points.clone(),
+        other => panic!("{other:?}"),
+    };
+    let staged = &proposal.preview.state.project;
+    let waste = points(staged, SINK_WASTE);
+    // Held at its outlet end (-334); the start rises with the run.
+    assert_eq!(waste[2].z, -334.0);
+    assert_eq!(waste[1].z, -248.0);
+    assert_eq!(waste[0].z, 502.0);
+    let feed = points(staged, HEATER_FEED);
+    assert_eq!(feed.len(), 4);
+    assert_eq!((feed[1].z, feed[2].z, feed[3].z), (2200.0, 2200.0, 1500.0));
+    assert_eq!(r.project().await, before, "nothing is applied before accept");
+
+    let applied = r.resolve(&proposal.id, true).await.unwrap().applied.unwrap();
+    assert_eq!(applied.state.project.elements, staged.elements);
+    let s = r.app.session.lock().await;
+    assert_eq!(s.doc.as_ref().unwrap().history().undo.len(), 1, "one undo step");
 }
 
 // -------------------------------------------------------------------- devices
@@ -959,6 +1058,25 @@ fn ceiling_items_stay_under_the_slab_of_the_level_above() {
     project.levels[1].elevation_mm = 3200.0;
     assert_eq!(super::tools::ceiling_height_mm(&project, &ground), 3000.0);
     assert_eq!(place(&project, "light-ceiling", &ground), 2940.0);
+}
+
+#[test]
+fn conduit_starts_inside_the_slab_above_or_over_the_top_ceiling() {
+    // DECISIONS D40: 100 mm above the ceiling, never a fixed 2800.
+    let start = |project: &Project, level: &str, system: PipeSystem| {
+        defaults::pipe_start_height_mm(system, super::tools::ceiling_height_mm(project, level))
+    };
+    let mut project = defaults::new_project("t");
+    let ground = project.levels[0].id.clone();
+    assert_eq!(start(&project, &ground, PipeSystem::Conduit), 3100.0);
+    assert_eq!(defaults::pipe_defaults(PipeSystem::Conduit).2, 3100.0);
+    project.levels.push(Level { id: "l2".into(), name: "Second Floor".into(), elevation_mm: 3000.0, height_mm: 2800.0 });
+    // Inside the 200 mm slab under the second floor (2800 to 3000).
+    assert_eq!(start(&project, &ground, PipeSystem::Conduit), 2900.0);
+    assert_eq!(start(&project, "l2", PipeSystem::Conduit), 2900.0);
+    // Other systems keep their table height.
+    assert_eq!(start(&project, &ground, PipeSystem::ColdWater), 300.0);
+    assert_eq!(start(&project, &ground, PipeSystem::Drainage), -300.0);
 }
 
 // --------------------------------------------------------------------- levels

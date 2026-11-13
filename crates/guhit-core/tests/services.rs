@@ -1286,23 +1286,27 @@ fn the_services_demo_counts_its_devices() {
             (Some("02"), "aircon-indoor-1hp", 1),
             (Some("03"), "lavatory", 1),
             (Some("03"), "shower", 1),
+            (Some("03"), "water-heater", 1),
             (Some("03"), "wc", 1),
             (Some("03"), "light-ceiling", 1),
             (None, "washing-machine", 1),
             (None, "light-outdoor", 1),
             (None, "outlet-spo", 1),
             (None, "aircon-outdoor-1hp", 1),
+            (None, "septic-tank", 1),
+            (None, "water-meter", 1),
         ]
     );
     let q = doc.query(&Query::Schedule).unwrap();
     let level = &q["levels"][0];
-    assert_eq!(level["total"], 27);
+    assert_eq!(level["total"], 30);
     assert_eq!(
         level["by_group"],
         json!([
-            {"group": "plumbing", "count": 5},
+            {"group": "plumbing", "count": 6},
             {"group": "electrical", "count": 20},
             {"group": "aircon", "count": 2},
+            {"group": "utility", "count": 2},
         ])
     );
     // The range and the kitchen counter are not plumbing fixtures.

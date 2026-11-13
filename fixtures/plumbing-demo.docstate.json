@@ -857,6 +857,66 @@
       },
       {
         "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015011",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "water-heater",
+        "name": "Water heater, instant",
+        "category": "sanitary",
+        "position": {
+          "x": 7525.0,
+          "y": 4300.0
+        },
+        "rotation_deg": 180.0,
+        "width_mm": 250.0,
+        "depth_mm": 100.0,
+        "height_mm": 400.0,
+        "elevation_mm": 1500.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015012",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "water-meter",
+        "name": "Water meter",
+        "category": "utility",
+        "position": {
+          "x": 600.0,
+          "y": -1800.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 250.0,
+        "depth_mm": 150.0,
+        "height_mm": 150.0,
+        "elevation_mm": -225.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
+        "id": "00000000-0000-4000-8000-000000015013",
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "catalog_key": "septic-tank",
+        "name": "Septic tank, two chambers",
+        "category": "utility",
+        "position": {
+          "x": 9500.0,
+          "y": 5650.0
+        },
+        "rotation_deg": 0.0,
+        "width_mm": 1800.0,
+        "depth_mm": 1200.0,
+        "height_mm": 1500.0,
+        "elevation_mm": -1670.0,
+        "light": null,
+        "links": [],
+        "circuit": ""
+      },
+      {
+        "kind": "asset",
         "id": "00000000-0000-4000-8000-000000018001",
         "level_id": "00000000-0000-4000-8000-0000000000a2",
         "catalog_key": "light-ceiling",
@@ -1341,7 +1401,7 @@
           {
             "x": 600.0,
             "y": -1800.0,
-            "z": 0.0
+            "z": -150.0
           },
           {
             "x": 600.0,
@@ -1408,12 +1468,12 @@
           {
             "x": 2000.0,
             "y": 6000.0,
-            "z": 550.0
+            "z": 500.0
           },
           {
             "x": 2000.0,
             "y": 5925.0,
-            "z": 550.0
+            "z": 500.0
           }
         ],
         "name": "Sink supply"
@@ -1459,8 +1519,13 @@
           },
           {
             "x": 6780.0,
+            "y": 6000.0,
+            "z": 200.0
+          },
+          {
+            "x": 6780.0,
             "y": 5925.0,
-            "z": 300.0
+            "z": 200.0
           }
         ],
         "name": "Water closet supply"
@@ -1481,12 +1546,12 @@
           {
             "x": 7450.0,
             "y": 6000.0,
-            "z": 1100.0
+            "z": 1000.0
           },
           {
             "x": 7450.0,
             "y": 5925.0,
-            "z": 1100.0
+            "z": 1000.0
           }
         ],
         "name": "Shower cold"
@@ -1521,13 +1586,8 @@
           },
           {
             "x": 7500.0,
-            "y": 4400.0,
+            "y": 4300.0,
             "z": 1500.0
-          },
-          {
-            "x": 7500.0,
-            "y": 4400.0,
-            "z": 1600.0
           }
         ],
         "name": "Heater feed"
@@ -1542,12 +1602,12 @@
         "points": [
           {
             "x": 7550.0,
-            "y": 4400.0,
-            "z": 2200.0
+            "y": 4300.0,
+            "z": 1900.0
           },
           {
             "x": 7550.0,
-            "y": 4400.0,
+            "y": 4300.0,
             "z": 2450.0
           },
           {
@@ -1558,12 +1618,12 @@
           {
             "x": 7550.0,
             "y": 6000.0,
-            "z": 1100.0
+            "z": 1000.0
           },
           {
             "x": 7550.0,
             "y": 5925.0,
-            "z": 1100.0
+            "z": 1000.0
           }
         ],
         "name": "Hot water to the shower"
@@ -1635,7 +1695,7 @@
           {
             "x": 8600.0,
             "y": 5650.0,
-            "z": -466.0
+            "z": -470.0
           }
         ],
         "name": "Building drain"
@@ -1651,7 +1711,7 @@
           {
             "x": 6780.0,
             "y": 5650.0,
-            "z": 20.0
+            "z": 0.0
           },
           {
             "x": 6780.0,
@@ -1672,7 +1732,7 @@
           {
             "x": 6300.0,
             "y": 5760.0,
-            "z": 650.0
+            "z": 450.0
           },
           {
             "x": 6300.0,
@@ -1698,7 +1758,7 @@
           {
             "x": 7500.0,
             "y": 5500.0,
-            "z": 20.0
+            "z": 0.0
           },
           {
             "x": 7500.0,
@@ -1724,7 +1784,7 @@
           {
             "x": 2000.0,
             "y": 5700.0,
-            "z": 850.0
+            "z": 450.0
           },
           {
             "x": 2000.0,
@@ -1754,13 +1814,13 @@
         "points": [
           {
             "x": 10400.0,
-            "y": 4300.0,
-            "z": -520.0
+            "y": 5650.0,
+            "z": -470.0
           },
           {
             "x": 11600.0,
-            "y": 4300.0,
-            "z": -545.0
+            "y": 5650.0,
+            "z": -495.0
           }
         ],
         "name": "Septic tank outlet"
@@ -1854,27 +1914,27 @@
           {
             "x": 7880.0,
             "y": 3100.0,
-            "z": 2400.0
+            "z": 2350.0
           },
           {
             "x": 8250.0,
             "y": 3100.0,
-            "z": 2393.0
+            "z": 2343.0
           },
           {
             "x": 8250.0,
             "y": 3100.0,
-            "z": 350.0
-          },
-          {
-            "x": 8250.0,
-            "y": 2300.0,
-            "z": 350.0
+            "z": 150.0
           },
           {
             "x": 8450.0,
-            "y": 2300.0,
-            "z": 350.0
+            "y": 3100.0,
+            "z": 150.0
+          },
+          {
+            "x": 8450.0,
+            "y": 2185.0,
+            "z": 150.0
           }
         ],
         "name": "Bedroom line set"
@@ -1890,12 +1950,12 @@
           {
             "x": 7880.0,
             "y": 3200.0,
-            "z": 2310.0
+            "z": 2330.0
           },
           {
             "x": 8250.0,
             "y": 3200.0,
-            "z": 2280.0
+            "z": 2300.0
           },
           {
             "x": 8250.0,
@@ -2435,7 +2495,7 @@
         "id": "lineset_extra:00000000-0000-4000-8000-000000019003",
         "severity": "info",
         "code": "lineset_extra",
-        "message": "Bedroom line set is 3.41 m long, 0.41 m more than the 3 m a standard installation includes. Installers usually charge for each extra meter.",
+        "message": "Bedroom line set is 3.68 m long, 0.68 m more than the 3 m a standard installation includes. Installers usually charge for each extra meter.",
         "element_ids": [
           "00000000-0000-4000-8000-000000019003"
         ],
@@ -2571,7 +2631,7 @@
           "position": {
             "x": 2000.0,
             "y": 6000.0,
-            "z": 550.0
+            "z": 500.0
           },
           "diameter_mm": 20.0,
           "angle_deg": 90.0
@@ -2591,13 +2651,26 @@
         },
         {
           "kind": "elbow",
+          "pipe_id": "00000000-0000-4000-8000-000000016005",
+          "branch_pipe_id": null,
+          "level_id": "00000000-0000-4000-8000-0000000000a2",
+          "position": {
+            "x": 6780.0,
+            "y": 6000.0,
+            "z": 200.0
+          },
+          "diameter_mm": 20.0,
+          "angle_deg": 90.0
+        },
+        {
+          "kind": "elbow",
           "pipe_id": "00000000-0000-4000-8000-000000016006",
           "branch_pipe_id": null,
           "level_id": "00000000-0000-4000-8000-0000000000a2",
           "position": {
             "x": 7450.0,
             "y": 6000.0,
-            "z": 1100.0
+            "z": 1000.0
           },
           "diameter_mm": 20.0,
           "angle_deg": 90.0
@@ -2643,25 +2716,12 @@
         },
         {
           "kind": "elbow",
-          "pipe_id": "00000000-0000-4000-8000-000000016007",
-          "branch_pipe_id": null,
-          "level_id": "00000000-0000-4000-8000-0000000000a2",
-          "position": {
-            "x": 7500.0,
-            "y": 4400.0,
-            "z": 1500.0
-          },
-          "diameter_mm": 20.0,
-          "angle_deg": 90.0
-        },
-        {
-          "kind": "elbow",
           "pipe_id": "00000000-0000-4000-8000-000000016008",
           "branch_pipe_id": null,
           "level_id": "00000000-0000-4000-8000-0000000000a2",
           "position": {
             "x": 7550.0,
-            "y": 4400.0,
+            "y": 4300.0,
             "z": 2450.0
           },
           "diameter_mm": 20.0,
@@ -2701,7 +2761,7 @@
           "position": {
             "x": 7550.0,
             "y": 6000.0,
-            "z": 1100.0
+            "z": 1000.0
           },
           "diameter_mm": 20.0,
           "angle_deg": 90.0
@@ -2896,7 +2956,7 @@
           "position": {
             "x": 8250.0,
             "y": 3100.0,
-            "z": 2393.0
+            "z": 2343.0
           },
           "diameter_mm": 9.52,
           "angle_deg": 88.916155
@@ -2909,7 +2969,7 @@
           "position": {
             "x": 8250.0,
             "y": 3100.0,
-            "z": 350.0
+            "z": 150.0
           },
           "diameter_mm": 9.52,
           "angle_deg": 90.0
@@ -2920,9 +2980,9 @@
           "branch_pipe_id": null,
           "level_id": "00000000-0000-4000-8000-0000000000a2",
           "position": {
-            "x": 8250.0,
-            "y": 2300.0,
-            "z": 350.0
+            "x": 8450.0,
+            "y": 3100.0,
+            "z": 150.0
           },
           "diameter_mm": 9.52,
           "angle_deg": 90.0
@@ -2935,7 +2995,7 @@
           "position": {
             "x": 8250.0,
             "y": 3200.0,
-            "z": 2280.0
+            "z": 2300.0
           },
           "diameter_mm": 20.0,
           "angle_deg": 85.364537
@@ -3069,7 +3129,7 @@
           "position": {
             "x": 8000.0,
             "y": 3100.0,
-            "z": 2397.72973
+            "z": 2347.72973
           },
           "direction": {
             "x": 0.999821085,
@@ -3086,7 +3146,7 @@
           "position": {
             "x": 8000.0,
             "y": 3200.0,
-            "z": 2300.27027
+            "z": 2320.27027
           },
           "direction": {
             "x": 0.996729048,
@@ -3101,35 +3161,35 @@
           "system": "cold_water",
           "material": "ppr",
           "diameter_mm": 20.0,
-          "length_m": 11.85,
+          "length_m": 11.6,
           "run_count": 6
         },
         {
           "system": "cold_water",
           "material": "ppr",
           "diameter_mm": 25.0,
-          "length_m": 10.1,
+          "length_m": 9.95,
           "run_count": 1
         },
         {
           "system": "hot_water",
           "material": "ppr",
           "diameter_mm": 20.0,
-          "length_m": 7.47,
+          "length_m": 7.97,
           "run_count": 2
         },
         {
           "system": "drainage",
           "material": "upvc",
           "diameter_mm": 50.0,
-          "length_m": 7.312,
+          "length_m": 6.692,
           "run_count": 3
         },
         {
           "system": "drainage",
           "material": "upvc",
           "diameter_mm": 100.0,
-          "length_m": 3.951,
+          "length_m": 3.931,
           "run_count": 3
         },
         {
@@ -3150,18 +3210,18 @@
           "system": "refrigerant",
           "material": "copper",
           "diameter_mm": 9.52,
-          "length_m": 3.413,
+          "length_m": 3.678,
           "run_count": 1
         },
         {
           "system": "condensate",
           "material": "pvc",
           "diameter_mm": 20.0,
-          "length_m": 2.501,
+          "length_m": 2.521,
           "run_count": 1
         }
       ],
-      "total_length_m": 59.654,
+      "total_length_m": 59.399,
       "elbow_count": 29,
       "tee_count": 9,
       "sleeve_count": 9
@@ -3307,6 +3367,14 @@
         "level_id": "00000000-0000-4000-8000-0000000000a2",
         "room_id": "00000000-0000-4000-8000-000000013003",
         "group": "plumbing",
+        "catalog_key": "water-heater",
+        "device": null,
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": "00000000-0000-4000-8000-000000013003",
+        "group": "plumbing",
         "catalog_key": "wc",
         "device": null,
         "count": 1
@@ -3350,6 +3418,22 @@
         "catalog_key": "aircon-outdoor-1hp",
         "device": "aircon_outdoor",
         "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": null,
+        "group": "utility",
+        "catalog_key": "septic-tank",
+        "device": null,
+        "count": 1
+      },
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a2",
+        "room_id": null,
+        "group": "utility",
+        "catalog_key": "water-meter",
+        "device": null,
+        "count": 1
       }
     ],
     "review_resolved": []
@@ -3358,5 +3442,7 @@
   "can_undo": false,
   "can_redo": false,
   "undo_label": null,
-  "redo_label": null
+  "redo_label": null,
+  "undo_by": null,
+  "redo_by": null
 }

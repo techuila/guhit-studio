@@ -67,6 +67,10 @@ describe("objectBlocks", () => {
     // A wall cabinet at head height still blocks, a ceiling fan does not.
     expect(objectBlocks(700, 1400)).toBe(true);
     expect(objectBlocks(400, 2400)).toBe(false);
+    // Buried: the services demo's septic tank and water meter. Half buried still blocks.
+    expect(objectBlocks(1500, -1670)).toBe(false);
+    expect(objectBlocks(150, -225)).toBe(false);
+    expect(objectBlocks(1000, -500)).toBe(true);
   });
 });
 

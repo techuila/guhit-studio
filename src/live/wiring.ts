@@ -6,12 +6,16 @@
 //   - status, profile, presence and chat loaded at start and whenever the
 //     session or the open project changes,
 //   - this window's presence pushed with `presence_set` (presenceSync.ts),
+//     with follow mode's views (follow.ts),
 //   - the unread count and the one-time notice toast.
 
 import type { ChatMessage, LiveStatus } from "../contract/bindings";
 import { ipc, onAppEvent } from "../contract/ipc";
 import { useShell } from "../shell/shellStore";
 import { useApp } from "../state/store";
+import { useLiveView } from "../viewer3d/render/liveView";
+import { noteIncomingChat, startChatNotify } from "./chatNotify";
+import { isFollowed, localView, startFollow } from "./follow";
 import { canChat, isLive } from "./format";
 import { SAID_MS, useLive } from "./liveStore";
 import { PRESENCE_INTERVAL_MS, PresenceThrottle, buildPresence } from "./presenceSync";
@@ -127,7 +131,7 @@ export function startLive(): () => void {
     const live = useLive.getState();
     live.addMessage(message);
     if (message.author_id === live.status.self_id) return;
-    if (!chatOnScreen()) live.setUnread(live.unread + 1);
+    noteIncomingChat(message);
     // Shown beside the author's cursor for a moment.
     live.setSaid(message.author_id, { id: message.id, text: message.text });
     later(() => useLive.getState().clearSaid(message.author_id, message.id), SAID_MS);
@@ -166,6 +170,8 @@ export function startLive(): () => void {
   const push = () => {
     const app = useApp.getState();
     const live = useLive.getState();
+    const followed = isFollowed();
+    const view = followed ? localView() : { planView: null, camera: null };
     throttle.update(
       buildPresence({
         selection: app.selection,
@@ -174,14 +180,21 @@ export function startLive(): () => void {
         cursor: app.cursor,
         typing: live.chat.open ? live.chat.draft : null,
         live: canChat(live.status.mode),
+        following: live.following,
+        viewMode: app.viewMode,
+        followed,
+        planView: view.planView,
+        camera: view.camera,
+        pointer3d: useLiveView.getState().pointer3d,
       }),
     );
   };
   stops.push(() => throttle.dispose());
+  stops.push(startFollow(push));
 
   stops.push(
     useApp.subscribe((s, p) => {
-      if (s.selection !== p.selection || s.activeLevelId !== p.activeLevelId || s.aiScope !== p.aiScope || s.cursor !== p.cursor || s.doc !== p.doc) push();
+      if (s.selection !== p.selection || s.activeLevelId !== p.activeLevelId || s.aiScope !== p.aiScope || s.cursor !== p.cursor || s.doc !== p.doc || s.viewMode !== p.viewMode) push();
       if (s.doc?.project.id !== p.doc?.project.id) onProject();
       if (s.screen !== p.screen && chatOnScreen()) useLive.getState().setUnread(0);
     }),
@@ -201,6 +214,8 @@ export function startLive(): () => void {
       if ((s.dockTab !== p.dockTab || s.dockCollapsed !== p.dockCollapsed) && chatOnScreen()) useLive.getState().setUnread(0);
     }),
   );
+
+  stops.push(startChatNotify());
 
   // ------------------------------------------------ first load
 

@@ -116,10 +116,44 @@ export const PIPE_DEFAULTS: Record<PipeSystem, PipeDefaults> = {
   drainage: { material: "upvc", diameterMm: 50, startHeightMm: -300 },
   vent: { material: "upvc", diameterMm: 50, startHeightMm: 300 },
   storm: { material: "upvc", diameterMm: 100, startHeightMm: -300 },
-  conduit: { material: "pvc", diameterMm: 20, startHeightMm: 2800 },
+  // A one storey level of the default height; `pipeStartHeightMm` for a real level.
+  conduit: { material: "pvc", diameterMm: 20, startHeightMm: 3100 },
   refrigerant: { material: "copper", diameterMm: 9.52, startHeightMm: 2400 },
   condensate: { material: "pvc", diameterMm: 20, startHeightMm: 2300 },
 };
+
+/** Mirror of `defaults::CONDUIT_ABOVE_CEILING_MM`: a new conduit run starts
+ * this far above its level's ceiling (DECISIONS D40). */
+export const CONDUIT_ABOVE_CEILING_MM = 100;
+
+/** Slab under an upper level and the default level height, as
+ * `ceilingHeightMm` in src/editor2d/mount.ts uses them. */
+const UPPER_SLAB_MM = 200;
+const DEFAULT_LEVEL_HEIGHT_MM = 3000;
+
+/**
+ * Height above the floor of `level` a new run of `system` starts at (Rust
+ * `defaults::pipe_start_height_mm`). Conduit starts 100 mm above the
+ * level's ceiling, which is its height or the underside of the next level's
+ * slab when that is lower (the rule of `ceilingHeightMm` in
+ * src/editor2d/mount.ts): inside the slab above, or above the ceiling on the
+ * top level. Every other system starts at its `PIPE_DEFAULTS` height.
+ */
+export function pipeStartHeightMm(
+  system: PipeSystem,
+  level: { elevation_mm: number; height_mm: number } | undefined,
+  levels: readonly { elevation_mm: number }[],
+): number {
+  if (system !== "conduit") return PIPE_DEFAULTS[system].startHeightMm;
+  if (!level) return DEFAULT_LEVEL_HEIGHT_MM + CONDUIT_ABOVE_CEILING_MM;
+  let ceiling = level.height_mm;
+  for (const l of levels) {
+    if (l.elevation_mm > level.elevation_mm + 1) {
+      ceiling = Math.min(ceiling, l.elevation_mm - UPPER_SLAB_MM - level.elevation_mm);
+    }
+  }
+  return Math.max(0, ceiling) + CONDUIT_ABOVE_CEILING_MM;
+}
 
 export interface SizeGroup {
   material: PipeMaterial;
@@ -169,3 +203,38 @@ export function isServiceLayer(key: LayerKey): boolean {
 
 /** @deprecated Use `isServiceLayer`; kept so older callers compile. */
 export const isPipeLayer = isServiceLayer;
+
+/**
+ * Where a run joins a fixture (DECISIONS D40): mm above the fixture's
+ * underside (`Asset::elevation_mm`), per catalog key and system. A run
+ * snapped to a fixture ends at `elevation_mm` plus this, with a riser from
+ * the pen height. Systems a fixture does not list keep the pen height.
+ * Typical rough-in heights for drawing, not a plumbing design (D19).
+ * crates/guhit-core/src/templates.rs places the services demo on the same
+ * numbers.
+ */
+export const FIXTURE_CONNECTION_MM: Record<string, Partial<Record<PipeSystem, number>>> = {
+  wc: { cold_water: 200, drainage: 0 },
+  lavatory: { cold_water: -100, hot_water: -100, drainage: -200 },
+  "kitchen-sink": { cold_water: 500, hot_water: 500, drainage: 450 },
+  shower: { cold_water: 1000, hot_water: 1000, drainage: 0 },
+  bathtub: { cold_water: 600, hot_water: 600, drainage: 0 },
+  "washing-machine": { cold_water: 1000, hot_water: 1000, drainage: 750 },
+  "floor-drain": { drainage: 0, storm: 0 },
+  "water-heater": { cold_water: 0, hot_water: 400 },
+  "water-meter": { cold_water: 75 },
+  "water-tank": { cold_water: 150 },
+  "septic-tank": { drainage: 1200 },
+  "aircon-indoor-1hp": { refrigerant: 50, condensate: 30 },
+  "aircon-indoor-2hp": { refrigerant: 50, condensate: 30 },
+  "aircon-indoor-3hp": { refrigerant: 50, condensate: 30 },
+  "aircon-outdoor-1hp": { refrigerant: 150 },
+  "aircon-outdoor-3hp": { refrigerant: 150 },
+  "aircon-window": { condensate: 0 },
+};
+
+/** Height above the level floor where a run of `system` joins `asset`, or null to keep the pen height. */
+export function fixtureConnectionZ(asset: { catalog_key: string; elevation_mm: number }, system: PipeSystem): number | null {
+  const off = FIXTURE_CONNECTION_MM[asset.catalog_key]?.[system];
+  return off === undefined ? null : asset.elevation_mm + off;
+}

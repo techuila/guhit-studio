@@ -12,6 +12,10 @@
 // every key without MOD: WASD, arrows, F and Escape. This handler then only
 // answers MOD shortcuts.
 //
+// Following someone in a live session (DECISIONS D37), Escape stops it
+// first: a capture listener here takes the key before the plan, walk mode or
+// the handler below, unless a dialog or a text field has it.
+//
 // Sun and render keys (docs/CONTRACT.md, "Sun and light"): U and I move the
 // sun 15 minutes and repeat while held, so holding one scrubs; Shift+U and
 // Shift+I step the presets; Shift+N switches the lamps; MOD+Alt+R renders the
@@ -19,6 +23,8 @@
 import { useEffect, useRef } from "react";
 import { ipc } from "../contract/ipc";
 import { getActiveController } from "../editor2d/controller";
+import { unfollow } from "../live/follow";
+import { useLive } from "../live/liveStore";
 import { bus } from "../state/bus";
 import { useApp, type Tool } from "../state/store";
 import { Dialog, isModalOpen } from "../ui/Dialog";
@@ -295,10 +301,20 @@ export function useGlobalShortcuts() {
 
     const onBlur = () => commitBurst();
 
+    const onFollowEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || !useLive.getState().following) return;
+      if (isModalOpen() || isTyping(e.target)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      unfollow();
+    };
+
+    window.addEventListener("keydown", onFollowEscape, true);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onBlur);
     return () => {
+      window.removeEventListener("keydown", onFollowEscape, true);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
@@ -338,6 +354,25 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
     ],
   },
   {
+    title: "Selected run, on the plan",
+    rows: [
+      ["Click again", "Pick a segment, or a point handle"],
+      ["PgUp / PgDn", "Move it up or down 100 mm, Shift for 10"],
+      ["H", "Type its height"],
+      ["Alt", "Break the joins while dragging"],
+      ["Esc", "Back to the whole run"],
+    ],
+  },
+  {
+    title: "Pipe height handle (3D view)",
+    rows: [
+      ["Drag", "Move up or down"],
+      ["A number, Enter", "Move exactly that far"],
+      ["→ / ←", "Lock to plan x or y"],
+      ["Esc", "Cancel"],
+    ],
+  },
+  {
     title: "Link tool, on the plan",
     rows: [["Esc / Enter", "End linking"]],
   },
@@ -348,6 +383,10 @@ const SHEET: Array<{ title: string; rows: Array<[string, string]> }> = [
       ["Enter", "Send it"],
       ["Esc", "Close without sending"],
     ],
+  },
+  {
+    title: "Live session, following someone",
+    rows: [["Esc", "Stop following"]],
   },
   {
     title: "Toggles",

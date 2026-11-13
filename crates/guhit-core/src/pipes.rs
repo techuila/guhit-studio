@@ -46,7 +46,7 @@ const ELBOW_MIN_DEG: f64 = 1.0;
 /// are not checked for fall.
 const SLOPE_MIN_LENGTH_MM: f64 = 300.0;
 /// Runs meet within their larger radius, and never closer than this.
-const MIN_REACH_MM: f64 = 1.0;
+pub(crate) const MIN_REACH_MM: f64 = 1.0;
 /// Slab depth the 3D view draws (`src/viewer3d/scene/buildScene.ts`): the
 /// plinth under the lowest level, a suspended slab under the others.
 const SLAB_LOWEST_MM: f64 = 150.0;
@@ -637,7 +637,7 @@ impl<'a> Run<'a> {
 
 /// Runs that can be connected with a fitting: the same system, or drainage
 /// and its vent.
-fn can_join(a: PipeSystem, b: PipeSystem) -> bool {
+pub(crate) fn can_join(a: PipeSystem, b: PipeSystem) -> bool {
     a == b
         || matches!(
             (a, b),

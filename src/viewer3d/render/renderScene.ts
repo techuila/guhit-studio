@@ -153,6 +153,7 @@ export async function buildRenderScene(renderer: THREE.WebGLRenderer, input: Ren
 
   const owned: { dispose(): void }[] = [];
   if (physical) {
+    tracePipesOnce(built);
     // The pack's models are quantized (meshopt: normalized 8 and 16 bit,
     // interleaved). The tracer's geometry merge copies such attributes
     // without scaling them back and would draw every pack model collapsed
@@ -231,6 +232,17 @@ export async function buildRenderScene(renderer: THREE.WebGLRenderer, input: Ren
       lib.dispose();
     },
   };
+}
+
+/**
+ * Every pipe goes into the path tracer once. The tracer gathers visible
+ * meshes and ignores layers, so it would trace a run twice, its pick-layer
+ * solo and its batch, with coincident triangles. The batches are what the
+ * raster view draws at rest: the solos are hidden. Pipe geometry is plain
+ * float data, so the batches need no float copies.
+ */
+export function tracePipesOnce(built: Pick<BuiltScene, "pipes">): void {
+  for (const solo of built.pipes.solos.values()) solo.visible = false;
 }
 
 /** A copy of a light with a target of its own (a spot's clone would share its target). */

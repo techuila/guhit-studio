@@ -119,7 +119,7 @@ export function JoinDialog({ stage }: { stage?: PresenceStage }) {
             <Icon name="check" size={14} />
             <span>
               {info.project ? <strong>{info.project}</strong> : "A live session"}
-              {info.relay ? ", open over the internet" : info.addrs.length > 0 ? `, hosted at ${info.addrs[0]}. Join from the same network or VPN.` : ""}
+              {info.relay ? ", open over the internet" : info.direct ? ". Join from the same network or VPN as the host." : ""}
             </span>
           </p>
         ) : (

@@ -419,7 +419,7 @@ pub(crate) async fn start(app: &AppService, port: Option<u16>) -> Result<LiveSta
         *role = Role::Host(host.clone());
         app.live.set_status(status.clone());
     }
-    app.live.remember_name(&me.id, &me.name);
+    app.live.remember(&me);
     // Out before the relay's first news, which may come at once.
     app.emit(AppEvent::Live { status });
     if let Some(listener) = listener {
@@ -783,9 +783,15 @@ impl Host {
         }
     }
 
+    /// The encoded document frame of the change `seq`, when it was made
+    /// already.
+    fn cached_frame(&self, seq: u64) -> Option<Arc<[u8]>> {
+        lock(&self.doc_frame).as_ref().filter(|(cached, _)| *cached == seq).map(|(_, frame)| frame.clone())
+    }
+
     /// The document frame for the change `seq`, encoded once however many
     /// guests need it.
-    fn doc_frame(&self, seq: u64, state: DocState, by: Id) -> Option<Arc<[u8]>> {
+    fn doc_frame(&self, seq: u64, state: DocState, history: HistoryList, by: Id) -> Option<Arc<[u8]>> {
         let mut cache = lock(&self.doc_frame);
         if let Some((cached, frame)) = cache.as_ref() {
             if *cached == seq {
@@ -798,6 +804,7 @@ impl Host {
             revision: state.revision,
             seq,
             by: Some(by),
+            history: Some(history),
         }));
         match wire::shared(&frame, MAX_FRAME_BYTES) {
             Ok(frame) => {
@@ -816,7 +823,7 @@ impl Host {
 /// Called after every change (the broadcaster) and after a guest's edit,
 /// before its reply.
 async fn sync_guests(app: &AppService, host: &Host) {
-    let (seq, state, by) = {
+    let (seq, ready) = {
         let s = app.session.lock().await;
         let Some(doc) = s.doc.as_ref().filter(|d| d.project().id == host.project_id) else {
             return;
@@ -834,10 +841,20 @@ async fn sync_guests(app: &AppService, host: &Host) {
                 _ => host.me.id.clone(),
             }
         };
-        (seq, doc.state(), by)
+        // A guest's edit syncs before its reply and the broadcaster again
+        // after it: the second finds the frame made, and builds nothing.
+        match host.cached_frame(seq) {
+            Some(frame) => (seq, Ok(frame)),
+            None => (seq, Err((doc.state(), app.live.shared_history(doc, &host.me.id), by))),
+        }
     };
-    let Some(frame) = host.doc_frame(seq, state, by) else {
-        return;
+    // Encoded outside the session lock.
+    let frame = match ready {
+        Ok(frame) => frame,
+        Err((state, history, by)) => match host.doc_frame(seq, state, history, by) {
+            Some(frame) => frame,
+            None => return,
+        },
     };
     let slow: Vec<(Id, u64)> = {
         let mut inner = lock(&host.inner);
@@ -981,6 +998,7 @@ async fn register(app: &AppService, host: &Arc<Host>, name: &str, rejoin: Option
         return Err("The host closed the project.".to_string());
     };
     let state = doc.state();
+    let history = app.live.shared_history(doc, &host.me.id);
     let seq = app.change_seq();
     let token = random_text(&SystemRandom::new(), 16).map_err(|e| e.message)?;
     let token_tag = hmac::sign(&host.key, token.as_bytes());
@@ -1043,6 +1061,7 @@ async fn register(app: &AppService, host: &Arc<Host>, name: &str, rejoin: Option
                 revision: state.revision,
                 seq,
                 by: None,
+                history: Some(history),
             },
             chat,
             presence,
@@ -1089,7 +1108,7 @@ async fn register(app: &AppService, host: &Arc<Host>, name: &str, rejoin: Option
     drop(order);
     drop(s);
     let (joined, slow, participant) = joined;
-    app.live.remember_name(&participant.id, &participant.name);
+    app.live.remember(&participant);
     for (id, conn) in slow {
         host.leave(app, &id, Some(conn), Leave::Dropped);
     }
@@ -1179,8 +1198,12 @@ async fn answer(
             let result = app.commit_locked(&mut s, command, origin, expected_revision, Some(guest_id.clone()), project)?;
             to_json(&Applied { revision: result.state.revision, diff: result.diff })
         }
-        Request::Undo { force } => step(app, guest_id, false, force, project).await,
-        Request::Redo { force } => step(app, guest_id, true, force, project).await,
+        Request::Undo { force, steps, expected_revision } => {
+            step(app, guest_id, false, force, steps, expected_revision, project).await
+        }
+        Request::Redo { force, steps, expected_revision } => {
+            step(app, guest_id, true, force, steps, expected_revision, project).await
+        }
         Request::Chat { text, at, level_id, via_ai } => {
             to_json(&chat(app, host, guest_id, &text, at, level_id, via_ai)?)
         }
@@ -1211,10 +1234,18 @@ async fn answer(
     }
 }
 
-/// A guest's undo or redo on the one shared history.
-async fn step(app: &AppService, guest_id: &Id, redo: bool, force: bool, project: Option<&str>) -> Result<Value, IpcError> {
+/// A guest's undo or redo of `steps` steps on the one shared history.
+async fn step(
+    app: &AppService,
+    guest_id: &Id,
+    redo: bool,
+    force: bool,
+    steps: u32,
+    expected_revision: Option<u32>,
+    project: Option<&str>,
+) -> Result<Value, IpcError> {
     let mut s = app.session.lock().await;
-    let state = app.step_locked(&mut s, redo, force, Some(guest_id), project)?;
+    let state = app.step_locked(&mut s, redo, force, steps, expected_revision, Some(guest_id), project)?;
     to_json(&Stepped { revision: state.revision })
 }
 

@@ -74,9 +74,10 @@ pub struct LiveState {
     local: Mutex<Presence>,
     status: Mutex<LiveStatus>,
     role: Mutex<Role>,
-    /// Names of everyone this computer met in a live session, by participant
-    /// id, so an undo can name who made a step after they left.
-    names: Mutex<HashMap<Id, String>>,
+    /// Name and color of everyone this computer met in a live session, by
+    /// participant id, so an undo and the history can name who made a step
+    /// after they left (DECISIONS D38), as chat messages keep theirs.
+    people: Mutex<HashMap<Id, (String, u8)>>,
     /// Numbers the joins, so a late message of an old session is ignored.
     epochs: AtomicU64,
     /// This computer's participant id whenever it hosts, the same for every
@@ -90,7 +91,7 @@ impl Default for LiveState {
             local: Mutex::new(Presence::default()),
             status: Mutex::new(LiveStatus::off()),
             role: Mutex::new(Role::Off),
-            names: Mutex::new(HashMap::new()),
+            people: Mutex::new(HashMap::new()),
             epochs: AtomicU64::new(0),
             host_id: OnceLock::new(),
         }
@@ -107,6 +108,9 @@ pub(crate) struct CopyMeta {
     /// The host's change counter of the copy (`DocFrame::seq`).
     pub(crate) seq: u64,
     pub(crate) undo: wire::UndoMeta,
+    /// The host's history from the last document frame. None from an older
+    /// host, which sends only `undo`.
+    pub(crate) history: Option<HistoryList>,
 }
 
 /// Locks never stay poisoned: every state behind them is valid after any
@@ -135,12 +139,62 @@ impl LiveState {
         status.clone()
     }
 
-    fn remember_name(&self, id: &str, name: &str) {
-        lock(&self.names).insert(id.to_string(), name.to_string());
+    fn remember(&self, p: &Participant) {
+        lock(&self.people).insert(p.id.clone(), (p.name.clone(), p.color));
     }
 
     fn name_of(&self, id: &str) -> Option<String> {
-        lock(&self.names).get(id).cloned()
+        lock(&self.people).get(id).map(|(name, _)| name.clone())
+    }
+
+    /// Fill in the names and colors of the steps' authors. A step with no
+    /// author is `unowned`'s when one is given: the host's, made before the
+    /// session. Then a step whose author is `own` (this computer) loses it:
+    /// no author means this computer's own, in and out of a session. Someone
+    /// this computer never met keeps the name and color the step came with:
+    /// a guest who joined late still sees who left before it came.
+    fn name_steps(&self, list: &mut HistoryList, own: Option<&Id>, unowned: Option<&Id>) {
+        let people = lock(&self.people);
+        for step in list.undo.iter_mut().chain(list.redo.iter_mut()) {
+            let author = step.author_id.take().or_else(|| unowned.cloned());
+            step.author_id = author.filter(|id| Some(id) != own);
+            let Some(id) = step.author_id.as_ref() else {
+                step.author_name = None;
+                step.color = None;
+                continue;
+            };
+            if let Some((name, color)) = people.get(id) {
+                step.author_name = Some(name.clone());
+                step.color = Some(*color);
+            }
+        }
+    }
+
+    /// The open document's history as this window shows it (`history_list`):
+    /// on the host or with no session the document's own, on a guest the
+    /// host's from the last document frame.
+    pub(crate) fn history(&self, doc: &Document, copy: Option<&CopyMeta>) -> HistoryList {
+        let Some(copy) = copy else {
+            let mut list = doc.history();
+            self.name_steps(&mut list, self.host_id.get(), None);
+            return list;
+        };
+        let mut list = match &copy.history {
+            Some(list) => list.clone(),
+            None => top_steps(&copy.undo),
+        };
+        let status = self.status();
+        let host = status.participants.iter().find(|p| p.role == ParticipantRole::Host).map(|p| &p.id);
+        self.name_steps(&mut list, status.self_id.as_ref(), host);
+        list
+    }
+
+    /// The history a document frame carries to guests: names and colors
+    /// filled in, the host's steps from before the session named as its.
+    pub(crate) fn shared_history(&self, doc: &Document, host: &Id) -> HistoryList {
+        let mut list = doc.history();
+        self.name_steps(&mut list, None, Some(host));
+        list
     }
 
     /// The author a commit made on this computer records: the host
@@ -161,37 +215,97 @@ impl LiveState {
     }
 
     /// While hosting, undo and redo take back or bring back someone else's
-    /// step only with `force` (docs/CONTRACT.md, "Live sessions").
-    /// `requester` is the guest asking; None is this computer. Outside a
-    /// session every step is yours.
-    pub(crate) fn check_step(&self, doc: &Document, redo: bool, requester: Option<&Id>) -> Result<(), IpcError> {
+    /// step only with `force` (docs/CONTRACT.md, "Live sessions"); for
+    /// several `steps`, when any of them is someone else's, naming everyone
+    /// ("Takes back 4 steps, 2 by Ana. Undo anyway?"). `requester` is the
+    /// guest asking; None is this computer. Outside a session every step is
+    /// yours.
+    pub(crate) fn check_step(
+        &self,
+        doc: &Document,
+        redo: bool,
+        steps: usize,
+        requester: Option<&Id>,
+    ) -> Result<(), IpcError> {
         let Role::Host(host) = self.role() else {
             return Ok(());
         };
-        let state = doc.state();
-        let (possible, by, label) = if redo {
-            (state.can_redo, state.redo_by, state.redo_label)
-        } else {
-            (state.can_undo, state.undo_by, state.undo_label)
-        };
-        if !possible {
-            // Nothing there: the engine says so.
+        let list = doc.history();
+        let stack = if redo { &list.redo } else { &list.undo };
+        if steps == 0 || steps > stack.len() {
+            // Not there to take: the engine says so.
             return Ok(());
         }
-        // A step with no author was made here before the session started.
-        let owner = by.unwrap_or_else(|| host.me.id.clone());
         let requester = requester.unwrap_or(&host.me.id);
-        if owner == *requester {
+        // Each other person and how many of the steps are theirs, newest
+        // first. A step with no author was made here before the session.
+        let mut theirs: Vec<(Id, usize)> = vec![];
+        for step in &stack[..steps] {
+            let owner = step.author_id.as_ref().unwrap_or(&host.me.id);
+            if owner == requester {
+                continue;
+            }
+            match theirs.iter_mut().find(|(id, _)| id == owner) {
+                Some((_, n)) => *n += 1,
+                None => theirs.push((owner.clone(), 1)),
+            }
+        }
+        if theirs.is_empty() {
             return Ok(());
         }
-        let name = self.name_of(&owner).unwrap_or_else(|| "Someone else".to_string());
-        let label = label.unwrap_or_else(|| "a change".to_string());
-        let message = if redo {
-            format!("This step is {name}'s: {label}. Redo it anyway?")
+        let name = |id: &Id| self.name_of(id).unwrap_or_else(|| "someone else".to_string());
+        let message = if steps == 1 {
+            let name = self.name_of(&theirs[0].0).unwrap_or_else(|| "Someone else".to_string());
+            let label = if stack[0].label.is_empty() { "a change" } else { stack[0].label.as_str() };
+            if redo {
+                format!("This step is {name}'s: {label}. Redo it anyway?")
+            } else {
+                format!("{name} made the last change: {label}. Undo it anyway?")
+            }
         } else {
-            format!("{name} made the last change: {label}. Undo it anyway?")
+            let whose = match theirs.as_slice() {
+                [(id, n)] if *n == steps => format!("all by {}", name(id)),
+                _ => {
+                    let parts: Vec<String> = theirs.iter().map(|(id, n)| format!("{n} by {}", name(id))).collect();
+                    join_and(&parts)
+                }
+            };
+            if redo {
+                format!("Brings back {steps} steps, {whose}. Redo anyway?")
+            } else {
+                format!("Takes back {steps} steps, {whose}. Undo anyway?")
+            }
         };
         Err(IpcError::new("other_author", message))
+    }
+}
+
+/// "a", "a and b", "a, b and c".
+fn join_and(parts: &[String]) -> String {
+    match parts {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// What an older host's document frame says of its history: the step on top
+/// of each stack, without its time, summary or elements.
+fn top_steps(undo: &wire::UndoMeta) -> HistoryList {
+    let step = |label: &Option<String>, by: &Option<Id>| HistoryStep {
+        label: label.clone().unwrap_or_default(),
+        summary: String::new(),
+        origin: Origin::User,
+        author_id: by.clone(),
+        author_name: None,
+        color: None,
+        at: String::new(),
+        ids: vec![],
+        removed: vec![],
+    };
+    HistoryList {
+        undo: undo.can_undo.then(|| step(&undo.undo_label, &undo.undo_by)).into_iter().collect(),
+        redo: undo.can_redo.then(|| step(&undo.redo_label, &undo.redo_by)).into_iter().collect(),
     }
 }
 
@@ -261,6 +375,30 @@ pub fn clean_presence(mut presence: Presence) -> Presence {
     }
     presence.selection.retain(|id| is_short_id(id));
     presence.selection.truncate(MAX_PRESENCE_SELECTION);
+    // Follow mode (DECISIONS D37): ids that are ids, finite numbers rounded
+    // to 1 mm, a plan area of positive size, a field of view of 5 to 110.
+    if presence.following.as_deref().is_some_and(|id| !is_short_id(id)) {
+        presence.following = None;
+    }
+    presence.plan_view = presence.plan_view.and_then(|v| {
+        let ok = v.center.x.is_finite() && v.center.y.is_finite() && v.width_mm.is_finite() && v.height_mm.is_finite();
+        (ok && v.width_mm > 0.0 && v.height_mm > 0.0).then(|| PlanView {
+            center: Point { x: v.center.x.round(), y: v.center.y.round() },
+            width_mm: v.width_mm.round().max(1.0),
+            height_mm: v.height_mm.round().max(1.0),
+        })
+    });
+    let finite = |p: &Vec3| p.x.is_finite() && p.y.is_finite() && p.z.is_finite();
+    let round = |p: Vec3| Vec3 { x: p.x.round(), y: p.y.round(), z: p.z.round() };
+    presence.camera = presence.camera.and_then(|c| {
+        (finite(&c.position) && finite(&c.target) && c.fov_deg.is_finite()).then(|| LiveCamera {
+            position: round(c.position),
+            target: round(c.target),
+            fov_deg: c.fov_deg.clamp(5.0, 110.0),
+            nav: c.nav,
+        })
+    });
+    presence.pointer_3d = presence.pointer_3d.filter(finite).map(round);
     presence
 }
 
@@ -372,9 +510,17 @@ pub(crate) async fn guest_apply(
     guest::apply(app, command, origin, expected_revision).await
 }
 
-/// A live session guest's undo or redo, on the host's history.
-pub(crate) async fn guest_step(app: &AppService, redo: bool, force: bool) -> Result<DocState, IpcError> {
-    guest::step(app, redo, force).await
+/// A live session guest's undo or redo of `steps` steps, on the host's
+/// history, as one request. `expected_revision` makes it fail with `stale`
+/// when the plan moved on.
+pub(crate) async fn guest_step(
+    app: &AppService,
+    redo: bool,
+    force: bool,
+    steps: u32,
+    expected_revision: Option<u32>,
+) -> Result<DocState, IpcError> {
+    guest::step(app, redo, force, steps, expected_revision).await
 }
 
 /// On a live session guest: store an underlay or reference model of the
@@ -566,6 +712,7 @@ mod tests {
             selection: vec!["a".into(); MAX_PRESENCE_SELECTION + 5],
             typing: Some("y".repeat(500)),
             ai_scope: true,
+            ..Presence::default()
         });
         assert_eq!(p.cursor, None);
         assert_eq!(p.level_id, None);
@@ -574,6 +721,35 @@ mod tests {
 
         let p = clean_presence(Presence { selection: vec!["w1".into(), "x".repeat(65)], ..Presence::default() });
         assert_eq!(p.selection, vec!["w1".to_string()]);
+    }
+
+    #[test]
+    fn follow_fields_are_cleaned() {
+        let v = |x: f64, y: f64, z: f64| Vec3 { x, y, z };
+        let p = clean_presence(Presence {
+            following: Some("x".repeat(65)),
+            plan_view: Some(PlanView { center: Point { x: 1000.4, y: -2.6 }, width_mm: 8000.2, height_mm: 0.0 }),
+            camera: Some(LiveCamera { position: v(1.4, 2.6, 1600.0), target: v(0.0, 0.0, 0.0), fov_deg: 400.0, nav: NavMode::Walk }),
+            pointer_3d: Some(v(f64::INFINITY, 0.0, 0.0)),
+            ..Presence::default()
+        });
+        assert_eq!(p.following, None);
+        assert_eq!(p.plan_view, None, "a plan area needs a size");
+        let c = p.camera.unwrap();
+        assert_eq!((c.position, c.fov_deg, c.nav), (v(1.0, 3.0, 1600.0), 110.0, NavMode::Walk));
+        assert_eq!(p.pointer_3d, None);
+
+        let p = clean_presence(Presence {
+            following: Some("p1".into()),
+            plan_view: Some(PlanView { center: Point { x: 1000.4, y: -2.6 }, width_mm: 8000.2, height_mm: 0.4 }),
+            camera: Some(LiveCamera { position: v(f64::NAN, 0.0, 0.0), target: v(0.0, 0.0, 0.0), fov_deg: 50.0, nav: NavMode::Orbit }),
+            pointer_3d: Some(v(10.4, 20.6, 0.2)),
+            ..Presence::default()
+        });
+        assert_eq!(p.following.as_deref(), Some("p1"));
+        assert_eq!(p.plan_view, Some(PlanView { center: Point { x: 1000.0, y: -3.0 }, width_mm: 8000.0, height_mm: 1.0 }));
+        assert_eq!(p.camera, None);
+        assert_eq!(p.pointer_3d, Some(v(10.0, 21.0, 0.0)));
     }
 
     #[test]

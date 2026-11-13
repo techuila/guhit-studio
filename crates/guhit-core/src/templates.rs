@@ -181,11 +181,17 @@ fn v(x: f64, y: f64, z: f64) -> Vec3 {
 /// "Bungalow with services" (template id `plumbing-demo`): the house of the
 /// approved plumbing walkthrough concept, with its electrical and aircon
 /// services. An 8.0 x 6.0 m bungalow with a T&B, six 200 x 200 columns on the
-/// grid, a gable roof, fixtures from the catalog, the 16 plumbing runs of the
-/// concept, two storm downspouts, lights, switches, outlets, a panelboard, a
-/// smoke detector and a split aircon for the bedroom with its line set and
+/// grid, a gable roof, fixtures from the catalog with the water heater, the
+/// water meter and the septic tank, the 16 plumbing runs of the concept, two
+/// storm downspouts, lights, switches, outlets, a panelboard, a smoke
+/// detector and a split aircon for the bedroom with its line set and
 /// condensate drain. Ids and timestamps are fixed so
 /// `fixtures/plumbing-demo.docstate.json` is stable.
+///
+/// Runs end on their fixtures at the connection heights of
+/// `FIXTURE_CONNECTION_MM` in src/contract/pipes.ts (DECISIONS D40): the
+/// fixture's `elevation_mm` plus the table's offset, with a riser where a run
+/// changes height.
 ///
 /// It is drawn to show the checks: the heater feed crosses the T&B door, the
 /// cold water chase runs through a column, the kitchen sink waste falls too
@@ -384,8 +390,7 @@ pub fn plumbing_demo() -> Project {
     // +y is the back, so the counters, range, lavatory, WC and shower face
     // south from the north wall, the sofa backs onto the west wall and the bed
     // head is on the south wall. The washer stands outside, against the north
-    // wall. The water heater, the meter and the septic tank are left out; the
-    // runs show where they go.
+    // wall.
     let catalog = defaults::asset_catalog();
     let object = |block: u32, n: u32, key: &str, position: Point, rotation: f64, links: &[Id]| {
         let item = catalog
@@ -423,6 +428,23 @@ pub fn plumbing_demo() -> Project {
     ];
     for (i, (key, position, rotation)) in assets.iter().enumerate() {
         elements.push(object(150, i as u32 + 1, key, *position, *rotation, &[]));
+    }
+    // The water heater hangs on the T&B face of the T&B wall, back to the
+    // wall. The meter stands at the front of the lot, set 75 mm into the
+    // ground so its connection is at grade (-150). The septic tank is buried
+    // east of the house, its top 20 mm under grade, its inlet where the
+    // building drain arrives (catalog elevations otherwise).
+    let utilities = [
+        ("water-heater", p(7525.0, 4300.0), 180.0, None),
+        ("water-meter", p(600.0, -1800.0), 0.0, Some(-225.0)),
+        ("septic-tank", p(9500.0, 5650.0), 0.0, Some(-1670.0)),
+    ];
+    for (i, (key, position, rotation, elevation)) in utilities.iter().enumerate() {
+        let mut el = object(150, assets.len() as u32 + i as u32 + 1, key, *position, *rotation, &[]);
+        if let (Element::Asset(a), Some(z)) = (&mut el, elevation) {
+            a.elevation_mm = *z;
+        }
+        elements.push(el);
     }
     let range = id(150, 8);
     let washer = id(150, 10);
@@ -471,7 +493,10 @@ pub fn plumbing_demo() -> Project {
     }
 
     // Every run lists its points in flow order: supply from the source,
-    // drainage toward the outlet. Heights are above the floor.
+    // drainage toward the outlet. Heights are above the floor. Where a run
+    // meets a fixture: the meter at -150, the heater 1500 in and 1900 out,
+    // the kitchen sink 500 and 450, the lavatory 550 and 450, the WC 200 and
+    // 0, the shower 1000 and 0, the septic tank inlet -470.
     use PipeMaterial::{Ppr, Upvc};
     use PipeSystem::{ColdWater, Drainage, HotWater, Vent};
     let runs: [(&str, PipeSystem, PipeMaterial, f64, Vec<Vec3>); 16] = [
@@ -481,7 +506,7 @@ pub fn plumbing_demo() -> Project {
             Ppr,
             25.0,
             vec![
-                v(600.0, -1800.0, 0.0),
+                v(600.0, -1800.0, -150.0),
                 v(600.0, -1800.0, -300.0),
                 v(600.0, 5850.0, -300.0),
                 v(2000.0, 5850.0, -300.0),
@@ -503,8 +528,8 @@ pub fn plumbing_demo() -> Project {
             20.0,
             vec![
                 v(2000.0, 6000.0, 300.0),
-                v(2000.0, 6000.0, 550.0),
-                v(2000.0, 5925.0, 550.0),
+                v(2000.0, 6000.0, 500.0),
+                v(2000.0, 5925.0, 500.0),
             ],
         ),
         (
@@ -523,7 +548,11 @@ pub fn plumbing_demo() -> Project {
             ColdWater,
             Ppr,
             20.0,
-            vec![v(6780.0, 6000.0, 300.0), v(6780.0, 5925.0, 300.0)],
+            vec![
+                v(6780.0, 6000.0, 300.0),
+                v(6780.0, 6000.0, 200.0),
+                v(6780.0, 5925.0, 200.0),
+            ],
         ),
         (
             "Shower cold",
@@ -532,8 +561,8 @@ pub fn plumbing_demo() -> Project {
             20.0,
             vec![
                 v(7450.0, 6000.0, 300.0),
-                v(7450.0, 6000.0, 1100.0),
-                v(7450.0, 5925.0, 1100.0),
+                v(7450.0, 6000.0, 1000.0),
+                v(7450.0, 5925.0, 1000.0),
             ],
         ),
         (
@@ -546,8 +575,7 @@ pub fn plumbing_demo() -> Project {
                 v(6000.0, 4200.0, 300.0),
                 v(6000.0, 4200.0, 1500.0),
                 v(7500.0, 4200.0, 1500.0),
-                v(7500.0, 4400.0, 1500.0),
-                v(7500.0, 4400.0, 1600.0),
+                v(7500.0, 4300.0, 1500.0),
             ],
         ),
         (
@@ -556,11 +584,11 @@ pub fn plumbing_demo() -> Project {
             Ppr,
             20.0,
             vec![
-                v(7550.0, 4400.0, 2200.0),
-                v(7550.0, 4400.0, 2450.0),
+                v(7550.0, 4300.0, 1900.0),
+                v(7550.0, 4300.0, 2450.0),
                 v(7550.0, 6000.0, 2450.0),
-                v(7550.0, 6000.0, 1100.0),
-                v(7550.0, 5925.0, 1100.0),
+                v(7550.0, 6000.0, 1000.0),
+                v(7550.0, 5925.0, 1000.0),
             ],
         ),
         (
@@ -586,7 +614,7 @@ pub fn plumbing_demo() -> Project {
                 v(6780.0, 5650.0, -430.0),
                 v(7500.0, 5650.0, -444.0),
                 v(7800.0, 5650.0, -450.0),
-                v(8600.0, 5650.0, -466.0),
+                v(8600.0, 5650.0, -470.0),
             ],
         ),
         (
@@ -594,7 +622,7 @@ pub fn plumbing_demo() -> Project {
             Drainage,
             Upvc,
             100.0,
-            vec![v(6780.0, 5650.0, 20.0), v(6780.0, 5650.0, -430.0)],
+            vec![v(6780.0, 5650.0, 0.0), v(6780.0, 5650.0, -430.0)],
         ),
         (
             "Lavatory waste",
@@ -602,7 +630,7 @@ pub fn plumbing_demo() -> Project {
             Upvc,
             50.0,
             vec![
-                v(6300.0, 5760.0, 650.0),
+                v(6300.0, 5760.0, 450.0),
                 v(6300.0, 5760.0, -410.0),
                 v(6300.0, 5650.0, -420.0),
             ],
@@ -613,7 +641,7 @@ pub fn plumbing_demo() -> Project {
             Upvc,
             50.0,
             vec![
-                v(7500.0, 5500.0, 20.0),
+                v(7500.0, 5500.0, 0.0),
                 v(7500.0, 5500.0, -420.0),
                 v(7500.0, 5650.0, -444.0),
             ],
@@ -624,7 +652,7 @@ pub fn plumbing_demo() -> Project {
             Upvc,
             50.0,
             vec![
-                v(2000.0, 5700.0, 850.0),
+                v(2000.0, 5700.0, 450.0),
                 v(2000.0, 5700.0, -300.0),
                 v(6300.0, 5700.0, -334.0),
                 v(6300.0, 5650.0, -420.0),
@@ -635,7 +663,7 @@ pub fn plumbing_demo() -> Project {
             Drainage,
             Upvc,
             100.0,
-            vec![v(10400.0, 4300.0, -520.0), v(11600.0, 4300.0, -545.0)],
+            vec![v(10400.0, 5650.0, -470.0), v(11600.0, 5650.0, -495.0)],
         ),
         (
             "Vent stack",
@@ -664,8 +692,9 @@ pub fn plumbing_demo() -> Project {
     // Service runs. The downspouts come down the south and north faces from
     // the gutters under the eaves and fall 1.5 percent to the yard. The line
     // set leaves the back of the indoor unit, goes through the east wall 7 mm
-    // down to the outside, drops and runs to the outdoor unit; the condensate
-    // drain goes through the same core hole and falls to the ground outside.
+    // down to the outside, drops and runs to the valves on the north face of
+    // the outdoor unit; the condensate drain goes through the same core hole
+    // and falls to the ground outside.
     use PipeMaterial::{Copper, Pvc};
     use PipeSystem::{Condensate, Refrigerant, Storm};
     let services: [(&str, PipeSystem, PipeMaterial, f64, Vec<Vec3>); 4] = [
@@ -697,11 +726,11 @@ pub fn plumbing_demo() -> Project {
             Copper,
             9.52,
             vec![
-                v(7880.0, 3100.0, 2400.0),
-                v(8250.0, 3100.0, 2393.0),
-                v(8250.0, 3100.0, 350.0),
-                v(8250.0, 2300.0, 350.0),
-                v(8450.0, 2300.0, 350.0),
+                v(7880.0, 3100.0, 2350.0),
+                v(8250.0, 3100.0, 2343.0),
+                v(8250.0, 3100.0, 150.0),
+                v(8450.0, 3100.0, 150.0),
+                v(8450.0, 2185.0, 150.0),
             ],
         ),
         (
@@ -710,8 +739,8 @@ pub fn plumbing_demo() -> Project {
             Pvc,
             20.0,
             vec![
-                v(7880.0, 3200.0, 2310.0),
-                v(8250.0, 3200.0, 2280.0),
+                v(7880.0, 3200.0, 2330.0),
+                v(8250.0, 3200.0, 2300.0),
                 v(8250.0, 3200.0, 150.0),
             ],
         ),

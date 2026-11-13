@@ -13,6 +13,7 @@ import type {
   ApplyResult,
   Camera,
   ChatMessage,
+  HistoryList,
   LiveStatus,
   Point,
   Presence,
@@ -209,9 +210,18 @@ export const ipc = {
   docState: () => call<DocState | null>("doc_state"),
   docApply: (command: Command) => call<ApplyResult>("doc_apply", { command }),
   docPreview: (command: Command) => call<ApplyResult>("doc_preview", { command }),
-  /** In a live session, undoing someone else's step fails with `other_author` unless `force`. */
-  docUndo: (force = false) => call<DocState>("doc_undo", { force }),
-  docRedo: (force = false) => call<DocState>("doc_redo", { force }),
+  /**
+   * In a live session, undoing someone else's step fails with `other_author` unless `force`.
+   * `steps` takes back (or brings back) that many steps at once, as one revision.
+   * `expectedRevision`: fail with `stale` and change nothing once the document moved on
+   * from it, so "Undo anyway" takes only the steps it asked about.
+   */
+  docUndo: (force = false, steps = 1, expectedRevision?: number) =>
+    call<DocState>("doc_undo", { force, steps, expected_revision: expectedRevision ?? null }),
+  docRedo: (force = false, steps = 1, expectedRevision?: number) =>
+    call<DocState>("doc_redo", { force, steps, expected_revision: expectedRevision ?? null }),
+  /** The undo and redo stacks with who made each step and when, newest first. */
+  historyList: () => call<HistoryList>("history_list"),
   docQuery: (query: Query) => call<unknown>("doc_query", { query }),
 
   // versions

@@ -49,7 +49,7 @@ pub const READ_TOOLS: [&str; 8] = [
     "get_schedule",
 ];
 
-pub const EDIT_TOOLS: [&str; 17] = [
+pub const EDIT_TOOLS: [&str; 22] = [
     "add_wall",
     "add_wall_chain",
     "add_rect_room",
@@ -58,6 +58,11 @@ pub const EDIT_TOOLS: [&str; 17] = [
     "resize_room",
     "set_wall_length",
     "move_elements",
+    "move_pipe_points",
+    "set_pipe_segment_length",
+    "set_pipe_slope",
+    "insert_pipe_point",
+    "remove_pipe_point",
     "rename_room",
     "set_room_usage",
     "set_opening_size",
@@ -91,6 +96,26 @@ fn point_schema(what: &str) -> Value {
         "additionalProperties": false,
     })
 }
+
+fn point3_schema(what: &str) -> Value {
+    json!({
+        "type": "object",
+        "description": format!("{what}. Plan x and y in millimeters (x east, y north), z in millimeters above the level floor (negative below the slab)."),
+        "properties": {
+            "x": {"type": "number", "description": "millimeters, east"},
+            "y": {"type": "number", "description": "millimeters, north"},
+            "z": {"type": "number", "description": "millimeters above the level floor"},
+        },
+        "required": ["x", "y", "z"],
+        "additionalProperties": false,
+    })
+}
+
+const PIPE_INDEX_DOC: &str =
+    "Points are numbered from 0 in the order of points_mm in describe_elements. Segment n runs from point n to point n + 1.";
+const KEEP_JOINS_DOC: &str =
+    "true keeps joined runs connected: the ends of other runs that meet a moved point, or rest on a moved segment as a tee, follow. false moves only this run and breaks those joins. Use true unless the user wants the run disconnected.";
+const HOLD_DOC: &str = "Which end stays fixed: \"start\" (the lower numbered point) or \"end\".";
 
 fn tool(name: &str, description: &str, properties: Value, required: &[&str], strict: bool) -> Value {
     let mut t = json!({
@@ -298,6 +323,74 @@ pub fn definitions() -> Vec<Value> {
                 "stretch_connected": {"type": "boolean"},
             }),
             &["ids", "dx_mm", "dy_mm", "stretch_connected"], true,
+        ),
+        tool(
+            "move_pipe_points",
+            &format!("Stage moving points of pipe runs in 3D by one distance: one point, a segment (its two points), a whole run (empty indices) or several runs at once. dx_mm is east, dy_mm is north, dz_mm is up (negative is down), so \"lower the sink waste 300 mm\" is dz_mm -300 with empty indices. {PIPE_INDEX_DOC}"),
+            json!({
+                "pipes": {
+                    "type": "array",
+                    "description": "Each run to move, once, with the points to move.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "pipe_id": {"type": "string"},
+                            "indices": {"type": "array", "items": {"type": "integer"}, "description": "Point indices to move, each once. Empty moves every point of the run."},
+                        },
+                        "required": ["pipe_id", "indices"],
+                        "additionalProperties": false,
+                    },
+                },
+                "dx_mm": {"type": "number"},
+                "dy_mm": {"type": "number"},
+                "dz_mm": {"type": "number"},
+                "keep_joins": {"type": "boolean", "description": KEEP_JOINS_DOC},
+            }),
+            &["pipes", "dx_mm", "dy_mm", "dz_mm", "keep_joins"], true,
+        ),
+        tool(
+            "set_pipe_segment_length",
+            &format!("Stage an exact 3D length for one segment of a pipe run. With hold \"start\" point n stays and point n + 1 slides along the segment, with hold \"end\" point n + 1 stays; either way the rest of the run beyond the moving end keeps its shape and slopes. At least 10 mm. {PIPE_INDEX_DOC}"),
+            json!({
+                "pipe_id": {"type": "string"},
+                "segment": {"type": "integer", "description": "Segment index n."},
+                "length_mm": {"type": "number"},
+                "hold": {"type": "string", "enum": ["start", "end"], "description": HOLD_DOC},
+                "keep_joins": {"type": "boolean", "description": KEEP_JOINS_DOC},
+            }),
+            &["pipe_id", "segment", "length_mm", "hold", "keep_joins"], true,
+        ),
+        tool(
+            "set_pipe_slope",
+            &format!("Stage a slope for segments from_segment to to_segment of a pipe run: each falls slope_pct percent of its plan length from its first point toward its last; a negative slope rises. Vertical risers keep their own drop. hold is the end that keeps its height (\"start\": point from_segment, \"end\": point to_segment + 1); the part of the run past the other end moves up or down with it. Between -100 and 100. This only sets geometry; it never decides what fall a pipe needs. {PIPE_INDEX_DOC}"),
+            json!({
+                "pipe_id": {"type": "string"},
+                "from_segment": {"type": "integer"},
+                "to_segment": {"type": "integer", "description": "The last segment, inclusive. The same as from_segment for one segment."},
+                "slope_pct": {"type": "number", "description": "Percent of the plan length, for example 2 for 2 percent."},
+                "hold": {"type": "string", "enum": ["start", "end"], "description": HOLD_DOC},
+                "keep_joins": {"type": "boolean", "description": KEEP_JOINS_DOC},
+            }),
+            &["pipe_id", "from_segment", "to_segment", "slope_pct", "hold", "keep_joins"], true,
+        ),
+        tool(
+            "insert_pipe_point",
+            &format!("Stage a new bend in a pipe run: a point at `at`, inserted between the two points of segment n, so it becomes point n + 1. A riser is two bends on one plan point at two heights. {PIPE_INDEX_DOC}"),
+            json!({
+                "pipe_id": {"type": "string"},
+                "segment": {"type": "integer", "description": "Segment index n."},
+                "at": point3_schema("Where the new point goes"),
+            }),
+            &["pipe_id", "segment", "at"], true,
+        ),
+        tool(
+            "remove_pipe_point",
+            &format!("Stage removing one point of a pipe run: a bend, which straightens the run there, or an end, which shortens it. A run keeps at least two points. {PIPE_INDEX_DOC}"),
+            json!({
+                "pipe_id": {"type": "string"},
+                "index": {"type": "integer", "description": "Point index."},
+            }),
+            &["pipe_id", "index"], true,
         ),
         tool(
             "rename_room",
@@ -553,6 +646,67 @@ struct MoveInput {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PipePointsInput {
+    pipe_id: Id,
+    indices: Vec<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MovePipePointsInput {
+    pipes: Vec<PipePointsInput>,
+    dx_mm: f64,
+    dy_mm: f64,
+    dz_mm: f64,
+    keep_joins: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PipeSegmentLengthInput {
+    pipe_id: Id,
+    segment: u32,
+    length_mm: f64,
+    hold: PipeEnd,
+    keep_joins: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PipeSlopeInput {
+    pipe_id: Id,
+    from_segment: u32,
+    to_segment: u32,
+    slope_pct: f64,
+    hold: PipeEnd,
+    keep_joins: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Point3Input {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InsertPipePointInput {
+    pipe_id: Id,
+    segment: u32,
+    at: Point3Input,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemovePipePointInput {
+    pipe_id: Id,
+    index: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RenameRoomInput {
     room_id: Id,
     name: String,
@@ -680,6 +834,16 @@ fn find_room(project: &Project, id: &str) -> Result<Room, ToolError> {
         Element::Room(r) => Ok(r.clone()),
         other => Err(ToolError::new(format!(
             "invalid arguments: `{id}` is a {:?}, not a room",
+            other.kind()
+        ))),
+    }
+}
+
+fn find_pipe<'a>(project: &'a Project, id: &str) -> Result<&'a Pipe, ToolError> {
+    match find(project, id)? {
+        Element::Pipe(p) => Ok(p),
+        other => Err(ToolError::new(format!(
+            "invalid arguments: `{id}` is a {:?}, not a pipe",
             other.kind()
         ))),
     }
@@ -959,6 +1123,69 @@ fn single_command(
                 return Err(ToolError::new("invalid arguments: dx_mm and dy_mm are both 0, nothing would move"));
             }
             Command::MoveElements { ids: i.ids, delta, stretch_connected: i.stretch_connected }
+        }
+        "move_pipe_points" => {
+            let i: MovePipePointsInput = parse(input)?;
+            if i.pipes.is_empty() {
+                return Err(ToolError::new("invalid arguments: pipes must hold at least one run"));
+            }
+            for p in &i.pipes {
+                find_pipe(project, &p.pipe_id)?;
+            }
+            let delta = Vec3 {
+                x: finite(i.dx_mm, "dx_mm")?,
+                y: finite(i.dy_mm, "dy_mm")?,
+                z: finite(i.dz_mm, "dz_mm")?,
+            };
+            if delta.x == 0.0 && delta.y == 0.0 && delta.z == 0.0 {
+                return Err(ToolError::new("invalid arguments: dx_mm, dy_mm and dz_mm are all 0, nothing would move"));
+            }
+            Command::MovePipePoints {
+                targets: i.pipes.into_iter().map(|p| PipePoints { pipe_id: p.pipe_id, indices: p.indices }).collect(),
+                delta,
+                keep_joins: i.keep_joins,
+            }
+        }
+        "set_pipe_segment_length" => {
+            let i: PipeSegmentLengthInput = parse(input)?;
+            find_pipe(project, &i.pipe_id)?;
+            Command::SetPipeSegmentLength {
+                pipe_id: i.pipe_id,
+                segment: i.segment,
+                length_mm: positive(i.length_mm, "length_mm")?,
+                hold: i.hold,
+                keep_joins: i.keep_joins,
+            }
+        }
+        "set_pipe_slope" => {
+            let i: PipeSlopeInput = parse(input)?;
+            find_pipe(project, &i.pipe_id)?;
+            Command::SetPipeSlope {
+                pipe_id: i.pipe_id,
+                from_segment: i.from_segment,
+                to_segment: i.to_segment,
+                slope_pct: finite(i.slope_pct, "slope_pct")?,
+                hold: i.hold,
+                keep_joins: i.keep_joins,
+            }
+        }
+        "insert_pipe_point" => {
+            let i: InsertPipePointInput = parse(input)?;
+            find_pipe(project, &i.pipe_id)?;
+            Command::InsertPipePoint {
+                pipe_id: i.pipe_id,
+                segment: i.segment,
+                at: Vec3 {
+                    x: finite(i.at.x, "at.x")?,
+                    y: finite(i.at.y, "at.y")?,
+                    z: finite(i.at.z, "at.z")?,
+                },
+            }
+        }
+        "remove_pipe_point" => {
+            let i: RemovePipePointInput = parse(input)?;
+            find_pipe(project, &i.pipe_id)?;
+            Command::RemovePipePoint { pipe_id: i.pipe_id, index: i.index }
         }
         "rename_room" => {
             let i: RenameRoomInput = parse(input)?;

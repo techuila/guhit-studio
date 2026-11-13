@@ -30,7 +30,7 @@ function status(over: Partial<LiveStatus> = {}): LiveStatus {
 }
 
 function presence(over: Partial<Presence> = {}): Presence {
-  return { cursor: null, level_id: "L1", selection: [], typing: null, ai_scope: false, ...over };
+  return { cursor: null, level_id: "L1", selection: [], typing: null, ai_scope: false, following: null, view_mode: "2d", plan_view: null, camera: null, pointer_3d: null, ...over };
 }
 
 /** Local time, so labels do not depend on the machine's time zone. */
@@ -215,16 +215,28 @@ describe("parseInvite", () => {
     return `guhit-live:${b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
   };
 
-  it("reads the project and the host's addresses", () => {
+  it("reads the project and whether the host takes direct connections, never the addresses", () => {
     const invite = encode({ v: 1, secret: "s", pin: "p", addrs: ["192.168.1.20:1460", "127.0.0.1:1460"], project: "Bahay ni Lola ñ" });
-    expect(parseInvite(`  ${invite}\n`)).toEqual({ project: "Bahay ni Lola ñ", addrs: ["192.168.1.20:1460", "127.0.0.1:1460"], relay: false });
+    const info = parseInvite(`  ${invite}\n`);
+    expect(info).toEqual({ project: "Bahay ni Lola ñ", relay: false, direct: true });
+    expect(JSON.stringify(info)).not.toContain("192.168");
   });
 
   it("sees a relay, with or without addresses", () => {
     const relay = { url: "wss://relay.example.com", room: "AAAAAAAAAAAAAAAAAAAAAA" };
-    expect(parseInvite(encode({ v: 2, secret: "s", pin: "p", addrs: ["10.0.0.4:1460"], project: "Bahay", relay }))).toEqual({ project: "Bahay", addrs: ["10.0.0.4:1460"], relay: true });
-    expect(parseInvite(encode({ v: 2, secret: "s", pin: "p", addrs: [], project: "Bahay", relay }))).toEqual({ project: "Bahay", addrs: [], relay: true });
+    expect(parseInvite(encode({ v: 2, secret: "s", pin: "p", addrs: ["10.0.0.4:1460"], project: "Bahay", relay }))).toEqual({ project: "Bahay", relay: true, direct: true });
+    expect(parseInvite(encode({ v: 2, secret: "s", pin: "p", addrs: [], project: "Bahay", relay }))).toEqual({ project: "Bahay", relay: true, direct: false });
     expect(parseInvite(encode({ v: 2, secret: "s", pin: "p", addrs: [], relay: { url: 7 } }))?.relay).toBe(false);
+  });
+
+  it("reads version 3, where the addresses are sealed", () => {
+    const relay = { url: "wss://relay.example.com", room: "AAAAAAAAAAAAAAAAAAAAAA" };
+    const sealed = "q7Zr0cXlUz3k9vJ2m4NwPgq7Zr0cXlUz3k9vJ2m4NwPg";
+    expect(parseInvite(encode({ v: 3, secret: "s", pin: "p", sealed, project: "Bahay" }))).toEqual({ project: "Bahay", relay: false, direct: true });
+    expect(parseInvite(encode({ v: 3, secret: "s", pin: "p", sealed, project: "Bahay", relay }))).toEqual({ project: "Bahay", relay: true, direct: true });
+    expect(parseInvite(encode({ v: 3, secret: "s", pin: "p", project: "Bahay", relay }))).toEqual({ project: "Bahay", relay: true, direct: false });
+    // Plain addresses do not count in version 3.
+    expect(parseInvite(encode({ v: 3, secret: "s", pin: "p", addrs: ["10.0.0.4:1460"], project: "Bahay", relay }))?.direct).toBe(false);
   });
 
   it("refuses anything else", () => {
@@ -236,7 +248,7 @@ describe("parseInvite", () => {
   });
 
   it("allows an invite without a project name", () => {
-    expect(parseInvite(encode({ v: 1, secret: "s", pin: "p", addrs: [] }))).toEqual({ project: null, addrs: [], relay: false });
+    expect(parseInvite(encode({ v: 1, secret: "s", pin: "p", addrs: [] }))).toEqual({ project: null, relay: false, direct: false });
   });
 });
 

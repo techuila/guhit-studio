@@ -1,8 +1,26 @@
 import { describe, expect, it } from "vitest";
-import type { Presence } from "../contract/bindings";
+import type { LiveCamera, PlanView, Presence } from "../contract/bindings";
 import { PresenceThrottle, SELECTION_MAX, buildPresence, samePresence, type PresenceInput } from "./presenceSync";
 
-const base: PresenceInput = { selection: [], levelId: "L1", aiScope: false, cursor: null, typing: null, live: true };
+const base: PresenceInput = {
+  selection: [],
+  levelId: "L1",
+  aiScope: false,
+  cursor: null,
+  typing: null,
+  live: true,
+  following: null,
+  viewMode: "split",
+  followed: false,
+  planView: null,
+  camera: null,
+  pointer3d: null,
+};
+
+const area: PlanView = { center: { x: 4200.4, y: -1800.6 }, width_mm: 9000.2, height_mm: 6000.7 };
+const cam: LiveCamera = { position: { x: 100.4, y: 200.6, z: 9000.5 }, target: { x: 4500, y: 3500, z: 1200 }, fov_deg: 45.04, nav: "orbit" };
+
+const off = { following: null, view_mode: null, plan_view: null, camera: null, pointer_3d: null };
 
 /** A throttle on a hand-driven clock and timer queue. */
 function harness(intervalMs = 50) {
@@ -47,8 +65,8 @@ function harness(intervalMs = 50) {
 describe("buildPresence", () => {
   it("sends the pointer and typing only in a live session", () => {
     const input: PresenceInput = { ...base, cursor: { x: 1200.04, y: -35.26 }, typing: "hi" };
-    expect(buildPresence(input)).toEqual({ cursor: { x: 1200, y: -35.3 }, level_id: "L1", selection: [], typing: "hi", ai_scope: false });
-    expect(buildPresence({ ...input, live: false })).toEqual({ cursor: null, level_id: "L1", selection: [], typing: null, ai_scope: false });
+    expect(buildPresence(input)).toEqual({ cursor: { x: 1200, y: -35.3 }, level_id: "L1", selection: [], typing: "hi", ai_scope: false, ...off, view_mode: "split" });
+    expect(buildPresence({ ...input, live: false })).toEqual({ cursor: null, level_id: "L1", selection: [], typing: null, ai_scope: false, ...off });
   });
 
   it("always carries selection, level and the AI scope", () => {
@@ -73,6 +91,45 @@ describe("buildPresence", () => {
   });
 });
 
+describe("buildPresence for follow mode", () => {
+  const all: Partial<PresenceInput> = { following: "ana", planView: area, camera: cam, pointer3d: { x: 10.6, y: 20.2, z: 900.5 } };
+
+  it("always sends who this window follows, its view mode and the 3D pointer while live", () => {
+    const pr = buildPresence({ ...base, ...all });
+    expect(pr.following).toBe("ana");
+    expect(pr.view_mode).toBe("split");
+    expect(pr.pointer_3d).toEqual({ x: 11, y: 20, z: 901 });
+    expect(buildPresence({ ...base, ...all, live: false, followed: true })).toMatchObject(off);
+  });
+
+  it("sends the plan area and camera only while someone follows this window", () => {
+    const alone = buildPresence({ ...base, ...all });
+    expect(alone.plan_view).toBeNull();
+    expect(alone.camera).toBeNull();
+    const watched = buildPresence({ ...base, ...all, followed: true });
+    expect(watched.plan_view).toEqual({ center: { x: 4200, y: -1801 }, width_mm: 9000, height_mm: 6001 });
+    expect(watched.camera).toEqual({ position: { x: 100, y: 201, z: 9001 }, target: { x: 4500, y: 3500, z: 1200 }, fov_deg: 45, nav: "orbit" });
+  });
+
+  it("sends only the views on screen", () => {
+    const plan = buildPresence({ ...base, ...all, followed: true, viewMode: "2d" });
+    expect(plan.plan_view).not.toBeNull();
+    expect(plan.camera).toBeNull();
+    expect(plan.pointer_3d).toBeNull();
+    const model = buildPresence({ ...base, ...all, followed: true, viewMode: "3d" });
+    expect(model.plan_view).toBeNull();
+    expect(model.camera).not.toBeNull();
+  });
+
+  it("drops an area or camera that is not finite or has no size, and keeps the field of view in 5 to 110", () => {
+    const bad = buildPresence({ ...base, followed: true, planView: { ...area, width_mm: 0 }, camera: { ...cam, target: { x: Number.NaN, y: 0, z: 0 } } });
+    expect(bad.plan_view).toBeNull();
+    expect(bad.camera).toBeNull();
+    expect(buildPresence({ ...base, followed: true, camera: { ...cam, fov_deg: 170 } }).camera?.fov_deg).toBe(110);
+    expect(buildPresence({ ...base, followed: true, pointer3d: { x: Number.POSITIVE_INFINITY, y: 0, z: 0 } }).pointer_3d).toBeNull();
+  });
+});
+
 describe("samePresence", () => {
   const a = buildPresence({ ...base, cursor: { x: 1, y: 2 }, selection: ["a"] });
   it("compares every field", () => {
@@ -83,6 +140,27 @@ describe("samePresence", () => {
     expect(samePresence(a, buildPresence({ ...base, cursor: { x: 1, y: 2 }, selection: ["a"], typing: "" }))).toBe(false);
     expect(samePresence(a, buildPresence({ ...base, cursor: { x: 1, y: 2 }, selection: ["a"], aiScope: true }))).toBe(false);
     expect(samePresence(a, buildPresence({ ...base, cursor: { x: 1, y: 2 }, selection: ["a"], levelId: "L2" }))).toBe(false);
+  });
+
+  it("sees a change in any follow field, a camera-only move too", () => {
+    const f = buildPresence({ ...base, followed: true, following: "ana", planView: area, camera: cam });
+    const same = (over: Partial<PresenceInput>) => samePresence(f, buildPresence({ ...base, followed: true, following: "ana", planView: area, camera: cam, ...over }));
+    expect(same({})).toBe(true);
+    expect(same({ camera: { ...cam, position: { ...cam.position, x: 140 } } })).toBe(false);
+    expect(same({ camera: { ...cam, nav: "walk" } })).toBe(false);
+    expect(same({ camera: { ...cam, fov_deg: 60 } })).toBe(false);
+    expect(same({ planView: { ...area, width_mm: 12000 } })).toBe(false);
+    expect(same({ planView: null })).toBe(false);
+    expect(same({ following: "ben" })).toBe(false);
+    expect(same({ viewMode: "3d" })).toBe(false);
+    expect(same({ pointer3d: { x: 1, y: 2, z: 3 } })).toBe(false);
+    // Under a millimeter is the same view.
+    expect(same({ camera: { ...cam, position: { ...cam.position, x: 100.3 } } })).toBe(true);
+  });
+
+  it("reads a field an older version leaves out as null", () => {
+    const old = { cursor: null, level_id: "L1", selection: [], typing: null, ai_scope: false } as unknown as Presence;
+    expect(samePresence(old, { ...old, ...off })).toBe(true);
   });
 });
 
@@ -144,6 +222,15 @@ describe("PresenceThrottle", () => {
     h.t.reset();
     h.t.update(h.p({ selection: ["a"] }));
     expect(h.sent).toHaveLength(2);
+  });
+
+  it("sends a camera-only change", () => {
+    const h = harness();
+    h.t.update(h.p({ followed: true, camera: cam }));
+    h.advance(60);
+    h.t.update(h.p({ followed: true, camera: { ...cam, position: { x: 900, y: 200, z: 9000 } } }));
+    expect(h.sent).toHaveLength(2);
+    expect(h.sent[1].camera?.position.x).toBe(900);
   });
 
   it("clears its timer on dispose", () => {
