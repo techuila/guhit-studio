@@ -56,6 +56,12 @@ pub struct HistoryStep {
     pub ids: Vec<Id>,
     /// Elements the step removed.
     pub removed: Vec<Id>,
+    /// For an agent's step: the person it worked for, and their name at the
+    /// time. None for steps people made themselves.
+    #[serde(default)]
+    pub on_behalf_of: Option<Id>,
+    #[serde(default)]
+    pub on_behalf_name: Option<String>,
 }
 
 /// The undo and redo stacks, newest first: `undo[0]` is what an undo takes
@@ -581,6 +587,10 @@ pub enum AppEvent {
     /// The backend needs the window to do something only the window can:
     /// render or capture. Answer with `window_reply`.
     WindowRequest { request: WindowRequest },
+    /// The agents working on this computer's project changed: one connected,
+    /// moved, changed its status, was paused or stopped (DECISIONS D47). The
+    /// full list, newest first.
+    Agents { agents: Vec<AgentSummary> },
 }
 
 // ---------------------------------------------------------- window requests
@@ -605,13 +615,32 @@ pub enum WindowTask {
         views: Vec<Id>,
         quality: TraceQuality,
         size: RenderSize,
+        /// What the images show. None: what each saved view stored, else
+        /// the model's defaults (roof on, no cutaway); never whatever the
+        /// window happens to show (an agent cannot see the window's toggles).
+        #[serde(default)]
+        visibility: Option<ViewVisibility>,
     },
     /// Save a capture of the live 3D view (Tier 1), seen from a saved view
     /// when `camera_id` is set.
-    CaptureView { camera_id: Option<Id> },
+    CaptureView {
+        camera_id: Option<Id>,
+        /// As for `Render`.
+        #[serde(default)]
+        visibility: Option<ViewVisibility>,
+    },
     /// Draw the plan of a level (None: the level on screen) on white and
     /// answer it as `WindowReply::image`. Nothing is saved.
     CapturePlan { level_id: Option<Id> },
+}
+
+/// What a render or capture asked for from outside the window shows
+/// (DECISIONS D31): the roof, and the active level's cutaway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ViewVisibility {
+    pub roof: bool,
+    pub cutaway: bool,
 }
 
 /// Render sizes, as the render panel offers them.
@@ -670,6 +699,9 @@ pub struct McpStatus {
     pub last_client: Option<McpClientSeen>,
     /// True when `mcp_claude_desktop_bundle` can write the extension file.
     pub claude_desktop_bundle: bool,
+    /// The agents working on the project now (DECISIONS D47).
+    #[serde(default)]
+    pub agents: Vec<AgentSummary>,
 }
 
 /// An MCP client as it named itself in `clientInfo`.

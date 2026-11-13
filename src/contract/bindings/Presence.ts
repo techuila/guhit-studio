@@ -57,4 +57,9 @@ camera: LiveCamera | null,
  * The point under their pointer in the 3D view, in plan mm with z above
  * project zero (like `Camera`). None while the pointer is off the model.
  */
-pointer_3d: Vec3 | null, };
+pointer_3d: Vec3 | null, 
+/**
+ * A short line saying what they are doing: "Placing doors". Agents set
+ * it; people leave it None.
+ */
+status: string | null, };

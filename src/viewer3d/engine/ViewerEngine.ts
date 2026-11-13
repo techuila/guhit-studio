@@ -48,8 +48,9 @@ import { Minimap, type MinimapScene } from "../walk/minimap";
 import { WalkWorlds } from "../walk/worlds";
 import type { NavMode, ShellMode } from "../viewerStore";
 import { Animator } from "./animator";
-import { Environment } from "./environment";
+import { Environment, TONE_EXPOSURE, TONE_MAPPING } from "./environment";
 import { LightRig } from "../light/LightRig";
+import { markOccluders, ScreenAO } from "../light/ao";
 import { Highlight, spec, type HighlightState } from "./highlights";
 import { MeshFade, meshesUnder } from "./meshFade";
 import { ReferenceModelStore, type ReferenceModelPlacement } from "./referenceModels";
@@ -62,7 +63,7 @@ import {
   pointerLockSupported,
   SPEED_MAX_MM_S,
   SPEED_MIN_MM_S,
-  WALK_FOV,
+  walkFov,
   WalkControls,
   WalkState,
   walkEscape,
@@ -227,6 +228,9 @@ export class ViewerEngine {
   readonly controls: OrbitControls;
   readonly anim = new Animator();
   private env: Environment;
+  /** Ambient occlusion in the live view (light/ao.ts), computed inside the frame's render call. */
+  private ao: ScreenAO;
+  private aoOn = true;
   /** Sun, sky, lamps, exposure, refine and the sun path (light/LightRig.ts). */
   private lighting: LightRig;
   private lib = new MaterialLibrary();
@@ -364,9 +368,14 @@ export class ViewerEngine {
   ) {
     liveEngines++;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    // The renderer's own render, before anything wraps it (the perf probe
+    // does): the occlusion passes run inside the frame's one render call.
+    const baseRender = this.renderer.render.bind(this.renderer);
+    this.ao = new ScreenAO(this.lib.ao, baseRender);
+    this.scene.onBeforeRender = (r, _s, cam) => this.ao.beforeRender(r, this.scene, cam);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.95;
+    this.renderer.toneMapping = TONE_MAPPING;
+    this.renderer.toneMappingExposure = TONE_EXPOSURE;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     // The sun and the model stand still while the camera moves, so the shadow
@@ -394,7 +403,7 @@ export class ViewerEngine {
     canvas.style.cssText = "display:block;width:100%;height:100%;outline:none;touch-action:none";
     container.appendChild(canvas);
 
-    this.env = new Environment(this.scene);
+    this.env = new Environment(this.scene, this.lib.ao);
     this.env.bakeEnvironment(this.renderer);
     // Every frame the light asks for goes through `schedule()`: the rig has
     // no loop of its own (light/LightRig.ts).
@@ -419,7 +428,13 @@ export class ViewerEngine {
     // the sky above, a texture per preset, a GLB per catalog key. Nothing here
     // blocks the first frame.
     void loadPackManifest();
-    this.env.loadHdri(this.renderer, { onHdriReady: () => this.onHdriReady() });
+    this.env.loadHdri(this.renderer, {
+      onHdriReady: () => this.onHdriReady(),
+      onGroundReady: () => {
+        this.shadowDirty();
+        this.invalidate();
+      },
+    });
     this.lib.onPackTexture = () => {
       // A new map changes what the sun sees through alpha and what the walls
       // reflect: redraw the shadow map and ask for exactly one frame.
@@ -762,6 +777,7 @@ export class ViewerEngine {
       return;
     }
     this.scene.add(this.built.root);
+    markOccluders(this.built.root);
     this.refreshPickables();
     // The shell look goes onto any material this build created, and the
     // outlines follow the new geometry, before any entrance lifts a mesh.
@@ -1371,7 +1387,22 @@ export class ViewerEngine {
     const ok = [camera.position, camera.target].every((v) => [v.x, v.y, v.z].every(Number.isFinite));
     if (!ok) return;
     this.leaveWalkFor();
-    this.flyTo(cameraToPose(camera), duration);
+    const pose = cameraToPose(camera);
+    // A saved view looking up (a double height room from its floor) is past
+    // the orbit's polar limit: the controls would lift the camera round its
+    // target, and a capture of the view would show a ceiling from another
+    // height. The limit opens for the view and closes again once the user
+    // orbits back within it (`settlePolar`), as for following someone.
+    const dx = pose.position[0] - pose.target[0];
+    const dy = pose.position[1] - pose.target[1];
+    const dz = pose.position[2] - pose.target[2];
+    const dist = Math.hypot(dx, dy, dz);
+    const polar = dist > 1e-6 ? Math.acos(Math.min(Math.max(dy / dist, -1), 1)) : 0;
+    if (polar > this.orbitMaxPolar) {
+      this.controls.maxPolarAngle = Math.min(polar + 1e-3, Math.PI - 0.01);
+      this.polarRelaxed = true;
+    }
+    this.flyTo(pose, duration);
   }
 
   /** Returns false when the preset cannot be computed (no room to stand in). */
@@ -1983,12 +2014,13 @@ export class ViewerEngine {
     tmpEuler.set(w.pitch, w.yaw - Math.PI / 2, 0, "YXZ");
     tmpQuat.setFromEuler(tmpEuler);
     const b = this.walkBlend;
-    let fov = WALK_FOV;
+    const lens = walkFov(this.camera.aspect);
+    let fov = lens;
     if (b) {
       const k = this.anim.value("walk", 1);
       this.camera.position.lerpVectors(b.pos, tmpPos, k);
       this.camera.quaternion.slerpQuaternions(b.quat, tmpQuat, k);
-      fov = b.fov + (WALK_FOV - b.fov) * k;
+      fov = b.fov + (lens - b.fov) * k;
     } else {
       this.camera.position.copy(tmpPos);
       this.camera.quaternion.copy(tmpQuat);
@@ -2308,6 +2340,28 @@ export class ViewerEngine {
   }
 
   /**
+   * `capture` with the roof and the cutaway as asked, in the solid shell,
+   * not as this window happens to show them: an MCP client's picture cannot
+   * see the window's toggles (`WindowTask::CaptureView::visibility`; the
+   * model's defaults are roof on, no cutaway). The window's own state comes
+   * back right after.
+   */
+  captureWith(width: number, height: number, show: { roof: boolean; cutaway: boolean } = { roof: true, cutaway: false }): string {
+    const doc = this.doc;
+    const opts = this.opts;
+    const shell = this.shell.mode;
+    if (!doc || (opts.cutaway === show.cutaway && opts.roofVisible === show.roof && shell === "solid")) return this.capture(width, height);
+    this.setDoc(doc, { ...opts, cutaway: show.cutaway, roofVisible: show.roof });
+    if (shell !== "solid") this.setShell("solid", false);
+    try {
+      return this.capture(width, height);
+    } finally {
+      if (shell !== "solid") this.setShell(shell, false);
+      this.setDoc(doc, opts);
+    }
+  }
+
+  /**
    * `capture`, handing the canvas to `use` right after the frame is drawn and
    * before anything else touches it: the shadow study copies its frames out
    * this way instead of encoding a PNG per frame.
@@ -2317,6 +2371,15 @@ export class ViewerEngine {
     this.anim.finishAll();
     this.walkDoors.finish();
     this.applyAnimated();
+    // A flight that landed here without a frame in between (a capture right
+    // after `apply_camera`, or a hidden window, where frames are paused) has
+    // moved the camera and its target but not turned the camera to the
+    // target yet: the orbit controls do that in a frame. Do it now, or the
+    // capture keeps the old view direction from the new position.
+    if (this.nav === "orbit") {
+      this.landDamping();
+      this.camera.updateMatrixWorld();
+    }
     this.releaseHighlights();
     this.syncPipes();
     this.pipeHandle.setCaptureHidden(true);
@@ -2330,6 +2393,7 @@ export class ViewerEngine {
       this.env.followCamera(this.camera);
       this.shadowDirty();
       this.lighting.beforeRender(width, height);
+      this.armAo();
       this.renderer.render(this.scene, this.camera);
       return use(this.renderer.domElement);
     } finally {
@@ -2549,6 +2613,7 @@ export class ViewerEngine {
     this.pipeHandle.beforeRender(this.width, this.height);
     this.env.followCamera(this.camera);
     this.lighting.beforeRender();
+    this.armAo();
     this.renderer.render(this.scene, this.camera);
     if (!this.firstRendered) {
       this.firstRendered = true;
@@ -2569,6 +2634,8 @@ export class ViewerEngine {
     for (const hl of this.live.values()) hl.setResolution(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    // The walk lens is set across the width: a new aspect is a new vertical field.
+    this.applyWalkerCamera();
     // Render in the same task so the resized canvas never shows a blank frame.
     this.renderNow();
     this.invalidate();
@@ -2731,6 +2798,7 @@ export class ViewerEngine {
     this.env.bakeEnvironment(this.renderer);
     this.env.reloadHdri(this.renderer);
     this.lighting.contextRestored();
+    this.ao.contextRestored();
     this.shadowDirty();
     this.cb.onContextLost(false);
     this.invalidate();
@@ -2788,7 +2856,27 @@ export class ViewerEngine {
       },
       /** Sun, sky, exposure, lamps and refine (light/LightRig.ts). */
       light: this.lighting.stats(),
+      /** Ambient occlusion: on, and the CPU time of its last passes. */
+      ao: { on: this.aoOn, ms: Math.round(this.ao.lastMs * 100) / 100 },
     };
+  }
+
+  /**
+   * The next render works out ambient occlusion first, for its own size and
+   * camera: off in the X-ray and hidden shells, where walls are see-through.
+   */
+  private armAo(): void {
+    this.ao.enabled = this.aoOn && this.shell.mode === "solid";
+    this.ao.clip = this.clip;
+    this.ao.arm();
+  }
+
+  /** Dev and measurement toggle for the ambient occlusion (scripts, the dev harness). */
+  setAo(on: boolean): void {
+    if (this.aoOn === on) return;
+    this.aoOn = on;
+    if (!on) this.ao.off();
+    this.invalidate();
   }
 
   // ------------------------------------------------------------------ light
@@ -2858,6 +2946,7 @@ export class ViewerEngine {
     this.scene.remove(this.refs.root);
     this.lib.dispose();
     this.lighting.dispose();
+    this.ao.dispose();
     this.env.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

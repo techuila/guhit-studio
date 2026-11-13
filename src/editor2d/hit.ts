@@ -6,6 +6,7 @@ import { dist, distToSegment, pointInPolygon, shapeInsideRect, shapeIntersectsRe
 import type { DocIndex } from "./model";
 import { dimensionGeometry, elementShape, isLocked } from "./model";
 import { hitsPipe } from "./pipe";
+import { hitsSlab } from "./slab";
 
 export interface HitOptions {
   /** Pick radius in mm. */
@@ -31,6 +32,8 @@ const ORDER: Element["kind"][] = [
   "asset",
   "stair",
   "wall",
+  // Slabs sit under the building: their outline, or their inside away from rooms.
+  "slab",
   "linework",
   "room",
   "underlay",
@@ -53,6 +56,9 @@ export function hitsElement(p: P, el: Element, index: DocIndex, opt: HitOptions)
   if (el.kind === "pipe") {
     // Near the centerline, not by area: a click between two runs misses both.
     return hitsPipe(p, el, opt.pxMm ?? opt.tol / 6, opt.tol);
+  }
+  if (el.kind === "slab") {
+    return hitsSlab(p, el.polygon, opt.tol * 0.6, index.roomPolygons);
   }
   if (el.kind === "linework") {
     // Selectable by clicking near a segment, not by area: each polyline is

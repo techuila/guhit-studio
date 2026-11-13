@@ -11,6 +11,7 @@ import { bus } from "../state/bus";
 import { useApp } from "../state/store";
 import { copyText } from "../ui/clipboard";
 import { cleanName, firstName, others, participant, possessive } from "./format";
+import { agentActions } from "./agentActions";
 import { useLive } from "./liveStore";
 
 /** Saves the profile name when it changed. Hosting and joining need one. */
@@ -188,6 +189,8 @@ export function liveActions(): PaletteAction[] {
   }
   out.push({ id: "live-join", title: "Join a live session", group: "Project", icon: "join", keywords: "join invite multiplayer collaborate live session guest", run: openJoin });
   out.push({ id: "live-chat", title: "Open chat", group: "Panels", icon: "chat", keywords: "chat messages live session talk", run: openChat });
+  // Agents work with or without a session (DECISIONS D47): Show agents, the review, Pause all, Stop all.
+  out.push(...agentActions());
   if (mode === "hosting") {
     const n = others(st.status).length;
     out.push({

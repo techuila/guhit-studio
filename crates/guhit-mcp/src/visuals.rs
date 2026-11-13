@@ -127,15 +127,15 @@ fn point3(what: &str) -> Value {
 pub fn picture_from_data_url(url: &str) -> Result<Picture, ToolFail> {
     let rest = url
         .strip_prefix("data:")
-        .ok_or_else(|| ToolFail("io: the image is not a data URL".into()))?;
+        .ok_or_else(|| ToolFail::msg("io: the image is not a data URL"))?;
     let (head, data) = rest
         .split_once(',')
-        .ok_or_else(|| ToolFail("io: the image data URL has no data".into()))?;
+        .ok_or_else(|| ToolFail::msg("io: the image data URL has no data"))?;
     let mime = head
         .strip_suffix(";base64")
-        .ok_or_else(|| ToolFail("io: the image data URL is not base64".into()))?;
+        .ok_or_else(|| ToolFail::msg("io: the image data URL is not base64"))?;
     if !matches!(mime, "image/png" | "image/jpeg" | "image/webp") {
-        return Err(ToolFail(format!("io: unexpected image type {mime}")));
+        return Err(ToolFail::msg(format!("io: unexpected image type {mime}")));
     }
     Ok(Picture { base64: data.to_string(), mime: mime.to_string() })
 }
@@ -143,7 +143,7 @@ pub fn picture_from_data_url(url: &str) -> Result<Picture, ToolFail> {
 /// A picture the model can take: PNG or JPEG bytes at most `PICTURE_MAX_PX`
 /// on the long side. A larger image is scaled down and sent as JPEG.
 pub fn fit_picture(bytes: &[u8], mime: &str) -> Result<Picture, ToolFail> {
-    let img = image::load_from_memory(bytes).map_err(|e| ToolFail(format!("io: the image cannot be read: {e}")))?;
+    let img = image::load_from_memory(bytes).map_err(|e| ToolFail::msg(format!("io: the image cannot be read: {e}")))?;
     let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
     if img.width().max(img.height()) <= PICTURE_MAX_PX {
         return Ok(Picture { base64: b64(bytes), mime: mime.to_string() });
@@ -152,18 +152,18 @@ pub fn fit_picture(bytes: &[u8], mime: &str) -> Result<Picture, ToolFail> {
     let mut out = Cursor::new(Vec::new());
     image::DynamicImage::ImageRgb8(small.to_rgb8())
         .write_to(&mut out, image::ImageFormat::Jpeg)
-        .map_err(|e| ToolFail(format!("io: the image cannot be encoded: {e}")))?;
+        .map_err(|e| ToolFail::msg(format!("io: the image cannot be encoded: {e}")))?;
     Ok(Picture { base64: b64(out.get_ref()), mime: "image/jpeg".into() })
 }
 
 /// A saved record's image, fitted for the model.
 async fn record_picture(app: &AppService, id: &str) -> Result<Picture, ToolFail> {
     let url: String = serde_json::from_value(app.handle("render_data", json!({ "id": id })).await?)
-        .map_err(|e| ToolFail(format!("io: {e}")))?;
+        .map_err(|e| ToolFail::msg(format!("io: {e}")))?;
     let raw = picture_from_data_url(&url)?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(raw.base64.as_bytes())
-        .map_err(|e| ToolFail(format!("io: the stored image is not base64: {e}")))?;
+        .map_err(|e| ToolFail::msg(format!("io: the stored image is not base64: {e}")))?;
     fit_picture(&bytes, &raw.mime)
 }
 
@@ -171,7 +171,7 @@ async fn record(app: &AppService, id: &str) -> Result<Value, ToolFail> {
     let list = app.handle("render_list", json!({})).await?;
     list.as_array()
         .and_then(|l| l.iter().find(|r| r["id"] == id).cloned())
-        .ok_or_else(|| ToolFail(format!("not_found: no saved visual has id `{id}`. list_renders shows them")))
+        .ok_or_else(|| ToolFail::msg(format!("not_found: no saved visual has id `{id}`. list_renders shows them")))
 }
 
 // -------------------------------------------------------------------- views
@@ -195,19 +195,19 @@ fn find_view(project: &Project, wanted: &str) -> Result<Id, ToolFail> {
         [one] => Ok(one.id.clone()),
         [] => {
             let known: Vec<String> = cameras.iter().map(|c| format!("\"{}\" ({})", c.name, c.id)).collect();
-            Err(ToolFail(if known.is_empty() {
+            Err(ToolFail::msg(if known.is_empty() {
                 format!("not_found: no saved view is called `{wanted}`, and the project has no saved views. add_camera saves one")
             } else {
                 format!("not_found: no saved view is called `{wanted}`. Saved views: {}", known.join(", "))
             }))
         }
-        _ => Err(ToolFail(format!("invalid arguments: more than one saved view is called `{wanted}`; give its id"))),
+        _ => Err(ToolFail::msg(format!("invalid arguments: more than one saved view is called `{wanted}`; give its id"))),
     }
 }
 
 async fn views_of(app: &AppService, names: &[String]) -> Result<Vec<Id>, ToolFail> {
     let s = app.session.lock().await;
-    let doc = s.doc.as_ref().ok_or_else(|| ToolFail("no_document: no project is open".into()))?;
+    let doc = s.doc.as_ref().ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
     names.iter().map(|n| find_view(doc.project(), n)).collect()
 }
 
@@ -241,6 +241,90 @@ async fn finished(app: &AppService, job_id: Option<&str>, reply: WindowReply) ->
     Ok(Output::Rich { json: out, images })
 }
 
+// --------------------------------------------------------------- busy window
+
+/// About how long a render takes, by quality: what `window_busy` says to
+/// wait for.
+fn render_seconds(quality: TraceQuality) -> u64 {
+    match quality {
+        TraceQuality::Quick => 75,
+        TraceQuality::Final => 330,
+    }
+}
+
+fn last_render() -> &'static std::sync::Mutex<Option<(Id, std::time::Instant, TraceQuality)>> {
+    static LAST: std::sync::OnceLock<std::sync::Mutex<Option<(Id, std::time::Instant, TraceQuality)>>> = std::sync::OnceLock::new();
+    LAST.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn note_render(job: &str, quality: TraceQuality) {
+    *last_render().lock().unwrap_or_else(|e| e.into_inner()) = Some((job.to_string(), std::time::Instant::now(), quality));
+}
+
+/// The window refused because a render is still running: say so plainly,
+/// with when to try again and the job to wait on.
+pub(crate) fn window_busy(e: IpcError) -> ToolFail {
+    if !e.message.to_ascii_lowercase().contains("already running") {
+        return e.into();
+    }
+    let last = last_render().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let (retry, job) = match last {
+        Some((job, at, quality)) => (render_seconds(quality).saturating_sub(at.elapsed().as_secs()).max(15), Some(job)),
+        None => (60, None),
+    };
+    let mut f = ToolFail::new(
+        "window_busy",
+        format!("the Guhit Studio window is still rendering (it shows its progress), so nothing new was started. Try again in about {retry} s"),
+    );
+    f.hint = Some(match job {
+        Some(job) => format!("Call render with action \"status\" and job_id \"{job}\" to wait for the render that is running, then start yours."),
+        None => "Wait for the window's render to finish (or ask the user to stop it), then call again.".to_string(),
+    });
+    f
+}
+
+// ------------------------------------------------------------- visibility
+
+/// The `visibility` a call asks for (`WindowTask`, DECISIONS D31): None
+/// when it names none, and the window draws its default, the model as
+/// drawn. A field left out keeps the default: roof on, no cutaway.
+pub(crate) fn visibility_of(args: &Value) -> Result<Option<ViewVisibility>, ToolFail> {
+    let Some(v) = args.get("visibility").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    let map = v.as_object().ok_or_else(|| ToolFail::args("visibility is {roof: true or false, cutaway: true or false}"))?;
+    if let Some(bad) = map.keys().find(|k| !matches!(k.as_str(), "roof" | "cutaway")) {
+        return Err(ToolFail::args(format!("visibility takes roof and cutaway, not `{bad}`")));
+    }
+    let flag = |k: &str, default: bool| match map.get(k) {
+        None => Ok(default),
+        Some(v) => v.as_bool().ok_or_else(|| ToolFail::args(format!("visibility.{k} is true or false"))),
+    };
+    Ok(Some(ViewVisibility { roof: flag("roof", true)?, cutaway: flag("cutaway", false)? }))
+}
+
+/// What a picture shows, for its result.
+fn visibility_text(v: Option<ViewVisibility>) -> String {
+    match v {
+        None => "the model as drawn (the window's default)".to_string(),
+        Some(v) => format!(
+            "roof {}, {}",
+            if v.roof { "on" } else { "off" },
+            if v.cutaway { "cutaway at the active level" } else { "no cutaway" }
+        ),
+    }
+}
+
+/// Say in a picture's result what it shows.
+fn note_visibility(mut out: Output, v: Option<ViewVisibility>) -> Output {
+    if let Output::Json(json) | Output::Rich { json, .. } = &mut out {
+        if json.is_object() {
+            json["visibility"] = json!(visibility_text(v));
+        }
+    }
+    out
+}
+
 fn running(job_id: &str) -> Output {
     Output::Json(json!({
         "status": "running",
@@ -251,9 +335,9 @@ fn running(job_id: &str) -> Output {
 
 // ------------------------------------------------------------------- tools
 
-pub async fn call(app: &AppService, name: &str, args: &Value) -> Option<Result<Output, ToolFail>> {
+pub async fn call(app: &AppService, name: &str, args: &Value, ctx: &crate::agent::CallContext) -> Option<Result<Output, ToolFail>> {
     Some(match name {
-        "add_camera" => add_camera(app, args).await,
+        "add_camera" => add_camera(app, args, ctx).await,
         "capture_view" => capture_view(app, args).await,
         "render_view" => render_view(app, args).await,
         "get_render_job" => get_render_job(app, args).await,
@@ -275,20 +359,20 @@ struct AddCameraInput {
     scope: Option<Value>,
 }
 
-async fn add_camera(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+async fn add_camera(app: &AppService, args: &Value, ctx: &crate::agent::CallContext) -> Result<Output, ToolFail> {
     let input: AddCameraInput =
-        serde_json::from_value(args.clone()).map_err(|e| ToolFail(format!("invalid arguments: {e}")))?;
+        serde_json::from_value(args.clone()).map_err(|e| ToolFail::msg(format!("invalid arguments: {e}")))?;
     let name = input.name.trim();
     if name.is_empty() {
-        return Err(ToolFail("invalid arguments: name is empty".into()));
+        return Err(ToolFail::msg("invalid arguments: name is empty"));
     }
     let finite = |v: &Vec3| [v.x, v.y, v.z].iter().all(|n| n.is_finite());
     if !finite(&input.position) || !finite(&input.target) {
-        return Err(ToolFail("invalid arguments: position and target need finite x, y and z".into()));
+        return Err(ToolFail::msg("invalid arguments: position and target need finite x, y and z"));
     }
     let fov = input.fov_deg.unwrap_or(60.0);
     if !(20.0..=100.0).contains(&fov) {
-        return Err(ToolFail(format!("invalid arguments: fov_deg must be 20 to 100, got {fov}")));
+        return Err(ToolFail::msg(format!("invalid arguments: fov_deg must be 20 to 100, got {fov}")));
     }
     let (dx, dy, dz) = (
         input.target.x - input.position.x,
@@ -296,11 +380,11 @@ async fn add_camera(app: &AppService, args: &Value) -> Result<Output, ToolFail> 
         input.target.z - input.position.z,
     );
     if (dx * dx + dy * dy + dz * dz).sqrt() < 100.0 {
-        return Err(ToolFail("invalid arguments: target must be at least 100 mm from position".into()));
+        return Err(ToolFail::msg("invalid arguments: target must be at least 100 mm from position"));
     }
     let floor = {
         let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(|| ToolFail("no_document: no project is open".into()))?;
+        let doc = s.doc.as_ref().ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
         let project = doc.project();
         let level = match input.level.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
             None => project.levels.first(),
@@ -312,7 +396,7 @@ async fn add_camera(app: &AppService, args: &Value) -> Result<Output, ToolFail> 
         };
         level
             .map(|l| l.elevation_mm)
-            .ok_or_else(|| ToolFail(format!("not_found: no level is called `{}`", input.level.unwrap_or_default())))?
+            .ok_or_else(|| ToolFail::msg(format!("not_found: no level is called `{}`", input.level.unwrap_or_default())))?
     };
     let lift = |v: Vec3| Vec3 { x: v.x, y: v.y, z: v.z + floor };
     let command = Command::AddElement {
@@ -326,7 +410,7 @@ async fn add_camera(app: &AppService, args: &Value) -> Result<Output, ToolFail> 
             light: None,
         }),
     };
-    crate::tools::commit_one(app, "MCP: add camera", command, args).await
+    crate::tools::commit_one(app, "MCP: add camera", command, args, ctx).await
 }
 
 async fn capture_view(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
@@ -335,48 +419,61 @@ async fn capture_view(app: &AppService, args: &Value) -> Result<Output, ToolFail
         _ => None,
     };
     let wait = wait_of(args)?;
-    let job = app.window_start(WindowTask::CaptureView { camera_id })?;
-    match app.window_wait(&job, wait).await? {
-        Some(reply) => finished(app, Some(&job), reply).await,
-        None => Ok(running(&job)),
-    }
+    let visibility = visibility_of(args)?;
+    let job = app.window_start(WindowTask::CaptureView { camera_id, visibility })?;
+    let out = match app.window_wait(&job, wait).await.map_err(window_busy)? {
+        Some(reply) => finished(app, Some(&job), reply).await?,
+        None => running(&job),
+    };
+    Ok(note_visibility(out, visibility))
 }
 
 async fn render_view(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
     let names: Vec<String> = match args.get("views") {
         None | Some(Value::Null) => vec![],
         Some(v) => serde_json::from_value(v.clone())
-            .map_err(|_| ToolFail("invalid arguments: `views` must be a list of saved view ids or names".into()))?,
+            .map_err(|_| ToolFail::msg("invalid arguments: `views` must be a list of saved view ids or names"))?,
     };
     let views = views_of(app, &names).await?;
     let quality = match opt_str(args, "quality")?.as_deref() {
         None | Some("quick") => TraceQuality::Quick,
         Some("final") => TraceQuality::Final,
-        Some(other) => return Err(ToolFail(format!("invalid arguments: unknown quality `{other}`. Use quick or final"))),
+        Some(other) => return Err(ToolFail::msg(format!("invalid arguments: unknown quality `{other}`. Use quick or final"))),
     };
     let size = match opt_str(args, "size")?.as_deref() {
         None | Some("hd") => RenderSize::Hd,
         Some("qhd") => RenderSize::Qhd,
         Some("4k") => RenderSize::Uhd,
         Some("square") => RenderSize::Square,
-        Some(other) => return Err(ToolFail(format!("invalid arguments: unknown size `{other}`. Use hd, qhd, 4k or square"))),
+        Some(other) => return Err(ToolFail::msg(format!("invalid arguments: unknown size `{other}`. Use hd, qhd, 4k or square"))),
     };
     let wait = wait_of(args)?;
+    let visibility = visibility_of(args)?;
     {
         let s = app.session.lock().await;
-        s.doc.as_ref().ok_or_else(|| ToolFail("no_document: no project is open".into()))?;
+        s.doc.as_ref().ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
     }
-    let job = app.window_start(WindowTask::Render { views, quality, size })?;
-    match app.window_wait(&job, wait).await? {
-        Some(reply) => finished(app, Some(&job), reply).await,
-        None => Ok(running(&job)),
-    }
+    let job = app.window_start(WindowTask::Render { views, quality, size, visibility })?;
+    // The render this one waits behind, if the window refuses it as busy.
+    let before = last_render().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    note_render(&job, quality);
+    let waited = app.window_wait(&job, wait).await.map_err(|e| {
+        if e.message.to_ascii_lowercase().contains("already running") {
+            *last_render().lock().unwrap_or_else(|e| e.into_inner()) = before.clone();
+        }
+        window_busy(e)
+    });
+    let out = match waited? {
+        Some(reply) => finished(app, Some(&job), reply).await?,
+        None => running(&job),
+    };
+    Ok(note_visibility(out, visibility))
 }
 
 async fn get_render_job(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
     let job = req_str(args, "job_id")?;
     let wait = wait_of(args)?;
-    match app.window_wait(&job, wait).await? {
+    match app.window_wait(&job, wait).await.map_err(window_busy)? {
         Some(reply) => finished(app, Some(&job), reply).await,
         None => Ok(running(&job)),
     }
@@ -401,7 +498,7 @@ async fn visualize_render(app: &AppService, args: &Value) -> Result<Output, Tool
         Some("draft") => RenderQuality::Draft,
         Some("high") => RenderQuality::High,
         Some(other) => {
-            return Err(ToolFail(format!(
+            return Err(ToolFail::msg(format!(
                 "invalid arguments: unknown quality `{other}`. Use draft, standard or high"
             )))
         }
@@ -415,7 +512,7 @@ async fn visualize_render(app: &AppService, args: &Value) -> Result<Output, Tool
         keep_geometry,
     };
     let result: RenderAiResult = serde_json::from_value(app.handle("render_ai_generate", json!({ "request": request })).await?)
-        .map_err(|e| ToolFail(format!("io: {e}")))?;
+        .map_err(|e| ToolFail::msg(format!("io: {e}")))?;
     let picture = record_picture(app, &result.record.id).await?;
     Ok(Output::Rich {
         json: json!({
@@ -436,14 +533,14 @@ pub async fn plan_image(app: &AppService, args: &Value) -> Result<Output, ToolFa
         None => None,
         Some(wanted) => {
             let s = app.session.lock().await;
-            let doc = s.doc.as_ref().ok_or_else(|| ToolFail("no_document: no project is open".into()))?;
+            let doc = s.doc.as_ref().ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
             let project = doc.project();
             let level = project
                 .levels
                 .iter()
                 .find(|l| l.id == wanted)
                 .or_else(|| project.levels.iter().find(|l| l.name.trim().eq_ignore_ascii_case(&wanted)))
-                .ok_or_else(|| ToolFail(format!("not_found: no level is called `{wanted}`")))?;
+                .ok_or_else(|| ToolFail::msg(format!("not_found: no level is called `{wanted}`")))?;
             Some(level.id.clone())
         }
     };
@@ -463,24 +560,18 @@ pub async fn plan_image(app: &AppService, args: &Value) -> Result<Output, ToolFa
         }
     }
     if level_id.is_some() {
-        return Err(ToolFail(
-            "no_window: a plan of another level needs the Guhit Studio window open on the project. Use export_plan with format \"svg\" to get a drawing from the engine instead."
-                .into(),
-        ));
+        return Err(ToolFail::msg("no_window: a plan of another level needs the Guhit Studio window open on the project. Use export_plan with format \"svg\" to get a drawing from the engine instead."));
     }
     let dir = app
         .project_dir()
         .await
-        .ok_or_else(|| ToolFail("no_document: no project is open".into()))?;
+        .ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
     match store::thumbnail_data_url(&dir) {
         Some(url) => Ok(Output::Rich {
             json: json!({"source": "thumbnail", "note": "The window is not open, so this is the last plan thumbnail it saved. It can be older than the current revision."}),
             images: vec![picture_from_data_url(&url)?],
         }),
-        None => Err(ToolFail(
-            "not_found: the Guhit Studio window is not open and this project has no saved plan thumbnail yet. Use export_plan with format \"svg\" to get a drawing from the engine instead."
-                .into(),
-        )),
+        None => Err(ToolFail::msg("not_found: the Guhit Studio window is not open and this project has no saved plan thumbnail yet. Use export_plan with format \"svg\" to get a drawing from the engine instead.")),
     }
 }
 
@@ -532,6 +623,6 @@ mod tests {
         }));
         assert_eq!(find_view(&project, "cam-1").unwrap(), "cam-1");
         assert_eq!(find_view(&project, "  living ROOM ").unwrap(), "cam-1");
-        assert!(find_view(&project, "Kitchen").unwrap_err().0.contains("\"Living room\" (cam-1)"));
+        assert!(find_view(&project, "Kitchen").unwrap_err().text().contains("\"Living room\" (cam-1)"));
     }
 }

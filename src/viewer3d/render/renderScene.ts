@@ -10,7 +10,7 @@
 import * as THREE from "three";
 import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
 import type { Camera, DocState } from "../../contract/bindings";
-import { Environment, headingOf, scanHdri } from "../engine/environment";
+import { Environment, headingOf, scanHdri, tameHdri } from "../engine/environment";
 import { cameraToPose } from "../geom/coords";
 import { LampRig } from "../light/lamps";
 import { exposureScale, lightFrame, type LightFrame } from "../light/model";
@@ -54,15 +54,31 @@ export interface RenderScene {
 /** Diffuser glow in the path tracer: bright enough to read white, too small to light the room twice. */
 const TRACER_GLOW = 0.05;
 
-let hdrPromise: Promise<THREE.DataTexture | null> | null = null;
+interface TracerHdr {
+  texture: THREE.DataTexture;
+  /** World direction of the photo's sun, found before it was taken out. */
+  sun: THREE.Vector3 | null;
+  /** Mean sky light with the sun taken out, in the file's units (`tameHdri`). */
+  skyMean: number;
+}
 
-/** The pack's HDRI as an equirect texture, for the tracer's photo sky. Loaded once, shared. */
-function loadHdr(): Promise<THREE.DataTexture | null> {
+let hdrPromise: Promise<TracerHdr | null> | null = null;
+
+/**
+ * The pack's HDRI as an equirect texture, for the tracer's photo sky, with
+ * its sun taken out as in the live view: the tracer's sun is the directional
+ * light, and the photo's own would light the scene twice. Loaded once, shared.
+ */
+function loadHdr(): Promise<TracerHdr | null> {
   hdrPromise ??= new HDRLoader()
     .loadAsync(`/${PACK_BASE}hdri/sky.hdr`)
     .then((t) => {
       t.mapping = THREE.EquirectangularReflectionMapping;
-      return t;
+      const image = t.image as { data: Uint16Array | Float32Array; width: number; height: number };
+      const sun = scanHdri(image).sun;
+      const skyMean = tameHdri(image);
+      t.needsUpdate = true;
+      return { texture: t, sun, skyMean };
     })
     .catch(() => null);
   return hdrPromise;
@@ -189,15 +205,18 @@ export async function buildRenderScene(renderer: THREE.WebGLRenderer, input: Ren
         mesh.material = copy;
       }
     }
+    traceGlass(built.root, owned);
     // The tracer samples a cube or an equirect, not a PMREM.
     if (input.light.sky === "photo" && frame.sun.altitudeDeg > -1) {
       const hdr = await loadHdr();
-      if (hdr) {
-        scene.environment = hdr;
-        scene.background = hdr;
+      if (hdr && hdr.skyMean > 0) {
+        scene.environment = hdr.texture;
+        scene.background = hdr.texture;
+        // Sky light at the physical clear sky's level, and seen at it too.
+        scene.environmentIntensity = env.photoGain(frame.sun.altitudeDeg, hdr.skyMean);
+        scene.backgroundIntensity = scene.environmentIntensity;
         // Turned so the photo's sun sits at the computed azimuth, as live.
-        const sun = scanHdri(hdr.image as { data: ArrayLike<number>; width: number; height: number }).sun;
-        const turn = sun ? headingOf(env.sunDir) - headingOf(sun) : 0;
+        const turn = hdr.sun ? headingOf(env.sunDir) - headingOf(hdr.sun) : 0;
         scene.environmentRotation.set(0, turn, 0);
         scene.backgroundRotation.set(0, turn, 0);
       } else {
@@ -243,6 +262,42 @@ export async function buildRenderScene(renderer: THREE.WebGLRenderer, input: Ren
  */
 export function tracePipesOnce(built: Pick<BuiltScene, "pipes">): void {
   for (const solo of built.pipes.solos.values()) solo.visible = false;
+}
+
+/**
+ * Real glass for the path tracer: every pane the live view draws as thin
+ * blended glass (scene/materials.ts, `makeGlass`) becomes a transmissive
+ * physical material, so light and the view pass through it, refract and
+ * reflect as glass does. Nearly clear: the preset's tint, applied at each
+ * face a ray crosses, would turn a pane blue and dark.
+ */
+export function traceGlass(root: THREE.Object3D, owned: { dispose(): void }[]): number {
+  const copies = new Map<THREE.Material, THREE.MeshPhysicalMaterial>();
+  let panes = 0;
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    const mat = mesh.isMesh ? mesh.material : null;
+    if (!mat || Array.isArray(mat) || mat.userData?.glass !== true) return;
+    let glass = copies.get(mat);
+    if (!glass) {
+      const src = mat as THREE.MeshStandardMaterial;
+      glass = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(1, 1, 1).lerp(src.color ?? new THREE.Color(1, 1, 1), 0.15),
+        metalness: 0,
+        roughness: Math.min(src.roughness ?? 0.02, 0.05),
+        transmission: 1,
+        ior: 1.5,
+        thickness: 0.006,
+        side: THREE.DoubleSide,
+      });
+      glass.userData = { ...src.userData };
+      copies.set(mat, glass);
+      owned.push(glass);
+    }
+    mesh.material = glass;
+    panes++;
+  });
+  return panes;
 }
 
 /** A copy of a light with a target of its own (a spot's clone would share its target). */

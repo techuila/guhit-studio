@@ -109,7 +109,10 @@ import { isTypingTarget, planKeyBlocked, selectionKey } from "./keys";
 import { decideResize } from "./resizePolicy";
 import type { SnapResult, SnapScene } from "./snap";
 import { computeIntersections, emptyScene, snap } from "./snap";
+import type { RoomOutline } from "./slab";
+import { SLAB_KIND_LABEL, canCloseSlab, cleanOutline, insertVertex, moveVertex, newSlab, offersRoom, popSlabPoint, removeVertex, roomOutlineAt, sameOutline, slabClick } from "./slab";
 import { assetSymbolAnchor } from "./symbols";
+import { useUnderlay } from "./underlay";
 import type { Box } from "./tags";
 import type { TypedState } from "./typed";
 import { emptyTyped, formatArea, formatLength, isTypedKey, typedIsEmpty, typedKey, typedValues } from "./typed";
@@ -124,6 +127,7 @@ export const HANDLE_PX = 5;
 
 /** Layer names as the layer panel and the engine's messages give them (`layer_name`). */
 const LAYER_LABEL: Record<LayerKey, string> = {
+  slabs: "Slabs",
   walls: "Walls",
   openings: "Openings",
   rooms: "Rooms",
@@ -216,7 +220,18 @@ export const K = {
   tagHover: "ptag:",
   /** Runs that follow a pipe drag: their ghost fades in on pick up. */
   pipeFollow: "pipe.follow",
+  /** The room outline the slab tool would take fading in, and a refused outline fading out. */
+  slabRoom: "slab.room",
+  slabRefused: "slab.no",
+  /** The picked corner of the selected slab filling in. */
+  slabVertex: "slab.v",
+  slabVertexOut: "slab.vx",
+  /** How long the slab tool's refusal pill stays before it fades. */
+  slabNoticeHold: "slab.notice",
 } as const;
+
+/** How long the slab tool's refusal pill stays, with or without motion. */
+export const SLAB_NOTICE_MS = 1440;
 
 /** Another participant's selection as the plan outlines it. `color` is a CSS color. */
 export interface PeerSelectionDraw {
@@ -268,6 +283,8 @@ export type Op =
   | { kind: "slide"; opening: OpeningEl; host: Wall; placement: OpeningPlacement; committing: boolean }
   | { kind: "grip"; grip: Grip; element: Element; current: P; z: number | null; committing: boolean }
   | { kind: "wall"; points: P[]; typed: TypedState | null; committing: boolean }
+  /** Slab tool: the outline so far. `closed` is the outline on its way to the engine. */
+  | { kind: "slab"; points: P[]; typed: TypedState | null; committing: boolean; closed: P[] | null }
   /** `extend`: continuing that run from one of its ends (its "+" handle) instead of drawing a new one. */
   | { kind: "pipe"; points: Vec3[]; penZ: number; typed: TypedState | null; committing: boolean; extend?: PipeExtend }
   | { kind: "rect"; origin: P; downScreen: P; typed: TypedState | null; committing: boolean }
@@ -448,6 +465,13 @@ export class PlanController {
   hoverGrip: number | null = null;
   openingGhost: OpeningGhost | null = null;
   placementGhost: PlacementGhost | null = null;
+  /** Slab tool before its first point: the room whose outline a click takes. */
+  slabRoom: RoomOutline | null = null;
+  lastSlabRoom: RoomOutline | null = null;
+  /** An outline the engine refused, fading out in the danger color. */
+  slabRefused: P[] | null = null;
+  /** The corner of the selected slab picked with a click: Delete removes it. */
+  slabVertexPick: { slabId: string; index: number } | null = null;
   editor: InlineEditor | null = null;
   images = new Map<string, HTMLImageElement>();
   /** Links whose bow the user flipped. View only: never saved, gone on reload. */
@@ -597,6 +621,13 @@ export class PlanController {
         }
       }),
     );
+    this.cleanups.push(
+      useUnderlay.subscribe((st, pv) => {
+        if (st.on === pv.on) return;
+        this.refreshToolGhost();
+        this.invalidate();
+      }),
+    );
     useApp.getState().registerCapturePlan((levelId) => this.capturePlan(levelId));
     // Dev only hook so scripted UI checks can map model points to the screen.
     if (import.meta.env.DEV) (window as unknown as { __planController?: PlanController }).__planController = this;
@@ -612,6 +643,7 @@ export class PlanController {
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     window.clearTimeout(this.resizeSettleTimer);
+    window.clearTimeout(this.noticeTimer);
     for (const c of this.cleanups) c();
     this.cleanups = [];
     this.viewListeners.clear();
@@ -654,7 +686,7 @@ export class PlanController {
     if (this.heightEntry && this.cursorScreen) {
       return { x: this.cursorScreen.x, y: this.cursorScreen.y, state: this.heightEntry, labels: [`Height ${unitName}`, ""] };
     }
-    if ((op.kind !== "wall" && op.kind !== "rect" && op.kind !== "pipe" && op.kind !== "pipe_drag") || !op.typed || !this.cursorScreen) return null;
+    if ((op.kind !== "wall" && op.kind !== "rect" && op.kind !== "pipe" && op.kind !== "pipe_drag" && op.kind !== "slab") || !op.typed || !this.cursorScreen) return null;
     const labels: [string, string] =
       op.kind === "rect" ? [`Width ${unitName}`, `Depth ${unitName}`] : op.kind === "pipe_drag" ? [`Distance ${unitName}`, "Angle"] : [`Length ${unitName}`, "Angle"];
     return { x: this.cursorScreen.x, y: this.cursorScreen.y, state: op.typed, labels };
@@ -686,6 +718,8 @@ export class PlanController {
           : "Click the next point, or type a length and press Enter. 3000<45 sets length and angle";
       case "rect_room":
         return op.kind === "rect" ? "Click the opposite corner, or type width,depth and press Enter" : "Click the first corner of the room";
+      case "slab":
+        return this.slabHint();
       case "door":
       case "window":
         return this.openingGhost ? "Click to place. F flips the side, H flips the hinge" : `Hover a wall to place a ${tool}`;
@@ -719,6 +753,27 @@ export class PlanController {
       default:
         return null;
     }
+  }
+
+  private slabHint(): string {
+    const op = this.op;
+    const kind = SLAB_KIND_LABEL[useApp.getState().toolOptions.slabKind].toLowerCase();
+    const layer = this.slabLayer();
+    if (layer.locked) return "The Slabs layer is locked. Unlock it to draw slabs";
+    if (op.kind === "slab") {
+      return op.points.length >= 3
+        ? "Click the next corner, or click the first point, double click or press Enter to close. Backspace takes the last point back"
+        : "Click the next corner, or type a length and press Enter";
+    }
+    const room = this.slabRoom;
+    if (room) return `Click to make this ${room.below ? "room below" : "room"} a ${kind}, or hold Alt to draw one inside it`;
+    return layer.hidden ? `Click the corners of the ${kind}. The Slabs layer is hidden, new slabs show when it is on` : `Click the corners of the ${kind}, or click inside a room to take its outline`;
+  }
+
+  /** The Slabs layer: locked refuses new slabs, hidden hides them. */
+  slabLayer(): { locked: boolean; hidden: boolean } {
+    const l = this.index?.doc.project.layers.find((x) => x.key === "slabs");
+    return { locked: !!l?.locked, hidden: !!l && !l.visible };
   }
 
   private assetHint(): string {
@@ -768,8 +823,11 @@ export class PlanController {
     this.realIndex = s.preview && s.doc ? buildIndex(s.doc, s.activeLevelId) : null;
     this.sceneCache = null;
     const docId = visible?.project.id ?? null;
+    useUnderlay.getState().sync();
     if (docId !== this.lastDocId) {
       this.lastDocId = docId;
+      this.slabVertexPick = null;
+      this.slabRefused = null;
       this.fitted = false;
       this.autoFit = true;
       this.resetOp();
@@ -1231,6 +1289,7 @@ export class PlanController {
       hidden: this.editor?.mode === "annotation" ? hidden : new Set(),
       activeCameraId: s.activeCameraId,
       showCameras: true,
+      underlay: useUnderlay.getState().on,
     });
     if (preview && this.realIndex) {
       for (const id of preview.diff.removed) {
@@ -1331,6 +1390,7 @@ export class PlanController {
     // Another selection or tool has other grips: the hovered one is gone.
     if (next.selection !== prev.selection || next.tool !== prev.tool) this.setHoverGrip(null);
     if (next.selection !== prev.selection) {
+      if (this.slabVertexPick && !next.selection.includes(this.slabVertexPick.slabId)) this.setSlabVertexPick(null);
       const after = new Set(next.selection);
       const before = new Set(prev.selection);
       for (const id of prev.selection) if (!after.has(id)) this.animate(`${K.sel}${id}`, 0, exitDur("hover"), { drop: true });
@@ -1409,6 +1469,13 @@ export class PlanController {
       this.animate(K.ghostPlace, 1, dur("hover"), { from: 0 });
     } else {
       this.animate(K.ghostPlace, 0, exitDur("hover"), { drop: true });
+    }
+    if (this.slabRoom) {
+      // Moving to another room swaps the outline at full strength: only the first one fades in.
+      this.lastSlabRoom = this.slabRoom;
+      this.animate(K.slabRoom, 1, dur("hover"), { from: 0 });
+    } else {
+      this.animate(K.slabRoom, 0, exitDur("hover"), { drop: true });
     }
   }
 
@@ -1836,6 +1903,7 @@ export class PlanController {
     this.cursorScreen = screen;
     this.cursorWorld = world;
     this.shift = e.shiftKey;
+    this.alt = e.altKey;
     this.pointerInside = true;
     const tool = useApp.getState().tool;
     try {
@@ -1870,6 +1938,9 @@ export class PlanController {
         break;
       case "rect_room":
         this.rectDown(screen);
+        break;
+      case "slab":
+        this.slabToolClick(presses);
         break;
       case "door":
       case "window":
@@ -2001,7 +2072,11 @@ export class PlanController {
     const op = this.op;
     this.openingGhost = null;
     this.placementGhost = null;
+    this.slabRoom = null;
     switch (tool) {
+      case "slab":
+        this.updateSlabHover(world);
+        break;
       case "wall": {
         if (op.kind === "wall") {
           const last = op.points[op.points.length - 1];
@@ -2156,6 +2231,7 @@ export class PlanController {
     this.setHoverHandle(null);
     this.openingGhost = null;
     this.placementGhost = null;
+    this.slabRoom = null;
     const s = useApp.getState();
     s.setCursor(null);
     if (s.hoverId) s.setHover(null);
@@ -2258,6 +2334,9 @@ export class PlanController {
         return;
       }
     }
+    // Any press that is not on a grip lets a picked slab corner go, so
+    // Delete afterwards removes what is selected, never a corner from before.
+    this.setSlabVertexPick(null);
     let hitId = hitTest(world, this.index, this.hitOptions());
     // Nothing but the floor (or a traced image under it): a click selects the room.
     const under = hitId ? this.index.byId.get(hitId) : null;
@@ -2441,6 +2520,20 @@ export class PlanController {
         op.current = r.point;
         break;
       }
+      case "slab_vertex":
+      case "slab_mid": {
+        if (el.kind !== "slab") return;
+        const i = op.grip.index ?? 0;
+        const n = el.polygon.length;
+        const moving = op.grip.kind === "slab_vertex";
+        // The other corners snap, and the edge before keeps ortho and angle locks.
+        const others = el.polygon.filter((_, k) => !(moving && k === i));
+        const anchor = moving ? el.polygon[(i - 1 + n) % n] : el.polygon[i];
+        const r = this.snapAt(world, anchor, { exclude: [el.id], extra: others, useFaces: true });
+        this.snapResult = r;
+        op.current = r.point;
+        break;
+      }
       // Pipe point handles drag as a `pipe_drag` (pipe editing below), never as a grip.
     }
   }
@@ -2474,6 +2567,10 @@ export class PlanController {
         return el.kind === "camera" ? { ...el, position: { ...el.position, x: op.current.x, y: op.current.y } } : null;
       case "cam_target":
         return el.kind === "camera" ? { ...el, target: { ...el.target, x: op.current.x, y: op.current.y } } : null;
+      case "slab_vertex":
+        return el.kind === "slab" ? { ...el, polygon: moveVertex(el.polygon, op.grip.index ?? 0, op.current) } : null;
+      case "slab_mid":
+        return el.kind === "slab" ? { ...el, polygon: insertVertex(el.polygon, op.grip.index ?? 0, op.current) } : null;
       default:
         return null;
     }
@@ -2496,11 +2593,52 @@ export class PlanController {
       }
     }
     if (!command) {
+      // A click on a slab corner picks it: Delete then removes it.
+      if (el.kind === "slab" && op.grip.kind === "slab_vertex") this.setSlabVertexPick({ slabId: el.id, index: op.grip.index ?? 0 });
       this.op = { kind: "idle" };
       return;
     }
+    // Corners shift when one is added or moved: the pick goes.
+    if (el.kind === "slab") this.setSlabVertexPick(null);
     op.committing = true;
     void this.run(command);
+  }
+
+  /** Picks a corner of the selected slab, or clears the pick. The fill grows in and fades out. */
+  setSlabVertexPick(pick: { slabId: string; index: number } | null): void {
+    const cur = this.slabVertexPick;
+    if (cur === pick || (cur && pick && cur.slabId === pick.slabId && cur.index === pick.index)) return;
+    if (cur) {
+      this.lastSlabVertexPick = cur;
+      this.anim.clear(K.slabVertexOut);
+      this.animate(K.slabVertexOut, 0, exitDur("hover"), { from: 1, easing: ease.in, drop: true });
+    }
+    this.slabVertexPick = pick;
+    if (pick) {
+      this.anim.clear(K.slabVertex);
+      this.animate(K.slabVertex, 0, dur("hover"), { from: 1, easing: ease.out, drop: true });
+    }
+    this.invalidate();
+  }
+
+  /** The corner picked before the current one, drawn while its fill fades out. */
+  lastSlabVertexPick: { slabId: string; index: number } | null = null;
+
+  /** Delete on a picked corner: it goes when more than three remain. */
+  private removePickedVertex(): void {
+    const pick = this.slabVertexPick;
+    const el = pick ? this.index?.byId.get(pick.slabId) : null;
+    if (!pick || !el || el.kind !== "slab") {
+      this.setSlabVertexPick(null);
+      return;
+    }
+    const polygon = removeVertex(el.polygon, pick.index);
+    if (!polygon) {
+      useApp.getState().toast("info", "A slab needs at least three corners");
+      return;
+    }
+    this.setSlabVertexPick(null);
+    void this.run({ type: "update_element", element: { ...el, polygon } });
   }
 
   // ------------------------------------------------------------ commands
@@ -3326,6 +3464,194 @@ export class PlanController {
     return `Drag the ${part}, or PageUp, PageDown or h for its height. Click a tag to type a value. Escape picks the whole run`;
   }
 
+  // ------------------------------------------------------------ slab tool
+
+  private slabSnapCache: { index: DocIndex; underlay: boolean; points: P[] } | null = null;
+
+  /** Extra snap points for slab outlines: the corners of this level's slabs and of the level below's walls. */
+  private slabSnapPoints(): P[] {
+    const index = this.index;
+    if (!index) return [];
+    const underlay = useUnderlay.getState().on;
+    const cache = this.slabSnapCache;
+    if (cache && cache.index === index && cache.underlay === underlay) return cache.points;
+    const points: P[] = [];
+    for (const e of index.visible) if (e.kind === "slab") points.push(...e.polygon);
+    if (underlay) for (const o of index.below) points.push(...o);
+    this.slabSnapCache = { index, underlay, points };
+    return points;
+  }
+
+  private updateSlabHover(world: P): void {
+    const op = this.op;
+    const extra = this.slabSnapPoints();
+    if (op.kind === "slab") {
+      if (op.committing) return;
+      const last = op.points[op.points.length - 1];
+      // Closing the outline wins over every other snap.
+      if (op.points.length >= 3 && dist(world, op.points[0]) <= SNAP_PX / this.view.scale && useApp.getState().snapEnabled) {
+        this.snapResult = { point: op.points[0], type: "endpoint", guides: [], angleLocked: false, label: "Close" };
+      } else {
+        this.snapResult = this.snapAt(world, last, { extra: [...op.points.slice(0, -1), ...extra], useFaces: true });
+      }
+      return;
+    }
+    const r = this.snapAt(world, null, { extra, useFaces: true });
+    // Away from every corner, face and line, a click inside a room takes its
+    // outline; Alt held skips the offer so a free outline can start inside.
+    let room = this.index && offersRoom(r.type, this.alt, this.slabLayer().locked) ? roomOutlineAt(this.index.doc, this.levelId(), world, useUnderlay.getState().on) : null;
+    // A room that already has a slab of its own outline here is not offered again.
+    if (room && this.index?.visible.some((e) => e.kind === "slab" && sameOutline(e.polygon, room!.polygon))) room = null;
+    this.slabRoom = room;
+    this.snapResult = room ? null : r;
+  }
+
+  private slabToolClick(detail: number): void {
+    const world = this.cursorWorld;
+    if (!world || !this.index || !this.levelId()) return;
+    if (this.slabLayer().locked) {
+      this.slabNotice = "The Slabs layer is locked";
+      this.bumpRefusal();
+      return;
+    }
+    const op = this.op;
+    if (op.kind !== "slab") {
+      // Alt pressed since the last move still means a free outline.
+      const room = this.alt ? null : this.slabRoom;
+      if (room) {
+        void this.commitSlab(room.polygon, null);
+        return;
+      }
+      const p = this.snapResult?.point ?? this.snapAt(world, null, { extra: this.slabSnapPoints(), useFaces: true }).point;
+      this.op = { kind: "slab", points: [p], typed: null, committing: false, closed: null };
+      this.syncGhostAnim();
+      return;
+    }
+    if (op.committing) return;
+    if (detail >= 2) {
+      // Second click of a double click: the first one placed the last corner.
+      this.closeSlab(op);
+      return;
+    }
+    const last = op.points[op.points.length - 1];
+    const snapped = this.snapResult?.point ?? world;
+    const p = op.typed ? (this.typedEnd(last, op.typed) ?? snapped) : snapped;
+    this.pushSlabPoint(op, p);
+  }
+
+  /** End of the edge being typed: exact length along the cursor or the typed angle. */
+  typedSlabPoint(op: Extract<Op, { kind: "slab" }>): P | null {
+    if (!op.typed || op.points.length === 0) return null;
+    return this.typedEnd(op.points[op.points.length - 1], op.typed);
+  }
+
+  private pushSlabPoint(op: Extract<Op, { kind: "slab" }>, p: P): void {
+    op.typed = null;
+    const r = slabClick(op.points, p, Math.max(1, SNAP_PX / this.view.scale));
+    if (r.kind === "add") op.points = r.points;
+    else if (r.kind === "close") void this.commitSlab(r.points, op.points);
+  }
+
+  /** Enter, a double click or a right click: close the outline, or say why it cannot. */
+  private closeSlab(op: Extract<Op, { kind: "slab" }>): void {
+    if (op.committing) return;
+    if (canCloseSlab(op.points)) {
+      void this.commitSlab(cleanOutline(op.points), op.points);
+      return;
+    }
+    this.slabNotice = "A slab needs three corners around some area";
+    this.bumpRefusal();
+  }
+
+  /** Why the last slab click did nothing, shown in a pill that bumps once. */
+  slabNotice: string | null = null;
+
+  private bumpRefusal(): void {
+    this.anim.clear(K.placeRefused);
+    this.animate(K.placeRefused, 0, dur("base"), { from: 1, easing: ease.out, drop: true });
+    this.anim.clear(K.slabNoticeHold);
+    window.clearTimeout(this.noticeTimer);
+    if (motionOK()) {
+      this.animate(K.slabNoticeHold, 0, dur("panel"), { from: 1, easing: ease.in, drop: true, delayMs: SLAB_NOTICE_MS });
+      return;
+    }
+    // Reduced motion: no fade, but the pill still stays long enough to read.
+    this.anim.set(K.slabNoticeHold, 1);
+    this.invalidate();
+    this.noticeTimer = window.setTimeout(() => {
+      this.anim.clear(K.slabNoticeHold);
+      this.invalidate();
+    }, SLAB_NOTICE_MS);
+  }
+
+  private noticeTimer = 0;
+
+  /**
+   * Adds the outline as a slab of the tool's kind. The closed outline stays
+   * as a ghost until the engine answers. A refusal (an overlap, a void off
+   * the floor) is toasted by the store; here the outline flashes in the
+   * danger color and fades, and an outline drawn corner by corner stays open
+   * so it can be fixed.
+   */
+  private async commitSlab(polygon: P[], draft: P[] | null): Promise<void> {
+    const level = this.levelId();
+    if (!level) return;
+    const o = useApp.getState().toolOptions;
+    const element = newSlab(level, o.slabKind, o.slabRailing, polygon);
+    this.op = { kind: "slab", points: draft ?? [], typed: null, committing: true, closed: element.polygon };
+    this.slabRoom = null;
+    this.syncGhostAnim();
+    this.invalidate();
+    let ok = false;
+    try {
+      ok = !!(await useApp.getState().dispatch({ type: "add_element", element }));
+    } catch {
+      // dispatch already reports errors.
+    }
+    if (!ok) {
+      this.slabRefused = element.polygon;
+      this.anim.clear(K.slabRefused);
+      this.animate(K.slabRefused, 0, dur("panel"), { from: 1, easing: ease.in, drop: true, delayMs: dur("scene") });
+      const toasts = useApp.getState().toasts;
+      const last = toasts.length > 0 ? toasts[toasts.length - 1] : null;
+      this.slabNotice = last?.kind === "error" ? `Not added: ${last.message}` : "Not added";
+      this.bumpRefusal();
+    }
+    const keep = !ok && !!draft && draft.length > 0 && useApp.getState().tool === "slab";
+    this.op = keep && draft ? { kind: "slab", points: draft, typed: null, committing: false, closed: null } : { kind: "idle" };
+    this.snapResult = null;
+    this.refreshToolGhost();
+    this.invalidate();
+  }
+
+  private slabOpKey(e: KeyboardEvent, op: Extract<Op, { kind: "slab" }>): void {
+    if (e.key === "Escape") {
+      // Escape first clears a typed value, then cancels the outline.
+      if (op.typed) op.typed = null;
+      else this.resetOp();
+      return;
+    }
+    if (isTypedKey(e.key) || (op.typed && (e.key === "Tab" || e.key === "Backspace"))) {
+      op.typed = typedKey(op.typed ?? emptyTyped("polar"), e.key);
+      return;
+    }
+    if (e.key === "Backspace") {
+      const next = popSlabPoint(op.points);
+      if (next) op.points = next;
+      else this.resetOp();
+      this.handleMove();
+      return;
+    }
+    if (e.key === "Enter") {
+      if (!typedIsEmpty(op.typed)) {
+        const p = this.typedSlabPoint(op);
+        if (p) this.pushSlabPoint(op, p);
+        else op.typed = null;
+        this.handleMove();
+      } else this.closeSlab(op);
+    }
+  }
+
   // ------------------------------------------------------------ rect room tool
 
   private rectDown(screen: P): void {
@@ -3487,8 +3813,10 @@ export class PlanController {
         origin: r.point,
         rotation_deg: rot,
         width_mm: 1000,
-        run_mm: risers * 250, // contract: going depth = run_mm / riser_count
+        run_mm: risers * 250, // n - 1 treads of run_mm / (n - 1) each (D44)
         riser_count: risers,
+        // New stairs get a handrail (DECISIONS D50).
+        railing: { height_mm: 900, style: "bars" },
       };
       return { element: el, faceSnap: null, mount: null };
     }
@@ -3841,6 +4169,7 @@ export class PlanController {
     this.snapResult = null;
     this.openingGhost = null;
     this.placementGhost = null;
+    this.slabRoom = null;
     this.setLift(false);
     this.syncSnapAnim();
     this.syncGhostAnim();
@@ -3867,6 +4196,7 @@ export class PlanController {
     const op = this.op;
     if (op.kind === "wall") this.finishWall(op, false);
     else if (op.kind === "pipe") this.finishPipe(op);
+    else if (op.kind === "slab" && !op.committing) this.closeSlab(op);
     else if (!this.isBusy() && op.kind !== "idle") this.resetOp();
     this.invalidate();
   }
@@ -3932,6 +4262,11 @@ export class PlanController {
         swallow();
         return;
       }
+      if (op.kind === "slab") {
+        this.slabOpKey(e, op);
+        swallow();
+        return;
+      }
       if (op.kind === "link") {
         // Escape or Enter ends linking. Tool letters and Delete still reach the app.
         if (e.key === "Escape" || e.key === "Enter") {
@@ -3986,6 +4321,19 @@ export class PlanController {
       return;
     }
 
+    // Idle. A picked slab corner: Delete removes it, Escape lets it go.
+    if (s.tool === "select" && this.slabVertexPick && !e.altKey) {
+      if (e.key === "Delete" || e.key === "Backspace") {
+        this.removePickedVertex();
+        swallow();
+        return;
+      }
+      if (e.key === "Escape") {
+        this.setSlabVertexPick(null);
+        swallow();
+        return;
+      }
+    }
     // Idle. Only tool keys that act on a visible ghost are handled.
     if (e.key === "Escape" && s.tool !== "select") {
       // Idle: act, but let the key through so the shell can react too.

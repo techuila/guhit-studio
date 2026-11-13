@@ -2,6 +2,7 @@
 import type { Footprint } from "./Footprint";
 import type { Issue } from "./Issue";
 import type { PipeNetwork } from "./PipeNetwork";
+import type { RailingRun } from "./RailingRun";
 import type { ReviewMark } from "./ReviewMark";
 import type { RoomGeometry } from "./RoomGeometry";
 import type { ScheduleRow } from "./ScheduleRow";
@@ -33,4 +34,11 @@ schedule: Array<ScheduleRow>,
 /**
  * Review marks whose finding the checks no longer produce: resolved.
  */
-review_resolved: Array<ReviewMark>, };
+review_resolved: Array<ReviewMark>, 
+/**
+ * Every guard rail and handrail to draw: the open edges of slabs, the
+ * open sides of stairs and the guard around a stair's opening on the
+ * level above (DECISIONS D50). The plan, the 3D view and the exports
+ * draw these and never work out open edges themselves.
+ */
+railings: Array<RailingRun>, };

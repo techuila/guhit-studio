@@ -2,10 +2,12 @@
 
 export type Totals = { 
 /**
- * Sum of net room areas.
+ * Sum of net room areas, less what voids, balconies and decks cover
+ * (docs/CONTRACT.md, "Slabs and railings").
  */
 floor_area_m2: number, 
 /**
- * Sum of footprint areas.
+ * Sum of footprint areas, plus floor slabs where they reach past the
+ * footprints, less what voids, balconies and decks cover inside them.
  */
 gross_area_m2: number, wall_length_m: number, room_count: number, door_count: number, window_count: number, };

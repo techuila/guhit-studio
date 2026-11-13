@@ -9,8 +9,9 @@ import type { Opening } from "./Opening";
 import type { Pipe } from "./Pipe";
 import type { ReferenceModel } from "./ReferenceModel";
 import type { Room } from "./Room";
+import type { Slab } from "./Slab";
 import type { Stair } from "./Stair";
 import type { Underlay } from "./Underlay";
 import type { Wall } from "./Wall";
 
-export type Element = { "kind": "wall" } & Wall | { "kind": "opening" } & Opening | { "kind": "room" } & Room | { "kind": "column" } & Column | { "kind": "stair" } & Stair | { "kind": "asset" } & Asset | { "kind": "annotation" } & Annotation | { "kind": "dimension" } & Dimension | { "kind": "camera" } & Camera | { "kind": "underlay" } & Underlay | { "kind": "linework" } & Linework | { "kind": "reference_model" } & ReferenceModel | { "kind": "pipe" } & Pipe;
+export type Element = { "kind": "wall" } & Wall | { "kind": "opening" } & Opening | { "kind": "room" } & Room | { "kind": "column" } & Column | { "kind": "stair" } & Stair | { "kind": "asset" } & Asset | { "kind": "annotation" } & Annotation | { "kind": "dimension" } & Dimension | { "kind": "camera" } & Camera | { "kind": "underlay" } & Underlay | { "kind": "linework" } & Linework | { "kind": "reference_model" } & ReferenceModel | { "kind": "pipe" } & Pipe | { "kind": "slab" } & Slab;

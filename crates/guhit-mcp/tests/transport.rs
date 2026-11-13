@@ -127,7 +127,7 @@ async fn the_ipv6_loopback_is_served_when_the_machine_has_one() {
 async fn proxy(port: u16, launch: Option<guhit_mcp::stdio::Launch>, wait: Duration, input: &[Value]) -> Vec<Value> {
     let text: String = input.iter().map(|m| format!("{m}\n")).collect();
     let mut out = Vec::new();
-    let config = ProxyConfig { port, launch, launch_wait: wait };
+    let config = ProxyConfig::new(port, launch, wait);
     run_proxy(config, text.as_bytes(), &mut out).await.expect("proxy");
     String::from_utf8(out)
         .unwrap()
@@ -217,8 +217,8 @@ async fn with_the_app_down_the_proxy_answers_the_handshake_itself() {
         guhit_mcp::tool_list().len()
     );
     assert_eq!(by_id(&lines, 3)["result"], json!({}));
-    assert_eq!(by_id(&lines, 4)["result"]["resources"].as_array().unwrap().len(), 4);
-    assert_eq!(by_id(&lines, 5)["result"]["prompts"], json!([]));
+    assert_eq!(by_id(&lines, 4)["result"]["resources"].as_array().unwrap().len(), guhit_mcp::resource_list().len());
+    assert_eq!(by_id(&lines, 5)["result"]["prompts"].as_array().unwrap().len(), 4, "the prompts answer with the app closed");
     for id in [6, 7] {
         let result = &by_id(&lines, id)["result"];
         assert_eq!(result["isError"], true, "{result}");

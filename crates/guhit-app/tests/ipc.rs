@@ -774,7 +774,7 @@ fn as_version_1(project: &Project) -> Value {
         .filter(|l| {
             !matches!(
                 l["key"].as_str(),
-                Some("cold_water" | "hot_water" | "drainage" | "vent" | "storm" | "electrical" | "aircon" | "site")
+                Some("cold_water" | "hot_water" | "drainage" | "vent" | "storm" | "electrical" | "aircon" | "site" | "slabs")
             )
         })
         .cloned()
@@ -826,11 +826,11 @@ async fn a_version_1_project_opens_with_the_pipe_layers() {
     let _: ApplyResult = call(&app, "doc_apply", wall(4000.0, 0.0, 4000.0, 3000.0)).await;
     let on_disk: Value = serde_json::from_slice(&std::fs::read(dir.join("project.json")).unwrap()).unwrap();
     assert_eq!(on_disk["schema_version"], json!(SCHEMA_VERSION));
-    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 17);
+    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 18);
 
     // A version 1 snapshot restores with the pipe layers too.
     let restored: DocState = call(&app, "snapshot_restore", json!({ "id": snap_id })).await;
-    assert_eq!(restored.project.layers.len(), 17);
+    assert_eq!(restored.project.layers.len(), 18);
     assert_eq!(restored.project.schema_version, SCHEMA_VERSION);
 }
 
@@ -845,7 +845,7 @@ fn as_version_2(project: &Project) -> Value {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|l| !matches!(l["key"].as_str(), Some("storm" | "electrical" | "aircon" | "site")))
+        .filter(|l| !matches!(l["key"].as_str(), Some("storm" | "electrical" | "aircon" | "site" | "slabs")))
         .cloned()
         .collect();
     assert_eq!(layers.len(), 13);
@@ -889,7 +889,7 @@ async fn a_version_2_project_opens_with_the_service_layers() {
     assert_eq!(opened.project.schema_version, SCHEMA_VERSION);
     let keys: Vec<LayerKey> = opened.project.layers.iter().map(|l| l.key).collect();
     let expected: Vec<LayerKey> = defaults::default_layers().iter().map(|l| l.key).collect();
-    assert_eq!(keys, expected, "all 17 layers, in LayerKey order");
+    assert_eq!(keys, expected, "all 18 layers, in LayerKey order");
     assert!(
         opened.project.elements.iter().all(|e| !matches!(e, Element::Wall(w) if w.role != WallRole::Building)),
         "walls without a role are building walls"
@@ -901,7 +901,7 @@ async fn a_version_2_project_opens_with_the_service_layers() {
     let _: ApplyResult = call(&app, "doc_apply", wall(0.0, -2000.0, 3000.0, -2000.0)).await;
     let on_disk: Value = serde_json::from_slice(&std::fs::read(dir.join("project.json")).unwrap()).unwrap();
     assert_eq!(on_disk["schema_version"], json!(SCHEMA_VERSION));
-    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 17);
+    assert_eq!(on_disk["layers"].as_array().unwrap().len(), 18);
     assert_eq!(on_disk["review"], json!([]));
 }
 

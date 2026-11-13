@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LiveStatus, Presence } from "../../contract/bindings";
+import type { AgentView } from "../../live/agents";
 import type { Peers } from "../../live/format";
 import { historyTintOf, peerTints, pointerIds, sameTints } from "./peers";
 
@@ -7,9 +8,9 @@ const status = (mode: LiveStatus["mode"] = "hosting"): LiveStatus => ({
   mode,
   self_id: "me",
   participants: [
-    { id: "me", name: "Mara", color: 0, role: "host" },
-    { id: "ana", name: "Ana", color: 1, role: "guest" },
-    { id: "ben", name: "Ben", color: 10, role: "guest" },
+    { id: "me", name: "Mara", color: 0, role: "host", agent: null },
+    { id: "ana", name: "Ana", color: 1, role: "guest", agent: null },
+    { id: "ben", name: "Ben", color: 10, role: "guest", agent: null },
   ],
   invite: null,
   addresses: [],
@@ -29,7 +30,7 @@ const presence = (over: Partial<Presence> = {}): Presence => ({
   view_mode: null,
   plan_view: null,
   camera: null,
-  pointer_3d: null,
+  pointer_3d: null, status: null,
   ...over,
 });
 
@@ -70,6 +71,41 @@ describe("peerTints", () => {
   it("leaves out empty selections", () => {
     const peers: Peers = { ana: { presence: presence(), changedAt: 0 } };
     expect(peerTints(status(), peers, colorOf)).toEqual([]);
+  });
+
+  it("tints each agent's trail, then its focus, with or without a session (DECISIONS D47)", () => {
+    const agent = (id: string, color: number, selection: string[], activity: AgentView["activity"] = "working"): AgentView => ({
+      id,
+      name: id,
+      color,
+      client: "",
+      clientVersion: "",
+      ownerId: null,
+      ownerName: "",
+      presence: presence({ selection }),
+      activity,
+      limit: null,
+      claim: null,
+      steps: 1,
+      lastCallAt: "",
+      local: true,
+    });
+    const agents = {
+      views: [agent("g", 3, ["w1"]), agent("s", 4, ["o1"], "stopped")],
+      trails: { g: { ids: ["d1"], strength: 1, token: 1 } },
+    };
+    expect(peerTints(status("off"), {}, colorOf, agents)).toEqual([
+      { ids: ["d1"], color: "#000003" },
+      { ids: ["w1"], color: "#000003" },
+    ]);
+  });
+
+  it("leaves agents among the participants to the agents' own tints", () => {
+    const st = status();
+    st.participants.push({ id: "g", name: "Ground", color: 3, role: "guest", agent: { owner_id: "me", owner_name: "Mara", client: "x", client_version: "1" } });
+    const peers: Peers = { g: { presence: presence({ selection: ["w1"], pointer_3d: { x: 1, y: 2, z: 3 } }), changedAt: 0 } };
+    expect(peerTints(st, peers, colorOf, { views: [], trails: {} })).toEqual([]);
+    expect(pointerIds(st, peers)).toEqual([]);
   });
 });
 

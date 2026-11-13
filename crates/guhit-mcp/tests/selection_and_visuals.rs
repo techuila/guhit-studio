@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use guhit_app::AppService;
-use guhit_mcp::tools::{self, Output, ToolFail};
+use guhit_mcp::tools::{self, Output};
 use guhit_model::*;
 use serde_json::{json, Value};
 
@@ -23,7 +23,7 @@ async fn ok(app: &AppService, name: &str, args: Value) -> Value {
         Ok(Output::Json(v)) => v,
         Ok(Output::Rich { json, .. }) => json,
         Ok(Output::Text(t)) => panic!("`{name}` returned text, expected JSON: {t}"),
-        Err(ToolFail(m)) => panic!("`{name}` failed: {m}"),
+        Err(f) => panic!("`{name}` failed: {}", f.display()),
     }
 }
 
@@ -32,13 +32,13 @@ async fn rich(app: &AppService, name: &str, args: Value) -> (Value, Vec<tools::P
         Ok(Output::Rich { json, images }) => (json, images),
         Ok(Output::Json(v)) => panic!("`{name}` returned no picture: {v}"),
         Ok(Output::Text(t)) => panic!("`{name}` returned no picture: {t}"),
-        Err(ToolFail(m)) => panic!("`{name}` failed: {m}"),
+        Err(f) => panic!("`{name}` failed: {}", f.display()),
     }
 }
 
 async fn fail(app: &AppService, name: &str, args: Value) -> String {
     match tools::call(app, name, args).await {
-        Err(ToolFail(m)) => m,
+        Err(f) => f.text(),
         Ok(_) => panic!("`{name}` was expected to fail"),
     }
 }

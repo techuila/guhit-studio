@@ -215,7 +215,7 @@ mod tests {
         let (app, _dir) = app();
         let _events = app.events();
         let id = app
-            .window_start(WindowTask::Render { views: vec![], quality: TraceQuality::Quick, size: RenderSize::Hd })
+            .window_start(WindowTask::Render { views: vec![], quality: TraceQuality::Quick, size: RenderSize::Hd, visibility: None })
             .unwrap();
         assert_eq!(app.window_wait(&id, Duration::from_millis(20)).await.unwrap(), None);
         handle(

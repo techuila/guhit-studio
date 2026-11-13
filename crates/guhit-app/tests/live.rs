@@ -955,6 +955,7 @@ async fn raw_join(invite: &Invite, name: &str) -> (RawConnection, Result<wire::W
         secret: invite.secret.clone(),
         name: name.to_string(),
         rejoin: None,
+        features: vec![],
     };
     raw_hello(invite, &hello).await
 }
@@ -986,6 +987,7 @@ async fn a_removed_guest_that_stays_connected_gets_nothing_more() {
             command: serde_json::from_value(wall(0.0, 0.0, 1000.0, 0.0)).unwrap(),
             origin: Origin::User,
             expected_revision: None,
+            agent: None,
         },
     };
     let _ = tls.write_all(&wire::encode(&edit, wire::MAX_FRAME_BYTES).unwrap()).await;
@@ -1030,6 +1032,7 @@ async fn only_the_rejoin_token_gives_a_participant_back() {
         secret: invite.secret.clone(),
         name: "Mallory".into(),
         rejoin: Some(wire::Rejoin { id: ben.id.clone(), token: URL_SAFE_NO_PAD.encode([1u8; 16]) }),
+        features: vec![],
     };
     let (_other, answer) = raw_hello(&invite, &impostor).await;
     let mallory = answer.unwrap();
@@ -1043,6 +1046,7 @@ async fn only_the_rejoin_token_gives_a_participant_back() {
         secret: invite.secret.clone(),
         name: "Ben".into(),
         rejoin: Some(wire::Rejoin { id: ben.id.clone(), token: welcome.rejoin_token.clone() }),
+        features: vec![],
     };
     let (_again, answer) = raw_hello(&invite, &back).await;
     let again = answer.unwrap();
@@ -1054,7 +1058,7 @@ async fn only_the_rejoin_token_gives_a_participant_back() {
     assert_eq!(status(&host.app).await.participants.len(), 3);
 
     // Another version of the app is turned away with a reason.
-    let newer = wire::ToHost::Hello { v: 999, secret: invite.secret.clone(), name: "Cy".into(), rejoin: None };
+    let newer = wire::ToHost::Hello { v: 999, secret: invite.secret.clone(), name: "Cy".into(), rejoin: None, features: vec![] };
     let (_, answer) = raw_hello(&invite, &newer).await;
     assert!(answer.unwrap_err().contains("different version"));
 }
@@ -1607,17 +1611,18 @@ async fn a_newer_guest_still_talks_to_an_older_host() {
         by: None,
         history: None,
     };
-    let old_host = Participant { id: "old-host".into(), name: "Lola".into(), color: 0, role: ParticipantRole::Host };
+    let old_host = Participant { id: "old-host".into(), name: "Lola".into(), color: 0, role: ParticipantRole::Host, agent: None };
     let welcome = wire::ToGuest::Welcome(Box::new(wire::Welcome {
         participant_id: "g1".into(),
         rejoin_token: "t".into(),
         participants: vec![
             old_host.clone(),
-            Participant { id: "g1".into(), name: "Ben".into(), color: 1, role: ParticipantRole::Guest },
+            Participant { id: "g1".into(), name: "Ben".into(), color: 1, role: ParticipantRole::Guest, agent: None },
         ],
         doc: frame(4, 1, true),
         chat: vec![],
         presence: vec![],
+        features: vec![],
     }));
     let welcome = wire::encode(&welcome, wire::MAX_FRAME_BYTES).unwrap();
     assert!(!String::from_utf8_lossy(&welcome).contains("history"), "an older host's welcome");

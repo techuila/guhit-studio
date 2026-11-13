@@ -15,9 +15,10 @@ pub type Id = String;
 /// Version 2 added pipes and the four pipe layers. Version 3 added the
 /// electrical, aircon and storm layers, the site, review marks, and light,
 /// links and circuit tags on objects. Version 4 added the site layer and
-/// `Wall::role`. Older files load and get the missing layers
+/// `Wall::role`. Version 5 added slabs, the slabs layer and
+/// `Stair::railing`. Older files load and get the missing layers
 /// (`guhit_core::migrate`); every new field has a default.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -144,6 +145,8 @@ pub enum LayerKey {
     Aircon,
     /// Site walls: the lot fence and boundary walls (`WallRole::Site`).
     Site,
+    /// Floors, balconies, decks and voids drawn as `Slab`s.
+    Slabs,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -246,6 +249,8 @@ pub enum Element {
     Linework(Linework),
     ReferenceModel(ReferenceModel),
     Pipe(Pipe),
+    /// A floor, balcony, deck or void on a level (DECISIONS D50).
+    Slab(Slab),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -265,6 +270,7 @@ pub enum ElementKind {
     Linework,
     ReferenceModel,
     Pipe,
+    Slab,
 }
 
 impl Element {
@@ -283,6 +289,7 @@ impl Element {
             Element::Linework(e) => &e.id,
             Element::ReferenceModel(e) => &e.id,
             Element::Pipe(e) => &e.id,
+            Element::Slab(e) => &e.id,
         }
     }
 
@@ -301,6 +308,7 @@ impl Element {
             Element::Linework(e) => &mut e.id,
             Element::ReferenceModel(e) => &mut e.id,
             Element::Pipe(e) => &mut e.id,
+            Element::Slab(e) => &mut e.id,
         }
     }
 
@@ -319,6 +327,7 @@ impl Element {
             Element::Linework(_) => ElementKind::Linework,
             Element::ReferenceModel(_) => ElementKind::ReferenceModel,
             Element::Pipe(_) => ElementKind::Pipe,
+            Element::Slab(_) => ElementKind::Slab,
         }
     }
 }
@@ -480,9 +489,10 @@ pub struct Column {
 
 /// Straight single-flight stair. `origin` is the center of the first riser,
 /// the flight runs along the rotated +y direction; total rise is the level
-/// height. The 2D and 3D drawings split the run into `riser_count` steps, the
-/// last flush with the floor above; the inspector and the IFC count
-/// `riser_count - 1` treads of `run_mm / (riser_count - 1)`.
+/// height. A flight of `riser_count` risers has `riser_count - 1` treads of
+/// `run_mm / (riser_count - 1)`: the top riser lands on the floor above
+/// (DECISIONS D44). The inspector and the IFC count this way; the 2D and 3D
+/// drawings follow it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Stair {
@@ -493,6 +503,71 @@ pub struct Stair {
     pub width_mm: f64,
     pub run_mm: f64,
     pub riser_count: u32,
+    /// Handrails along the open sides. None: no railing (files from before
+    /// railings).
+    #[serde(default)]
+    pub railing: Option<Railing>,
+}
+
+/// A guard rail or handrail.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Railing {
+    /// Top of the rail above the walking surface, mm. 900 to 1200 is usual.
+    pub height_mm: f64,
+    pub style: RailingStyle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum RailingStyle {
+    /// Posts and a top rail with vertical bars.
+    Bars,
+    /// A glass panel with a top rail.
+    Glass,
+    /// A low solid parapet.
+    Solid,
+}
+
+/// A slab on a level (DECISIONS D50). A `Floor` adds floor where the level's
+/// own floor does not reach (an extension, a mezzanine). A `Balcony` or
+/// `Deck` is an open floor outside the walls, with an optional rail along its
+/// open edges. A `Void` cuts the level's floor away inside its outline, so the
+/// space below is double height; its rail guards the edge. Rooms on the level
+/// lose the area a void covers; balconies and decks are not floor area.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Slab {
+    pub id: Id,
+    pub level_id: Id,
+    /// `slab_kind` in JSON and TypeScript: `Element` is tagged by `kind`, so
+    /// the slab's own kind needs another key or the two collide.
+    #[serde(rename = "slab_kind")]
+    pub kind: SlabKind,
+    /// Outline in plan mm, counter-clockwise, at least three points, not
+    /// self-intersecting.
+    pub polygon: Vec<Point>,
+    /// Ignored for a void.
+    pub thickness_mm: f64,
+    /// Top of the slab above the level's floor, mm. 0 is flush; a sunken
+    /// deck is negative.
+    #[serde(default)]
+    pub top_offset_mm: f64,
+    #[serde(default)]
+    pub material_id: Option<Id>,
+    #[serde(default)]
+    pub railing: Option<Railing>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum SlabKind {
+    Floor,
+    Balcony,
+    Deck,
+    Void,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

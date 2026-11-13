@@ -46,6 +46,13 @@ jobs:
             bundle: nsis
             download: Guhit-Studio-windows-setup.exe
     runs-on: ${{ matrix.os }}
+    # The signing secrets belong to a protected environment, so only a run a
+    # maintainer approves can read them. In Settings, Environments, "release":
+    # add a required reviewer, limit deployment tags to `v*`, and move the
+    # signing secrets there from the repository secrets. GitHub creates an
+    # unprotected "release" environment on the first run if it is not there
+    # yet, so this line is safe to merge before the setup.
+    environment: release
     steps:
       - uses: actions/checkout@v4
 
@@ -68,6 +75,14 @@ jobs:
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      # MIT, BSD, Apache-2.0 and similar licenses require their notice to
+      # travel with the software. This rebuilds THIRD_PARTY_LICENSES.md from
+      # this tag's Cargo.lock and pnpm lockfile. tauri.conf.json bundles it
+      # into the app (bundle.resources), and the step after the build attaches
+      # it to the release.
+      - name: Write the third-party license notices
+        run: node scripts/third-party-licenses.mjs
 
       # Update files are signed with the minisign key. Without the secret the
       # release still ships every installer, it only leaves out latest.json
@@ -216,3 +231,11 @@ jobs:
           echo "Found $file"
           cp "$file" "${{ matrix.download }}"
           gh release upload "${{ github.ref_name }}" "${{ matrix.download }}" --clobber --repo "${{ github.repository }}"
+
+      # The notices are the same on every runner, so one runner attaches them.
+      - name: Attach the third-party license notices to the release
+        if: matrix.label == 'macos-arm64'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" THIRD_PARTY_LICENSES.md --clobber --repo "${{ github.repository }}"

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LiveCamera } from "../../contract/bindings";
 import { cameraToPose } from "../geom/coords";
-import { followFov, liveCameraOf, sameLiveCamera, usableLiveCamera } from "./camera";
+import { followFov, liveCameraOf, panCamera, sameLiveCamera, usableLiveCamera } from "./camera";
 
 const cam = (over: Partial<LiveCamera> = {}): LiveCamera => ({
   position: { x: 1000, y: -2000, z: 1600 },
@@ -72,5 +72,17 @@ describe("usableLiveCamera", () => {
     expect(followFov(200)).toBe(110);
     expect(followFov(Number.NaN)).toBe(45);
     expect(followFov(60)).toBe(60);
+  });
+});
+
+describe("panCamera", () => {
+  it("follows an agent's point with this camera's direction and distance (DECISIONS D47)", () => {
+    const from = cam({ nav: "walk" });
+    const next = panCamera(from, { x: 6000, y: 1000, z: 900.4 });
+    expect(next.target).toEqual({ x: 6000, y: 1000, z: 900 });
+    expect(next.position).toEqual({ x: 3000, y: -4000, z: 1300 });
+    expect(next.fov_deg).toBe(45);
+    expect(next.nav).toBe("orbit");
+    expect(usableLiveCamera(next)).toBe(true);
   });
 });

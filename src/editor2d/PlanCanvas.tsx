@@ -1,13 +1,15 @@
 // The 2D drafting surface. No props, fills its parent. All interaction lives
 // in PlanController; this component mounts the canvas and the small HTML
-// overlays (type-to-precise box, inline text editor, and the live session
-// layer with other people's cursors and cursor chat).
+// overlays (type-to-precise box, inline text editor, the level below switch,
+// and the live session layer with other people's cursors and cursor chat).
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LiveLayer } from "../live/LiveLayer";
 import { useApp } from "../state/store";
 import { dur, motionOK, usePresence, type PresenceStage } from "../ui/motion";
 import { PlanController, type UiState } from "./controller";
+import { levelBelow } from "./slab";
+import { useUnderlay } from "./underlay";
 import styles from "./PlanCanvas.module.css";
 
 const EMPTY_UI: UiState = { typed: null, editor: null, cursor: "default", hint: null };
@@ -82,12 +84,46 @@ export function PlanCanvas() {
           {editorValue.current}
         </div>
       )}
+      {hasDoc ? <UnderlayToggle /> : null}
       {hintP.mounted && lastHint.current && (
         <div className={styles.hint} data-stage={hintP.stage}>
           {lastHint.current}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The level below as an underlay: a pill in the bottom left corner with a
+ * small switch, shown on any level with a level below. On by default,
+ * remembered per project.
+ */
+function UnderlayToggle() {
+  const on = useUnderlay((u) => u.on);
+  const toggle = useUnderlay((u) => u.toggle);
+  const below = useApp((s) => (s.doc ? (levelBelow(s.doc.project.levels, s.activeLevelId)?.name ?? null) : null));
+  const p = usePresence(below !== null, "base");
+  const name = useRef(below);
+  if (below !== null) name.current = below;
+  if (!p.mounted) return null;
+  return (
+    <button
+      type="button"
+      className={styles.underlay}
+      data-stage={p.stage}
+      data-on={on ? "true" : "false"}
+      role="switch"
+      aria-checked={on}
+      /* One name, the visible label: the checked state says on or off. */
+      data-testid="underlay-toggle"
+      onClick={toggle}
+    >
+      <span className={styles.underlayTrack} aria-hidden>
+        <span className={styles.underlayKnob} />
+      </span>
+      <span className={styles.underlayLabel}>{name.current} below</span>
+    </button>
   );
 }
 

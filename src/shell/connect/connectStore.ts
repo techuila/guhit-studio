@@ -10,16 +10,25 @@ interface ConnectState {
   status: McpStatus | null;
   /** True once a status request failed and none has succeeded since. */
   unreachable: boolean;
+  /**
+   * The extended toolsets every agent gets by default (MCP v2,
+   * `mcp_toolsets`), null until read or when the app cannot say.
+   */
+  toolsets: string[] | null;
   openDialog: () => void;
   closeDialog: () => void;
   refresh: () => Promise<void>;
   setEnabled: (enabled: boolean) => Promise<void>;
+  loadToolsets: () => Promise<void>;
+  /** Saves the defaults; shown at once, put back when the app refuses. Throws its error. */
+  setToolsets: (toolsets: string[]) => Promise<void>;
 }
 
-export const useConnect = create<ConnectState>((set) => ({
+export const useConnect = create<ConnectState>((set, get) => ({
   open: false,
   status: null,
   unreachable: false,
+  toolsets: null,
   openDialog: () => set({ open: true }),
   closeDialog: () => set({ open: false }),
   refresh: async () => {
@@ -31,6 +40,23 @@ export const useConnect = create<ConnectState>((set) => ({
   },
   setEnabled: async (enabled) => {
     set({ status: await ipc.mcpSetEnabled(enabled), unreachable: false });
+  },
+  loadToolsets: async () => {
+    try {
+      set({ toolsets: (await ipc.mcpToolsets()).toolsets });
+    } catch {
+      // An app before MCP v2: the section stays hidden.
+    }
+  },
+  setToolsets: async (toolsets) => {
+    const before = get().toolsets;
+    set({ toolsets });
+    try {
+      set({ toolsets: (await ipc.mcpSetToolsets(toolsets)).toolsets });
+    } catch (e) {
+      set({ toolsets: before });
+      throw e;
+    }
   },
 }));
 

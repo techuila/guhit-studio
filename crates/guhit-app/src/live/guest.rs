@@ -13,7 +13,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -80,6 +80,9 @@ pub(crate) struct Guest {
     /// Set by `live_leave`: stop, and do not reconnect.
     leaving: watch::Sender<bool>,
     ping: Arc<[u8]>,
+    /// The host's welcome listed "agents" (DECISIONS D47): it takes this
+    /// computer's agents and records them as authors.
+    host_agents: AtomicBool,
 }
 
 struct Link {
@@ -126,7 +129,49 @@ impl Guest {
             chat: Mutex::new(welcome.chat.iter().cloned().collect()),
             leaving: watch::channel(false).0,
             ping: wire::shared(&ToHost::Ping, MAX_HELLO_BYTES).unwrap_or_else(|_| Arc::from(&[][..])),
+            host_agents: AtomicBool::new(knows_agents(welcome)),
         }
+    }
+
+    pub(crate) fn host_knows_agents(&self) -> bool {
+        self.host_agents.load(Ordering::Relaxed)
+    }
+
+    /// This computer's agents, for a host that takes them. A full queue
+    /// skips them: the next change sends them again.
+    pub(crate) fn send_agents(&self, local: &[AgentSummary]) {
+        if !self.host_knows_agents() {
+            return;
+        }
+        let Some(tx) = lock(&self.link).as_ref().map(|l| l.tx.clone()) else { return };
+        if let Ok(frame) = wire::shared(&ToHost::Agents { agents: local.to_vec() }, MAX_FRAME_BYTES) {
+            let _ = tx.try_send(Out::Frame(frame));
+        }
+    }
+
+    /// A chat message posted as this computer's agent `agent`, when the host
+    /// knows agents; an older host posts it as this guest.
+    pub(crate) async fn chat_as(
+        &self,
+        text: &str,
+        at: Option<Point>,
+        level_id: Option<Id>,
+        agent: Id,
+    ) -> Result<ChatMessage, IpcError> {
+        let agent = Some(agent).filter(|_| self.host_knows_agents());
+        let request = Request::Chat { text: text.to_string(), at, level_id, via_ai: true, agent };
+        serde_json::from_value(self.request(request).await?).map_err(odd_answer)
+    }
+
+    /// Everyone else's agents, from the host.
+    fn agents_arrived(&self, app: &AppService, agents: Vec<AgentSummary>) {
+        let agents = super::clean_agents(agents, None, 2 * crate::agents::MAX_AGENTS);
+        for a in &agents {
+            let info = a.participant.agent.as_ref();
+            let owner = info.and_then(|i| i.owner_id.clone());
+            app.live.remember_agent(&a.participant, owner, info.map(|i| i.owner_name.as_str()).unwrap_or(""));
+        }
+        app.agents.set_remote("", agents);
     }
 
     /// True while this is the session this computer is in.
@@ -207,7 +252,7 @@ impl Guest {
         level_id: Option<Id>,
         via_ai: bool,
     ) -> Result<ChatMessage, IpcError> {
-        let answer = self.request(Request::Chat { text: text.to_string(), at, level_id, via_ai }).await?;
+        let answer = self.request(Request::Chat { text: text.to_string(), at, level_id, via_ai, agent: None }).await?;
         serde_json::from_value(answer).map_err(odd_answer)
     }
 
@@ -469,7 +514,13 @@ async fn greet(
     name: &str,
     rejoin: Option<Rejoin>,
 ) -> Result<Welcome, Greeting> {
-    let hello = ToHost::Hello { v: PROTOCOL_VERSION, secret: invite.secret.clone(), name: name.to_string(), rejoin };
+    let hello = ToHost::Hello {
+        v: PROTOCOL_VERSION,
+        secret: invite.secret.clone(),
+        name: name.to_string(),
+        rejoin,
+        features: wire::features(),
+    };
     let hello = wire::encode(&hello, MAX_HELLO_BYTES).map_err(|_| Greeting::Failed)?;
     let sent = tokio::time::timeout(tls::CONNECT_TIMEOUT, async {
         stream.write_all(&hello).await?;
@@ -488,6 +539,11 @@ async fn greet(
         Ok(ToGuest::Refused { message }) => Err(Greeting::Refused(message)),
         _ => Err(Greeting::Failed),
     }
+}
+
+/// The host takes agents: its welcome listed "agents".
+fn knows_agents(welcome: &Welcome) -> bool {
+    welcome.features.iter().any(|f| f == FEATURE_AGENTS)
 }
 
 fn status_of(guest: &Guest, welcome: &Welcome) -> LiveStatus {
@@ -574,6 +630,8 @@ pub(crate) async fn join(app: &AppService, invite: &str) -> Result<DocState, Ipc
         app.emit(AppEvent::Presence { participant_id: entry.participant_id.clone(), presence: Some(entry.presence.clone()) });
     }
     tokio::spawn(run(app.clone(), guest, conn));
+    // This computer's agents now work for this guest, and the host gets them.
+    app.agents.publish_with(true);
     Ok(state)
 }
 
@@ -676,6 +734,7 @@ async fn rejoined(
         meta.history = welcome.doc.history.clone();
         s.doc = Some(copy);
         *lock(&guest.me) = Rejoin { id: welcome.participant_id.clone(), token: welcome.rejoin_token.clone() };
+        guest.host_agents.store(knows_agents(&welcome), Ordering::Relaxed);
         // Requests can go out again before anyone hears the guest is back.
         let conn = open(guest, stream);
         let status = app.live.edit_status(|st| *st = status_of(guest, &welcome));
@@ -689,6 +748,7 @@ async fn rejoined(
     guest.presence_reset(app, &welcome.presence);
     *lock(&guest.chat) = welcome.chat.into_iter().collect();
     app.emit(AppEvent::Live { status });
+    app.agents.publish_with(true);
     Some(conn)
 }
 
@@ -718,6 +778,7 @@ async fn serve(app: &AppService, guest: &Arc<Guest>, conn: Conn) -> Ended {
             }
             ToGuest::Presence { entries } => guest.presence_arrived(app, entries),
             ToGuest::Participants { participants } => participants_changed(app, guest, participants),
+            ToGuest::Agents { agents } => guest.agents_arrived(app, agents),
             ToGuest::Chat { message } => guest.chat_arrived(app, message),
             ToGuest::Ping => {}
             ToGuest::End { notice } => break Ended::ByHost(notice),
@@ -831,6 +892,9 @@ async fn finish(app: &AppService, guest: &Arc<Guest>, notice: Option<String>) {
         app.emit(AppEvent::Presence { participant_id: id, presence: None });
     }
     app.emit(AppEvent::Live { status });
+    app.agents.clear_remote();
+    // Its own agents work for this computer's person again.
+    app.agents.publish();
 }
 
 /// `live_leave` and `hub_close` on a guest: bye, then the copy closes.
@@ -854,10 +918,23 @@ pub(crate) async fn apply(
     origin: Origin,
     expected_revision: Option<u32>,
 ) -> Result<ApplyResult, IpcError> {
+    apply_as(app, command, origin, expected_revision, None).await
+}
+
+/// `apply` by this computer's agent `agent`: the host records the agent as
+/// the author when it knows agents, else this guest.
+pub(crate) async fn apply_as(
+    app: &AppService,
+    command: Command,
+    origin: Origin,
+    expected_revision: Option<u32>,
+    agent: Option<Id>,
+) -> Result<ApplyResult, IpcError> {
     let Role::Guest(guest) = app.live.role() else {
         return Err(live_lost());
     };
-    let answer = guest.request(Request::Apply { command, origin, expected_revision }).await?;
+    let agent = agent.filter(|_| guest.host_knows_agents());
+    let answer = guest.request(Request::Apply { command, origin, expected_revision, agent }).await?;
     let applied: Applied = serde_json::from_value(answer).map_err(odd_answer)?;
     guest.wait_for_copy(applied.revision).await?;
     let state = app.session.lock().await.state()?;

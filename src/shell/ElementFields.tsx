@@ -8,10 +8,14 @@ import type {
   Element,
   OpeningStyle,
   Point,
+  Railing,
+  RailingStyle,
   RoomUsage,
+  SlabKind,
   Vec3,
   WallAnchor,
 } from "../contract/bindings";
+import { SLAB_RAILING_HEIGHT_MM, SLAB_THICKNESS_MM, slabAreaMm2 } from "../editor2d/slab";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
 import { MaterialPicker } from "../ui/MaterialPicker";
@@ -68,6 +72,29 @@ const CAMERA_PRESETS: Array<{ value: CameraPreset; label: string }> = [
   { value: "custom", label: "Custom" },
 ];
 
+const SLAB_KINDS: Array<{ value: SlabKind; label: string }> = [
+  { value: "floor", label: "Floor" },
+  { value: "balcony", label: "Balcony" },
+  { value: "deck", label: "Deck" },
+  { value: "void", label: "Void" },
+];
+
+const SLAB_TITLE: Record<SlabKind, string> = {
+  floor: "Floor slab",
+  balcony: "Balcony",
+  deck: "Deck",
+  void: "Void",
+};
+
+const RAILING_STYLES: Array<{ value: RailingStyle; label: string }> = [
+  { value: "bars", label: "Bars" },
+  { value: "glass", label: "Glass" },
+  { value: "solid", label: "Solid" },
+];
+
+/** New stairs get a 900 mm handrail (DECISIONS D50). */
+const STAIR_RAILING_HEIGHT_MM = 900;
+
 const STYLE_LABEL: Record<OpeningStyle, string> = {
   swing_single: "Single swing",
   swing_double: "Double swing",
@@ -117,6 +144,8 @@ export function elementTitle(el: Element, doc: DocState): { title: string; subti
         icon: "pipe",
         tint: PIPE_COLOR[el.system],
       };
+    case "slab":
+      return { title: SLAB_TITLE[el.slab_kind], subtitle: formatAreaMm2(slabAreaMm2(el.polygon)), icon: "slab" };
   }
 }
 
@@ -390,11 +419,79 @@ function StairFields({ el, doc }: { el: Of<"stair">; doc: DocState }) {
         <Field label="Each tread">
           <ReadOnly>{formatLength(tread, unit)}</ReadOnly>
         </Field>
+        <RailingFields railing={el.railing} unit={unit} defaultHeight={STAIR_RAILING_HEIGHT_MM} what="Handrail" onChange={(railing) => update(el, { ...el, railing })} />
       </div>
       <Position>
         <PointFields label="First riser" point={el.origin} unit={unit} onCommit={(origin) => update(el, { ...el, origin })} />
       </Position>
     </>
+  );
+}
+
+/** A railing switch, then its height and style while it is on. Each change is one update_element. */
+function RailingFields({
+  railing,
+  unit,
+  defaultHeight,
+  what,
+  onChange,
+}: {
+  railing: Railing | null;
+  unit: "mm" | "m";
+  defaultHeight: number;
+  what: string;
+  onChange: (railing: Railing | null) => void;
+}) {
+  return (
+    <>
+      <Field label={what} hint="Along the open edges">
+        <label className={s.inlineSwitch}>
+          <Switch label={what} checked={!!railing} onChange={(on) => onChange(on ? { height_mm: defaultHeight, style: "bars" } : null)} />
+          <span>{railing ? "Along the open edges" : "None"}</span>
+        </label>
+      </Field>
+      {railing ? (
+        <>
+          <Field label={`${what} height`} hint="Top of the rail above the floor">
+            <NumberField label={`${what} height`} kind="length" unit={unit} min={300} max={2000} step={50} value={railing.height_mm} onCommit={(height_mm) => onChange({ ...railing, height_mm })} />
+          </Field>
+          <Field label={`${what} style`}>
+            <Segmented label={`${what} style`} stretch value={railing.style} options={RAILING_STYLES} onChange={(style) => onChange({ ...railing, style })} />
+          </Field>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function SlabFields({ el, doc }: { el: Of<"slab">; doc: DocState }) {
+  const unit = doc.project.settings.display_unit;
+  const isVoid = el.slab_kind === "void";
+  return (
+    <div className={s.group}>
+      {/* Full width: four kinds do not fit beside a field label. */}
+      <Segmented
+        label="Slab kind"
+        stretch
+        value={el.slab_kind}
+        options={SLAB_KINDS}
+        // A void has no thickness: turning one back into a floor gives it the default.
+        onChange={(slab_kind) => update(el, { ...el, slab_kind, thickness_mm: isVoid && slab_kind !== "void" && el.thickness_mm <= 0 ? SLAB_THICKNESS_MM : el.thickness_mm })}
+      />
+      {isVoid ? null : (
+        <Field label="Thickness">
+          <NumberField label="Slab thickness" kind="length" unit={unit} min={50} max={1000} step={10} value={el.thickness_mm} onCommit={(thickness_mm) => update(el, { ...el, thickness_mm })} />
+        </Field>
+      )}
+      <Field label="Top offset" hint="Top of the slab above the level floor. Negative sinks it">
+        <NumberField label="Top offset" kind="length" unit={unit} min={-3000} max={3000} step={10} value={el.top_offset_mm} onCommit={(top_offset_mm) => update(el, { ...el, top_offset_mm })} />
+      </Field>
+      <RailingFields railing={el.railing} unit={unit} defaultHeight={SLAB_RAILING_HEIGHT_MM} what="Railing" onChange={(railing) => update(el, { ...el, railing })} />
+      <Field label="Area" hint="Plan area inside the outline">
+        <ReadOnly>{formatAreaMm2(slabAreaMm2(el.polygon))}</ReadOnly>
+      </Field>
+      {isVoid ? <p className={s.note}>The floor inside this outline is cut away, so the space below is double height.</p> : null}
+    </div>
   );
 }
 
@@ -690,5 +787,7 @@ export function ElementFields({ element, doc }: { element: Element; doc: DocStat
       return <ReferenceModelFields el={element} doc={doc} />;
     case "pipe":
       return <PipeFields el={element} doc={doc} />;
+    case "slab":
+      return <SlabFields el={element} doc={doc} />;
   }
 }

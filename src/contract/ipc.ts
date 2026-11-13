@@ -7,6 +7,8 @@
 import type {
   AiRequest,
   AiResolveResult,
+  AgentLimit,
+  AgentSummary,
   AiSettings,
   AiTurn,
   AppEvent,
@@ -291,6 +293,24 @@ export const ipc = {
   mcpSetEnabled: (enabled: boolean) => call<McpStatus>("mcp_set_enabled", { enabled }),
   /** Writes the Claude Desktop extension (.mcpb). Desktop app only. */
   mcpClaudeDesktopBundle: () => call<{ path: string }>("mcp_claude_desktop_bundle"),
+  /** The extended toolsets every agent gets by default, and the names there are. */
+  mcpToolsets: () => call<{ toolsets: string[]; available: string[] }>("mcp_toolsets"),
+  /** Sets the default extended toolsets. An agent whose URL or command names its own (`?toolsets=`, `--toolsets`) gets those instead. */
+  mcpSetToolsets: (toolsets: string[]) => call<{ toolsets: string[]; available: string[] }>("mcp_set_toolsets", { toolsets }),
+
+  // Agents working on the project through MCP (DECISIONS D42, D47). Changes
+  // also arrive as the `agents` app event.
+  /** Every agent this computer knows, newest call first. */
+  agentsList: () => call<AgentSummary[]>("agents_list"),
+  /** Renames an agent, or sets or clears its limit (null clears). */
+  agentUpdate: (id: string, patch: { name?: string; limit?: AgentLimit | null }) =>
+    call<AgentSummary>("agent_update", { id, ...patch }),
+  /** Pause: its edits are refused, reads still work. `id` null: every agent. */
+  agentPause: (id: string | null) => call<AgentSummary[]>("agent_pause", { id }),
+  /** Stop: every call is refused until resumed. `id` null: every agent. */
+  agentStop: (id: string | null) => call<AgentSummary[]>("agent_stop", { id }),
+  /** Ends a pause or a stop. `id` null: every agent. */
+  agentResume: (id: string | null) => call<AgentSummary[]>("agent_resume", { id }),
 
   // AI visualization (Tier 2). Every result is labelled and tied to its source capture.
   renderAiSettingsGet: () => call<RenderAiSettings>("render_ai_settings_get"),

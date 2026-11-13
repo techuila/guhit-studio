@@ -20,12 +20,24 @@ import type { SkyKind } from "../../contract/bindings";
 import type { ModelBounds } from "../geom/cameraMath";
 import { LUX, type LightFrame } from "../light/model";
 import { clearSkyRatio, SKY_CDM2, SkyRig } from "../light/sky";
-import { PACK_BASE } from "../scene/pack";
+import { PACK_BASE, texturePack } from "../scene/pack";
+import { AO_LAYER, hookAo, type AoUniforms } from "../light/ao";
 
 const GRASS = "#a3b183";
 
-/** Tone mapping exposure. Constant: exposure lives in the light intensities. */
-export const TONE_EXPOSURE = 1;
+/**
+ * Tone mapping of the live view, captures and path traced renders. AgX
+ * (Blender's default since 4.0) rolls bright light off to white without the
+ * hue shifts of ACES Filmic, which turned sunlit paint yellow and skies teal,
+ * and keeps detail in the shade.
+ */
+export const TONE_MAPPING: THREE.ToneMapping = THREE.AgXToneMapping;
+/**
+ * Tone mapping exposure. Constant: exposure lives in the light intensities.
+ * Set so a metered scene lands where it did under ACES Filmic, which scales
+ * its input by 1 / 0.6 inside the curve.
+ */
+export const TONE_EXPOSURE = 1.25;
 /**
  * The live view has no bounce light, so in daylight the sky light is turned
  * up to stand in for the light the sunlit ground throws back: shadows keep
@@ -41,8 +53,21 @@ export function rasterFill(altitudeDeg: number): number {
 const BOUNCE = 0.14;
 /** Moon and city glow on a clear night, lux, so a house at night is never pure black. */
 const NIGHT_AMBIENT_LUX = 0.6;
-/** The photo sky at the look it was tuned with (environment 0.52, exposure 1.1). */
-const PHOTO_ENV = 0.57;
+/**
+ * Cosine weighted mean luminance of the physical clear sky with the sun at
+ * 50 degrees, cd/m2 (light/sky.ts: 2.28 raw at 60 degrees, `clearSkyRatio`
+ * 1.148 there, times `SKY_CDM2`). The photo sky is scaled to give this much
+ * sky light at 50 degrees, and dims with the sun like the clear sky does, so
+ * changing the sky kind never changes how bright the shade is.
+ */
+export const SKY_MEAN_CDM2_AT_50 = (2.28 / 1.148) * SKY_CDM2;
+/**
+ * The photo's sun is clamped to this many times the 99.7th percentile of the
+ * sky: the directional light is the sun, and an image based light that kept
+ * it would light every sun-facing surface a second time, through walls too.
+ */
+const HDRI_SUN_CAP = 1.5;
+const HDRI_SUN_PERCENTILE = 0.997;
 
 function radialTexture(size: number, stops: [number, string][]): THREE.CanvasTexture {
   const c = document.createElement("canvas");
@@ -83,6 +108,58 @@ function contactTexture(size: number): THREE.CanvasTexture {
 
 /** Albedo of real grass, near enough. The ground disc is lit, not emissive. */
 const GROUND_ALBEDO = 0.12;
+/** How far under the horizon the photo's ground color is read, degrees. */
+const GROUND_BAND_DEG = 12;
+/** The lawn texture of the ground disc (assets/ASSETS.md), not a project material. */
+export const GROUND_PRESET = "mat-ground-grass";
+/** Lawn tile, meters, and the larger scale the second sample breaks its repeat with. */
+const GRASS_TILE_M = 1.4;
+const GRASS_MACRO = 0.137;
+/** Share of the ground radius over which the lawn turns into the photo's ground color, before the edge fades out. */
+const GROUND_FADE: [number, number] = [0.18, 0.5];
+
+interface GroundUniforms {
+  groundFar: THREE.IUniform<THREE.Color>;
+  /** 1 once the lawn texture is on, 0 for the flat color. */
+  groundTex: THREE.IUniform<number>;
+  /** Mean luminance of the lawn texture, linear. */
+  groundMean: THREE.IUniform<number>;
+}
+
+/**
+ * The live view's ground shader: the lawn sampled a second time at a larger
+ * scale and a turn, so its tile does not show from above, and blended into
+ * the photo's own ground color with distance (`groundFar`), which the edge
+ * then fades into. The path tracer reads the plain maps and skips this.
+ */
+function groundShader(uniforms: GroundUniforms) {
+  return (shader: THREE.WebGLProgramParametersWithUniforms) => {
+    shader.uniforms.groundFar = uniforms.groundFar;
+    shader.uniforms.groundTex = uniforms.groundTex;
+    shader.uniforms.groundMean = uniforms.groundMean;
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 groundFar;\nuniform float groundTex;\nuniform float groundMean;")
+      .replace(
+        "#include <map_fragment>",
+        /* glsl */ `#include <map_fragment>
+        #ifdef USE_MAP
+          {
+            vec2 mUv = mat2(0.8, -0.6, 0.6, 0.8) * vMapUv * ${GRASS_MACRO.toFixed(3)};
+            vec3 macro = texture2D(map, mUv).rgb;
+            float m = dot(macro, vec3(0.2126, 0.7152, 0.0722));
+            diffuseColor.rgb *= mix(1.0, clamp(m / max(groundMean, 1e-3), 0.6, 1.4), groundTex);
+          }
+        #endif
+        #ifdef USE_ALPHAMAP
+          {
+            float r = length(vAlphaMapUv - 0.5) * 2.0;
+            float far = smoothstep(${GROUND_FADE[0].toFixed(2)}, ${GROUND_FADE[1].toFixed(2)}, r);
+            diffuseColor.rgb = mix(diffuseColor.rgb, groundFar, far * groundTex);
+          }
+        #endif`,
+      );
+  };
+}
 /** Strength of the soft darkening around the building. */
 const CONTACT_OPACITY = 0.28;
 
@@ -102,7 +179,8 @@ export interface HdriScan {
  * `flipY` true, so v = 1 is the first row of the data (the zenith). The sun
  * scan is coarse on purpose: the upper half is reduced to cells, the brightest
  * cell wins and its center is the direction. The ground is the mean color of
- * everything below the horizon, rescaled to a plausible grass albedo.
+ * the band `GROUND_BAND_DEG` under the horizon, rescaled to a plausible
+ * grass albedo.
  */
 export function scanHdri(image: { data: ArrayLike<number>; width: number; height: number }): HdriScan {
   const empty: HdriScan = { sun: null, ground: null };
@@ -125,7 +203,9 @@ export function scanHdri(image: { data: ArrayLike<number>; width: number; height
       const g = at(i + 1);
       const b = at(i + 2);
       if (v < 0.5) {
-        if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) {
+        // Only the band just under the horizon: that is what the edge of the
+        // drawn lawn meets. What is straight down is often bare earth.
+        if (v >= 0.5 - GROUND_BAND_DEG / 180 && Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) {
           below[0] += r;
           below[1] += g;
           below[2] += b;
@@ -163,12 +243,118 @@ export function scanHdri(image: { data: ArrayLike<number>; width: number; height
   return { sun, ground };
 }
 
+/**
+ * Takes the sun out of an equirect HDRI, in place, and measures the sky that
+ * is left. Every pixel brighter than `HDRI_SUN_CAP` times the 99.7th
+ * percentile of the upper half (by solid angle) is scaled down to that
+ * level, hue kept: the sun disc and its glare go, clouds stay. Returns the
+ * cosine weighted mean luminance of the upper half afterwards, in the file's
+ * own units, which `Environment` scales to the physical sky. Run `scanHdri`
+ * first: it finds the sun by its brightness.
+ */
+export function tameHdri(image: { data: ArrayLike<number> & { [i: number]: number }; width: number; height: number }): number {
+  const { data, width, height } = image;
+  if (!data || !(width > 1) || !(height > 1)) return 0;
+  const half = !(data instanceof Float32Array);
+  const at = (i: number): number => (half ? THREE.DataUtils.fromHalfFloat(data[i]) : data[i]);
+  const put = (i: number, v: number) => {
+    data[i] = half ? THREE.DataUtils.toHalfFloat(v) : v;
+  };
+  const rows = Math.floor(height / 2);
+  // Solid angle weighted histogram of log2 luminance, upper half only.
+  const BINS = 512;
+  const LO = -16;
+  const SPAN = 40;
+  const hist = new Float64Array(BINS);
+  let total = 0;
+  const lumAt = (i: number) => at(i) * 0.2126 + at(i + 1) * 0.7152 + at(i + 2) * 0.0722;
+  for (let y = 0; y < rows; y++) {
+    const elev = (0.5 - (y + 0.5) / height) * Math.PI;
+    const w = Math.cos(elev);
+    for (let x = 0; x < width; x++) {
+      const l = lumAt((y * width + x) * 4);
+      if (!(l > 0) || !Number.isFinite(l)) continue;
+      const b = Math.min(BINS - 1, Math.max(0, Math.floor(((Math.log2(l) - LO) / SPAN) * BINS)));
+      hist[b] += w;
+      total += w;
+    }
+  }
+  if (!(total > 0)) return 0;
+  let acc = 0;
+  let capBin = BINS - 1;
+  for (let b = 0; b < BINS; b++) {
+    acc += hist[b];
+    if (acc >= total * HDRI_SUN_PERCENTILE) {
+      capBin = b;
+      break;
+    }
+  }
+  const cap = Math.pow(2, LO + ((capBin + 1) / BINS) * SPAN) * HDRI_SUN_CAP;
+  let sum = 0;
+  let weights = 0;
+  for (let y = 0; y < height; y++) {
+    const elev = (0.5 - (y + 0.5) / height) * Math.PI;
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      let l = lumAt(i);
+      if (!Number.isFinite(l)) continue;
+      if (l > cap) {
+        const k = cap / l;
+        put(i, at(i) * k);
+        put(i + 1, at(i + 1) * k);
+        put(i + 2, at(i + 2) * k);
+        l = cap;
+      }
+      if (y < rows) {
+        const w = Math.sin(elev) * Math.cos(elev);
+        sum += l * w;
+        weights += w;
+      }
+    }
+  }
+  return weights > 0 ? sum / weights : 0;
+}
+
+/**
+ * How much of the photo ground's color the live view's image based light
+ * keeps. It has no walls to stop it, so the ground's light reaches every
+ * ceiling indoors; at full color a lawn and bare earth turned white ceilings
+ * tan. Interiors are lit from below by their own floors, which are mostly
+ * neutral. The path tracer bounces real light and keeps the photo as it is.
+ */
+const LIVE_GROUND_SATURATION = 0.3;
+
+/** Desaturates the lower half of an equirect HDRI in place, luminance kept: `keep` 0 is grey, 1 untouched. */
+export function greyGround(image: { data: ArrayLike<number> & { [i: number]: number }; width: number; height: number }, keep: number): void {
+  const { data, width, height } = image;
+  if (!data || !(width > 1) || !(height > 1)) return;
+  const half = !(data instanceof Float32Array);
+  const at = (i: number): number => (half ? THREE.DataUtils.fromHalfFloat(data[i]) : data[i]);
+  const put = (i: number, v: number) => {
+    data[i] = half ? THREE.DataUtils.toHalfFloat(v) : v;
+  };
+  for (let y = Math.ceil(height / 2); y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const r = at(i);
+      const g = at(i + 1);
+      const b = at(i + 2);
+      const l = r * 0.2126 + g * 0.7152 + b * 0.0722;
+      put(i, l + (r - l) * keep);
+      put(i + 1, l + (g - l) * keep);
+      put(i + 2, l + (b - l) * keep);
+    }
+  }
+}
+
 /** Angle of a direction around +y, from +z towards +x. */
 export const headingOf = (v: THREE.Vector3) => Math.atan2(v.x, v.z);
 
 export interface EnvironmentCallbacks {
   /** The HDRI is on the scene: start the settle and redraw. */
   onHdriReady: () => void;
+  /** The lawn texture is on the ground: redraw. */
+  onGroundReady?: () => void;
 }
 
 export class Environment {
@@ -186,6 +372,8 @@ export class Environment {
   /** World direction towards the sun found in the HDRI, before any turn. */
   private hdriSun: THREE.Vector3 | null = null;
   private hdriGround: THREE.Color | null = null;
+  /** The photo sky's mean light with its sun taken out, in the file's units (`tameHdri`). */
+  private hdriSkyMean = 0;
   private readonly procGround = new THREE.Color(GRASS);
   private hdriLoading = false;
   /** The dev harness can keep the photo sky off to compare looks. */
@@ -206,8 +394,23 @@ export class Environment {
   private photoShown = false;
   /** The path tracer's scene: physical sky light, no fill, no painted contact shadow. */
   private physical = false;
+  private readonly groundUniforms: GroundUniforms = {
+    groundFar: { value: new THREE.Color(GRASS) },
+    groundTex: { value: 0 },
+    groundMean: { value: 0.1 },
+  };
+  /** This scene's copies of the lawn maps: their repeat follows the ground's size. */
+  private grassMaps: THREE.Texture[] = [];
+  private unsubscribeGround: (() => void) | null = null;
 
-  constructor(private scene: THREE.Scene) {
+  /**
+   * `ao`: the live view's ambient occlusion (light/ao.ts). The ground is an
+   * occluder and reads it, so the lawn darkens along the walls.
+   */
+  constructor(
+    private scene: THREE.Scene,
+    ao: AoUniforms | null = null,
+  ) {
     const groundAlpha = radialTexture(256, [
       [0, "#ffffff"],
       [0.45, "#ffffff"],
@@ -223,12 +426,20 @@ export class Environment {
       alphaMap: groundAlpha,
       transparent: true,
       depthWrite: false,
+      // Anything level with the lawn (a deck, a path) shows over it.
+      polygonOffset: true,
+      polygonOffsetFactor: 2,
+      polygonOffsetUnits: 2,
     });
+    groundMat.onBeforeCompile = groundShader(this.groundUniforms);
+    groundMat.customProgramCacheKey = () => "guhit-ground";
+    if (ao) hookAo(groundMat, ao);
     this.ground = new THREE.Mesh(groundGeo, groundMat);
     this.ground.name = "ground";
     this.ground.receiveShadow = true;
     this.ground.renderOrder = -5;
     this.ground.raycast = () => {};
+    if (ao) this.ground.layers.enable(AO_LAYER);
 
     const contactTex = contactTexture(256);
     const contactGeo = new THREE.PlaneGeometry(1, 1);
@@ -248,7 +459,7 @@ export class Environment {
 
     // Bounce light: a neutral sky side and a warm ground side, so shadows
     // under a blue sky stay grey rather than turning teal.
-    this.hemi = new THREE.HemisphereLight(0xe9ecf0, 0xb8ad90, 0);
+    this.hemi = new THREE.HemisphereLight(0xe9ecf0, 0xc2bcaf, 0);
     this.sun = new THREE.DirectionalLight(0xfff1dc, 3.0);
     this.sun.name = "sun";
     this.sun.castShadow = true;
@@ -260,6 +471,48 @@ export class Environment {
     this.group.add(this.ground, this.contact, this.hemi, this.sun, this.sun.target);
     scene.add(this.group);
     this.disposables.push(groundAlpha, groundGeo, groundMat, contactTex, contactGeo, contactMat);
+    // The lawn texture comes with the pack, async; the flat color stands in.
+    this.unsubscribeGround = texturePack.onLoad((id) => {
+      if (id === GROUND_PRESET && this.applyGrass()) this.cb?.onGroundReady?.();
+    });
+    if (!this.applyGrass()) texturePack.request(GROUND_PRESET);
+  }
+
+  /**
+   * Puts the pack's lawn on the ground once it is loaded: copies of its maps,
+   * whose repeat `fit` sets so a tile is `GRASS_TILE_M` across. False while
+   * it is not loaded (or the pack is missing: the flat color stays).
+   */
+  private applyGrass(): boolean {
+    const set = texturePack.get(GROUND_PRESET);
+    if (!set || this.grassMaps.length > 0) return false;
+    const mat = this.ground.material as THREE.MeshStandardMaterial;
+    const copy = (t: THREE.Texture | null) => {
+      if (!t) return null;
+      const c = t.clone();
+      c.wrapS = c.wrapT = THREE.RepeatWrapping;
+      this.grassMaps.push(c);
+      return c;
+    };
+    mat.map = copy(set.map);
+    mat.normalMap = copy(set.normalMap);
+    mat.normalScale.set(0.6, 0.6);
+    mat.color.set(0xffffff);
+    this.groundUniforms.groundTex.value = 1;
+    this.groundUniforms.groundMean.value = set.albedo.r * 0.2126 + set.albedo.g * 0.7152 + set.albedo.b * 0.0722;
+    this.grassAlbedo.copy(set.albedo);
+    mat.needsUpdate = true;
+    this.sizeGrass();
+    this.applyLevels();
+    return true;
+  }
+
+  /** Mean color of the lawn texture, linear: the far ground fades to it under a sky without a photo. */
+  private grassAlbedo = new THREE.Color(GRASS);
+
+  private sizeGrass(): void {
+    const k = (this.ground.scale.x * 2) / GRASS_TILE_M;
+    for (const t of this.grassMaps) t.repeat.set(k, k);
   }
 
   /** The sky kind on screen: photo only once the HDRI is up and the sun is. */
@@ -360,9 +613,10 @@ export class Environment {
     if (photo) {
       const settle = 0.85 + 0.15 * this.photoBlend;
       // A photo cannot change with the time: it dims with the sun the way a
-      // clear sky does, and takes the exposure like everything else.
+      // clear sky does, and takes the exposure like everything else. Its sky
+      // light matches the physical clear sky's (`photoGain`).
       const sky = clearSkyRatio(alt) * this.scale;
-      this.scene.environmentIntensity = PHOTO_ENV * sky * settle;
+      this.scene.environmentIntensity = this.photoGain(alt) * settle;
       this.scene.backgroundIntensity = Math.min(Math.max(sky, 0.25), 1.2) * settle;
     } else {
       this.scene.environmentIntensity = SKY_CDM2 * k * (this.physical ? 1 : rasterFill(alt));
@@ -372,18 +626,38 @@ export class Environment {
     // A path tracer bounces the light itself.
     const up = Math.max(this.sunDir.y, 0);
     this.hemi.intensity = this.physical ? 0 : (sunLux * up * BOUNCE + NIGHT_AMBIENT_LUX) * k;
-    // The ground disc belongs to the sky it stands under.
+    // The ground disc belongs to the sky it stands under: the lawn fades into
+    // the photo's own ground with distance, or the flat color takes it on.
     const groundMat = this.ground.material as THREE.MeshStandardMaterial;
-    groundMat.color.copy(this.procGround);
-    if (photo && this.hdriGround) groundMat.color.lerp(this.hdriGround, this.photoBlend);
+    const far = this.groundUniforms.groundFar.value;
+    if (this.grassMaps.length > 0) {
+      far.copy(this.grassAlbedo);
+      if (photo && this.hdriGround) far.lerp(this.hdriGround, this.photoBlend);
+    } else {
+      groundMat.color.copy(this.procGround);
+      if (photo && this.hdriGround) groundMat.color.lerp(this.hdriGround, this.photoBlend);
+    }
+  }
+
+  /**
+   * Environment intensity of the photo sky at a sun altitude: its sky light
+   * (sun taken out) scaled to the physical clear sky's at that altitude, in
+   * scene units at the current exposure. The live view's daylight fill
+   * applies on top, as it does for the clear sky; a path traced scene uses
+   * the physical value.
+   */
+  photoGain(altitudeDeg: number, skyMean = this.hdriSkyMean): number {
+    if (!(skyMean > 0)) return 0;
+    const fill = this.physical ? 1 : rasterFill(altitudeDeg);
+    return (SKY_MEAN_CDM2_AT_50 / skyMean) * clearSkyRatio(altitudeDeg) * LUX * this.scale * fill;
   }
 
   // ------------------------------------------------------------------- HDRI
 
   /**
-   * Loads the pack's HDRI and its JPG preview once, in the background. The
-   * physical sky keeps rendering until both are ready; nothing here can throw
-   * into a frame, and a missing pack simply leaves the physical sky up.
+   * Loads the pack's HDRI and its 4K JPG background once, in the background.
+   * The physical sky keeps rendering until both are ready; nothing here can
+   * throw into a frame, and a missing pack simply leaves the physical sky up.
    */
   loadHdri(renderer: THREE.WebGLRenderer, cb: EnvironmentCallbacks): void {
     this.cb = cb;
@@ -392,15 +666,18 @@ export class Environment {
     void (async () => {
       try {
         const hdr = await new HDRLoader().loadAsync(`/${PACK_BASE}hdri/sky.hdr`);
-        const scan = scanHdri(hdr.image as { data: ArrayLike<number>; width: number; height: number });
+        const image = hdr.image as { data: Uint16Array | Float32Array; width: number; height: number };
+        const scan = scanHdri(image);
         this.hdriSun = scan.sun;
         this.hdriGround = scan.ground;
+        this.hdriSkyMean = tameHdri(image);
+        greyGround(image, LIVE_GROUND_SATURATION);
         const pmrem = new THREE.PMREMGenerator(renderer);
         this.hdriTarget = pmrem.fromEquirectangular(hdr);
         pmrem.dispose();
         hdr.dispose();
         if (!this.hdriBackground) {
-          const bg = await new THREE.TextureLoader().loadAsync(`/${PACK_BASE}hdri/sky-preview.jpg`);
+          const bg = await new THREE.TextureLoader().loadAsync(`/${PACK_BASE}hdri/sky.jpg`);
           bg.mapping = THREE.EquirectangularReflectionMapping;
           bg.colorSpace = THREE.SRGBColorSpace;
           bg.minFilter = THREE.LinearFilter;
@@ -483,6 +760,7 @@ export class Environment {
 
     const groundR = Math.max(radius * 14, 80);
     this.ground.scale.set(groundR, 1, groundR);
+    this.sizeGrass();
     this.ground.position.set(cx, groundY, cz);
 
     this.contact.visible = contact !== null && !this.physical;
@@ -593,6 +871,10 @@ export class Environment {
     this.sun.dispose();
     this.hemi.dispose();
     for (const d of this.disposables) d.dispose();
+    this.unsubscribeGround?.();
+    this.unsubscribeGround = null;
+    for (const t of this.grassMaps) t.dispose();
+    this.grassMaps.length = 0;
     this.disposables.length = 0;
   }
 }

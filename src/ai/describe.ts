@@ -1,5 +1,5 @@
 // Readable names for elements and tools, and the starter suggestions.
-import type { AiProposal, DocState, Element } from "../contract/bindings";
+import type { AiProposal, DocState, Element, SlabKind } from "../contract/bindings";
 import { PIPE_GROUP, PIPE_SYSTEM_LABEL } from "../contract/pipes";
 
 function mm(v: number): string {
@@ -42,8 +42,17 @@ export function elementName(el: Element): string {
       const run = PIPE_GROUP[el.system] === "plumbing" ? `${PIPE_SYSTEM_LABEL[el.system]} pipe` : PIPE_SYSTEM_LABEL[el.system];
       return el.name || `${run}, ${Math.round(el.diameter_mm * 100) / 100} mm`;
     }
+    case "slab":
+      return SLAB_NAME[el.slab_kind];
   }
 }
+
+const SLAB_NAME: Record<SlabKind, string> = {
+  floor: "Floor slab",
+  balcony: "Balcony",
+  deck: "Deck",
+  void: "Floor void",
+};
 
 export type ChangeKind = "added" | "changed" | "removed";
 

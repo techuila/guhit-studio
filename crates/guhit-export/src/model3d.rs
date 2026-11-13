@@ -10,12 +10,17 @@
 //! edge and heights into intervals at every sill and head, and each
 //! (strip, interval) cell is either solid or void. That gives real reveals on
 //! all four sides of an opening without a CSG library.
+//!
+//! Slabs (`Slab` elements) are prisms from their outline, `thickness_mm`
+//! deep under their top. A void has no solid of its own: each exporter cuts
+//! it from the floors of its level. Railings are built from the engine's
+//! `Derived::railings` (`railing_pieces`), never from open edges found here.
 
 use std::collections::HashMap;
 
 use guhit_model::{
-    Annotation, Asset, Axis, Column, Derived, Element, Level, Opening, Pipe, Project, Room,
-    RoofKind, Stair, Wall,
+    Annotation, Asset, Axis, Column, Derived, Element, Level, Opening, Pipe, Project,
+    RailingRun, RailingStyle, Room, RoofKind, Slab, SlabKind, Stair, Wall,
 };
 
 use crate::geom::*;
@@ -148,6 +153,12 @@ pub struct LevelScene<'a> {
     /// Pipe runs, whatever their layer's visibility: whole-model exports
     /// carry every element.
     pub pipes: Vec<&'a Pipe>,
+    /// Floor, balcony and deck slabs with a usable outline.
+    pub slabs: Vec<&'a Slab>,
+    /// Voids with a usable outline. They cut the floors of this level.
+    pub voids: Vec<&'a Slab>,
+    /// Rails that stand on this level (`RailingRun::level_id`).
+    pub railings: Vec<&'a RailingRun>,
 }
 
 pub struct RoomSolid<'a> {
@@ -320,6 +331,9 @@ pub fn build_scene<'a>(project: &'a Project, derived: &'a Derived) -> Scene<'a> 
             assets: Vec::new(),
             annotations: Vec::new(),
             pipes: Vec::new(),
+            slabs: Vec::new(),
+            voids: Vec::new(),
+            railings: Vec::new(),
         })
         .collect();
     let index: HashMap<&str, usize> = project
@@ -416,7 +430,24 @@ pub fn build_scene<'a>(project: &'a Project, derived: &'a Derived) -> Scene<'a> 
                     levels[i].pipes.push(p);
                 }
             }
+            Element::Slab(sl) => {
+                let Some(i) = slot(&sl.level_id) else { continue };
+                if slab_outline(sl).len() < 3 {
+                    continue;
+                }
+                if sl.kind == SlabKind::Void {
+                    levels[i].voids.push(sl);
+                } else {
+                    levels[i].slabs.push(sl);
+                }
+            }
             _ => {}
+        }
+    }
+
+    for run in &derived.railings {
+        if let Some(i) = slot(&run.level_id) {
+            levels[i].railings.push(run);
         }
     }
 
@@ -568,10 +599,19 @@ pub struct Tread {
     pub top: f64,
 }
 
+/// Treads of a straight flight of `riser_count` risers: one fewer than the
+/// risers, because the top riser lands on the floor above (DECISIONS D44).
+/// At least one.
+pub fn tread_count(riser_count: u32) -> usize {
+    (riser_count.clamp(1, 200) as usize).saturating_sub(1).max(1)
+}
+
+/// The treads of a flight: `tread_count` of `run_mm / tread_count`, the
+/// first one riser up, the last one riser under the level height.
 pub fn stair_treads(s: &Stair, level_height: f64) -> Vec<Tread> {
-    let n = s.riser_count.max(1) as usize;
+    let n = tread_count(s.riser_count);
     let going = s.run_mm.max(1.0) / (n as f64);
-    let rise = level_height.max(1.0) / (n as f64);
+    let rise = level_height.max(1.0) / (s.riser_count.clamp(1, 200) as f64);
     let fwd = dir(s.rotation_deg + 90.0);
     let origin = V::from(s.origin);
     (0..n)
@@ -591,6 +631,150 @@ pub fn stair_box(s: &Stair) -> Vec<V> {
     let run = s.run_mm.max(1.0);
     let c = V::from(s.origin) + fwd * (run / 2.0);
     rect(c, s.width_mm.max(1.0), run, s.rotation_deg)
+}
+
+// ---------------------------------------------------------------------- slabs
+
+/// A slab's outline, counter-clockwise, or empty when it is no polygon.
+pub fn slab_outline(s: &Slab) -> Vec<V> {
+    ensure_ccw(&pts(&s.polygon))
+}
+
+/// Bottom and top of a floor, balcony or deck slab, mm above the level
+/// floor: the top at `top_offset_mm`, `thickness_mm` deep under it.
+pub fn slab_heights(s: &Slab) -> (f64, f64) {
+    let top = if s.top_offset_mm.is_finite() { s.top_offset_mm } else { 0.0 };
+    let t = if s.thickness_mm.is_finite() && s.thickness_mm >= 1.0 {
+        s.thickness_mm
+    } else {
+        SLAB_THICKNESS_MM
+    };
+    (top - t, top)
+}
+
+// ------------------------------------------------------------------ railings
+
+/// Top rail and post section, mm square.
+pub const RAIL_MM: f64 = 50.0;
+/// Posts of a bars railing stand at most this far apart, mm.
+pub const POST_SPACING_MM: f64 = 1200.0;
+/// Glass panel thickness, mm.
+pub const GLASS_MM: f64 = 12.0;
+/// Solid parapet width, mm.
+pub const PARAPET_MM: f64 = 100.0;
+
+/// The foot of a run in plan with its heights: points closer than 1 mm in
+/// plan to the one before dropped, and whether the run goes all the way
+/// round (its repeated last point dropped too).
+pub fn railing_path(run: &RailingRun) -> (Vec<V>, Vec<f64>, bool) {
+    let mut plan: Vec<V> = Vec::new();
+    let mut z: Vec<f64> = Vec::new();
+    for p in &run.points {
+        let q = v(p.x, p.y);
+        if !q.is_finite() || !p.z.is_finite() {
+            continue;
+        }
+        if plan.last().is_some_and(|l| (*l - q).len() < 1.0) {
+            continue;
+        }
+        plan.push(q);
+        z.push(p.z);
+    }
+    let closed = plan.len() >= 4 && (plan[0] - plan[plan.len() - 1]).len() < 1.0;
+    if closed {
+        plan.pop();
+        z.pop();
+    }
+    (plan, z, closed)
+}
+
+/// One straight piece of a railing: a profile in the upright plane through a
+/// segment of the run, swept `thickness` across it, centered on the run.
+/// Profile points are (u, w): u along the segment from `origin` in plan, w
+/// the height above the level floor. Counter-clockwise.
+#[derive(Debug, Clone)]
+pub struct RailPiece {
+    pub origin: V,
+    pub along: V,
+    pub profile: Vec<V>,
+    pub thickness: f64,
+}
+
+impl RailPiece {
+    /// Plan unit vector across the piece, to the right of `along`. With x
+    /// along and z across, y is straight up: the frame the IFC places the
+    /// profile in.
+    pub fn across(&self) -> V {
+        v(self.along.y, -self.along.x)
+    }
+
+    /// The plan point and height of a profile point, `s` across from the run.
+    pub fn at(&self, uw: V, s: f64) -> (V, f64) {
+        (self.origin + self.along * uw.x + self.across() * s, uw.y)
+    }
+}
+
+/// The solids of one rail (DECISIONS D50): bars are a 50 by 50 top rail and
+/// posts at the ends, at the bends and at most 1200 mm apart; glass is a 12 mm
+/// panel up to 50 mm under the top and the top rail; solid is a 100 mm wide
+/// parapet to the full height. Every piece follows the run's heights, so the
+/// rail of a stair side climbs with the flight. Top rails run 25 mm past
+/// every end to close the corners and cover the end posts; a parapet runs
+/// 50 mm past a bend.
+pub fn railing_pieces(run: &RailingRun) -> Vec<RailPiece> {
+    let (plan, z, closed) = railing_path(run);
+    let h = if run.height_mm.is_finite() && run.height_mm > RAIL_MM {
+        run.height_mm
+    } else {
+        RAIL_MM * 2.0
+    };
+    let count = plan.len();
+    let segments = if closed { count } else { count.saturating_sub(1) };
+    let mut out = Vec::new();
+    for k in 0..segments {
+        let (a, b) = (plan[k], plan[(k + 1) % count]);
+        let (za, zb) = (z[k], z[(k + 1) % count]);
+        let Some(along) = (b - a).unit() else { continue };
+        let len = (b - a).len();
+        let foot = |u: f64| za + (zb - za) * u / len;
+        // The upright band from w = foot + lo to foot + hi over u0..u1.
+        let band = |u0: f64, u1: f64, lo: f64, hi: f64, thickness: f64| RailPiece {
+            origin: a,
+            along,
+            profile: vec![
+                v(u0, foot(u0) + lo),
+                v(u1, foot(u1) + lo),
+                v(u1, foot(u1) + hi),
+                v(u0, foot(u0) + hi),
+            ],
+            thickness,
+        };
+        let half = RAIL_MM / 2.0;
+        match run.style {
+            RailingStyle::Bars | RailingStyle::Glass => {
+                out.push(band(-half, len + half, h - RAIL_MM, h, RAIL_MM));
+                if run.style == RailingStyle::Glass {
+                    out.push(band(0.0, len, 0.0, h - RAIL_MM, GLASS_MM));
+                    continue;
+                }
+                // Posts: one at the start of each segment, the far end of an
+                // open run, and evenly between them.
+                let gaps = (len / POST_SPACING_MM).ceil().max(1.0) as usize;
+                let last = if !closed && k + 1 == segments { gaps } else { gaps - 1 };
+                for j in 0..=last {
+                    let u = len * j as f64 / gaps as f64;
+                    out.push(band(u - half, u + half, 0.0, h - RAIL_MM, RAIL_MM));
+                }
+            }
+            RailingStyle::Solid => {
+                let ext = PARAPET_MM / 2.0;
+                let u0 = if closed || k > 0 { -ext } else { 0.0 };
+                let u1 = if closed || k + 1 < segments { len + ext } else { len };
+                out.push(band(u0, u1, 0.0, h, PARAPET_MM));
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -678,12 +862,67 @@ mod tests {
             origin: guhit_model::Point { x: 0.0, y: 0.0 },
             rotation_deg: 0.0,
             width_mm: 1000.0,
+            railing: None,
             run_mm: 2750.0,
             riser_count: 11,
         };
+        // D44: 11 risers are 10 treads of 275 mm, the last one riser under
+        // the floor above.
         let treads = stair_treads(&s, 3000.0);
-        assert_eq!(treads.len(), 11);
-        assert!((treads[10].top - 3000.0).abs() < 1e-6);
+        assert_eq!(treads.len(), 10);
+        assert!((treads[9].top - 3000.0 * 10.0 / 11.0).abs() < 1e-6);
         assert!((treads[0].top - 3000.0 / 11.0).abs() < 1e-6);
+        let b = bounds_of(&treads[0].plan);
+        assert!((b.height() - 275.0).abs() < 1e-6);
+        assert!((bounds_of(&treads[9].plan).max.y - 2750.0).abs() < 1e-6, "the run ends at the top");
+        assert_eq!(tread_count(1), 1);
+        assert_eq!(tread_count(2), 1);
+    }
+
+    fn run(points: &[(f64, f64, f64)], style: RailingStyle) -> RailingRun {
+        RailingRun {
+            host_id: "h".into(),
+            level_id: "l".into(),
+            kind: guhit_model::RailingRunKind::SlabEdge,
+            points: points
+                .iter()
+                .map(|p| guhit_model::Vec3 { x: p.0, y: p.1, z: p.2 })
+                .collect(),
+            height_mm: 1000.0,
+            style,
+        }
+    }
+
+    #[test]
+    fn bars_get_a_top_rail_and_posts_at_most_1200_apart() {
+        // 3000 mm: three gaps of 1000, so four posts and one rail.
+        let pieces = railing_pieces(&run(&[(0.0, 0.0, 0.0), (3000.0, 0.0, 0.0)], RailingStyle::Bars));
+        assert_eq!(pieces.len(), 1 + 4);
+        let rail = &pieces[0];
+        assert_eq!(rail.thickness, RAIL_MM);
+        let w: Vec<f64> = rail.profile.iter().map(|p| p.y).collect();
+        assert_eq!(w, vec![950.0, 950.0, 1000.0, 1000.0]);
+        assert!((rail.profile[0].x + 25.0).abs() < 1e-9 && (rail.profile[1].x - 3025.0).abs() < 1e-9);
+        // A closed square loop of 2000 mm sides: no doubled corner post.
+        let square = [(0.0, 0.0, 0.0), (2000.0, 0.0, 0.0), (2000.0, 2000.0, 0.0), (0.0, 2000.0, 0.0), (0.0, 0.0, 0.0)];
+        let pieces = railing_pieces(&run(&square, RailingStyle::Bars));
+        assert_eq!(pieces.len(), 4 + 4 * 2, "four rails, two posts per side");
+    }
+
+    #[test]
+    fn a_stair_rail_climbs_with_the_flight() {
+        let pieces = railing_pieces(&run(&[(0.0, 0.0, 300.0), (0.0, 2700.0, 3000.0)], RailingStyle::Glass));
+        assert_eq!(pieces.len(), 2, "top rail and one panel");
+        let panel = &pieces[1];
+        assert_eq!(panel.thickness, GLASS_MM);
+        assert!((panel.profile[0].y - 300.0).abs() < 1e-9);
+        assert!((panel.profile[1].y - 3000.0).abs() < 1e-9);
+        assert!((panel.profile[2].y - 3950.0).abs() < 1e-9);
+        // Running north, across points east.
+        assert!((panel.across().x - 1.0).abs() < 1e-9);
+        let solid = railing_pieces(&run(&[(0.0, 0.0, 0.0), (1000.0, 0.0, 0.0), (1000.0, 1000.0, 0.0)], RailingStyle::Solid));
+        assert_eq!(solid.len(), 2);
+        assert!((solid[0].profile[1].x - 1050.0).abs() < 1e-9, "runs on past the bend");
+        assert!(solid[0].profile[0].x.abs() < 1e-9, "stops at the free end");
     }
 }

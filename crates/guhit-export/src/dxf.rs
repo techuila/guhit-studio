@@ -9,6 +9,10 @@
 //! pattern sized to plot at 1:N. Pipe layers and linetypes are only written
 //! when the drawing has pipes, so a project without pipes gives the same file
 //! as before.
+//!
+//! Slabs go on `A-FLOR-OTLN` and railings on `A-FLOR-HRAL`, layers written
+//! only when something is on them, like `L-SITE`. A stair seen from the level
+//! it arrives at stays on `A-FLOR-STRS` with the `GUHIT_DASHED` linetype.
 
 use guhit_model::PipeSystem;
 
@@ -25,7 +29,9 @@ fn layer_color(cat: Cat) -> u8 {
         Cat::Door => 4,
         Cat::Glaz => 5,
         Cat::Cols => 7,
-        Cat::Strs => 6,
+        Cat::Strs | Cat::StrsBelow => 6,
+        Cat::Slab => 8,
+        Cat::Rail => 6,
         Cat::Furn => 8,
         Cat::Area => 3,
         Cat::Dims => 1,
@@ -317,8 +323,10 @@ pub(crate) fn write_parts(p: &Parts, scale: u32) -> String {
     }
     let systems = pipes::systems_present(p.pipes);
     let mut dashes = pipe_dashes(&systems);
+    let hidden = p.items.iter().any(|i| i.cat == Cat::StrsBelow);
     for d in [Dash::Dashed, Dash::DashDot] {
-        if p.dashes.contains(&d) && !dashes.contains(&d) {
+        let wanted = p.dashes.contains(&d) || (hidden && d == HIDDEN);
+        if wanted && !dashes.contains(&d) {
             dashes.push(d);
         }
     }
@@ -377,12 +385,12 @@ pub(crate) fn write_parts(p: &Parts, scale: u32) -> String {
 
     w.pair(0, "TABLE");
     w.pair(2, "LAYER");
-    // The site layer is only written when the plan has site walls, so a
-    // plan without a fence gives the same file as before.
-    let has_site = p.items.iter().any(|i| i.cat == Cat::Site);
-    let arch_cats: Vec<Cat> = dxf_layer_order()
+    // The site, slab and railing layers are only written when the plan has
+    // something on them, so a plan without them gives the same file as
+    // before.
+    let arch_cats: Vec<Cat> = layer_table_cats(p.items)
         .into_iter()
-        .filter(|c| p.arch_layers && (*c != Cat::Site || has_site))
+        .filter(|_| p.arch_layers)
         .collect();
     w.int(70, arch_cats.len() as i64 + 1 + systems.len() as i64 + p.layers.len() as i64);
     w.pair(0, "LAYER");
@@ -578,15 +586,19 @@ fn prim_on(w: &mut Writer, layer: &str, prim: &Prim, linetype: Option<&str>) {
     }
 }
 
-/// Layer table order, walls first.
-pub fn dxf_layer_order() -> [Cat; 10] {
+/// Layer and entity order, walls first. `StrsBelow` draws on the stairs
+/// layer and has no table entry of its own.
+pub fn dxf_layer_order() -> [Cat; 13] {
     [
         Cat::Wall,
         Cat::Site,
+        Cat::Slab,
         Cat::Door,
         Cat::Glaz,
         Cat::Cols,
         Cat::Strs,
+        Cat::StrsBelow,
+        Cat::Rail,
         Cat::Furn,
         Cat::Area,
         Cat::Dims,
@@ -594,8 +606,34 @@ pub fn dxf_layer_order() -> [Cat; 10] {
     ]
 }
 
+/// Categories whose layer is written only when an item is on it.
+pub(crate) fn optional_cat(cat: Cat) -> bool {
+    matches!(cat, Cat::Site | Cat::Slab | Cat::Rail)
+}
+
+/// The categories with a layer table entry for these items, in order.
+pub(crate) fn layer_table_cats(items: &[Item]) -> Vec<Cat> {
+    dxf_layer_order()
+        .into_iter()
+        .filter(|c| *c != Cat::StrsBelow && (!optional_cat(*c) || items.iter().any(|i| i.cat == *c)))
+        .collect()
+}
+
+/// The dash style of hidden lines: a stair seen from above its top.
+pub(crate) const HIDDEN: Dash = Dash::Dashed;
+
+/// Linetype name of hidden lines, `GUHIT_DASHED`.
+pub(crate) fn hidden_linetype() -> &'static str {
+    pipes::dxf_linetype(HIDDEN).map(|t| t.0).unwrap_or("CONTINUOUS")
+}
+
 fn entity(w: &mut Writer, item: &Item) {
-    entity_on(w, item.cat.dxf_layer(), &item.prim, |_| {});
+    let hidden = item.cat == Cat::StrsBelow;
+    entity_on(w, item.cat.dxf_layer(), &item.prim, |w| {
+        if hidden {
+            w.pair(6, hidden_linetype());
+        }
+    });
 }
 
 /// One primitive on a layer. `linetype` may add a group 6 right after the

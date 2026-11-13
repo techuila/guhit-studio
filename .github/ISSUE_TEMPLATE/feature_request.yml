@@ -1,0 +1,67 @@
+name: Feature request
+description: Suggest something Guhit Studio should do, or do better
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Describe the problem first; the solution can come second.
+
+        If you want to build it yourself, say so below. Read [CONTRIBUTING.md](https://github.com/techuila/guhit-studio/blob/main/CONTRIBUTING.md) first: bigger changes are best agreed here before any code is written.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that is hard or impossible today? A real example from a project helps.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: How should it work? Sketches and screenshots are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Other ways you have tried
+      description: A workaround, another tool, or a different design you thought about.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - 2D editor
+        - 3D view
+        - Walk mode
+        - Plumbing or electrical
+        - AI copilot
+        - MCP or an agent
+        - Live session
+        - Export or import
+        - Catalog (objects, materials)
+        - Review checks
+        - Docs or translations
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you like to build it?
+      options:
+        - No, I am only suggesting it
+        - Yes, I would like to send a pull request
+        - Maybe, with some guidance
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I searched the existing issues and did not find this idea.
+          required: true
+        - label: I agree to follow the Code of Conduct.
+          required: true

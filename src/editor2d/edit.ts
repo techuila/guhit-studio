@@ -7,6 +7,7 @@ import { add, angleDeg, dist, distToSegment, dot, left, lerp, mul, normDeg, roun
 import type { DocIndex } from "./model";
 import { backDir, dimensionGeometry, type WallEl } from "./model";
 import { pipeNodes } from "./pipe";
+import { edgeMidpoints } from "./slab";
 
 export type GripKind =
   | "wall_start"
@@ -22,7 +23,11 @@ export type GripKind =
   /** The picked segment's middle: drags it sideways while its neighbours stretch (DECISIONS D39). */
   | "pipe_mid"
   /** An open end's "+": continues the run from there. `index` 0 is the start, else the end. */
-  | "pipe_continue";
+  | "pipe_continue"
+  /** A corner of a slab outline, `index` the vertex. */
+  | "slab_vertex"
+  /** The middle of a slab edge: dragging it inserts a vertex on edge `index`. */
+  | "slab_mid";
 
 export interface Grip {
   elementId: string;
@@ -66,6 +71,12 @@ export function gripsFor(el: Element, pxMm: number): Grip[] {
     case "pipe":
       // One handle per plan node: a riser moves as one, so it stays vertical.
       return pipeNodes(el.points).map((n) => ({ elementId: el.id, kind: "pipe_node", pos: n.point, index: n.index, count: n.count }));
+    case "slab":
+      // Corners first, so they win over the edge middles where both are close.
+      return [
+        ...el.polygon.map((p, index): Grip => ({ elementId: el.id, kind: "slab_vertex", pos: p, index })),
+        ...edgeMidpoints(el.polygon).map((p, index): Grip => ({ elementId: el.id, kind: "slab_mid", pos: p, index })),
+      ];
     default:
       return [];
   }
@@ -129,6 +140,8 @@ export function translateElement(el: Element, d: P): Element {
       return { ...el, position: add(el.position, d) };
     case "pipe":
       return { ...el, points: el.points.map((v) => ({ ...v, x: v.x + d.x, y: v.y + d.y })) };
+    case "slab":
+      return { ...el, polygon: el.polygon.map((p) => add(p, d)) };
     case "opening":
       return el;
   }

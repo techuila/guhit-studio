@@ -4,6 +4,7 @@
 //   the addresses, everyone with Remove, End session.
 //   Joined or reconnecting: everyone, Save a copy, Leave.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { Participant } from "../contract/bindings";
 import { ipc } from "../contract/ipc";
 import { useApp } from "../state/store";
@@ -261,7 +262,8 @@ function GuestBody() {
 // ---------------------------------------------------------------- people
 
 function People({ removable }: { removable: boolean }) {
-  const participants = useLive((st) => st.status.participants);
+  // People only: agents in the session show in the top bar and the Agents panel.
+  const participants = useLive(useShallow((st) => st.status.participants.filter((p) => !p.agent)));
   const selfId = useLive((st) => st.status.self_id);
   const mode = useLive((st) => st.status.mode);
   const rows = useListPresence(participants, (p) => p.id, "base");

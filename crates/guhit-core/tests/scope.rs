@@ -80,6 +80,7 @@ fn stair(id: &str, x: f64, y: f64) -> Element {
         origin: p(x, y),
         rotation_deg: 0.0,
         width_mm: 900.0,
+        railing: None,
         run_mm: 2700.0,
         riser_count: 15,
     })

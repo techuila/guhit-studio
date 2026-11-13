@@ -1,9 +1,11 @@
 // Things the shell can do, shared by the top bar, shortcuts and the palette.
-import type { DisplayUnit, OpeningStyle, RoofKind, Vec3 } from "../contract/bindings";
+import type { DisplayUnit, OpeningStyle, RoofKind, SlabKind, Vec3 } from "../contract/bindings";
 import { ipc } from "../contract/ipc";
 import { getActiveController } from "../editor2d/controller";
 import { rectIsEmpty } from "../editor2d/geom";
 import { boundsOfIds, buildIndex, layerOf, levelOf } from "../editor2d/model";
+import { levelBelow } from "../editor2d/slab";
+import { useUnderlay } from "../editor2d/underlay";
 import { useLive } from "../live/liveStore";
 import { liveActions } from "../live/session";
 import { bus } from "../state/bus";
@@ -37,6 +39,16 @@ export const TOOLS: ToolDef[] = [
   { tool: "select", label: "Select", phrase: "Select and move things", icon: "select", key: "V", group: "pick", keywords: "pointer arrow pick move" },
   { tool: "wall", label: "Wall", phrase: "Draw walls", icon: "wall", key: "W", group: "draw", keywords: "line partition chb", flyout: "wall" },
   { tool: "rect_room", label: "Room", phrase: "Draw a room rectangle", icon: "room", key: "R", group: "draw", keywords: "rectangle box space" },
+  {
+    tool: "slab",
+    label: "Slab",
+    phrase: "Draw a floor, balcony, deck or void",
+    icon: "slab",
+    key: "B",
+    group: "draw",
+    keywords: "slab floor balcony deck lanai terrace mezzanine void open to below double height opening railing guard parapet",
+    flyout: "slab",
+  },
   { tool: "door", label: "Door", phrase: "Place a door", icon: "door", key: "D", group: "place", keywords: "opening swing sliding", flyout: "door" },
   { tool: "window", label: "Window", phrase: "Place a window", icon: "window", key: "N", group: "place", keywords: "opening jalousie casement glass", flyout: "window" },
   { tool: "column", label: "Column", phrase: "Place a column", icon: "column", key: "C", group: "place", keywords: "post pillar structure" },
@@ -57,6 +69,21 @@ export const TOOLS: ToolDef[] = [
   { tool: "text", label: "Text", phrase: "Add a text note", icon: "text", key: "T", group: "annotate", keywords: "label annotation note" },
   { tool: "camera", label: "Camera", phrase: "Place a camera", icon: "camera", key: "K", group: "annotate", keywords: "view perspective render shot" },
   { tool: "pan", label: "Pan", phrase: "Pan the view", icon: "pan", key: "H", group: "view", keywords: "hand move scroll navigate" },
+];
+
+/** The slab tool's kinds: what the rail flyout and the palette offer. */
+export const SLAB_KINDS: Array<{ value: SlabKind; label: string; hint: string }> = [
+  { value: "floor", label: "Floor", hint: "extension, mezzanine" },
+  { value: "balcony", label: "Balcony", hint: "open, outside the walls" },
+  { value: "deck", label: "Deck", hint: "open, outside the walls" },
+  { value: "void", label: "Void", hint: "open to below" },
+];
+
+const SLAB_PALETTE: Array<{ kind: SlabKind; title: string; keywords: string }> = [
+  { kind: "floor", title: "Draw a floor slab", keywords: "floor extension mezzanine" },
+  { kind: "balcony", title: "Draw a balcony", keywords: "balcony terrace railing" },
+  { kind: "deck", title: "Draw a deck", keywords: "deck lanai terrace" },
+  { kind: "void", title: "Draw a void, open to below", keywords: "void open to below double height opening" },
 ];
 
 export const DOOR_STYLES: Array<{ value: OpeningStyle; label: string }> = [
@@ -433,6 +460,30 @@ export function paletteActions(): PaletteAction[] {
     { id: "toggle-ortho", title: app.orthoEnabled ? "Turn ortho off" : "Turn ortho on", group: "View", icon: "ortho", keywords: "ortho toggle straight 90 degrees angle lock", shortcut: `${SHIFT}O`, run: () => app.toggle("orthoEnabled") },
     { id: "toggle-grid", title: app.gridVisible ? "Hide the grid" : "Show the grid", group: "View", icon: "grid", keywords: "grid toggle", shortcut: "G", run: () => app.toggle("gridVisible") },
   );
+
+  // The level below as an underlay on the plan (docs/CONTRACT.md "Slabs and railings").
+  const underlay = useUnderlay.getState();
+  out.push({
+    id: "toggle-underlay",
+    title: underlay.on ? "Hide level below" : "Show level below",
+    group: "View",
+    icon: underlay.on ? "eyeOff" : "eye",
+    keywords: "underlay level below floor below downstairs ground floor walls faint trace show hide",
+    disabled: !doc || !levelBelow(doc.project.levels, app.activeLevelId),
+    run: () => underlay.toggle(),
+  });
+
+  // The slab tool's kinds, straight from the palette.
+  for (const k of SLAB_PALETTE) {
+    out.push({
+      id: `slab-${k.kind}`,
+      title: k.title,
+      group: "Draw",
+      icon: "slab",
+      keywords: `slab tool ${k.keywords}`,
+      run: () => app.setTool("slab", { slabKind: k.kind }),
+    });
+  }
 
   const viewer = useViewer.getState();
   // X steps solid, X-ray, hidden: the action it would pick next shows the key.

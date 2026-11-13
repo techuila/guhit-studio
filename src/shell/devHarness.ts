@@ -102,7 +102,7 @@ async function installMock(empty: boolean) {
       // The mock has no plumbing: "plumbing-demo" opens as the plain sample.
       if (a.template !== "sample-bungalow" && a.template !== "plumbing-demo") {
         doc.project.elements = [];
-        doc.derived = { walls: [], rooms: [], footprints: [], totals: { floor_area_m2: 0, gross_area_m2: 0, wall_length_m: 0, room_count: 0, door_count: 0, window_count: 0 }, issues: [], pipes: { fittings: [], penetrations: [], takeoff: [], total_length_m: 0, elbow_count: 0, tee_count: 0, sleeve_count: 0 }, schedule: [], review_resolved: [] };
+        doc.derived = { walls: [], rooms: [], footprints: [], totals: { floor_area_m2: 0, gross_area_m2: 0, wall_length_m: 0, room_count: 0, door_count: 0, window_count: 0 }, issues: [], pipes: { fittings: [], penetrations: [], takeoff: [], total_length_m: 0, elbow_count: 0, tee_count: 0, sleeve_count: 0 }, schedule: [], review_resolved: [], railings: [] };
       }
       return structuredClone(doc);
     },

@@ -18,10 +18,17 @@ use crate::files;
 use crate::{arg, to_value, AppService, IpcResult};
 
 /// Commands this module answers. `AppService::handle` routes on this list.
-pub const OWNS: [&str; 3] = ["mcp_status", "mcp_set_enabled", "mcp_claude_desktop_bundle"];
+pub const OWNS: [&str; 5] = ["mcp_status", "mcp_set_enabled", "mcp_claude_desktop_bundle", "mcp_toolsets", "mcp_set_toolsets"];
 
 /// Key in `settings.json` for the "Allow agents" switch. Missing means on.
 pub const ENABLED_KEY: &str = "mcp_enabled";
+/// Key in `settings.json` for the extended MCP toolsets listed when the
+/// request URL names none (docs/MCP.md "Toolsets"). Missing means none: the
+/// core toolset only.
+pub const TOOLSETS_KEY: &str = "mcp_toolsets";
+/// The extended toolsets a client can opt in to. The core toolset `draft`
+/// is always on.
+pub const TOOLSETS: [&str; 5] = ["services", "visuals", "live", "review", "interop"];
 /// What every MCP request gets while agents are turned off.
 pub const DISABLED_MESSAGE: &str =
     "Agents are turned off in Guhit Studio. Turn on Allow agents in the Connect agent dialog.";
@@ -39,6 +46,8 @@ const ICON_PNG: &[u8] = include_bytes!("../../../assets/brand/icon-1024.png");
 /// What the transports report. One per `AppService`, shared by its clones.
 pub struct McpState {
     enabled: AtomicBool,
+    /// The default extended toolsets, from `mcp_toolsets`.
+    toolsets: Mutex<Vec<String>>,
     inner: Mutex<Inner>,
 }
 
@@ -48,19 +57,31 @@ struct Inner {
     port: u16,
     stdio_command: Option<PathBuf>,
     last_client: Option<McpClientSeen>,
+    /// The client each connection named, by the connection's key: a stdio
+    /// proxy's instance, a labelled URL, a TCP peer. Two agents on one
+    /// server keep their own clients this way.
+    clients: Vec<(String, McpClientSeen)>,
 }
+
+/// Connections whose client is remembered.
+const CLIENTS_KEPT: usize = 64;
 
 impl McpState {
     /// The switch as `settings.json` has it, on unless it says `false`.
     pub(crate) fn for_data_dir(data_dir: &Path) -> Self {
-        let enabled = files::read_settings(data_dir)
-            .get(ENABLED_KEY)
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
+        let settings = files::read_settings(data_dir);
+        let enabled = settings.get(ENABLED_KEY).and_then(Value::as_bool).unwrap_or(true);
+        let toolsets = clean_toolsets(settings.get(TOOLSETS_KEY).unwrap_or(&Value::Null));
         Self {
             enabled: AtomicBool::new(enabled),
+            toolsets: Mutex::new(toolsets),
             inner: Mutex::new(Inner::default()),
         }
+    }
+
+    /// The extended toolsets listed by default, in `TOOLSETS` order.
+    pub fn toolsets(&self) -> Vec<String> {
+        self.toolsets.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     fn inner(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -104,6 +125,25 @@ impl McpState {
         });
     }
 
+    /// `saw_client`, remembered for the connection `key` too.
+    pub fn saw_client_at(&self, key: Option<&str>, name: &str, version: &str) {
+        self.saw_client(name, version);
+        let (Some(key), Some(seen)) = (key, self.inner().last_client.clone()) else {
+            return;
+        };
+        let mut inner = self.inner();
+        inner.clients.retain(|(k, _)| k != key);
+        inner.clients.push((key.to_string(), seen));
+        if inner.clients.len() > CLIENTS_KEPT {
+            inner.clients.remove(0);
+        }
+    }
+
+    /// The client the connection `key` named, if it ever did.
+    pub fn client_at(&self, key: &str) -> Option<McpClientSeen> {
+        self.inner().clients.iter().find(|(k, _)| k == key).map(|(_, c)| c.clone())
+    }
+
     /// A request that did not name its client: over stateless HTTP it is
     /// taken to come from the last client that did.
     pub fn touch_client(&self) {
@@ -122,7 +162,50 @@ impl McpState {
             stdio_command: inner.stdio_command.as_ref().map(|p| p.display().to_string()),
             last_client: inner.last_client.clone(),
             claude_desktop_bundle: inner.stdio_command.is_some(),
+            // Filled in by `agents::with_agents` on the way out of `handle`
+            // (DECISIONS D47).
+            agents: vec![],
         }
+    }
+}
+
+/// The known toolsets of a list or a comma separated string, once each, in
+/// `TOOLSETS` order. Unknown names are dropped.
+fn clean_toolsets(v: &Value) -> Vec<String> {
+    let names: Vec<String> = match v {
+        Value::Array(items) => items.iter().filter_map(|i| i.as_str().map(str::to_string)).collect(),
+        Value::String(s) => s.split(',').map(|p| p.trim().to_string()).collect(),
+        _ => vec![],
+    };
+    let all = names.iter().any(|n| n.eq_ignore_ascii_case("all"));
+    TOOLSETS
+        .iter()
+        .filter(|t| all || names.iter().any(|n| n.eq_ignore_ascii_case(t)))
+        .map(|t| t.to_string())
+        .collect()
+}
+
+impl AppService {
+    /// True when a caller may name a file outside the data folder for the
+    /// app to read or write: the desktop app, whose paths come from the
+    /// user. The dev bridge says no.
+    pub fn reads_external_paths(&self) -> bool {
+        self.external_paths
+    }
+
+    /// What `agent_edit` checks before it commits, without committing, for
+    /// an MCP dry run: pause, stop and the rate (`check_edit`), then the
+    /// agent's limit and other agents' claims on the staged batch
+    /// (`check_reach`). `base` and `derived` are the plan staging started
+    /// from. The registry's own checks, so a dry run and the commit agree.
+    pub fn agent_check(
+        &self,
+        call: &crate::agents::AgentCall,
+        derived: &Derived,
+        staging: &guhit_core::Staging,
+    ) -> Result<(), IpcError> {
+        self.agents.check_edit(&call.id, self.agents.now())?;
+        self.agents.check_reach(&call.id, staging.base(), derived, staging.project(), &staging.command())
     }
 }
 
@@ -147,6 +230,17 @@ pub async fn handle(app: &AppService, cmd: &str, args: Value) -> IpcResult {
             files::put_setting(&dir, ENABLED_KEY, Some(json!(enabled)))?;
             app.mcp.enabled.store(enabled, Ordering::SeqCst);
             to_value(&app.mcp.status())
+        }
+        // The extended toolsets MCP lists when the URL names none. The
+        // Connect agent dialog sets them; a URL's `?toolsets=` wins.
+        "mcp_toolsets" => Ok(json!({ "toolsets": app.mcp.toolsets(), "available": TOOLSETS })),
+        "mcp_set_toolsets" => {
+            let list: Value = arg(&args, "toolsets")?;
+            let toolsets = clean_toolsets(&list);
+            let dir = app.session.lock().await.data_dir.clone();
+            files::put_setting(&dir, TOOLSETS_KEY, Some(json!(toolsets)))?;
+            *app.mcp.toolsets.lock().unwrap_or_else(|e| e.into_inner()) = toolsets.clone();
+            Ok(json!({ "toolsets": toolsets, "available": TOOLSETS }))
         }
         "mcp_claude_desktop_bundle" => {
             let command = app.mcp.stdio_command().ok_or_else(|| {
@@ -277,6 +371,40 @@ mod tests {
         assert!(files::parse_rfc3339_secs(&client.at).is_some(), "{}", client.at);
         // Clones share the state.
         assert!(app.clone().mcp.status().last_client.is_some());
+    }
+
+    #[tokio::test]
+    async fn each_connection_keeps_its_own_client() {
+        let (app, _dir) = service();
+        app.mcp.saw_client_at(Some("l:ground"), "claude-code", "2.1");
+        app.mcp.saw_client_at(Some("l:upper"), "codex", "0.9");
+        assert_eq!(app.mcp.client_at("l:ground").unwrap().name, "claude-code");
+        assert_eq!(app.mcp.client_at("l:upper").unwrap().name, "codex");
+        assert!(app.mcp.client_at("l:roof").is_none());
+        assert_eq!(app.mcp.status().last_client.unwrap().name, "codex");
+        app.mcp.saw_client_at(Some("l:ground"), "claude-code", "2.2");
+        assert_eq!(app.mcp.client_at("l:ground").unwrap().version, "2.2");
+    }
+
+    #[tokio::test]
+    async fn the_default_toolsets_are_a_setting() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = AppService::new_sandboxed(dir.path().to_path_buf());
+        assert!(app.mcp.toolsets().is_empty(), "the core toolset only by default");
+        let out = app
+            .handle("mcp_set_toolsets", json!({"toolsets": ["visuals", "nope", "services", "visuals"]}))
+            .await
+            .unwrap();
+        assert_eq!(out["toolsets"], json!(["services", "visuals"]));
+        let file: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("settings.json")).unwrap()).unwrap();
+        assert_eq!(file["mcp_toolsets"], json!(["services", "visuals"]));
+        // A restart reads them back; a string works too.
+        assert_eq!(AppService::new_sandboxed(dir.path().to_path_buf()).mcp.toolsets(), vec!["services", "visuals"]);
+        std::fs::write(dir.path().join("settings.json"), r#"{"mcp_toolsets": "all"}"#).unwrap();
+        assert_eq!(AppService::new_sandboxed(dir.path().to_path_buf()).mcp.toolsets().len(), 5);
+        let listed = app.handle("mcp_toolsets", json!({})).await.unwrap();
+        assert_eq!(listed["available"].as_array().unwrap().len(), 5);
+        assert!(!app.reads_external_paths(), "the bridge reads only its data folder");
     }
 
     #[tokio::test]

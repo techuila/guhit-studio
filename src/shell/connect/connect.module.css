@@ -422,11 +422,388 @@
   }
 }
 
+/* ------------------------------------------------------------ several agents (D47) */
+
+/* Who is working now, under the status line. */
+.connected {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  animation: detail-in var(--dur-base) var(--ease-out);
+}
+
+.connectedLabel {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.connectedList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connectedItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.connectedIn {
+  animation: connected-in var(--dur-base) var(--ease-spring);
+}
+
+.connectedOut {
+  opacity: 0;
+  transform: scale(0.8);
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+@keyframes connected-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+.connectedName {
+  font-weight: 550;
+}
+
+.connectedOpen {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-strong);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color var(--dur-hover) var(--ease-out);
+}
+
+.connectedOpen:hover {
+  color: var(--accent);
+}
+
+.connectedOpen:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The setup column scrolls; its blocks keep their height instead of shrinking. */
+.detail > * {
+  flex: none;
+}
+
+/* "Add another agent": a disclosure under the setup. */
+.another {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.anotherToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.anotherToggle:hover {
+  background: var(--surface-2);
+}
+
+.anotherToggle:active {
+  transform: scale(0.99);
+}
+
+.anotherToggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.anotherPlus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: var(--ai-soft);
+  color: var(--ai);
+  font-weight: 700;
+  line-height: 1;
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
+.anotherToggleOn .anotherPlus {
+  transform: rotate(45deg);
+}
+
+.anotherHint {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+/* Opens by height (grid rows 0fr to 1fr, MOTION.md rule 5). */
+.reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-base) var(--ease-out);
+}
+
+.revealOpen {
+  grid-template-rows: 1fr;
+}
+
+.revealClip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.anotherBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 12px 12px;
+}
+
+.anotherField {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.anotherInput {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
+}
+
+.anotherInput:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.toolsets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.toolset {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: default;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+button.toolset:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+button.toolset:active {
+  transform: scale(var(--press-scale));
+}
+
+.toolsetCore {
+  border-style: dashed;
+  color: var(--ink-3);
+}
+
+.toolsetOn,
+button.toolsetOn:hover {
+  border-color: color-mix(in srgb, var(--ai) 40%, var(--line));
+  background: var(--ai-soft);
+  color: var(--ai);
+}
+
+.toolsetNote {
+  margin: -4px 0 0 72px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+/* ------------------------------------------------------------ tools agents get (MCP v2) */
+
+.tools {
+  border-bottom: 1px solid var(--line);
+}
+
+.toolsHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 16px;
+  border: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: default;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.toolsHead:hover {
+  background: var(--surface-2);
+}
+
+.toolsHead:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.toolsTitle {
+  font-weight: 600;
+}
+
+.toolsSummary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The count bumps when a switch changes it. */
+.toolsCount {
+  display: inline-block;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  animation: count-bump var(--dur-base) var(--ease-spring);
+}
+
+@keyframes count-bump {
+  from {
+    transform: scale(1.2);
+  }
+}
+
+.toolsChevron {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-3);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
+.toolsHeadOn .toolsChevron {
+  transform: rotate(180deg);
+}
+
+.toolsBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 16px 10px;
+}
+
+.toolRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.toolText {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolName {
+  flex: none;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.toolHint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolNum {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.toolsNote {
+  margin: 4px 0 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .dot,
   .pill,
   .detail,
-  .error {
+  .error,
+  .connected,
+  .connectedIn,
+  .toolsCount {
     animation: none;
   }
 }

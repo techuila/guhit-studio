@@ -60,3 +60,20 @@ export function usableLiveCamera(c: LiveCamera | null | undefined): c is LiveCam
 export function followFov(fovDeg: number): number {
   return Math.min(Math.max(Number.isFinite(fovDeg) ? fovDeg : 45, 5), 110);
 }
+
+/**
+ * Following an agent (DECISIONS D47): `from` moved so it looks at `point`,
+ * the same direction and distance, the same field of view. Agents have no
+ * camera of their own, only a point they work at. Always an orbit camera.
+ */
+export function panCamera(from: LiveCamera, point: XYZ): LiveCamera {
+  const dx = point.x - from.target.x;
+  const dy = point.y - from.target.y;
+  const dz = point.z - from.target.z;
+  return {
+    position: { x: mm(from.position.x + dx), y: mm(from.position.y + dy), z: mm(from.position.z + dz) },
+    target: { x: mm(point.x), y: mm(point.y), z: mm(point.z) },
+    fov_deg: from.fov_deg,
+    nav: "orbit",
+  };
+}

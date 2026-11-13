@@ -6,7 +6,7 @@ use guhit_model::{Derived, Orientation, PaperSize, PipeSystem, PlanExportOptions
 use crate::geom::*;
 use crate::pipes::{self, Dash, PlanPipe};
 use crate::plan::{
-    build_items, empty_level, items_bounds, resolve_level, Cat, Fill, HAlign, Item, Pen,
+    build_items, empty_level, items_bounds, paper, resolve_level, Cat, Fill, HAlign, Item, Pen,
     PlanOptions, Prim,
 };
 use crate::text::{clean, est_width, fit, xml_escape};
@@ -560,11 +560,22 @@ pub(crate) fn write_item_in(
     ink: &Ink,
 ) {
     let sw = num((ink.pen)(item.pen));
+    // A stair seen from above its top is a hidden line.
+    let dash = if item.cat == Cat::StrsBelow {
+        dash_attr(&paper::HIDDEN_DASH)
+    } else {
+        String::new()
+    };
+    let fill_attr = |fill: &Fill| match fill {
+        Fill::Ink => format!(" fill=\"{}\"", ink.fill),
+        Fill::Tint(pct) => format!(" fill=\"{}\" fill-opacity=\"{}\"", ink.fill, num(*pct as f64 / 100.0)),
+        Fill::None => String::new(),
+    };
     match &item.prim {
         Prim::Line { a, b } => {
             let (a, b) = (to_paper(*a), to_paper(*b));
             s.push_str(&format!(
-                "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke-width=\"{sw}\"/>\n",
+                "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke-width=\"{sw}\"{dash}/>\n",
                 num(a.0),
                 num(a.1),
                 num(b.0),
@@ -580,12 +591,9 @@ pub(crate) fn write_item_in(
                 })
                 .collect();
             let tag = if *closed { "polygon" } else { "polyline" };
-            let fill = match fill {
-                Fill::Ink => format!(" fill=\"{}\"", ink.fill),
-                Fill::None => String::new(),
-            };
+            let fill = fill_attr(fill);
             s.push_str(&format!(
-                "<{tag} points=\"{}\"{fill} stroke-width=\"{sw}\"/>\n",
+                "<{tag} points=\"{}\"{fill} stroke-width=\"{sw}\"{dash}/>\n",
                 p.join(" ")
             ));
         }
@@ -602,7 +610,7 @@ pub(crate) fn write_item_in(
             // Counter-clockwise in the model is counter-clockwise on paper
             // after the y flip, which is sweep-flag 0 in SVG.
             s.push_str(&format!(
-                "<path d=\"M{} {}A{} {} 0 {large} 0 {} {}\" stroke-width=\"{sw}\"/>\n",
+                "<path d=\"M{} {}A{} {} 0 {large} 0 {} {}\" stroke-width=\"{sw}\"{dash}/>\n",
                 num(p0.0),
                 num(p0.1),
                 num(r / n),
@@ -613,12 +621,9 @@ pub(crate) fn write_item_in(
         }
         Prim::Circle { c, r, fill } => {
             let q = to_paper(*c);
-            let fill = match fill {
-                Fill::Ink => format!(" fill=\"{}\"", ink.fill),
-                Fill::None => String::new(),
-            };
+            let fill = fill_attr(fill);
             s.push_str(&format!(
-                "<circle cx=\"{}\" cy=\"{}\" r=\"{}\"{fill} stroke-width=\"{sw}\"/>\n",
+                "<circle cx=\"{}\" cy=\"{}\" r=\"{}\"{fill} stroke-width=\"{sw}\"{dash}/>\n",
                 num(q.0),
                 num(q.1),
                 num(r / n)

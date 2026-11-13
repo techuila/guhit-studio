@@ -84,6 +84,8 @@ export function buildPresence(input: PresenceInput): Presence {
     plan_view: shared && plan ? planArea(input.planView) : null,
     camera: shared && model ? liveCamera(input.camera) : null,
     pointer_3d: live && model && finite3(input.pointer3d) ? mm3(input.pointer3d) : null,
+    // A status line is for agents (DECISIONS D47); people send none.
+    status: null,
   };
 }
 

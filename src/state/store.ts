@@ -17,6 +17,7 @@ import type {
   PipeMaterial,
   PipeSystem,
   Point,
+  SlabKind,
   ViewMode as ContractViewMode,
   WallRole,
 } from "../contract/bindings";
@@ -35,6 +36,9 @@ export type Tool =
   | "window"
   | "column"
   | "stair"
+  /** Draw a floor, balcony, deck or void outline, or click a room to take
+   * its outline (DECISIONS D50). */
+  | "slab"
   | "asset"
   | "dimension"
   | "text"
@@ -59,6 +63,11 @@ export interface ToolOptions {
   pipeDiameterMm: number | null;
   /** Height above the level floor of the next pipe point. */
   pipeElevationMm: number | null;
+  /** Slab tool: the kind drawn (a floor until another is picked: a void on
+   * the lowest level would open onto the ground), and whether it gets a
+   * railing along its open edges. */
+  slabKind: SlabKind;
+  slabRailing: boolean;
 }
 
 export interface Toast {
@@ -203,6 +212,8 @@ export const useApp = create<AppState>((set, get) => ({
     pipeMaterial: null,
     pipeDiameterMm: null,
     pipeElevationMm: null,
+    slabKind: "floor",
+    slabRailing: true,
   },
   viewMode: "2d",
   activeLevelId: null,

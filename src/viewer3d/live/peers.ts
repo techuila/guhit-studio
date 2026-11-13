@@ -1,8 +1,11 @@
-// Other people in the 3D view (DECISIONS D37, D38): whose pointer shows, and
-// which elements are tinted in whose color. Reads the live store's shapes,
-// never writes them. Pure: tested in peers.test.ts.
+// Other people and agents in the 3D view (DECISIONS D37, D38, D47): whose
+// pointer shows, and which elements are tinted in whose color. Reads the
+// live store's shapes and the agents store's, never writes them. Pure:
+// tested in peers.test.ts.
 
 import type { LiveStatus } from "../../contract/bindings";
+import type { AgentView } from "../../live/agents";
+import { useAgents, type Trail } from "../../live/agentsStore";
 import { peerIndex, type Peers } from "../../live/format";
 
 /** Elements tinted in one color, as the engine takes them (`Highlights`). */
@@ -12,29 +15,49 @@ export interface Tint {
   color: string;
 }
 
-/** Participants whose pointer is on the model in 3D, in the host's order. Every level shows. */
+/** People whose pointer is on the model in 3D, in the host's order. Every level shows. Agents: `agentPointerIds`. */
 export function pointerIds(status: LiveStatus, peers: Peers): string[] {
   if (status.mode === "off") return [];
   const out: string[] = [];
   for (const p of status.participants) {
-    if (p.id === status.self_id) continue;
+    if (p.id === status.self_id || p.agent) continue;
     if (peers[p.id]?.presence.pointer_3d) out.push(p.id);
   }
   return out;
 }
 
+/** The agents' part of the tints: what each just changed (its trail), then what it works on. */
+export interface AgentTints {
+  views: readonly AgentView[];
+  trails: Readonly<Record<string, Trail>>;
+}
+
+function currentAgents(): AgentTints {
+  const st = useAgents.getState();
+  return { views: st.views, trails: st.trails };
+}
+
 /**
- * Each other participant's selection in their resolved color, in the host's
- * order: where two people selected the same element, the first one's color
- * shows.
+ * Each other person's selection in their resolved color, in the host's
+ * order, then each agent's trail and focus (with or without a session):
+ * where two selected the same element, the first one's color shows.
  */
-export function peerTints(status: LiveStatus, peers: Peers, colorOf: (index: number) => string): Tint[] {
-  if (status.mode === "off") return [];
+export function peerTints(status: LiveStatus, peers: Peers, colorOf: (index: number) => string, agents: AgentTints = currentAgents()): Tint[] {
   const out: Tint[] = [];
-  for (const p of status.participants) {
-    if (p.id === status.self_id) continue;
-    const ids = peers[p.id]?.presence.selection ?? [];
-    if (ids.length > 0) out.push({ ids, color: colorOf(peerIndex(p.color)) });
+  if (status.mode !== "off") {
+    for (const p of status.participants) {
+      if (p.id === status.self_id || p.agent) continue;
+      const ids = peers[p.id]?.presence.selection ?? [];
+      if (ids.length > 0) out.push({ ids, color: colorOf(peerIndex(p.color)) });
+    }
+  }
+  for (const a of agents.views) {
+    const trail = agents.trails[a.id];
+    if (trail && trail.ids.length > 0 && trail.strength > 0) out.push({ ids: trail.ids, color: colorOf(peerIndex(a.color)) });
+  }
+  for (const a of agents.views) {
+    const ids = a.presence.selection;
+    if (ids.length > 0 && a.activity !== "stopped") out.push({ ids, color: colorOf(peerIndex(a.color)) });
   }
   return out;
 }

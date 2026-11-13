@@ -19,6 +19,8 @@
 //!   their review items.
 //! - `devices`: the object schedule and the device and aircon review items.
 //! - `query`: read-only answers for the AI copilot.
+//! - `slabs`: slab outline rules, what voids, balconies and decks do to
+//!   areas, railing runs, and the slab and stair review items (D50).
 //! - `scope`: the AI edit scope, whether a command stays inside the
 //!   selection (DECISIONS D30).
 //! - `ids`: deterministic ids, so `preview` equals `apply`.
@@ -40,6 +42,7 @@ mod pipes;
 mod query;
 mod rooms;
 pub mod scope;
+pub mod slabs;
 pub mod templates;
 mod topo;
 mod validate;
@@ -71,10 +74,10 @@ pub fn asset_rooms(project: &Project) -> BTreeMap<Id, String> {
 /// Bring a project from an older file up to `SCHEMA_VERSION`. Every layer the
 /// project lacks is added after the ones it has, in `LayerKey` order, visible
 /// and unlocked. Version 2 added the four pipe layers, version 3 the storm,
-/// electrical and aircon layers; every new field of version 3 has a serde
-/// default. Running it twice changes nothing. `Document::new` and
-/// `Document::with_revision` call it, so every project that is opened goes
-/// through it.
+/// electrical and aircon layers, version 4 the site layer and version 5 the
+/// slabs layer; every new field has a serde default. Running it twice
+/// changes nothing. `Document::new` and `Document::with_revision` call it, so
+/// every project that is opened goes through it.
 pub fn migrate(project: &mut Project) {
     for layer in defaults::default_layers() {
         if !project.layers.iter().any(|l| l.key == layer.key) {
@@ -118,6 +121,9 @@ impl HistoryEntry {
             at: self.at.clone(),
             ids: self.ids.clone(),
             removed: self.removed.clone(),
+            // The app fills these in for agents' steps, as it does names.
+            on_behalf_of: None,
+            on_behalf_name: None,
         }
     }
 }

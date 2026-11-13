@@ -15,8 +15,13 @@
 // follow mode (DECISIONS D37): view, walk, follow. Ana works in split view
 // and Ben on the plan; like the engine's peers, they send their plan area and
 // camera only while this window follows them.
+//
+// With ?agents=demo, three agents work on the plan too (agentsMock.ts,
+// DECISIONS D47), with or without a session; hosting, they are participants
+// owned by this window, and as a guest Ana's agent "Kitchen" works beside her.
 
 import type { AppEvent, ChatMessage, DocState, IpcError, LiveCamera, LiveMode, LiveRelay, LiveStatus, NavMode, Participant, PlanView, Point, Presence, ProjectMeta, Vec3, ViewMode } from "../../contract/bindings";
+import { installAgentsMock, type AgentsMock } from "./agentsMock";
 
 export interface LiveMockHost {
   /** The mock's IPC handler table: live handlers are added to it. */
@@ -51,6 +56,8 @@ function b64url(text: string): string {
 const SELF = "p-self";
 const ANA = "p-ana";
 const BEN = "p-ben";
+/** Ana's agent, seen from her guest. */
+const KITCHEN = "agent-ana-kitchen";
 
 export function installLiveMock(host: LiveMockHost, initial: string | null): void {
   let profile = "Mara Santos";
@@ -78,10 +85,12 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
     { id: "m-4", author_id: BEN, author_name: "Ben Cruz", color: 2, text: "Summary: 2 rooms, 48 m² gross. The bedroom has one window.", sent_at: iso(26 * 3600e3 - 2 * 60e3), at: null, level_id: null, via_ai: true },
   ];
 
+  let agentsMock: AgentsMock | null = null;
   const status = (): LiveStatus => ({
     mode,
     self_id: mode === "off" ? null : SELF,
-    participants: mode === "off" ? [] : participants,
+    // Hosting, this computer's agents are participants too.
+    participants: mode === "off" ? [] : mode === "hosting" && agentsMock ? [...participants, ...agentsMock.participants()] : participants,
     invite: mode === "hosting" ? invite : null,
     addresses: mode === "hosting" ? ["192.168.1.20:1460", "100.101.7.12:1460", "127.0.0.1:1460"] : [],
     relay: mode === "hosting" ? relay : "off",
@@ -101,7 +110,7 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
     view_mode: "2d",
     plan_view: null,
     camera: null,
-    pointer_3d: null,
+    pointer_3d: null, status: null,
     ...over,
   });
   /** A peer's plan area and camera ride along only while this window follows them. */
@@ -151,17 +160,18 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
     } else if (next === "demo") {
       mode = "hosting";
       participants = [
-        { id: SELF, name: profile, color: 0, role: "host" },
-        { id: ANA, name: "Ana Reyes", color: 1, role: "guest" },
-        { id: BEN, name: "Ben Cruz", color: 2, role: "guest" },
+        { id: SELF, name: profile, color: 0, role: "host", agent: null },
+        { id: ANA, name: "Ana Reyes", color: 1, role: "guest", agent: null },
+        { id: BEN, name: "Ben Cruz", color: 2, role: "guest", agent: null },
       ];
     } else {
       mode = next === "reconnecting" ? "reconnecting" : "joined";
       participants = [
-        { id: ANA, name: "Ana Reyes", color: 1, role: "host" },
-        { id: SELF, name: profile, color: 0, role: "guest" },
-        { id: BEN, name: "Ben Cruz", color: 2, role: "guest" },
+        { id: ANA, name: "Ana Reyes", color: 1, role: "host", agent: null },
+        { id: SELF, name: profile, color: 0, role: "guest", agent: null },
+        { id: BEN, name: "Ben Cruz", color: 2, role: "guest", agent: null },
       ];
+      if (agentsMock) participants.push({ id: KITCHEN, name: "Kitchen", color: 5, role: "guest", agent: { owner_id: ANA, owner_name: "Ana Reyes", client: "cursor", client_version: "1.7" } });
     }
     emitStatus();
     if (mode !== "off") {
@@ -169,6 +179,7 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
       views.set(BEN, { plan: areaAt({ x: 6600, y: 1800 }), camera: null });
       setPeer(ANA, { cursor: { x: 2200, y: 3600 }, view_mode: "split", pointer_3d: { x: 3000, y: 2500, z: 1200 } });
       setPeer(BEN, { cursor: { x: 6600, y: 1800 }, view_mode: "2d" });
+      if (participants.some((p) => p.id === KITCHEN)) setPeer(KITCHEN, { cursor: { x: 1800, y: 1500 }, view_mode: null, status: "Laying out the kitchen counter", plan_view: areaAt({ x: 1800, y: 1500 }), pointer_3d: { x: 1800, y: 1500, z: 900 } });
     }
   };
 
@@ -200,7 +211,7 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
       mode = "hosting";
       notice = null;
       relay = "connecting";
-      participants = [{ id: SELF, name: profile, color: 0, role: "host" }];
+      participants = [{ id: SELF, name: profile, color: 0, role: "host", agent: null }];
       emitStatus();
       // The relay takes the session a moment later.
       setTimeout(() => {
@@ -211,7 +222,7 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
       // Someone joins a moment later.
       setTimeout(() => {
         if (mode !== "hosting" || participants.some((p) => p.id === ANA)) return;
-        participants = [...participants, { id: ANA, name: "Ana Reyes", color: 1, role: "guest" }];
+        participants = [...participants, { id: ANA, name: "Ana Reyes", color: 1, role: "guest", agent: null }];
         emitStatus();
         views.set(ANA, { plan: areaAt({ x: 2200, y: 3600 }), camera: orbitAt(0.6) });
         setPeer(ANA, { cursor: { x: 2200, y: 3600 }, view_mode: "split" });
@@ -379,6 +390,22 @@ export function installLiveMock(host: LiveMockHost, initial: string | null): voi
     walls: host.wallIds,
     rooms: host.roomIds,
   };
+
+  // ------------------------------------------------ agents (?agents=demo)
+
+  if (new URLSearchParams(window.location.search).get("agents") === "demo") {
+    agentsMock = installAgentsMock({ handlers: host.handlers, emit: host.emit, selfId: () => (mode === "off" ? null : SELF), profile: () => profile });
+    // Ana's agent, as her guest sees it: a participant with presence, a few seconds per move.
+    const kitchenLines = ["Laying out the kitchen counter", "Placing the sink", "Checking the work triangle"];
+    let kitchenBeat = -1;
+    window.setInterval(() => {
+      if (!participants.some((p) => p.id === KITCHEN) || paused) return;
+      kitchenBeat++;
+      const at = { x: 1400 + ((kitchenBeat * 650) % 2000), y: 1300 + ((kitchenBeat * 400) % 900) };
+      views.set(KITCHEN, { plan: areaAt(at), camera: null });
+      setPeer(KITCHEN, { cursor: at, status: kitchenLines[kitchenBeat % kitchenLines.length], pointer_3d: { x: at.x, y: at.y, z: 900 } });
+    }, 3200);
+  }
 
   // Before the app loads: its first live_status and presence_list see the session.
   const start = (initial ?? "off") as DemoMode;

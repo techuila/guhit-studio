@@ -11,7 +11,7 @@ use std::time::Instant;
 use guhit_app::ai::tools as copilot;
 use guhit_app::AppService;
 use guhit_core::Document;
-use guhit_mcp::tools::{self, Output, ToolFail};
+use guhit_mcp::tools::{self, Output};
 use guhit_model::*;
 use serde_json::{json, Value};
 
@@ -25,13 +25,13 @@ async fn ok(app: &AppService, name: &str, args: Value) -> Value {
         Ok(Output::Json(v)) => v,
         Ok(Output::Rich { json, .. }) => json,
         Ok(Output::Text(_)) => panic!("`{name}` returned text, expected JSON"),
-        Err(ToolFail(m)) => panic!("`{name}` failed: {m}"),
+        Err(f) => panic!("`{name}` failed: {}", f.display()),
     }
 }
 
 async fn fail(app: &AppService, name: &str, args: Value) -> String {
     match tools::call(app, name, args).await {
-        Err(ToolFail(m)) => m,
+        Err(f) => f.text(),
         Ok(_) => panic!("`{name}` was expected to fail"),
     }
 }

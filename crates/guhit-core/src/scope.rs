@@ -653,6 +653,402 @@ fn whole(what: &str) -> CoreError {
     )
 }
 
+// ---------------------------------------------------------- agents (D47)
+
+/// The end of a refusal by an agent's level or kind limit.
+const AGENT_OUTSIDE: &str = "outside what this agent is limited to.";
+
+/// D30's ending, as a refusal by an agent's element limit words it.
+const AGENT_IDS_OUTSIDE: &str = "outside the elements this agent is limited to.";
+
+/// Ok when `command` stays inside an agent's limit (DECISIONS D47): only the
+/// levels, the elements (with the reach of D30) and the kinds `limit` names.
+/// An empty list limits nothing. Under a level or kind limit, roof, levels,
+/// layers, settings and materials are refused, as D30 refuses them; a camera
+/// is a view and never refused.
+///
+/// `base` is the project the command runs on, `derived` its derived data,
+/// and `staged` the project after the command (`base` again for a check
+/// before running). What an earlier step of a batch made, elements and
+/// levels, is looked up in `staged`.
+///
+/// Errors: `out_of_scope` naming the element and its level or kind.
+pub fn check_limit(
+    base: &Project,
+    derived: &Derived,
+    staged: &Project,
+    limit: &AgentLimit,
+    command: &Command,
+) -> Result<(), CoreError> {
+    if !limit.ids.is_empty() {
+        check(base, derived, &limit.ids, command).map_err(|e| reword(e, OUTSIDE, AGENT_IDS_OUTSIDE))?;
+    }
+    if limit.level_ids.is_empty() && limit.kinds.is_empty() {
+        return Ok(());
+    }
+    let mut touches = vec![];
+    touches_of(base, staged, command, &mut touches);
+    let levels = |level: &Id| limit.level_ids.is_empty() || limit.level_ids.contains(level);
+    let kinds = |kind: ElementKind| limit.kinds.is_empty() || limit.kinds.contains(&kind);
+    for touch in &touches {
+        match touch {
+            Touch::Target { el, kind, level } => {
+                let ids = vec![el.id().clone()];
+                if let Some(level) = level.filter(|l| !levels(l)) {
+                    let message = format!("{} is on {}, {AGENT_OUTSIDE}", label(el), level_name(staged, level));
+                    return Err(out(message, ids));
+                }
+                if !kinds(*kind) {
+                    let message = format!("{} is {}, {AGENT_OUTSIDE}", label(el), a_kind(*kind, el));
+                    return Err(out(message, ids));
+                }
+            }
+            Touch::New { level, kind, what } => {
+                if let Some(level) = level.as_ref().filter(|l| !levels(l)) {
+                    let message = format!("{what} would be on {}, {AGENT_OUTSIDE}", level_name(staged, level));
+                    return Err(out(message, vec![]));
+                }
+                if !kinds(*kind) {
+                    return Err(out(format!("{what} is {}, {AGENT_OUTSIDE}", a_kind_noun(*kind)), vec![]));
+                }
+            }
+            Touch::Whole(what) | Touch::Level { what, .. } => {
+                return Err(out(format!("{what} affects the whole project, which is {AGENT_OUTSIDE}"), vec![]));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What of a claim `command` reaches, for a `claimed` refusal (DECISIONS
+/// D47): a claimed level's name ("Second Floor") or an element's label
+/// ("Wall 3000 mm"), with the element ids. None when it stays clear.
+///
+/// A claim reaches its levels and everything on them, and its elements with
+/// the reach of D30 on `base`: a room its bounding walls, their doors and
+/// windows on its side and what stands in it; a wall its doors and windows.
+/// A new element reaches a claim when it lands on a claimed level. Changing
+/// or deleting a claimed level reaches it too; roof, settings and the other
+/// whole project changes never do. `base`, `derived` and `staged` are as in
+/// `check_limit`.
+pub fn claim_reach(
+    base: &Project,
+    derived: &Derived,
+    staged: &Project,
+    level_ids: &[Id],
+    ids: &[Id],
+    command: &Command,
+) -> Option<(String, Vec<Id>)> {
+    let mut reach = BTreeSet::new();
+    for el in ids.iter().filter_map(|id| find(base, id)) {
+        match el {
+            Element::Room(room) => room_reach(base, derived, room, &mut reach),
+            Element::Wall(w) => wall_reach(base, &w.id, &mut reach),
+            other => {
+                reach.insert(other.id().clone());
+            }
+        }
+    }
+    let mut touches = vec![];
+    touches_of(base, staged, command, &mut touches);
+    for touch in &touches {
+        match touch {
+            Touch::Target { el, level, .. } => {
+                if let Some(level) = level.filter(|l| level_ids.contains(l)) {
+                    return Some((level_name(staged, level), vec![el.id().clone()]));
+                }
+                if reach.contains(el.id()) {
+                    return Some((label(el), vec![el.id().clone()]));
+                }
+            }
+            Touch::New { level: Some(level), .. } | Touch::Level { level_id: Some(level), .. }
+                if level_ids.contains(level) =>
+            {
+                return Some((level_name(staged, level), vec![]));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Where two claims meet (DECISIONS D47), so one agent cannot claim part of
+/// what another holds: a level both claim, an element of one (with D30's
+/// reach on `project`) standing on a level the other claims, or an element
+/// both reach. The level's name or the element's label; None when they are
+/// apart. Each claim is its level ids and element ids.
+pub fn claims_overlap(
+    project: &Project,
+    derived: &Derived,
+    a: (&[Id], &[Id]),
+    b: (&[Id], &[Id]),
+) -> Option<String> {
+    if let Some(level) = a.0.iter().find(|l| b.0.contains(l)) {
+        return Some(level_name(project, level));
+    }
+    let reach_of = |ids: &[Id]| {
+        let mut reach = BTreeSet::new();
+        for el in ids.iter().filter_map(|id| find(project, id)) {
+            match el {
+                Element::Room(room) => room_reach(project, derived, room, &mut reach),
+                Element::Wall(w) => wall_reach(project, &w.id, &mut reach),
+                other => {
+                    reach.insert(other.id().clone());
+                }
+            }
+        }
+        reach
+    };
+    let (reach_a, reach_b) = (reach_of(a.1), reach_of(b.1));
+    // The claimed elements themselves are named before what they reach.
+    let on = |ids: &[Id], reach: &BTreeSet<Id>, levels: &[Id]| {
+        let mut els = ids.iter().chain(reach.iter()).filter_map(|id| find(project, id));
+        els.find(|el| level_of(project, el).is_some_and(|l| levels.contains(l))).map(label)
+    };
+    let both = |ids: &[Id], other: &BTreeSet<Id>, mine: &BTreeSet<Id>| {
+        ids.iter()
+            .chain(mine.iter())
+            .find(|id| other.contains(*id))
+            .and_then(|id| find(project, id))
+            .map(label)
+    };
+    on(a.1, &reach_a, b.0)
+        .or_else(|| on(b.1, &reach_b, a.0))
+        .or_else(|| both(b.1, &reach_a, &reach_b))
+}
+
+/// Where an agent works (DECISIONS D47): the box around what it touched on
+/// one level, for its pointer, its 3D pointer and its work area.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorkArea {
+    pub level_id: Id,
+    pub center: Point,
+    pub min: Point,
+    pub max: Point,
+}
+
+/// The box around the elements `ids` on the level most of them stand on
+/// (the first such level on a tie). None when none of them is in `project`
+/// with a level and a place on the plan. Cameras are views and count for
+/// nothing.
+pub fn work_area(project: &Project, ids: &[Id]) -> Option<WorkArea> {
+    let mut levels: Vec<(&Id, usize, Vec<Point>)> = vec![];
+    let mut seen: BTreeSet<&Id> = BTreeSet::new();
+    for el in ids.iter().filter(|id| seen.insert(*id)).filter_map(|id| find(project, id)) {
+        if matches!(el, Element::Camera(_)) {
+            continue;
+        }
+        let Some(level) = level_of(project, el) else { continue };
+        let points: Vec<Point> = extent(project, el).into_iter().filter(|p| is_finite(*p)).collect();
+        if points.is_empty() {
+            continue;
+        }
+        match levels.iter_mut().find(|(l, _, _)| *l == level) {
+            Some((_, n, all)) => {
+                *n += 1;
+                all.extend(points);
+            }
+            None => levels.push((level, 1, points)),
+        }
+    }
+    let most = levels.iter().map(|(_, n, _)| *n).max()?;
+    let (level, _, points) = levels.into_iter().find(|(_, n, _)| *n == most)?;
+    let (min, max) = bbox(&points);
+    Some(WorkArea {
+        level_id: level.clone(),
+        center: pt((min.x + max.x) / 2.0, (min.y + max.y) / 2.0),
+        min,
+        max,
+    })
+}
+
+/// What one command touches, for agents' limits and claims.
+enum Touch<'a> {
+    /// An element it changes, moves or removes, its kind for a kind limit,
+    /// and its level (None for a camera).
+    Target {
+        el: &'a Element,
+        kind: ElementKind,
+        level: Option<&'a Id>,
+    },
+    /// An element it makes: its level when known, kind and words for it.
+    New {
+        level: Option<Id>,
+        kind: ElementKind,
+        what: String,
+    },
+    /// A change to the whole project.
+    Whole(&'static str),
+    /// A change to the levels: adding one (no id), changing or deleting one.
+    Level {
+        level_id: Option<Id>,
+        what: &'static str,
+    },
+}
+
+/// Every touch of `command`, steps of batches included, in order.
+fn touches_of<'a>(base: &'a Project, staged: &'a Project, command: &Command, out: &mut Vec<Touch<'a>>) {
+    // Elements an earlier step made are only in `staged`.
+    let get = |id: &str| find(base, id).map(|el| (el, base)).or_else(|| find(staged, id).map(|el| (el, staged)));
+    let target = |id: &str, out: &mut Vec<Touch<'a>>| {
+        if let Some((el, project)) = get(id) {
+            if !matches!(el, Element::Camera(_)) {
+                out.push(Touch::Target { el, kind: el.kind(), level: level_of(project, el) });
+            }
+        }
+    };
+    let wall_level = |wall_id: &str| get(wall_id).and_then(|(el, project)| level_of(project, el)).cloned();
+    let new_on = |level_id: &Option<Id>, kind: ElementKind, what: &str| Touch::New {
+        level: resolve_level(staged, level_id).ok(),
+        kind,
+        what: what.to_string(),
+    };
+    match command {
+        Command::Batch { commands, .. } => {
+            for c in commands {
+                touches_of(base, staged, c, out);
+            }
+        }
+        Command::AddWall { level_id, .. } => out.push(new_on(level_id, ElementKind::Wall, "The new wall")),
+        Command::AddWallChain { level_id, .. } => out.push(new_on(level_id, ElementKind::Wall, "The new walls")),
+        Command::AddRectRoom { level_id, .. } => {
+            out.push(new_on(level_id, ElementKind::Wall, "The new room's walls"));
+            out.push(new_on(level_id, ElementKind::Room, "The new room"));
+        }
+        Command::SetWallEndpoints { wall_id, .. }
+        | Command::SetWallLength { wall_id, .. }
+        | Command::SplitWall { wall_id, .. } => target(wall_id, out),
+        Command::AddOpening { wall_id, opening_type, .. } => out.push(Touch::New {
+            level: wall_level(wall_id),
+            kind: ElementKind::Opening,
+            what: format!("The new {}", opening_noun(*opening_type)),
+        }),
+        // A resize moves the room's walls: a kind limit needs walls.
+        Command::ResizeRoom { room_id, .. } => {
+            if let Some((el, project)) = get(room_id) {
+                out.push(Touch::Target { el, kind: ElementKind::Wall, level: level_of(project, el) });
+            }
+        }
+        Command::AddElement { element } => match element {
+            Element::Camera(_) => {}
+            Element::Opening(o) => out.push(Touch::New {
+                level: wall_level(&o.wall_id),
+                kind: ElementKind::Opening,
+                what: format!("The new {}", opening_noun(o.opening_type)),
+            }),
+            other => out.push(Touch::New {
+                level: level_of(staged, other).cloned(),
+                kind: other.kind(),
+                what: format!("The new {}", noun(other)),
+            }),
+        },
+        Command::UpdateElement { element } => {
+            target(element.id(), out);
+            // Moved to another level or wall: where it goes counts too.
+            let level = match element {
+                Element::Opening(o) => wall_level(&o.wall_id),
+                Element::Camera(_) => None,
+                other => level_of(staged, other).cloned(),
+            };
+            if let Some((current, _)) = get(element.id()) {
+                if level.is_some() {
+                    out.push(Touch::New { level, kind: element.kind(), what: label(current) });
+                }
+            }
+        }
+        Command::DeleteElements { ids }
+        | Command::MoveElements { ids, .. }
+        | Command::RotateElements { ids, .. }
+        | Command::SetMaterial { ids, .. }
+        | Command::DuplicateElements { ids, .. } => {
+            for id in ids {
+                target(id, out);
+            }
+        }
+        Command::SetReviewMark { target: mark, note } => match mark {
+            ReviewTarget::Check { .. } => out.push(Touch::Whole(if note.is_some() {
+                "Setting a whole review check aside"
+            } else {
+                "Reopening a whole review check"
+            })),
+            ReviewTarget::Element { element_id, .. } => target(element_id.trim(), out),
+            // "code:element ids", as the checks name their findings.
+            ReviewTarget::Issue { id } => {
+                if let Some((_, rest)) = id.trim().split_once(':') {
+                    for element_id in rest.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                        target(element_id, out);
+                    }
+                }
+            }
+        },
+        Command::MovePipePoints { targets, .. } => {
+            for t in targets {
+                target(&t.pipe_id, out);
+            }
+        }
+        Command::SetPipeSegmentLength { pipe_id, .. }
+        | Command::SetPipeSlope { pipe_id, .. }
+        | Command::InsertPipePoint { pipe_id, .. }
+        | Command::RemovePipePoint { pipe_id, .. } => target(pipe_id, out),
+        Command::SetRoof { .. } => out.push(Touch::Whole("Changing the roof")),
+        Command::SetProjectSettings { .. } => out.push(Touch::Whole("Changing the project settings")),
+        Command::SetLayer { .. } => out.push(Touch::Whole("Changing a layer")),
+        Command::UpsertMaterial { .. } => out.push(Touch::Whole("Adding or changing a material")),
+        Command::UpdateLevel { level } => {
+            out.push(Touch::Level { level_id: Some(level.id.clone()), what: "Changing a level" })
+        }
+        Command::AddLevel { .. } => out.push(Touch::Level { level_id: None, what: "Adding a level" }),
+        Command::DeleteLevel { level_id } => {
+            out.push(Touch::Level { level_id: Some(level_id.clone()), what: "Deleting a level" })
+        }
+    }
+}
+
+/// A level's name for a sentence, or "another level" when it has none.
+fn level_name(project: &Project, level_id: &str) -> String {
+    project
+        .levels
+        .iter()
+        .find(|l| l.id == level_id)
+        .map(|l| l.name.trim())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("another level")
+        .to_string()
+}
+
+/// "a door", "an object": what `el` is, for a kind refusal.
+fn a_kind(kind: ElementKind, el: &Element) -> String {
+    match el {
+        Element::Opening(o) => with_article(opening_noun(o.opening_type)),
+        _ => a_kind_noun(kind),
+    }
+}
+
+fn a_kind_noun(kind: ElementKind) -> String {
+    match kind {
+        ElementKind::Opening => "a door or window".to_string(),
+        ElementKind::Linework => "linework".to_string(),
+        other => with_article(exec::kind_noun(other)),
+    }
+}
+
+fn with_article(noun: &str) -> String {
+    let vowel = noun.chars().next().is_some_and(|c| "aeiou".contains(c));
+    format!("{} {noun}", if vowel { "an" } else { "a" })
+}
+
+/// A refusal with one phrase of its message replaced.
+fn reword(e: CoreError, from: &str, to: &str) -> CoreError {
+    match e {
+        CoreError::Invalid { code, message, element_ids } => CoreError::Invalid {
+            code,
+            message: message.replace(from, to),
+            element_ids,
+        },
+        other => other,
+    }
+}
+
 // ------------------------------------------------------------------ reach
 
 /// Everything a selected room reaches, on the project as it is now.
@@ -773,6 +1169,7 @@ fn extent(project: &Project, el: &Element) -> Vec<Point> {
                 .collect()
         }
         Element::Asset(a) => footprint(a.position, a.width_mm, a.depth_mm, a.rotation_deg),
+        Element::Slab(s) => s.polygon.clone(),
         Element::Annotation(a) => vec![a.position],
         Element::Dimension(d) => vec![d.a, d.b],
         Element::Camera(_) => vec![],
@@ -845,6 +1242,7 @@ fn anchor(el: &Element) -> Option<Anchor> {
         Element::Annotation(a) => Anchor::Points(vec![a.position]),
         Element::Dimension(d) => Anchor::Points(vec![d.a, d.b]),
         Element::Pipe(p) => Anchor::Path(p.points.iter().map(|v| pt(v.x, v.y)).collect()),
+        Element::Slab(s) => Anchor::Points(s.polygon.clone()),
         Element::Opening(_)
         | Element::Camera(_)
         | Element::Underlay(_)
@@ -909,6 +1307,7 @@ fn level_of<'a>(project: &'a Project, el: &'a Element) -> Option<&'a Id> {
         Element::Linework(e) => Some(&e.level_id),
         Element::ReferenceModel(e) => Some(&e.level_id),
         Element::Pipe(e) => Some(&e.level_id),
+        Element::Slab(e) => Some(&e.level_id),
         Element::Opening(o) => host(project, o).map(|w| &w.level_id),
         Element::Camera(_) => None,
     }
@@ -964,6 +1363,13 @@ fn label(el: &Element) -> String {
         Element::Linework(l) => format!("Linework {}", l.name),
         Element::ReferenceModel(m) => format!("Reference model {}", m.name),
         Element::Pipe(p) => name_start(p),
+        Element::Slab(s) => match s.kind {
+            SlabKind::Floor => "Floor slab",
+            SlabKind::Balcony => "Balcony",
+            SlabKind::Deck => "Deck",
+            SlabKind::Void => "Floor void",
+        }
+        .to_string(),
     }
 }
 

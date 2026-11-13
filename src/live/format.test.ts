@@ -9,6 +9,7 @@ import {
   groupMessages,
   initials,
   mergeMessages,
+  others,
   parseInvite,
   peerIndex,
   peerSelections,
@@ -21,16 +22,16 @@ import {
   type Peers,
 } from "./format";
 
-const ana: Participant = { id: "a", name: "Ana Reyes", color: 0, role: "host" };
-const ben: Participant = { id: "b", name: "Ben", color: 1, role: "guest" };
-const cy: Participant = { id: "c", name: "Cy Tan", color: 2, role: "guest" };
+const ana: Participant = { id: "a", name: "Ana Reyes", color: 0, role: "host", agent: null };
+const ben: Participant = { id: "b", name: "Ben", color: 1, role: "guest", agent: null };
+const cy: Participant = { id: "c", name: "Cy Tan", color: 2, role: "guest", agent: null };
 
 function status(over: Partial<LiveStatus> = {}): LiveStatus {
   return { mode: "hosting", self_id: "a", participants: [ana, ben, cy], invite: null, addresses: [], relay: "off", project_id: "p", project_name: "Bungalow", notice: null, ...over };
 }
 
 function presence(over: Partial<Presence> = {}): Presence {
-  return { cursor: null, level_id: "L1", selection: [], typing: null, ai_scope: false, following: null, view_mode: "2d", plan_view: null, camera: null, pointer_3d: null, ...over };
+  return { cursor: null, level_id: "L1", selection: [], typing: null, ai_scope: false, following: null, view_mode: "2d", plan_view: null, camera: null, pointer_3d: null, status: null, ...over };
 }
 
 /** Local time, so labels do not depend on the machine's time zone. */
@@ -90,7 +91,7 @@ describe("stepAuthor", () => {
   });
 
   it("finds a person who left from their messages", () => {
-    const gone = msg("m1", { id: "z", name: "Zed", color: 4, role: "guest" }, at(2026, 9, 25, 9, 0));
+    const gone = msg("m1", { id: "z", name: "Zed", color: 4, role: "guest", agent: null }, at(2026, 9, 25, 9, 0));
     expect(stepAuthor(status(), "z", [gone])).toBe("Zed");
     expect(stepAuthor(status(), "q", [gone])).toBe("someone else");
   });
@@ -119,6 +120,20 @@ describe("cursorIds", () => {
 
   it("ignores presence of someone not in the session", () => {
     expect(cursorIds(status({ participants: [ana, cy] }), peers, "L1")).toEqual([]);
+  });
+});
+
+describe("agents among the participants (DECISIONS D47)", () => {
+  const bot: Participant = { id: "g", name: "Ground floor", color: 3, role: "guest", agent: { owner_id: "a", owner_name: "Ana Reyes", client: "claude-code", client_version: "2" } };
+  const peers: Peers = { g: { presence: presence({ cursor: { x: 1, y: 2 }, selection: ["w1"] }), changedAt: 0 } };
+
+  it("never counts an agent as one of the people", () => {
+    expect(others(status({ participants: [ana, ben, bot] })).map((p) => p.id)).toEqual(["b"]);
+  });
+
+  it("leaves an agent's cursor and selection to the agents' own layer", () => {
+    expect(cursorIds(status({ participants: [ana, bot] }), peers, "L1")).toEqual([]);
+    expect(peerSelections(status({ participants: [ana, bot] }), peers)).toEqual([]);
   });
 });
 

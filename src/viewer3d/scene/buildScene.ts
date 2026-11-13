@@ -22,6 +22,8 @@ import { defaultAnchor, fixtureSize, lampOptics, type LampSpec, type RoomSpec } 
 import { stairOutline, stairsOf } from "../walk/stairs";
 import { ceilingHeightMm } from "../../editor2d/mount";
 import { DECK_MM, DECK_TOPPING_MM, deckPieces } from "./roofDeck";
+import { slabsOf } from "./slabs";
+import { convexPieces, pushFascia, pushRailing, pushSkirting, type DoorSpan, type RailingMeshes } from "./trim";
 
 /**
  * The layer a placed object is on, by category: lighting and electrical
@@ -187,7 +189,35 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       openingsByWall.set(e.wall_id, list);
     }
   }
+  const derivedWalls = new Map((derived.walls ?? []).map((g) => [g.wall_id, g]));
   const outlines = new Map((derived.walls ?? []).map((g) => [g.wall_id, g.outline]));
+  const slabs = slabsOf(project.elements);
+  const slabsOn = visible("slabs");
+  // Doors per level on their walls' centerlines: the gaps in the skirting.
+  // Walls are only cut for doors while the openings layer is shown.
+  const doorSpans = new Map<string, DoorSpan[]>();
+  const doorSpansOn = (levelId: string): DoorSpan[] => {
+    let list = doorSpans.get(levelId);
+    if (list) return list;
+    list = [];
+    if (visible("openings")) {
+      for (const [wallId, ops] of openingsByWall) {
+        const wall = walls.get(wallId);
+        if (!wall || (levels.get(wall.level_id) ?? lowest)?.id !== levelId) continue;
+        const len = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y);
+        if (!(len > 1)) continue;
+        const ux = (wall.end.x - wall.start.x) / len;
+        const uy = (wall.end.y - wall.start.y) / len;
+        for (const o of ops) {
+          if (o.opening_type !== "door") continue;
+          const at = (u: number): Pt => ({ x: wall.start.x + ux * u, y: wall.start.y + uy * u });
+          list.push({ a: at(o.offset_mm - o.width_mm / 2), b: at(o.offset_mm + o.width_mm / 2), halfThick: wall.thickness_mm / 2 });
+        }
+      }
+    }
+    doorSpans.set(levelId, list);
+    return list;
+  };
 
   // ------------------------------------------------------------------ walls
   lib.category = "wall";
@@ -251,8 +281,9 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       if (!wall || !level || !levelShown(level)) continue;
       const cut = levelCut(level);
       kit.cutY = cut === null ? null : (level.elevation_mm + cut) / 1000;
+      const trim = { exteriorSide: exteriorSide(wall, derivedWalls.get(wall.id)?.exterior === true, footprintsOf(level.id)) };
       for (const o of list) {
-        const g = buildOpening(kit, lib, o, wall, level.elevation_mm);
+        const g = buildOpening(kit, lib, o, wall, level.elevation_mm, trim);
         if (!g) continue;
         tagElement(g, o.id, locked("openings"));
         root.add(g);
@@ -272,6 +303,19 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
     const list = wells.get(flight.topLevelId) ?? [];
     list.push(stairOutline(flight).outline);
     wells.set(flight.topLevelId, list);
+  }
+  // A void (DECISIONS D50) cuts its level's floor the same way, in convex
+  // pieces: the space below is double height. A hidden Slabs layer leaves
+  // the floor whole, as the walker finds it (walk/worlds.ts).
+  if (slabsOn) {
+    for (const s of slabs) {
+      if (s.slab_kind !== "void") continue;
+      const level = levels.get(s.level_id) ?? lowest;
+      if (!level) continue;
+      const list = wells.get(level.id) ?? [];
+      list.push(...convexPieces(s.polygon));
+      wells.set(level.id, list);
+    }
   }
   for (const level of sortedLevels) {
     if (!levelShown(level)) continue;
@@ -307,7 +351,8 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       });
     }
     if (md.triangleCount === 0) continue;
-    const mesh = kit.mesh(kit.fromMeshData(md), lib.get(e.floor_material_id, "mat-tile-ceramic"));
+    const floorMat = lib.get(e.floor_material_id, "mat-tile-ceramic");
+    const mesh = kit.mesh(kit.fromMeshData(md), floorMat);
     mesh.castShadow = false;
     mesh.userData.soft = true;
     if (visible("rooms")) {
@@ -316,6 +361,52 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
     }
     root.add(mesh);
     acc.add(poly, level.elevation_mm, level.elevation_mm + FLOOR_FINISH_MM);
+    // Skirting in the floor's own finish (tile skirting is the PH norm),
+    // along the walls and open at the doors.
+    if (visible("walls")) {
+      const skirt = new MeshData();
+      pushSkirting(skirt, poly, doorSpansOn(level.id), level.elevation_mm + FLOOR_FINISH_MM);
+      if (skirt.triangleCount > 0) {
+        const m = kit.mesh(kit.fromMeshData(skirt), floorMat);
+        m.castShadow = false;
+        root.add(m);
+      }
+    }
+  }
+
+  // ----------------------------------------------------------------- slabs
+  // Floors, balconies and decks (DECISIONS D50): a solid of the slab's
+  // thickness under its top, `top_offset_mm` above the level's floor, in a
+  // concrete body with the slab's finish on top. A deck is its finish all
+  // through (timber decking). Voids were cut out of the floors above.
+  if (slabsOn) {
+    for (const s of slabs) {
+      if (s.slab_kind === "void") continue;
+      const level = levels.get(s.level_id) ?? lowest;
+      const poly = ensureCCW(s.polygon);
+      if (!level || !levelShown(level) || poly.length < 3) continue;
+      const top = level.elevation_mm + s.top_offset_mm;
+      const thick = Math.min(Math.max(s.thickness_mm, 20), 2000);
+      const deck = s.slab_kind === "deck";
+      const finish = lib.get(s.material_id, deck ? "mat-wood-cladding" : "mat-tile-ceramic");
+      const body = new MeshData();
+      const skin = new MeshData();
+      const finishMm = deck ? 0 : Math.min(FLOOR_FINISH_MM, thick / 2);
+      // A void or a stairwell on the level cuts the slab too.
+      for (const piece of subtractWells(poly, wells.get(level.id))) {
+        pushPrism(body, piece, { bottom: () => top - thick, top: () => top - finishMm, skipTop: finishMm > 0 });
+        if (finishMm > 0) pushPrism(skin, piece, { bottom: () => top - finishMm, top: () => top, skipBottom: true });
+      }
+      if (body.triangleCount === 0) continue;
+      const parts: THREE.Mesh[] = [kit.mesh(kit.fromMeshData(body), deck ? finish : lib.get("mat-concrete-fairface", undefined, false))];
+      if (skin.triangleCount > 0) parts.push(kit.mesh(kit.fromMeshData(skin), finish));
+      for (const m of parts) {
+        m.userData.elementId = s.id;
+        if (locked("slabs")) m.userData.locked = true;
+        root.add(m);
+      }
+      acc.add(poly, top - thick, top);
+    }
   }
 
   // Rooms per level, for fixtures (which room a lamp lights) and ghost lights.
@@ -373,6 +464,36 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       const mid = { x: e.origin.x - Math.sin(a) * (e.run_mm / 2), y: e.origin.y + Math.cos(a) * (e.run_mm / 2) };
       acc.add(orientedRect(mid, e.width_mm, e.run_mm, e.rotation_deg), level.elevation_mm, level.elevation_mm + (cut ?? level.height_mm));
     }
+  }
+
+  // --------------------------------------------------------------- railings
+  // The engine's rail runs (`Derived.railings`, DECISIONS D50): slab edges on
+  // the Slabs layer, stair sides and stairwell guards on the Stairs layer.
+  // One mesh per material per run, picked as the slab or stair that carries it.
+  lib.category = "stair";
+  for (const run of derived.railings ?? []) {
+    const slabRun = run.kind === "slab_edge";
+    const layerKey: LayerKey = slabRun ? "slabs" : "stairs";
+    if (!visible(layerKey) || run.points.length < 2) continue;
+    const level = levels.get(run.level_id) ?? lowest;
+    if (!level || !levelShown(level)) continue;
+    const cut = levelCut(level);
+    const out: RailingMeshes = { steel: new MeshData(), glass: new MeshData(), solid: new MeshData() };
+    pushRailing(out, run, level.elevation_mm, cut === null ? null : level.elevation_mm + cut);
+    const mats: [MeshData, THREE.Material][] = [
+      [out.steel, lib.get("mat-steel", undefined, false)],
+      [out.glass, lib.get("mat-glass-clear", undefined, false)],
+      [out.solid, lib.get(null, "mat-chb-painted")],
+    ];
+    for (const [md, mat] of mats) {
+      if (md.triangleCount === 0) continue;
+      const m = kit.mesh(kit.fromMeshData(md), mat, run.host_id);
+      if (locked(layerKey)) m.userData.locked = true;
+      root.add(m);
+    }
+    const foot = run.points.map((p) => ({ x: p.x, y: p.y }));
+    const zs = run.points.map((p) => p.z);
+    acc.add(foot, level.elevation_mm + Math.min(...zs), level.elevation_mm + Math.max(...zs) + run.height_mm);
   }
 
   // ----------------------------------------------------------------- assets
@@ -526,7 +647,9 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
       const prof = buildRoofMesh(input, md, trim);
       if (prof && md.triangleCount > 0) {
         roofGroup.add(kit.mesh(kit.fromMeshData(md), lib.get(roof.material_id, "mat-roof-longspan")));
-        // Soffit and fascia: plain off-white, the usual painted fibre cement board look.
+        // Soffit and fascia: plain off-white, the usual painted fibre cement
+        // board look. The fascia board hangs below the edge all round.
+        pushFascia(trim, offsetPolygon(fp, Math.max(roof.overhang_mm, 0)), prof.under, prof.vertical, prof.ridge === null ? null : { across: prof.across, at: prof.ridge });
         if (trim.triangleCount > 0) roofGroup.add(kit.mesh(kit.fromMeshData(trim), lib.plain("#ece9e1", 0.85)));
         const infill = new MeshData();
         buildRoofInfill(input, infill);
@@ -551,7 +674,10 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   for (let i = 0; i + 1 < sortedLevels.length; i++) {
     const level = sortedLevels[i];
     if (!levelShown(level)) continue;
-    const pieces = deckPieces(footprintsOf(level.id), footprintsOf(sortedLevels[i + 1].id));
+    // The deck is the floor of the level above where that level has no
+    // building: its voids and stairwells cut it as they cut that floor.
+    const above = sortedLevels[i + 1];
+    const pieces = deckPieces(footprintsOf(level.id), footprintsOf(above.id)).flatMap((p) => subtractWells(p, wells.get(above.id)));
     if (pieces.length === 0) continue;
     const bottom = level.elevation_mm + ceilingHeightMm(level, sortedLevels);
     const top = bottom + DECK_MM + DECK_TOPPING_MM;
@@ -594,6 +720,29 @@ export function buildScene(doc: DocState, lib: MaterialLibrary, opts: BuildOptio
   bounds.minZ = Math.min(bounds.minZ, groundMm);
   const contact = lowest ? boundsOf(footprintsOf(lowest.id).flat()) : null;
   return { root, roofGroup, bounds, empty, groundY: groundMm / 1000, contact, kit, byElement, pipes, lamps, lightRooms };
+}
+
+/**
+ * Which face of a wall is outdoors, in the frame of its openings (+1 the
+ * right of the wall direction, -1 the left), from a point just past each
+ * face: the face whose point is outside every building on the level. 0 for
+ * a wall the engine says is not exterior, or when both or neither are.
+ */
+export function exteriorSide(wall: Wall, exterior: boolean, footprints: Pt[][]): -1 | 0 | 1 {
+  if (!exterior || footprints.length === 0) return 0;
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+  const len = Math.hypot(dx, dy);
+  if (!(len > 1)) return 0;
+  const mid = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 };
+  const reach = wall.thickness_mm / 2 + 150;
+  const right = { x: mid.x + (dy / len) * reach, y: mid.y - (dx / len) * reach };
+  const left = { x: mid.x - (dy / len) * reach, y: mid.y + (dx / len) * reach };
+  const inside = (p: Pt) => footprints.some((fp) => pointInPolygon(p, fp));
+  const r = inside(right);
+  const l = inside(left);
+  if (r === l) return 0;
+  return r ? -1 : 1;
 }
 
 /**
@@ -750,8 +899,9 @@ export function glowArea(root: THREE.Object3D, pick: (mesh: THREE.Mesh) => boole
  */
 function buildStair(kit: Kit, lib: MaterialLibrary, s: Stair, level: Level, maxHeight?: number | null): THREE.Mesh | null {
   const risers = Math.min(Math.max(Math.round(s.riser_count), 1), 200);
-  // Contract: going depth = run_mm / riser_count. The last step is flush with the floor above.
-  const treads = risers;
+  // DECISIONS D44: n risers make n - 1 treads of run / (n - 1); the top
+  // riser lands on the floor above, whose slab edge at the head is its face.
+  const treads = Math.max(risers - 1, 1);
   const run = s.run_mm / 1000;
   const width = s.width_mm / 1000;
   const totalRise = level.height_mm / 1000;

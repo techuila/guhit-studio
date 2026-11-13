@@ -4,7 +4,7 @@ import { useApp } from "../state/store";
 
 export type DockTab = "copilot" | "visuals" | "chat";
 export type Overlay = "palette" | "export" | "versions" | "shortcuts" | "settings" | null;
-export type FlyoutKind = "wall" | "door" | "window" | "asset" | "pipe";
+export type FlyoutKind = "wall" | "door" | "window" | "asset" | "pipe" | "slab";
 export type ImportKind = "cad" | "model" | "bundle";
 
 interface ShellState {

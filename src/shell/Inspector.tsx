@@ -37,6 +37,7 @@ const PAPERS: Array<{ value: PaperSize; label: string }> = [
 ];
 
 const LAYER_LABEL: Record<LayerKey, string> = {
+  slabs: "Slabs",
   walls: "Walls",
   openings: "Doors and windows",
   rooms: "Rooms and labels",
@@ -348,6 +349,7 @@ const KIND_PLURAL: Record<Element["kind"], [string, string]> = {
   linework: ["linework", "linework"],
   reference_model: ["reference model", "reference models"],
   pipe: ["pipe", "pipes"],
+  slab: ["slab", "slabs"],
 };
 
 /** Thickness and height for several walls, each change one batch and one undo step. */

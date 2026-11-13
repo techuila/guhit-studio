@@ -7,7 +7,7 @@
 // exists. Re-run any time; delete assets/raw/ or public/assets/pack/ to force
 // a clean rebuild.
 //
-// Usage: node scripts/assets-build.mjs [--verify-only]
+// Usage: node scripts/assets-build.mjs [--verify-only] [--only hdri,mat-ground-grass]
 
 import fs from "node:fs";
 import path from "node:path";
@@ -21,6 +21,8 @@ const PACK = path.join(ROOT, "public", "assets", "pack");
 const TMP = path.join(RAW, ".tmp");
 
 const VERIFY_ONLY = process.argv.includes("--verify-only");
+/** `--only hdri,<preset>`: rebuilds the sky and the named material presets only, the rest of the manifest kept. */
+const ONLY = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : null;
 
 // ---------------------------------------------------------------------------
 // Small utilities
@@ -434,6 +436,13 @@ const MATERIALS = [
     size_mm: [600, 660],
     note: "Flat modern clay tile look (RoofingTiles013A, the barrel/Spanish-profile option, is a near-black underexposed photo unsuitable as-is).",
   },
+  {
+    preset: "mat-ground-grass",
+    name: "Lawn (the 3D view's ground)",
+    ambientId: "Grass004",
+    size_mm: [1400, 1400],
+    note: "Not a project material: the 3D view draws its ground with it (src/viewer3d/engine/environment.ts), sampled at two scales so the tile does not repeat visibly.",
+  },
 ];
 
 // Presets with pattern "none" in defaults.rs (flat MeshStandardMaterial
@@ -459,16 +468,22 @@ const FLAT_PRESETS = [
   { preset: "mat-glass-clear", name: "Clear glass", color: "#bfe3ee", note: "Glass has no texture map: transparency + roughness only." },
 ];
 
-// HDRI: one outdoor sunny sky. Poly Haven's /info endpoint does not expose a
-// sun azimuth/altitude value, so sun direction is recorded as "unknown"
-// (rule stated up front in the brief).
+// HDRI: one outdoor sunny sky for a tropical Philippine site. Pretoria
+// Gardens (Poly Haven, CC0): a high midday sun, scattered cumulus, broadleaf
+// trees on a flat horizon and grass under them, so the photo's own ground
+// carries on from the lawn the viewer draws. The sun direction is found from
+// the pixels at load time (src/viewer3d/engine/environment.ts, `scanHdri`).
+// It replaced Alps Field (an alpine meadow, 1K light, a 512 px background).
 const HDRI = {
-  id: "alps_field",
-  name: "Alps Field",
+  id: "pretoria_gardens",
+  name: "Pretoria Gardens",
   license: "CC0 1.0",
-  sourceUrl: "https://polyhaven.com/a/alps_field",
-  sun_direction: "unknown (Poly Haven's API does not publish sun azimuth/altitude; tags: sun, high-contrast, partly-cloudy)",
+  sourceUrl: "https://polyhaven.com/a/pretoria_gardens",
+  sun_direction: "found from the pixels at load time (scanHdri in src/viewer3d/engine/environment.ts); midday, high sun",
 };
+/** Light comes from the 2K HDR; what is seen behind the model is a 4K JPG of the same sky. */
+const HDRI_LIGHT_RES = "2k";
+const HDRI_BACKGROUND_PX = [4096, 2048];
 
 // ---------------------------------------------------------------------------
 // Step: HDRI
@@ -478,36 +493,41 @@ async function buildHdri() {
   log("\n== HDRI ==");
   const filesRes = await fetch(`https://api.polyhaven.com/files/${HDRI.id}`);
   const files = await filesRes.json();
-  const hdrUrl = files.hdri["1k"].hdr.url;
+  const hdrUrl = files.hdri[HDRI_LIGHT_RES].hdr.url;
   const tonemappedUrl = files.tonemapped.url;
 
-  const rawHdr = path.join(RAW, "hdri", `${HDRI.id}_1k.hdr`);
-  await download(hdrUrl, rawHdr, "alps_field_1k.hdr");
+  const rawHdr = path.join(RAW, "hdri", `${HDRI.id}_${HDRI_LIGHT_RES}.hdr`);
+  await download(hdrUrl, rawHdr, `${HDRI.id}_${HDRI_LIGHT_RES}.hdr`);
   const rawTonemapped = path.join(RAW, "hdri", `${HDRI.id}_tonemapped.jpg`);
-  await download(tonemappedUrl, rawTonemapped, "alps_field_tonemapped.jpg (source for the 512px preview)");
+  await download(tonemappedUrl, rawTonemapped, `${HDRI.id}_tonemapped.jpg (source for the 4K background)`);
 
   const outDir = path.join(PACK, "hdri");
   ensureDir(outDir);
   const outHdr = path.join(outDir, "sky.hdr");
   fs.copyFileSync(rawHdr, outHdr);
 
-  const outPreview = path.join(outDir, "sky-preview.jpg");
+  // The old 512 px preview is gone: the background is the 4K JPG now.
+  fs.rmSync(path.join(outDir, "sky-preview.jpg"), { force: true });
+  const outBackground = path.join(outDir, "sky.jpg");
   const S = await sharp();
-  await S(rawTonemapped).resize(512, 256, { fit: "fill" }).jpeg({ quality: 82 }).toFile(outPreview);
+  const [bw, bh] = HDRI_BACKGROUND_PX;
+  // Poly Haven's tonemapped JPG is the full 20K original: no pixel limit on the decode.
+  await S(rawTonemapped, { limitInputPixels: false }).resize(bw, bh, { fit: "fill" }).jpeg({ quality: 84, mozjpeg: true }).toFile(outBackground);
 
   const hdrBytes = fs.statSync(outHdr).size;
-  const previewBytes = fs.statSync(outPreview).size;
-  log(`  sky.hdr          ${fmtBytes(hdrBytes)}`);
-  log(`  sky-preview.jpg  ${fmtBytes(previewBytes)} (512x256, downsized from the full-res tonemapped JPG with sharp)`);
+  const backgroundBytes = fs.statSync(outBackground).size;
+  log(`  sky.hdr  ${fmtBytes(hdrBytes)} (${HDRI_LIGHT_RES})`);
+  log(`  sky.jpg  ${fmtBytes(backgroundBytes)} (${bw}x${bh}, downsized from the full-res tonemapped JPG with sharp)`);
 
   return {
     ...HDRI,
     file: "hdri/sky.hdr",
-    preview_file: "hdri/sky-preview.jpg",
-    resolution: "1k",
+    background_file: "hdri/sky.jpg",
+    resolution: HDRI_LIGHT_RES,
+    background_px: [bw, bh],
     source_download_url: hdrUrl,
     bytes: hdrBytes,
-    preview_bytes: previewBytes,
+    background_bytes: backgroundBytes,
   };
 }
 
@@ -521,12 +541,12 @@ const AMBIENT_MAPS = [
   { suffix: "Roughness", out: "roughness" },
 ];
 
-async function buildMaterials() {
+async function buildMaterials(only = null) {
   log("\n== Materials (ambientCG, 1K JPG) ==");
   const S = await sharp();
   const result = {};
 
-  for (const m of MATERIALS) {
+  for (const m of MATERIALS.filter((x) => !only || only.includes(x.preset))) {
     const zipUrl = `https://ambientcg.com/get?file=${m.ambientId}_1K-JPG.zip`;
     const rawZip = path.join(RAW, "materials", `${m.ambientId}_1K-JPG.zip`);
     await download(zipUrl, rawZip, `${m.ambientId}_1K-JPG.zip (${m.preset})`);
@@ -577,7 +597,7 @@ async function buildMaterials() {
     };
   }
 
-  for (const f of FLAT_PRESETS) {
+  for (const f of only ? [] : FLAT_PRESETS) {
     result[f.preset] = {
       id: f.preset,
       name: f.name,
@@ -905,7 +925,7 @@ function writeAssetsDoc(manifest) {
   lines.push(`| Source | ${manifest.hdri.sourceUrl} |`);
   lines.push(`| License | ${manifest.hdri.license} |`);
   lines.push(`| File | \`${manifest.hdri.file}\` (${fmtBytes(manifest.hdri.bytes)}) |`);
-  lines.push(`| Preview | \`${manifest.hdri.preview_file}\` (${fmtBytes(manifest.hdri.preview_bytes)}, 512x256 JPG) |`);
+  lines.push(`| Background | \`${manifest.hdri.background_file}\` (${fmtBytes(manifest.hdri.background_bytes)}, ${manifest.hdri.background_px.join("x")} JPG) |`);
   lines.push(`| Sun direction | ${manifest.hdri.sun_direction} |`);
   lines.push("");
   lines.push("## Materials");
@@ -1048,7 +1068,7 @@ async function verify(manifest) {
   // 2. every referenced file exists
   const referenced = [];
   if (manifest.hdri.file) referenced.push(manifest.hdri.file);
-  if (manifest.hdri.preview_file) referenced.push(manifest.hdri.preview_file);
+  if (manifest.hdri.background_file) referenced.push(manifest.hdri.background_file);
   for (const m of Object.values(manifest.materials)) for (const f of m.maps) referenced.push(f);
   for (const m of Object.values(manifest.models)) if (m.file) referenced.push(m.file);
   for (const rel of referenced) {
@@ -1103,6 +1123,17 @@ async function main() {
   let manifest;
   if (VERIFY_ONLY) {
     manifest = JSON.parse(fs.readFileSync(path.join(PACK, "manifest.json"), "utf8"));
+  } else if (ONLY) {
+    // `--only hdri,mat-ground-grass`: the sky and the named material presets,
+    // the rest of the manifest kept as it is.
+    const parts = ONLY.split(",");
+    const old = JSON.parse(fs.readFileSync(path.join(PACK, "manifest.json"), "utf8"));
+    const hdri = parts.includes("hdri") ? await buildHdri() : old.hdri;
+    const presets = parts.filter((p) => p !== "hdri");
+    const materials = presets.length > 0 ? { ...old.materials, ...(await buildMaterials(presets)) } : old.materials;
+    manifest = writeManifest(hdri, materials, old.models);
+    writeAssetsDoc(manifest);
+    log(`\nWrote ${parts.join(", ")} into ${path.relative(ROOT, path.join(PACK, "manifest.json"))} and assets/ASSETS.md`);
   } else {
     const hdri = await buildHdri();
     const materials = await buildMaterials();

@@ -8,14 +8,14 @@
 // Visuals panel both do: whichever is mounted, a render request lands.
 
 import { create } from "zustand";
-import type { Camera, DocState } from "../../contract/bindings";
+import type { Camera, DocState, ViewVisibility } from "../../contract/bindings";
 import { ipc } from "../../contract/ipc";
 import { bus } from "../../state/bus";
 import { useApp } from "../../state/store";
 import { isModalOpen } from "../../ui/Dialog";
 import { fromViewLight, toViewLight } from "../light/model";
 import { useViewer, type LiveLight } from "../viewerStore";
-import { useLiveView } from "./liveView";
+import { MODEL_VISIBILITY, useLiveView } from "./liveView";
 import type { RenderKind } from "../../contract/bindings";
 import { QUALITIES, RENDER_SIZES, RenderJob, type RenderProgress, type TraceQuality, type RenderSizeKey } from "./renderJob";
 
@@ -171,28 +171,43 @@ interface QueueOutcome {
   cancelled: boolean;
 }
 
-/** Size and quality for one pass, instead of the user's own choices. */
+/** Size, quality and model visibility for one pass, instead of the user's own choices. */
 interface QueueOptions {
   size?: RenderSizeKey;
   quality?: TraceQuality;
+  /** What of the model shows. Default: what the window shows (roof toggle, cutaway, active level). */
+  view?: { cutaway: boolean; roofVisible: boolean; activeLevelId: string | null };
 }
+
+/** How long an MCP render waits for one already running before it gives up, ms. */
+const WAIT_FOR_QUEUE_MS = 10 * 60 * 1000;
 
 /**
  * Renders for a window request (an MCP client, DECISIONS D31) with the same
  * queue the Render button uses, at the size and quality asked, without
  * changing the user's own choices. `views` are camera ids of saved views;
- * empty renders the current 3D view. Resolves with what was saved, in order;
- * throws an IpcError-shaped object when nothing could be rendered.
+ * empty renders the current 3D view. The roof and cutaway are what the
+ * request asks (`WindowTask::Render::visibility`), or the model's defaults
+ * (roof on, no cutaway) when it does not: never this window's toggles,
+ * which the client cannot see. A render already running is waited for, not
+ * refused. Resolves with what was saved, in order; throws an IpcError-shaped
+ * object when nothing could be rendered.
  */
-export async function renderForRequest(views: string[], quality: TraceQuality, size: RenderSizeKey): Promise<RenderResult[]> {
+export async function renderForRequest(views: string[], quality: TraceQuality, size: RenderSizeKey, visibility: ViewVisibility | null = null): Promise<RenderResult[]> {
+  const started = Date.now();
+  while (useRenderQueue.getState().running) {
+    if (Date.now() - started > WAIT_FOR_QUEUE_MS) {
+      throw { code: "invalid", message: "A render is already running in Guhit Studio. Wait for it or stop it, then try again.", element_ids: [] };
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
   const doc = useApp.getState().doc;
   if (!doc) throw { code: "no_document", message: "No project is open in Guhit Studio.", element_ids: [] };
-  if (useRenderQueue.getState().running) {
-    throw { code: "invalid", message: "A render is already running in Guhit Studio. Wait for it or stop it, then try again.", element_ids: [] };
-  }
   const tasks = resolveTasks(views.length === 0 ? "current" : views, doc);
   if (typeof tasks === "string") throw { code: "invalid", message: tasks, element_ids: [] };
-  const outcome = await runQueue(tasks, { size, quality });
+  const show = visibility ?? MODEL_VISIBILITY;
+  const view = { cutaway: show.cutaway, roofVisible: show.roof, activeLevelId: show.cutaway ? useApp.getState().activeLevelId : null };
+  const outcome = await runQueue(tasks, { size, quality, view });
   if (outcome.results.length === 0) {
     const message = outcome.error ?? (outcome.cancelled ? "The render was cancelled in Guhit Studio." : "Nothing was rendered.");
     throw { code: "invalid", message, element_ids: [] };
@@ -226,7 +241,7 @@ async function runQueue(tasks: RenderTask[], opts: QueueOptions = {}): Promise<Q
           lockedEv: task.lockedEv,
           width: size.width,
           height: size.height,
-          view: { cutaway: viewer.cutaway, roofVisible: viewer.roofVisible, activeLevelId: useApp.getState().activeLevelId },
+          view: opts.view ?? { cutaway: viewer.cutaway, roofVisible: viewer.roofVisible, activeLevelId: useApp.getState().activeLevelId },
           packModels: true,
           lampOverrides: task.overrides,
         },

@@ -13,15 +13,24 @@
 // again, `user_view` from either view, a fit or focus asked for here, a
 // level or view mode change that is not the one followed, the person
 // followed leaving and the session ending. Hover and pointer moves never stop it.
+//
+// Agents (DECISIONS D47) are followed the same way, with or without a live
+// session: this window takes the agent's level and keeps its own view mode,
+// the plan glides to the agent's work area and the 3D target pans to its
+// point keeping this window's camera direction. An agent's point moves once
+// per call, seconds apart, so each move eases over `--dur-scene`.
 
-import type { LiveCamera, PlanView, Presence } from "../contract/bindings";
+import type { LiveCamera, PlanView, Presence, Vec3 } from "../contract/bindings";
 import type { PlanController } from "../editor2d/controller";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
 import { dur } from "../ui/motion";
 import type { ViewerEngine } from "../viewer3d/engine/ViewerEngine";
 import { useLiveView } from "../viewer3d/render/liveView";
+import { panCamera } from "../viewer3d/live/camera";
 import { useViewer } from "../viewer3d/viewerStore";
+import { agentById, type AgentView } from "./agents";
+import { useAgents } from "./agentsStore";
 import { breaksFollowLoop, canChat, canFollow, firstName, followLoops, followerIds, oldVersionLine, participant } from "./format";
 import { useLive } from "./liveStore";
 
@@ -41,10 +50,39 @@ export function glideMs(): number {
  */
 export type StopReason = "user" | "left" | "ended" | "loop" | "old";
 
-/** The presence of the person this window follows, null when it follows no one or it has not arrived. */
+/** The agent this window follows, null when it follows a person or no one. */
+export function followedAgent(): AgentView | null {
+  const id = useLive.getState().following;
+  return id ? agentById(useAgents.getState().views, id) : null;
+}
+
+/** The presence of the person or agent this window follows, null when it follows no one or it has not arrived. */
 export function leaderPresence(): Presence | null {
   const st = useLive.getState();
-  return st.following ? (st.peers[st.following]?.presence ?? null) : null;
+  if (!st.following) return null;
+  const agent = followedAgent();
+  if (agent) return agent.presence;
+  return st.peers[st.following]?.presence ?? null;
+}
+
+/** An agent's work area when it sends only a point. */
+const AGENT_AREA = { width_mm: 9000, height_mm: 6000 };
+
+/** The plan area to show: the leader's, or for an agent without one, the area around its point. */
+function leaderArea(): PlanView | null {
+  const pr = leaderPresence();
+  if (!pr) return null;
+  if (pr.plan_view) return pr.plan_view;
+  return followedAgent() && pr.cursor ? { center: { x: pr.cursor.x, y: pr.cursor.y }, ...AGENT_AREA } : null;
+}
+
+/** Where an agent works in 3D: its model point, else its plan point on its level's floor. */
+function agentPoint(a: AgentView): Vec3 | null {
+  if (a.presence.pointer_3d) return a.presence.pointer_3d;
+  const c = a.presence.cursor;
+  if (!c) return null;
+  const level = useApp.getState().doc?.project.levels.find((l) => l.id === a.presence.level_id);
+  return { x: c.x, y: c.y, z: level?.elevation_mm ?? 0 };
 }
 
 /** Someone in the session follows this window: the plan area and camera go out. */
@@ -66,9 +104,19 @@ function syncPlace(): void {
   if (pr.view_mode && pr.view_mode !== app.viewMode) app.setViewMode(pr.view_mode);
 }
 
-/** Follows `id`, or switches to them from someone else. */
+/** Follows `id` (a person or an agent), or switches to them from someone else. */
 export function follow(id: string): void {
   const live = useLive.getState();
+  if (live.following === id) return;
+  const agent = agentById(useAgents.getState().views, id);
+  if (agent) {
+    // An agent follows no one, so there is no loop to refuse, and no session is needed.
+    if (useViewer.getState().nav !== "orbit") useViewer.getState().setNav("orbit");
+    names.set(id, agent.name);
+    live.setFollowing(id);
+    syncPlace();
+    return;
+  }
   const p = participant(live.status, id);
   if (!canChat(live.status.mode) || id === live.status.self_id || !p) return;
   if (live.following === id) return;
@@ -94,9 +142,12 @@ export function unfollow(reason: StopReason = "user"): void {
   const live = useLive.getState();
   const id = live.following;
   if (!id) return;
-  const name = firstName(participant(live.status, id)?.name ?? names.get(id) ?? "them");
+  const agent = followedAgent();
+  const wasAgent = agent !== null || agentLeft === id;
+  const name = agent ? agent.name : wasAgent ? (names.get(id) ?? "The agent") : firstName(participant(live.status, id)?.name ?? names.get(id) ?? "them");
   live.setFollowing(null);
-  if (reason === "left") useApp.getState().toast("info", `${name} left the live session. Following stopped.`);
+  if (reason === "left" && wasAgent) useApp.getState().toast("info", `${name} is no longer working here. Following stopped.`);
+  else if (reason === "left") useApp.getState().toast("info", `${name} left the live session. Following stopped.`);
   else if (reason === "ended") useApp.getState().toast("info", `Following ${name} stopped: the live session ended.`);
   else if (reason === "loop") useApp.getState().toast("info", `${name} started following you, so following ${name} stopped.`);
   else if (reason === "old") useApp.getState().toast("info", oldVersionLine(name));
@@ -108,8 +159,11 @@ export function toggleFollow(id: string): void {
   else follow(id);
 }
 
-/** Names of the people in the session, kept after they leave for the toast. */
+/** Names of the people and agents followed, kept after they leave for the toast. */
 const names = new Map<string, string>();
+
+/** The agent that just went from the list, for the toast once it is gone. */
+let agentLeft: string | null = null;
 
 // ---------------------------------------------------------------- the plan
 
@@ -139,11 +193,13 @@ export function attachPlan(controller: PlanController): () => void {
   let size = { width: 0, height: 0 };
   /** `resized`: the same area again, fitted to the canvas's new size (a view mode change animates the panes). */
   const apply = (resized = false) => {
-    const area = leaderPresence()?.plan_view ?? null;
+    const area = leaderArea();
     if (!area || (!resized && started && last && samePlanView(last, area))) return;
     // No size yet (the pane is just mounting): the first view change retries.
     if (controller.planView() === null) return;
-    controller.followView(area, started ? glideMs() : dur("scene"), started);
+    // A person's updates glide linearly into each other; an agent's come seconds apart and each one eases.
+    const steady = started && followedAgent() === null;
+    controller.followView(area, steady ? glideMs() : dur("scene"), steady);
     started = true;
     last = area;
   };
@@ -160,10 +216,14 @@ export function attachPlan(controller: PlanController): () => void {
     }
     if (st.following && (st.following !== prev.following || st.peers !== prev.peers)) apply();
   });
+  const offAgents = useAgents.subscribe((st, prev) => {
+    if (st.views !== prev.views && followedAgent()) apply();
+  });
   apply();
   return () => {
     offView();
     offLive();
+    offAgents();
     if (planSource === controller) planSource = null;
     pushPresence();
   };
@@ -211,16 +271,27 @@ export function startFollow(push: () => void): () => void {
     localCamera = null;
   });
 
-  // ---- the follower: the 3D camera.
+  // ---- the follower: the 3D camera. A person's camera is taken as it is;
+  // for an agent the target pans to its point and this window's camera
+  // keeps the direction and distance it had when following started.
   let started3d: ViewerEngine | null = null;
   let lastCam: LiveCamera | null = null;
+  let agentFrom: LiveCamera | null = null;
   const apply3d = () => {
     const engine = useLiveView.getState().engine;
-    const cam = leaderPresence()?.camera ?? null;
-    if (!engine || !cam) return;
+    if (!engine) return;
     const first = started3d !== engine;
+    const agent = followedAgent();
+    let cam: LiveCamera | null;
+    if (agent) {
+      const point = agentPoint(agent);
+      if (first || !agentFrom) agentFrom = engine.liveCamera();
+      cam = point ? panCamera(agentFrom, point) : null;
+    } else cam = leaderPresence()?.camera ?? null;
+    if (!cam) return;
     if (!first && lastCam && sameCamera(lastCam, cam)) return;
-    engine.follow(cam, first ? dur("scene") : glideMs(), !first);
+    const steady = !first && !agent;
+    engine.follow(cam, steady ? glideMs() : dur("scene"), steady);
     started3d = engine;
     lastCam = cam;
   };
@@ -235,8 +306,15 @@ export function startFollow(push: () => void): () => void {
         if (started3d) started3d.endFollow();
         started3d = null;
         lastCam = null;
+        agentFrom = null;
       }
-      if (id) {
+      if (id && followedAgent()) {
+        // An agent needs no session; the agents store below says when it moves or goes.
+        if (id !== prev.following) {
+          syncPlace();
+          apply3d();
+        }
+      } else if (id) {
         // The session ended, or the person followed left (reconnecting keeps them).
         if (st.status.mode === "off") return unfollow("ended");
         if (st.status.mode !== "reconnecting" && !participant(st.status, id)) return unfollow("left");
@@ -258,6 +336,28 @@ export function startFollow(push: () => void): () => void {
         }
       }
       if (id !== prev.following) push();
+    }),
+  );
+  // ---- the agent followed: it moved, or it went.
+  stops.push(
+    useAgents.subscribe((st, prev) => {
+      const id = useLive.getState().following;
+      if (!id || st.views === prev.views) return;
+      const before = agentById(prev.views, id);
+      const now = agentById(st.views, id);
+      if (!now) {
+        if (before) {
+          agentLeft = id;
+          names.set(id, before.name);
+          unfollow("left");
+          agentLeft = null;
+        }
+        return;
+      }
+      if (!before || now.presence !== before.presence) {
+        syncPlace();
+        apply3d();
+      }
     }),
   );
   stops.push(

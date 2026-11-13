@@ -20,6 +20,7 @@ in a live session, where it stops following.
 | V | Select |
 | W | Wall |
 | R | Room rectangle |
+| B | Slab: floor, balcony, deck or void (open to below). The rail button's flyout picks the kind and the railing |
 | D | Door |
 | N | Window |
 | C | Column |
@@ -61,6 +62,39 @@ Handled by the plan canvas (`src/editor2d/controller.ts`).
 | Alt while dragging | Break the joins: joined runs stay where they are |
 | Click the + past an open end | Continue the run from there with the services tool; Enter finishes and returns to Select |
 
+### While the slab tool is active
+
+Handled by the plan canvas (`src/editor2d/controller.ts`, DECISIONS D50).
+Before the first corner, a click inside a room away from any snap point
+takes that room's outline: a room of this level, else (with the level below
+showing) one of the level below, so a void over a double height room is one
+click on the floor above. A click on a wall corner or face starts drawing.
+
+| Key or action | Action |
+|---|---|
+| Click | Place a corner. Click the first corner to close the outline |
+| Alt while clicking inside a room | Start a free outline there instead of taking the room's outline |
+| Double click, or Enter | Close the outline |
+| A number, then Enter | A corner exactly that far along the pointer; `3000<90` also sets the direction |
+| Backspace | Take the last corner back, then end the outline |
+| Escape | Clear a typed value, then cancel the outline |
+
+### Editing a selected slab
+
+| Key or action | Action |
+|---|---|
+| Drag a corner | Move it, with snapping |
+| Drag an edge's middle ring | Add a corner there |
+| Click a corner, then Delete or Backspace | Remove it (a slab keeps at least three). Escape, or any click that is not on a corner, lets the corner go, so Delete then removes the selection |
+
+### The level below
+
+Any level with a level below shows that level's walls faintly under the
+plan, like Revit's underlay. The "Level 1 below" pill in the bottom left
+corner of the plan switches it, as do Show level below and Hide level below
+in the palette. On by default, remembered per project; never exported. No
+key: none of the free letters is an obvious fit.
+
 ### While the link tool is active
 
 Handled by the plan canvas. Click a switch (or an outlet), then each light
@@ -100,6 +134,14 @@ Following someone (DECISIONS D37: click their avatar in the top bar):
 
 Any pan, zoom, fit, orbit, walk key or view mode key (1, 2, 3) of your own
 also stops it.
+
+Agents (DECISIONS D47): clicking an agent's square avatar in the top bar
+follows it the same way, with or without a live session, and Escape stops.
+The Agents panel (the sparkle button after the avatars) closes with Escape
+while it has the focus; a click on the plan leaves it open. No new keys.
+The palette has Show agents, What the agents changed, Pause all agents,
+Stop all agents, Resume all agents (while any is paused or stopped) and
+Connect an AI agent.
 
 ## Toggles
 

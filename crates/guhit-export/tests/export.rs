@@ -512,7 +512,9 @@ fn dxf_rich_project_covers_every_layer() {
     assert_eq!(get("A-COLS", "POLYLINE"), 1);
     assert_eq!(get("A-COLS", "CIRCLE"), 1);
     assert_eq!(get("A-FLOR-STRS", "TEXT"), 1);
-    assert_eq!(get("A-FLOR-STRS", "LINE"), 10 + 1); // inner risers and the arrow shaft
+    // D44: 11 risers are 10 treads, so 9 lines between them, and the arrow
+    // shaft.
+    assert_eq!(get("A-FLOR-STRS", "LINE"), 9 + 1);
     assert_eq!(get("A-ANNO-TEXT", "TEXT"), 2);
     assert_eq!(get("A-ANNO-DIMS", "TEXT"), 3);
     assert_eq!(get("A-AREA", "TEXT"), 6);

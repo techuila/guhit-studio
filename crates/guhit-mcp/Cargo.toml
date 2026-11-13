@@ -8,7 +8,17 @@ license.workspace = true
 [dependencies]
 guhit-app.workspace = true
 guhit-core.workspace = true
+# The plan drawing primitives for `look` without a window. Already in the
+# build through guhit-app.
+guhit-export.workspace = true
 guhit-model.workspace = true
+# import_dxf works the import out here, so it commits through the agents
+# registry like every edit. Already in the build through guhit-app.
+guhit-import.workspace = true
+# resvg: `look` draws the plan as SVG and hands the model a PNG, the image
+# type every client takes. Already in the build: svg2pdf (guhit-export)
+# depends on this exact version with these features.
+resvg = { version = "0.45", default-features = false, features = ["text", "raster-images"] }
 serde.workspace = true
 serde_json.workspace = true
 # io-std, io-util and time: the stdio proxy reads stdin, writes stdout and

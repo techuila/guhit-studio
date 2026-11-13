@@ -13,6 +13,7 @@ import * as THREE from "three";
 import type { Material, MaterialPattern } from "../../contract/bindings";
 import { lampTint } from "../light/model";
 import { texturePack, type PackTextureSet } from "./pack";
+import { aoUniforms, hookAo } from "../light/ao";
 
 interface PatternSpec {
   /** Tile size in meters (u, v). */
@@ -261,6 +262,60 @@ function applyPack(mat: THREE.MeshStandardMaterial, set: PackTextureSet): void {
 }
 
 /**
+ * A copy of a material that keeps its shader hooks: three's `clone` copies
+ * the properties but not `onBeforeCompile` or `customProgramCacheKey`, so a
+ * highlighted or fading copy of a window would lose its glass, and one of a
+ * wall its ambient occlusion, and pop as it came and went. The hooks read the
+ * copy's own uniforms (its opacity), so sharing them is safe.
+ */
+export function cloneMaterial<T extends THREE.Material>(base: T): T {
+  const clone = base.clone() as T;
+  clone.onBeforeCompile = base.onBeforeCompile;
+  clone.customProgramCacheKey = base.customProgramCacheKey;
+  clone.userData = { ...base.userData };
+  return clone;
+}
+
+/**
+ * Thin glass for the live view: what shows through is the scene behind,
+ * dimmed only by what the pane reflects (Fresnel, 4 percent head on and
+ * nearly all of it at a grazing angle) and a little body tint, and the
+ * reflection itself is never faded by the transparency, as plain alpha
+ * blending did (the old panes were a 35 percent opaque blue film). Drawn
+ * premultiplied: color = reflection + tint, alpha = 1 - transmission.
+ * A material's opacity is how much body the glass has: the clear preset's
+ * 0.35 lets about 90 percent through head on. The path tracer swaps these
+ * for real transmissive glass (render/renderScene.ts, `traceGlass`).
+ */
+export function makeGlass(mat: THREE.MeshStandardMaterial, opacity: number): void {
+  const body = Math.min(Math.max(opacity, 0.05), 1);
+  const transmit = 1 - body * 0.25;
+  const scatter = 0.18 * body * body;
+  mat.premultipliedAlpha = true;
+  mat.roughness = Math.min(mat.roughness, 0.08);
+  mat.envMapIntensity = 1;
+  mat.userData.glassTransmit = transmit;
+  mat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <opaque_fragment>",
+        /* glsl */ `{
+          float glassNV = saturate(dot(normal, normalize(vViewPosition)));
+          float glassF = 0.04 + 0.96 * pow(1.0 - glassNV, 5.0);
+          float glassT = (1.0 - glassF) * ${transmit.toFixed(3)};
+          // A shell mode or a fade lowers the opacity: the pane fades as a whole.
+          float glassFade = clamp(opacity / ${body.toFixed(3)}, 0.0, 1.0);
+          outgoingLight = totalDiffuse * ${scatter.toFixed(4)} + totalSpecular + totalEmissiveRadiance;
+          gl_FragColor = vec4(outgoingLight * glassFade, (1.0 - glassT) * glassFade);
+        }`,
+      )
+      // Already premultiplied above.
+      .replace("#include <premultiplied_alpha_fragment>", "");
+  };
+  mat.customProgramCacheKey = () => `guhit-glass-${transmit.toFixed(3)}-${scatter.toFixed(4)}`;
+}
+
+/**
  * The part of the model a material dresses. The same preset used by a wall
  * and by a stair becomes two materials, so the X-ray and hidden shell modes
  * (engine/shell.ts) can fade walls and stairs by different amounts.
@@ -295,6 +350,12 @@ export class MaterialLibrary {
   private unsubscribe: (() => void) | null = null;
   /** A pack map just arrived: redraw the shadow map and ask for one frame. */
   onPackTexture: (() => void) | null = null;
+  /**
+   * The live view's ambient occlusion (light/ao.ts), shared by every opaque
+   * material this library makes. Off (strength 0) until an engine computes it,
+   * so a render job's own library never reads it.
+   */
+  readonly ao = aoUniforms();
 
   constructor() {
     this.unsubscribe = texturePack.onLoad((presetId) => this.attachPack(presetId));
@@ -386,6 +447,7 @@ export class MaterialLibrary {
     if (mat) return mat;
     mat = source.clone();
     mat.userData = { ...source.userData, libKey: key };
+    if (!mat.transparent) hookAo(mat, this.ao);
     rememberSolid(mat, this.category);
     this.adopted.set(key, mat);
     return mat;
@@ -519,8 +581,9 @@ export class MaterialLibrary {
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
     });
-    if (glass) mat.envMapIntensity = 1.6;
-    const tex = textured ? this.texture(m.pattern) : null;
+    if (glass) makeGlass(mat, opacity);
+    else hookAo(mat, this.ao);
+    const tex = textured && !glass ? this.texture(m.pattern) : null;
     if (tex) mat.map = tex;
     mat.userData.glass = glass;
     mat.userData.libKey = key;

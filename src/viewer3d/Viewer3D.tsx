@@ -16,14 +16,14 @@ import { fromViewLight } from "./light/model";
 import { SunControl } from "./light/SunControl";
 import { LivePointers3D } from "./live/LivePointers3D";
 import { historyTintOf, peerTints, sameTint, sameTints, type Tint } from "./live/peers";
-import { useLiveView } from "./render/liveView";
+import { CAPTURE_SIZE, useLiveView } from "./render/liveView";
 import { RenderButton } from "./render/RenderButton";
 // Loads the render queue, which answers `bus.emit("render", ...)`.
 import "./render/renderQueue";
 import styles from "./Viewer3D.module.css";
 
-const CAPTURE_W = 1920;
-const CAPTURE_H = 1080;
+const CAPTURE_W = CAPTURE_SIZE.width;
+const CAPTURE_H = CAPTURE_SIZE.height;
 
 interface PresetButton {
   kind: PresetKind;
