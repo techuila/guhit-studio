@@ -1103,8 +1103,8 @@ The MCP server (`crates/guhit-mcp`, docs/MCP.md) is the main way agents
 build the model (DECISIONS D42). It is a transport over `AppService`, like
 the Tauri shell and the dev bridge, and adds no model rules of its own.
 
-**Tools.** The core toolset `draft` (26 tools, Wave 2 added `add_grid`,
-`annotate`, `add_roof` and `types`) is always listed; the toolsets
+**Tools.** The core toolset `draft` (27 tools, Wave 2 added `add_grid`,
+`annotate`, `add_roof` and `types`, swarms `swarm`) is always listed; the toolsets
 `services`, `visuals`, `live`, `review`, `interop`, `documents` and `tours`
 (19 more) are listed
 when the request URL says `?toolsets=a,b` (or `all`), else when settings.json
@@ -1148,10 +1148,15 @@ id, code, severity, message, element_ids, location_mm), `issues_resolved`
 location_mm, step, ref, hint}` (`guhit_mcp::fail::ToolFail`). `code` is the
 engine's own code (`CoreError::code`, so `opening_overlap`, not `invalid`),
 an `IpcError` code, `bad_args`, `unknown_tool`, `unknown_ref`,
-`unknown_catalog_key`, `no_room_here` or `unavailable`. `step` is 1-based in
+`unknown_catalog_key`, `no_room_here`, `unavailable` or `needs_force` (the
+swarm lead's `discard` without `force`). `step` is 1-based in
 a `batch` or `build`, absent for one call. The text content keeps the v1
 wording ("step 5 of 6 (`add_door`): invalid: ... Nothing was applied.") and
-adds "Hint: ...". An unknown tool names the nearest v2 tool.
+adds "Hint: ...". The swarm refusals (`swarm_running`, `draft_open`,
+`part_stopped`, `draft_view`, `people_only`) have their own hints, never the
+live session's advice to pass `force`; a swarm action refused
+`live_session` says to leave the session. An unknown tool names the nearest
+v2 tool.
 
 **Check baselines.** The engine keeps no history of derived data, so
 `check since_revision` compares with the review items this server noted at
@@ -1198,13 +1203,267 @@ the agent's own `set_status` is less than 60 s old.
 elevation pictures, and GLB export from the server: each answers
 `unavailable` or is not offered, with a hint naming what to use instead.
 
+## Swarms
+
+DECISIONS D56, D57. Types: `crates/guhit-model/src/swarm.rs`. App side:
+`crates/guhit-app/src/swarm/` (`mod.rs` the service API, the lock, binding
+and IPC; `draft.rs` the draft). Engine: `guhit_core::replay`
+(`Replayed`, `Document::apply_replayed`). MCP: the core tool `swarm`
+(`crates/guhit-mcp/src/swarm.rs`).
+
+One brief, a lead splits it into parts, several agents draw the parts at
+once into a draft, and a person accepts all of it (or, once L1 lands, one
+part) or discards it. Nothing enters the model before a person accepts, in
+the window. No agent can accept (`people_only`).
+
+**Types.**
+- `SwarmPlan { summary, setup: SwarmSetup { levels: [SwarmLevel { name, height_mm? }] }, parts: [SwarmPartPlan] }`.
+  `SwarmPartPlan { key, name, role, instructions, scope: SwarmScope, after: [SwarmWait { part, milestone }], milestones }`.
+  `SwarmScope { levels, kinds, area }`: levels are ids once the swarm
+  started (a plan may name levels by name, setup levels included); empty
+  lists limit nothing; `area` is always None in v1. "done" is every part's
+  implicit last milestone.
+- `SwarmStatus` is the panel and the `swarm` event: `id`, `project_id`,
+  `source` (`{type: "app"}` or `{type: "mcp", client}`), `state`
+  (`planning`, `running`, `paused`, `ready`, `interrupted` (unused in v1),
+  `failed`), `brief`, `plan` (scope levels as ids), `parts`, `feed` (newest
+  first, at most 14), `draft_revision` (up by one with every draft change),
+  `main_revision` (holds while the draft is open), `added`, `modified`,
+  `removed` (the draft against the model), `conflicts`, `cost` (in-app
+  only), `ai_wait_until`.
+- `SwarmPart`: `key`, `name`, `role`, `color` (a peer color), `agent_id`
+  (once bound), `state` (`waiting`, `working`, `paused`, `blocked`, `done`,
+  `stopped`, `failed`, `accepted`), `status`, `steps`, `milestones`
+  reached, `waiting_for`, `conflicts`, `last_seq` (its newest step's `seq`,
+  0 before its first). The lead is the first part, key `lead`, name "Lead":
+  its steps are the Setup steps and every call of the lead's connection
+  that names no handle.
+- `SwarmStep { seq, part, agent_id, label, status, added, modified, removed, at }`:
+  one agent tool call in the draft, `seq` from 1, never reused.
+- `SwarmDraftState { swarm_id, draft_revision, state, parts, removed, steps, display_modified }`:
+  `state` is the draft view (the model with every step applied, derived by
+  the engine, empty history); `parts` per part the elements it added or
+  changed against the model (`SwarmPartIds { part, color, ids }`, each id
+  under the part whose step touched it last); `removed` model elements the
+  draft removes; `steps` those after `since_step`; `display_modified` model
+  elements whose look changes without a step changing them (the host walls
+  of draft doors and windows; 3D hides their model meshes). The diff is
+  worked out in Rust, never in TypeScript.
+- `SwarmConflict { part, step, label, code, message, element_ids }`: codes
+  are the engine's, or `lost_id`, `changed_on_main`, `cross_part`, `stale`
+  (L1).
+- `SwarmCost { model, model_label?, price_note?, low_usd?, high_usd?, spent_usd, cap_usd, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens }` (L2).
+  `model` is the id the workers use: the `ai_model` setting, else
+  `claude-opus-5-5`; `model_label` how people read it ("Claude Opus 5.5",
+  the id itself for a model the price table does not know). A model the
+  table does not know is estimated and billed at the table's highest row
+  (US$10 / US$50, reads 0.1x) and `price_note` says "Billed at the highest
+  rate: price unknown", so the cap always holds. A response from a model
+  without a row is billed at the requested model's price first.
+- `SwarmRequest { brief, active_level_id?, scope?, review_plan, cap_usd? }`:
+  `review_plan` is ignored in v1.
+- `SwarmAcceptResult { applied: [SwarmApplied { part, revision, summary }], skipped, state?, dependents, differs }`:
+  `applied` the parts that commit (a part that changes nothing in the
+  model is not listed); `skipped` the steps that stay out; `state` is the
+  model after an accept (None for a check); `dependents` (check only) the
+  parts that depend on the parts checked.
+- `SwarmDraftReply` is `SwarmDraftCurrent { swarm_id, draft_revision, status }`
+  (the window is current: only the status) or `SwarmDraftState`.
+
+**The main lock.** While a draft is open every write to the model is
+refused `swarm_running`, message "A swarm draft is open: accept or discard
+it first.": a person in the window (`doc_apply`, `doc_undo`, `doc_redo`,
+imports), the copilot (`ai_resolve`), agents outside the swarm, and a live
+host's commit. The check sits in the app service's one commit path
+(`AppService::commit_with`, which `commit`, `commit_if_revision`,
+`commit_staged_if_revision`, `commit_locked` and the agents' commits use)
+and its one undo path (`AppService::step_locked`), as
+`swarm::check_main_write`. `swarm::guard`, first in `AppService::handle`,
+refuses what replaces, closes, renames or shares the open project:
+`hub_open` of another project, `hub_create`, `hub_close`, `hub_delete` and
+`hub_rename` of the open project (a rename changes the model without a
+revision), `snapshot_restore`, `bundle_open`, `live_host`, `live_join`.
+Reading, selecting, saving a version, renders and exports work. The
+copilot asks the model nothing while a draft is open: `ai_chat` (furnishing
+too) is refused `swarm_running` before any request, so nothing is spent;
+`ai_resolve` of a proposal made before is refused `swarm_running` and the
+proposal stays pending (a furnishing room stays queued), so it applies once
+the draft is accepted or discarded. A person can still accept or discard
+(and, with L2, pause, stop and change the speed).
+
+**Binding agents.** `AppService::swarm_start_mcp(call, brief, plan)` (MCP
+`swarm` action `start`) checks the plan, creates the draft on the open
+project with the model as its base, adds the setup levels as the lead's
+first step ("Swarm setup: add levels"), resolves scope levels to ids, and
+answers `SwarmStarted { swarm, handles: [{key, name, color, handle, url}], how_to }`.
+A handle is `sw-<16 hex digits>-<key>`: 64 random bits from the system
+source, never issued twice while the app runs; `url` is
+`http://127.0.0.1:<mcp port>/mcp/agent/<handle>`. The caller becomes the
+lead. In `AppService::agent_call`, an agent whose `agent` argument or
+labelled URL equals a live handle is bound to that part (by agent id, for
+the rest of the swarm) and shown with the part's name and color on the
+list, its cursor and its history steps (in memory, never saved as a
+rename). A made-up handle binds nothing; a handle of a swarm that ended is
+refused `part_stopped`, so a late sub-agent never writes to the model; so
+is every call of a stopped or accepted part's agent. Refused at start:
+`draft_open` (a draft is open), `live_session` (a live session; a guest is
+refused every `swarm_*` call), `bad_args` for a bad plan: no parts or more
+than 6, a key that is not lowercase words joined by single hyphens (at most
+24 characters), `lead` or a repeat, a level neither in the project nor in
+setup, an area, waiting for a part or milestone the plan does not declare,
+a circle of waits, no part that can start at once, two parts that could
+draw the same kind on the same level (an empty list is all levels or all
+kinds).
+
+**Draft edits.** For a bound agent, `agent_edit` and `agent_commit` go to
+`swarm::draft_edit` and never touch the model or its history. Two passes as
+in `agent_edit`: `build` runs on the view outside the draft lock, and again
+under it when the draft moved meanwhile. Checked in order: the connection's
+pause, stop and rate (`agent_paused`, `agent_stopped`, `rate_limited`), the
+person's limit and other agents' claims with what only people may do
+(`out_of_scope`, `claimed`, `forbidden` for `SetSignatory`), then the
+part's state (`part_stopped`, `agent_paused`) and scope (`out_of_scope`,
+naming the part and its levels and kinds), at most 400 steps a part and
+2000 new elements a draft (`invalid`). The step is recorded (its leaf
+commands, label, diff, the part's status line, time), the view rebuilt, the
+agent's presence moved to what it drew, and `AppEvent::Swarm` published.
+The answer is an `ApplyResult` on the view: `state.revision` is the base
+revision plus `draft_revision`, `undo_label` the step's label.
+`agent_check` (an MCP dry run) checks the same for a bound agent.
+`agent_done` and `agent_claim` use the view; `agent_notes` leaves the
+model's history out (`swarm::nearby`, L2 and L3). `agent_undo` for a bound
+agent is `swarm::draft_undo` (`not_built` until L1 and L3; it never undoes
+the model). `AppService::swarm_view(agent)` is the view a bound agent reads:
+every MCP read of the model goes through one gate, `guhit-mcp/src/view.rs`
+(`query`, `look` plan, elevation, section, sheet and schedule, `measure`,
+`check`, the list reads, dry runs, the v1 read aliases and the resources),
+and a test fails if any other source file locks the session or asks the app
+for the document. A bound agent is refused `draft_view` for what the window
+draws or what is written from the model: `look` mode 3d, mode tour and
+source window, `get_plan_image`, `capture_view`, `render` start,
+`visualize_render`, `export_tour`, `export`, `sheets` export and saved
+versions. MCP `history` for a bound agent lists the draft's steps, and undo,
+redo and undo_to go through `agent_undo` on its own draft steps only
+(`other_author` for another part's).
+
+**Accept all** (`swarm_accept` with `parts` null). Under the session lock:
+pinned to `reviewed` (refused `stale` when a part has a step after the
+`last_seq` the person reviewed; a part left out counts as 0); every step
+replayed in recorded order on the model, which equals the base because the
+model is locked, so every id is the draft's (refused `stale`, nothing
+applied, if the result is not the view element for element); a version
+"Before swarm, 3:42 PM" saved first (nothing is accepted when it cannot
+be); then each part committed as one undo step, author its agent (that of
+its newest step), `Origin::Ai`, label "Swarm: <part name>"
+(`Document::apply_replayed`). Parts commit in dependency order, ties in the
+order of their first step; part k's step is every step of parts 0 to k
+replayed in recorded order with pinned ids, so the last one is the view
+exactly. The draft stays open, every part held (`Draft::holding`: no
+step lands, an agent is refused `agent_paused`, a worker waits) and
+`committing` set, until every commit is in; before them the accept checks
+under the session lock that the model is the one it planned on, all of it
+(`updated_at` aside), and plans again if not. If a commit fails, the parts
+whose steps went in are accepted and every other step is installed again on
+the model as it is, so nothing is lost. The swarm then ends:
+`AppEvent::Swarm { swarm: None }`. Undoing an accepted part later is a
+normal undo.
+
+**Pinned ids** (`guhit_core::replay`). Each step is recorded once more as it
+lands (`replay::record`): every id its leaf commands made, by slot
+(`Slot::Own(n)` in order, `Slot::Room` for a room `reconcile` made, keyed by
+level and sorted bounding walls, `Slot::Type` for a type
+`opening_types::follow` made, keyed by the opening), and a hash of
+everything it names. `replay::replay` runs it anywhere with those ids: one
+more, one fewer or one that ends up as something else is `lost_id`, never a
+relabel; something it names that changed is `changed_on_main`.
+
+**Dependencies.** A part depends on another when one of its steps names or
+changes what the other made or changed before, or when its plan waits for
+it. A step that would make two parts depend on each other is refused
+`cross_part` when written (and by `agent_check`).
+
+**Accept parts** (`swarm_accept` with `parts`): each part with every part it
+depends on, each one undo step, pinned to `reviewed` for those parts only
+(`stale` when one of them drew, undid or lost a step since). A step of
+those parts that does not apply on the model (replaying every step of the
+parts taken leaves it out: dependencies come from ids, so a spatial need
+such as an auto dimension on another part's walls is missed) is refused
+`steps_skipped`, nothing applied, unless the request says `accept_rest`
+(the window asks first: "Accept the rest" or Cancel); then the rest goes in
+and those steps stay in the draft, listed in `SwarmStatus::conflicts`
+until they go in with what they need. The rest of the draft is replayed on
+the new model in recorded order; a step that no longer applies drops out
+into `SwarmStatus::conflicts`, and so does every later step needing what it
+made (`lost_id`). A part is `accepted` only when every step of it went in
+(its agent then gets `part_stopped`); a part with nothing applied stays as
+it was. The lead keeps going. The swarm ends once no step is left and every
+plan part is accepted, stopped, failed or done. Two passes: planned on
+copies with no lock, then under the session lock and the draft lock it
+checks the model (all of it) and the parts did not move (new steps of other
+parts are replayed after), marks the draft (`Draft::accepting`, which the
+main lock lets through), holds the parts it takes and commits.
+
+**Check** (`swarm_check`, changes nothing): `applied` the parts an accept
+would commit, in order (revision 0), `skipped` the steps that would stay
+out (an accept is refused `steps_skipped` unless `accept_rest`), `dependents` the parts built on the ones named, `differs` the elements
+the model would get differently from the view (code `differs`; an auto
+room's count-based name, for one).
+
+**Discard part** (`swarm_part_discard`): a part others depend on is refused
+`invalid`, naming them, unless `with_dependents`; then all of them leave the
+draft and stop, and the rest is replayed. `null` when nothing is left (the
+swarm ended).
+
+**An agent's undo** (`agent_undo` for a bound agent, MCP `history`): undo
+takes its part's newest draft step out, redo puts back the last one it took
+(until the part draws again); a step another part built on is
+`other_author`, `force` or not. Never the model's history.
+
+**The read gate.** `AppService::read_view(agent)` is the draft view for a
+bound agent, the model for everyone else;
+`AppService::refuse_draft_view(agent, WindowOutput)` refuses a bound agent
+renders, AI renders, tour videos, exports, versions, window-drawn looks and
+3D (`draft_view`). MCP's own gate is `crates/guhit-mcp/src/view.rs` (L3).
+
+**Discard** (`swarm_discard`): the draft is dropped and the model unlocked;
+`AppEvent::Swarm { swarm: None }`. `AppService::swarm_discard(None)` drops
+whatever draft is open (an MCP lead with `force`, L3). It takes the session
+lock first, so a discard that races an accept waits for its commits and
+then answers from what is left: `not_found` when the accept ended the
+swarm, and parts already in the model stay there.
+
+**Milestones and finishing.** `AppService::swarm_milestone(call, name)` puts
+a milestone the plan declares for the caller's part on its list (once) and
+in the feed (`bad_args` for one it does not declare, `part_stopped` for a
+stopped, failed or accepted part, `not_found` outside the swarm).
+`AppService::swarm_finish(call, summary)` marks the part Done (its "done"),
+with the summary as its status line; from the lead it marks the draft
+Ready, unless paused. MCP `swarm` actions `milestone`, `finish`, `wait` (a
+long poll on `AppEvent::Swarm`, at most 60 s: `for` {part, milestone}, else
+what the caller's part comes after, else for the lead every part done),
+`status` (parts, the draft's counts, what each part drew by kind) and
+`discard` (the lead only, with `force`) use them; L2's workers use the same
+two methods.
+
+**Locks.** Session, then draft (a std mutex in `swarm::Swarms`, never held
+across an await), then the agents registry. Never the other way.
+
+**v1 leaves out** saving drafts across a restart (no `drafts/` folder,
+`project.json` unchanged, `SCHEMA_VERSION` stays 6, `PROTOCOL_VERSION`
+unchanged), Continue and `resume`, area scopes, plan review, per-part undo
+(`swarm_part_undo`) and the paced reveal in 3D.
+
 ## App events and window requests
 
 `AppService::events()` is a broadcast of `AppEvent`. The desktop shell
 emits each one to the window as the Tauri event `app_event`; the dev bridge
 streams them as server-sent events on `GET /events` (one JSON `AppEvent`
 per `data:` line). The frontend subscribes with `onAppEvent`
-(`src/contract/ipc.ts`). Document changes keep `doc_changed`.
+(`src/contract/ipc.ts`). Document changes keep `doc_changed`. The swarm
+sends `AppEvent::Swarm { swarm }` on every change of its draft, `None` when
+it ends ("Swarms"), at most 8 a second: a change within 125 ms of the last
+event waits, a newer one taking its place, so the newest always goes out
+and none out of order (`swarm::emit_swarm`).
 
 Window requests (DECISIONS D31): `AppService::window_request(task,
 timeout)` emits `AppEvent::WindowRequest` and waits for the window's
@@ -2238,6 +2497,16 @@ Args are a JSON object with the names below. The typed client is `src/contract/i
 | `agent_pause` | `id` or null | `AgentSummary[]` | pause one agent, or with null every agent of this computer |
 | `agent_stop` | `id` or null | `AgentSummary[]` | stop one or every agent; its claim ends |
 | `agent_resume` | `id` or null | `AgentSummary[]` | end a pause or a stop |
+| `swarm_estimate` | `request: SwarmRequest` | `SwarmCost` | spends nothing (L2; `not_built` until then) |
+| `swarm_start` | `request: SwarmRequest` | `SwarmStatus` | an in-app swarm (L2; `not_built`). An MCP swarm starts with the `swarm` tool |
+| `swarm_status` | | `SwarmStatus` or `null` | |
+| `swarm_draft` | `since_step?`, `draft_revision?`, `swarm_id?` | `SwarmDraftState` or `null`; with `draft_revision`, `SwarmDraftReply` or `null` | the view and its diff against the model, the steps after `since_step` ("Swarms"). With `draft_revision` (the one the window drew, of `swarm_id` when given) and a draft that has not moved since: only `SwarmDraftCurrent { swarm_id, draft_revision, status }` |
+| `swarm_pause`, `swarm_resume`, `swarm_stop` | `part?` (null: every part) | `SwarmStatus` | (L2; `not_built`) |
+| `swarm_part_discard` | `part`, `with_dependents?` | `SwarmStatus` or `null` | (L1; `not_built`) |
+| `swarm_check` | `parts?` (null: all) | `SwarmAcceptResult` | changes nothing (L1; `not_built`) |
+| `swarm_accept` | `swarm_id`, `parts?` (null: all), `reviewed?` (part key to the `last_seq` reviewed), `accept_rest?` | `SwarmAcceptResult` | refused `steps_skipped` when a step of the parts would stay out, unless `accept_rest` ("Swarms") |
+| `swarm_discard` | `swarm_id` | `null` | drops the draft, unlocks the model |
+| `swarm_set_cap` | `cap_usd` | `SwarmStatus` | (L2; `not_built`) |
 | `mcp_claude_desktop_bundle` | | `{path}` | writes the Claude Desktop extension `<data>/claude-desktop/guhit-studio.mcpb` (MCPB manifest 0.3, a binary server whose command is `stdio_command` with `--mcp-stdio`) and returns its absolute path. `unavailable` when there is no `stdio_command` (the dev bridge) |
 
 `McpStatus { enabled, listening, port, url, stdio_command, last_client, claude_desktop_bundle }`:
@@ -2253,7 +2522,7 @@ client that did. In memory only, since the app started. The transports report in
 
 External changes: after every commit, undo, redo, open, create, close, delete and restore, a rename of the open project, and every document a live session guest receives, `AppService::watch_changes()` fires `{revision, project_id, seq}`. The desktop shell forwards it as the Tauri event `doc_changed {revision}`; the dev bridge serves `/mcp` on its port and the UI polls `doc_revision`. The frontend subscribes with `onDocChanged` (`src/contract/ipc.ts`): `App.tsx` switches hub to editor, `EditorShell` refetches state. Full MCP tool list: `docs/MCP.md`.
 
-Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (neither an address nor the relay reached the host; the message says why), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request), `not_built` (a Wave 2 command, query or drawing whose lane has not built it yet), `unavailable` (needs the desktop app, such as the Claude Desktop extension), and for agents ("Agents") `agent_paused`, `agent_stopped`, `too_many_agents`, `claimed`, `rate_limited`, `out_of_scope` (outside an agent's limit), `not_yours` (another computer's agent), `project_changed` (another project was opened while the call ran). An AI edit outside its scope has no IPC code of its own: the model reads a tool error that starts with `out_of_scope:`, and a proposal that stops fitting its scope before it is applied is `invalid`.
+Errors are always `IpcError { code, message, element_ids }`. Codes: `not_found`, `invalid`, `no_document`, `stale`, `io`, `ai_not_configured`, `ai_failed`, `unknown_command`, `bad_args`, `forbidden` (dev bridge, non-localhost origin), `other_author` (undo or redo of someone else's step without `force`), `not_live`, `host_only`, `live_refused` (wrong secret, session full, other version), `live_unreachable` (neither an address nor the relay reached the host; the message says why), `live_pin` (the host's certificate does not match the invite), `live_lost` (the connection to the host dropped), `no_window` (no window answered a window request), `not_built` (a Wave 2 command, query or drawing whose lane has not built it yet), `unavailable` (needs the desktop app, such as the Claude Desktop extension), and for agents ("Agents") `agent_paused`, `agent_stopped`, `too_many_agents`, `claimed`, `rate_limited`, `out_of_scope` (outside an agent's limit), `not_yours` (another computer's agent), `project_changed` (another project was opened while the call ran), and for swarms ("Swarms") `swarm_running` (a write to the model while a draft is open), `draft_open` (a second swarm), `live_session` (a swarm in a live session, any `swarm_*` call on a guest), `part_stopped` (a stopped part's agent, or a handle of a swarm that ended), `draft_view` (a window-backed output for an agent drawing in a draft), `people_only` (an agent tried to accept), `cross_part` (a step that would make two parts depend on each other), `steps_skipped` (an accept that would leave steps of its parts out, without `accept_rest`). An AI edit outside its scope has no IPC code of its own: the model reads a tool error that starts with `out_of_scope:`, and a proposal that stops fitting its scope before it is applied is `invalid`.
 
 `hub_open` on the project that is already open returns the current state with its undo history intact.
 
@@ -2322,6 +2591,8 @@ line detail is in the C0 handoff.
 |---|---|---|
 | `src/contract/ipc.ts` | `exportSheets`, `sheetPreview`, `viewSvg`, `fileStore`, `fileData`, `professionalGet`, `professionalSet`, `renderSetLook`, `videoBegin`, `videoAppend`, `videoFinish`, `videoAbort` | Rust lanes above |
 | `src/state/bus.ts` | `open_sheets`, `open_view` [L4], `play_tour` [L9] | panels open themselves |
+| `src/state/bus.ts` | `swarm { part }`: show the AI dock's Swarm tab [swarm L4] | `src/swarm/` |
+| `src/contract/ipc.ts` | `swarmEstimate` to `swarmSetCap`, the `swarm` app event [swarm C0] | `crates/guhit-app/src/swarm/` |
 | `src/state/store.ts` | tools `grid`, `dimension_string`, `view_mark`, `lot` [L1], `roof` [L2] | `src/editor2d/laneTools.ts` registry |
 | `src/editor2d/controller.ts` | tool dispatch | `editor2d/permit/{gridTool,dimStringTool,viewMarkTool,lotTool}.ts` [L1], `editor2d/{roofTool,stairTool}.ts` [L2] |
 | `src/editor2d/render.ts` | draw passes | `editor2d/permit/draw.ts` [L1], `editor2d/drawRoofsStairs.ts` [L2] |

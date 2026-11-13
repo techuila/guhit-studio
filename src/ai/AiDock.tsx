@@ -1,17 +1,24 @@
 // Copilot dock. A calm chat panel: the user asks, the copilot answers from
 // model data or proposes typed edits. A proposal shows as a ghost in the 2D
 // and 3D views (store.preview) and commits only when the user applies it.
+// The Chat | Swarm switch shows the swarm panel instead (src/swarm, D56);
+// the chat keeps its state while the swarm shows.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AiProposal } from "../contract/bindings";
 import { ipc, toIpcError } from "../contract/ipc";
 import { ConnectLink } from "../shell/connect/ConnectButton";
 import { useShell } from "../shell/shellStore";
 import { useApp } from "../state/store";
-import { Switch } from "../ui/controls";
+import { Segmented, Switch } from "../ui/controls";
+import { SwarmPanel } from "../swarm/SwarmPanel";
+import { swarmLocked, useSwarm, useSwarmLocked, type DockMode } from "../swarm/swarmStore";
+import { startSwarmWiring } from "../swarm/wiring";
+import { LOCK_HINT, workersOf } from "../swarm/view";
 import { Icon } from "../ui/icons";
 import { dur, ease, motionOK, tween, usePresence } from "../ui/motion";
 import { collapseOut, growIn, play, settled } from "../ui/motionWaapi";
-import { pendingItem, toHistory, useCopilot, type ChatItem } from "./copilotStore";
+import { STALE_TEXT, applyProposal } from "./apply";
+import { composerGate, pendingItem, toHistory, useCopilot, type ChatItem } from "./copilotStore";
 import { affectedRows, selectionLabel, suggestionsFor, toolLabel, type Suggestion } from "./describe";
 import { requestFurnish, retireFurnish, roomsToFurnish, turnRooms } from "./furnish";
 import { FurnishBar, FurnishCards } from "./FurnishPanel";
@@ -22,8 +29,6 @@ import s from "./AiDock.module.css";
 function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
 }
-
-const STALE_TEXT = "The plan changed after this proposal was made, so it was not applied. Ask again and I will work from the current plan.";
 
 /** Drop a proposal on the backend. Failing here is harmless: a new chat turn replaces it anyway. */
 function dropProposal(id: string) {
@@ -39,6 +44,10 @@ export function AiDock() {
   const busy = useCopilot((st) => st.busy);
   const settings = useCopilot((st) => st.settings);
   const settingsError = useCopilot((st) => st.settingsError);
+  const mode = useSwarm((st) => st.mode);
+  const swarmParts = useSwarm((st) => workersOf(st.status).length);
+  // A swarm draft locks the model (D57): the engine refuses chat and furnish then.
+  const locked = useSwarmLocked();
 
   const [draft, setDraft] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -60,6 +69,9 @@ export function AiDock() {
   useEffect(() => {
     void loadSettings();
   }, [loadSettings]);
+
+  // The swarm's status and draft follow the backend while the editor is open.
+  useEffect(() => startSwarmWiring(), []);
 
   // A different project (or none) starts a clean conversation and never
   // inherits a ghost preview.
@@ -122,7 +134,7 @@ export function AiDock() {
     async (text: string) => {
       const message = text.trim();
       const copilot = useCopilot.getState();
-      if (!message || copilot.busy) return;
+      if (!message || copilot.busy || swarmLocked()) return;
       const app = useApp.getState();
       if (!app.doc) return;
 
@@ -179,7 +191,7 @@ export function AiDock() {
   const furnish = useCallback(
     async (style: string) => {
       const copilot = useCopilot.getState();
-      if (copilot.busy) return;
+      if (copilot.busy || swarmLocked()) return;
       const app = useApp.getState();
       const rooms = roomsToFurnish(app.doc, app.selection, app.activeLevelId);
       if (rooms.length === 0) return;
@@ -222,37 +234,7 @@ export function AiDock() {
     inputRef.current?.focus();
   }, []);
 
-  const apply = useCallback(async (item: ChatItem, proposal: AiProposal) => {
-    const copilot = useCopilot.getState();
-    copilot.patch(item.id, { proposalStatus: "applying" });
-    try {
-      const result = await ipc.aiResolve(proposal.id, true);
-      const app = useApp.getState();
-      app.setPreview(null);
-      app.setHover(null);
-      if (result.applied) {
-        app.setDoc(result.applied.state);
-        app.toast("success", "Applied. Undo reverts it in one step.");
-        copilot.patch(item.id, { proposalStatus: "applied", proposalNote: "Applied. Undo reverts it in one step." });
-      } else {
-        copilot.patch(item.id, { proposalStatus: "discarded", proposalNote: "Nothing was applied." });
-      }
-    } catch (e) {
-      const err = toIpcError(e);
-      const app = useApp.getState();
-      app.setPreview(null);
-      app.setHover(null);
-      const stale = err.code === "stale" || err.code === "not_found";
-      copilot.patch(item.id, { proposalStatus: "stale", proposalNote: stale ? STALE_TEXT : `Not applied: ${err.message}` });
-      // Make sure the mirror matches the engine before the user asks again.
-      try {
-        const state = await ipc.docState();
-        if (state) app.setDoc(state);
-      } catch {
-        // The next action will surface a bridge problem.
-      }
-    }
-  }, []);
+  const apply = useCallback((item: ChatItem, proposal: AiProposal) => void applyProposal(item.id, proposal), []);
 
   const discard = useCallback((item: ChatItem, proposal: AiProposal) => {
     const app = useApp.getState();
@@ -265,13 +247,14 @@ export function AiDock() {
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      submitRef.current(draft);
+      if (!locked) submitRef.current(draft);
     }
   };
 
   const noKey = settings !== null && !settings.has_api_key;
   const suggestions = suggestionsFor(doc, selection);
-  const canSend = !!doc && !busy && !noKey && draft.trim() !== "";
+  const gate = composerGate({ hasDoc: !!doc, busy, noKey, locked, text: draft });
+  const canSend = gate.canSend;
   const scoped = aiScope && selection.length > 0;
 
   // "Only the selection" (DECISIONS D30) shows while something is selected,
@@ -314,11 +297,30 @@ export function AiDock() {
     <div className={s.dock}>
       <header className={s.head}>
         <span className={s.aiTag}>AI</span>
-        <span className={s.headTitle} title="Model used by the copilot">
-          {settings?.model ?? "Copilot"}
-        </span>
+        <Segmented<DockMode>
+          label="Copilot chat or agent swarm"
+          value={mode}
+          onChange={(m) => useSwarm.getState().setMode(m)}
+          options={[
+            { value: "chat", label: "Chat", tip: "Ask the copilot; edits wait for Apply" },
+            { value: "swarm", label: "Swarm", tip: "Several agents draw at once, into a draft you accept" },
+          ]}
+        />
+        {mode === "chat" ? (
+          <span className={s.headTitle} title="Model used by the copilot">
+            {settings?.model ?? "Copilot"}
+          </span>
+        ) : null}
         <span className={s.headMeta}>
-          {selection.length === 0 ? "No selection" : scoped ? `Limited to ${selection.length} selected` : `${selection.length} selected`}
+          {mode === "swarm"
+            ? swarmParts > 0
+              ? `${swarmParts} ${swarmParts === 1 ? "agent" : "agents"}`
+              : "No swarm"
+            : selection.length === 0
+              ? "No selection"
+              : scoped
+                ? `Limited to ${selection.length} selected`
+                : `${selection.length} selected`}
         </span>
         <button
           type="button"
@@ -342,85 +344,91 @@ export function AiDock() {
         />
       ) : null}
 
-      <div className={s.list} ref={listRef} role="log" aria-live="polite">
-        {noKey ? (
-          <NoKeyCard onOpenSettings={() => setSettingsOpen(true)} />
-        ) : items.length === 0 ? (
-          <EmptyState suggestions={suggestions} onPick={submit} disabled={!doc || busy} hasSelection={selection.length > 0} />
-        ) : null}
+      {mode === "swarm" ? <SwarmPanel hasKey={!noKey} hasDoc={!!doc} /> : null}
 
-        {items.map((m) => (
-          <Message key={m.id} item={m} onApply={apply} onDiscard={discard} />
-        ))}
+      {mode === "chat" ? (
+        <>
+          <div className={s.list} ref={listRef} role="log" aria-live="polite">
+            {noKey ? (
+              <NoKeyCard onOpenSettings={() => setSettingsOpen(true)} />
+            ) : items.length === 0 ? (
+              <EmptyState suggestions={suggestions} onPick={submit} disabled={!doc || busy || locked} hasSelection={selection.length > 0} />
+            ) : null}
 
-        {working.mounted ? (
-          <div className={s.working} data-stage={working.stage} data-testid="ai-busy" role="status">
-            <span className={s.aiTag}>AI</span>
-            <span className={s.workingText}>Working on it</span>
-            <span className={s.dots} aria-hidden>
-              <i />
-              <i />
-              <i />
-            </span>
+            {items.map((m) => (
+              <Message key={m.id} item={m} onApply={apply} onDiscard={discard} />
+            ))}
+
+            {working.mounted ? (
+              <div className={s.working} data-stage={working.stage} data-testid="ai-busy" role="status">
+                <span className={s.aiTag}>AI</span>
+                <span className={s.workingText}>Working on it</span>
+                <span className={s.dots} aria-hidden>
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
 
-      {chipRow.mounted ? (
-        <div className={s.chipRow} data-stage={chipRow.stage} data-testid="chip-row">
-          {suggestions.slice(0, 3).map((sg) => (
-            <Chip key={sg.text} suggestion={sg} compact onPick={submit} />
-          ))}
-        </div>
+          {chipRow.mounted ? (
+            <div className={s.chipRow} data-stage={chipRow.stage} data-testid="chip-row">
+              {suggestions.slice(0, 3).map((sg) => (
+                <Chip key={sg.text} suggestion={sg} compact onPick={submit} disabled={locked} />
+              ))}
+            </div>
+          ) : null}
+
+          {scopeRow.mounted ? (
+            <div className={cx(s.scopeRow, aiScope && s.scopeRowOn)} data-stage={scopeRow.stage} data-testid="ai-scope">
+              <span className={s.scopeWhat} title={`Selected: ${scopeText.current}`}>
+                <Icon name="select" size={12} />
+                <b>{scopeText.current}</b>
+              </span>
+              <span
+                className={s.scopeLabel}
+                data-tip="The copilot and MCP clients may change only the selection and what stands in a selected room. The engine refuses anything else."
+                data-tip-side="top-end"
+                onClick={() => setAiScope(!aiScope)}
+              >
+                Only the selection
+              </span>
+              <Switch checked={aiScope} onChange={setAiScope} label="AI changes only the selection" />
+            </div>
+          ) : null}
+
+          {doc && !noKey ? <FurnishBar disabled={!gate.canFurnish} tip={gate.tip} onFurnish={(style) => void furnish(style)} /> : null}
+
+          <div className={s.composer}>
+            <textarea
+              ref={inputRef}
+              className={s.input}
+              rows={2}
+              value={draft}
+              placeholder={noKey ? "Add an API key to start" : locked ? LOCK_HINT : scoped ? "Describe a change to the selection" : "Ask about the plan or describe a change"}
+              disabled={!doc || noKey}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onKeyDown}
+              aria-label="Message to the copilot"
+            />
+            {busy ? (
+              <button type="button" className={cx(s.sendBtn, s.stopBtn)} onClick={stop} aria-label="Stop waiting">
+                <StopIcon />
+              </button>
+            ) : (
+              <button type="button" className={s.sendBtn} disabled={!canSend} onClick={() => submit(draft)} aria-label="Send" data-tip={gate.tip ?? undefined}>
+                <span className={s.sendIcon} ref={sendIconRef}>
+                  <SendIcon />
+                </span>
+              </button>
+            )}
+          </div>
+          <div className={s.foot}>
+            <span>Enter to send, Shift+Enter for a new line</span>
+          </div>
+        </>
       ) : null}
-
-      {scopeRow.mounted ? (
-        <div className={cx(s.scopeRow, aiScope && s.scopeRowOn)} data-stage={scopeRow.stage} data-testid="ai-scope">
-          <span className={s.scopeWhat} title={`Selected: ${scopeText.current}`}>
-            <Icon name="select" size={12} />
-            <b>{scopeText.current}</b>
-          </span>
-          <span
-            className={s.scopeLabel}
-            data-tip="The copilot and MCP clients may change only the selection and what stands in a selected room. The engine refuses anything else."
-            data-tip-side="top-end"
-            onClick={() => setAiScope(!aiScope)}
-          >
-            Only the selection
-          </span>
-          <Switch checked={aiScope} onChange={setAiScope} label="AI changes only the selection" />
-        </div>
-      ) : null}
-
-      {doc && !noKey ? <FurnishBar disabled={busy} onFurnish={(style) => void furnish(style)} /> : null}
-
-      <div className={s.composer}>
-        <textarea
-          ref={inputRef}
-          className={s.input}
-          rows={2}
-          value={draft}
-          placeholder={noKey ? "Add an API key to start" : scoped ? "Describe a change to the selection" : "Ask about the plan or describe a change"}
-          disabled={!doc || noKey}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          aria-label="Message to the copilot"
-        />
-        {busy ? (
-          <button type="button" className={cx(s.sendBtn, s.stopBtn)} onClick={stop} aria-label="Stop waiting">
-            <StopIcon />
-          </button>
-        ) : (
-          <button type="button" className={s.sendBtn} disabled={!canSend} onClick={() => submit(draft)} aria-label="Send">
-            <span className={s.sendIcon} ref={sendIconRef}>
-              <SendIcon />
-            </span>
-          </button>
-        )}
-      </div>
-      <div className={s.foot}>
-        <span>Enter to send, Shift+Enter for a new line</span>
-      </div>
     </div>
   );
 }

@@ -8,13 +8,19 @@
 // An agent's point moves once per call, seconds apart, so its cursor eases
 // over `--dur-scene` (agents.module.css) instead of the short linear glide
 // of a person's. Positions go straight to CSS variables, never through React.
+//
+// The agent of a swarm part (D56) follows the swarm's reveal instead: its
+// diamond goes to each element as the reveal draws it, each move as long as
+// the reveal's segment (src/swarm/cursors.ts), and its line says what it draws.
 
-import { useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { DocState } from "../contract/bindings";
 import { rectIsEmpty } from "../editor2d/geom";
 import { boundsOfIds, buildIndex } from "../editor2d/model";
 import { useApp } from "../state/store";
+import { cursorIdsWithSwarm, followSwarmCursor, transitionOf } from "../swarm/cursors";
+import { useRevealNow, useSwarm } from "../swarm/swarmStore";
 import { cx } from "../ui/controls";
 import { useLastTruthy } from "../ui/motionDom";
 import { useListPresence } from "../ui/useListPresence";
@@ -27,7 +33,11 @@ import s from "./agents.module.css";
 
 export function AgentCursors({ board }: { board: CursorBoard }) {
   const levelId = useApp((st) => st.activeLevelId);
-  const ids = useAgents(useShallow((st) => agentCursorIds(st.views, levelId, Date.now())));
+  const presenceIds = useAgents(useShallow((st) => agentCursorIds(st.views, levelId, Date.now())));
+  // Swarm parts show where their reveal cursor is, on this level.
+  const swarm = useSwarm((st) => st.status);
+  const tick = useRevealNow();
+  const ids = useMemo(() => cursorIdsWithSwarm(presenceIds, swarm, levelId, Math.max(tick, performance.now())), [presenceIds, swarm, levelId, tick]);
   const rows = useListPresence(ids, (id) => id, "base");
   return (
     <>
@@ -50,14 +60,19 @@ function AgentCursor({ id, board, entering, leaving }: { id: string; board: Curs
   });
   const shownName = useLastTruthy(name) ?? "";
   const shownColor = useLastTruthy(color) ?? 0;
-  const shownLine = useLastTruthy(line);
+  // A swarm part's line and work come from the reveal while it draws.
+  const [swarmLine, setSwarmLine] = useState<string | null>(null);
+  const [swarmMoving, setSwarmMoving] = useState(false);
+  const shownLine = useLastTruthy(swarmLine ?? line);
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     board.add(id, el);
     let first = true;
+    let swarm = false;
     const apply = () => {
+      if (swarm) return;
       // Leaving: the cursor fades where it was last seen.
       const p = agentById(useAgents.getState().views, id)?.presence.cursor;
       if (!p) return;
@@ -73,8 +88,34 @@ function AgentCursor({ id, board, entering, leaving }: { id: string; board: Curs
     const stop = useAgents.subscribe((st, prev) => {
       if (st.views !== prev.views) apply();
     });
+    const stopSwarm = followSwarmCursor(id, (t) => {
+      if (!t) {
+        if (!swarm) return;
+        swarm = false;
+        el.style.transitionDuration = "";
+        el.style.transitionTimingFunction = "";
+        setSwarmLine(null);
+        setSwarmMoving(false);
+        apply();
+        return;
+      }
+      swarm = true;
+      // The CSS keeps which properties glide; the reveal sets how long and how.
+      const tr = transitionOf(t);
+      el.style.transitionDuration = first ? "0ms" : tr.duration;
+      el.style.transitionTimingFunction = tr.easing;
+      board.move(id, t.at);
+      if (first) {
+        first = false;
+        void el.offsetWidth;
+        el.dataset.snap = "false";
+      }
+      setSwarmLine(t.label || null);
+      setSwarmMoving(t.ms > 0);
+    });
     return () => {
       stop();
+      stopSwarm();
       board.remove(id, el);
     };
   }, [board, id]);
@@ -85,7 +126,7 @@ function AgentCursor({ id, board, entering, leaving }: { id: string; board: Curs
       className={s.cursor}
       style={{ "--peer": peerVar(shownColor) } as CSSProperties}
       data-snap="true"
-      data-activity={activity ?? undefined}
+      data-activity={swarmMoving ? "working" : (activity ?? undefined)}
       data-testid={`agent-cursor-${id}`}
       aria-hidden
     >

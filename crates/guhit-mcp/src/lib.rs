@@ -35,11 +35,13 @@ mod permit;
 mod session;
 mod stage;
 pub mod stdio;
+mod swarm;
 mod text;
 pub mod tools;
 pub mod toolsets;
 mod tours;
 mod translate;
+mod view;
 pub mod visuals;
 
 use std::sync::Arc;
@@ -340,7 +342,7 @@ impl ServerHandler for GuhitMcp {
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, McpError> {
         let uri = request.uri.as_str();
         let text = |t: String, mime: &str| ResourceContents::text(t, uri).with_mime_type(mime);
@@ -352,19 +354,34 @@ impl ServerHandler for GuhitMcp {
                 Err(e) => Err(McpError::resource_not_found(e.display(), None)),
             }
         };
+        // While a swarm draft is open the reader is admitted like a tool
+        // call, so an agent drawing a part reads the draft (D57). Otherwise
+        // reading a resource registers no agent.
+        let ctx = if self.app.swarm_status().is_some() {
+            let mut ctx = request_context(&self.app, &context);
+            agent::admit(&self.app, &mut ctx, "query", &json!({}), guhit_app::agents::CallKind::Read)
+                .map_err(|e| McpError::resource_not_found(e.display(), None))?;
+            ctx
+        } else {
+            CallContext::local()
+        };
+        let tool = |name: &'static str, args: Value| {
+            let ctx = ctx.clone();
+            async move { tools::dispatch(&self.app, name, &args, &ctx).await }
+        };
         let contents = match uri {
             RESOURCE_CONVENTIONS => text(text::CONVENTIONS.to_string(), "text/markdown"),
             RESOURCE_PH_DEFAULTS => text(text::PH_DEFAULTS.to_string(), "text/markdown"),
             RESOURCE_WORKFLOWS => text(text::WORKFLOWS.to_string(), "text/markdown"),
             RESOURCE_CATALOG => text(draft::catalog_text(), "text/markdown"),
-            RESOURCE_CURRENT => as_json(current_project(&self.app).await),
-            RESOURCE_MATERIALS => tool_json(tools::call(&self.app, "query", json!({"what": "materials"})).await)?,
-            RESOURCE_REVIEW => tool_json(tools::call(&self.app, "check", json!({})).await)?,
-            RESOURCE_HISTORY => tool_json(tools::call(&self.app, "history", json!({"action": "list", "limit": 200})).await)?,
+            RESOURCE_CURRENT => as_json(current_project(&self.app, &ctx).await),
+            RESOURCE_MATERIALS => tool_json(tool("query", json!({"what": "materials"})).await)?,
+            RESOURCE_REVIEW => tool_json(tool("check", json!({})).await)?,
+            RESOURCE_HISTORY => tool_json(tool("history", json!({"action": "list", "limit": 200})).await)?,
             other => match other.strip_prefix("guhit://project/levels/").and_then(|r| r.strip_suffix("/plan.svg")) {
                 Some(level) => {
                     let level = agent::label_from_path(&format!("/agent/{level}")).unwrap_or_else(|| level.to_string());
-                    let svg = look::plan_svg(&self.app, &level).await.map_err(|e| McpError::resource_not_found(e.display(), None))?;
+                    let svg = look::plan_svg(&self.app, &level, &ctx).await.map_err(|e| McpError::resource_not_found(e.display(), None))?;
                     text(svg, "image/svg+xml")
                 }
                 None => return Err(McpError::resource_not_found(format!("unknown resource `{other}`"), None)),
@@ -374,10 +391,11 @@ impl ServerHandler for GuhitMcp {
     }
 }
 
-/// Compact snapshot of the open document for `guhit://project/current`.
-async fn current_project(app: &AppService) -> Value {
-    let s = app.session.lock().await;
-    let Some(doc) = s.doc.as_ref() else {
+/// Compact snapshot of the open document for `guhit://project/current`: the
+/// draft, for an agent drawing a swarm part.
+async fn current_project(app: &AppService, ctx: &CallContext) -> Value {
+    let r = view::read(app, ctx).await;
+    let Some(doc) = r.get() else {
         return json!({
             "open": false,
             "note": "no project is open. Call project with action \"create\" or \"open\".",
@@ -834,23 +852,24 @@ mod tests {
 
     #[test]
     fn the_list_follows_the_toolsets() {
-        assert_eq!(tool_list().len(), 26);
-        assert_eq!(tool_list_for(&Toolsets::all()).len(), 45);
-        assert_eq!(tool_list_for(&Toolsets::parse("live")).len(), 29);
-        assert_eq!(tool_list_for(&Toolsets::parse("documents,tours")).len(), 33);
+        assert_eq!(tool_list().len(), 27);
+        assert_eq!(tool_list_for(&Toolsets::all()).len(), 46);
+        assert_eq!(tool_list_for(&Toolsets::parse("live")).len(), 30);
+        assert_eq!(tool_list_for(&Toolsets::parse("documents,tours")).len(), 34);
         let names: Vec<String> = tool_list().iter().map(|t| t.name.to_string()).collect();
         assert!(!names.iter().any(|n| n == "add_rect_room"), "v1 names are never listed");
-        // About 1.7 KB a tool: every one is read on every turn.
+        // About 1.7 KB a tool: every one is read on every turn. 27 tools
+        // with the swarm tool (D56), which keeps under that average.
         let bytes = serde_json::to_string(&tool_list()).unwrap().len();
         let mut sizes: Vec<(usize, String)> =
             tool_list().iter().map(|t| (serde_json::to_string(t).unwrap().len(), t.name.to_string())).collect();
         sizes.sort_by(|a, b| b.cmp(a));
-        assert!(bytes < 44_000, "the core tool list is {bytes} bytes; the largest: {:?}", &sizes[..6]);
+        assert!(bytes < 45_500, "the core tool list is {bytes} bytes; the largest: {:?}", &sizes[..6]);
     }
 
     #[test]
     fn prompts_fill_their_arguments() {
-        assert_eq!(prompt_list().len(), 4);
+        assert_eq!(prompt_list().len(), 5);
         let mut args = serde_json::Map::new();
         args.insert("brief".into(), json!("a two storey house for a family of five"));
         let p = get_prompt("draft_from_brief", &args).unwrap();
@@ -859,5 +878,32 @@ mod tests {
         assert!(text.contains("check"));
         assert!(get_prompt("draft_from_brief", &serde_json::Map::new()).is_err());
         assert!(get_prompt("nope", &args).is_err());
+        // The swarm prompt (D56): the brief in, a person accepts.
+        let p = get_prompt("swarm_from_brief", &args).unwrap();
+        let text = serde_json::to_string(&p.messages).unwrap();
+        assert!(text.contains("family of five"));
+        assert!(text.contains("swarm action \\\"start\\\"") && text.contains("Never accept it yourself"));
+        assert!(get_prompt("swarm_from_brief", &serde_json::Map::new()).is_err());
+    }
+
+    /// The swarm's guidance (D56): one line in the instructions, a guide
+    /// topic, and its refusals have their own hints, never the live
+    /// session's advice to pass `force`.
+    #[test]
+    fn the_swarm_is_taught_and_its_refusals_say_what_to_do() {
+        assert!(text::INSTRUCTIONS.contains("`swarm`") && text::INSTRUCTIONS.contains("topic \"swarm\""));
+        let guide = match crate::draft::guide(&json!({"topic": "swarm"})) {
+            Ok(tools::Output::Text(t)) => t,
+            _ => panic!("get_guide topic swarm"),
+        };
+        for needle in ["agent: \"<handle>\"", "action \"wait\"", "action \"milestone\"", "action \"finish\"", "people_only", "draft_view", "force true"] {
+            assert!(guide.contains(needle), "the swarm guide lacks {needle}");
+        }
+        let live = fail::standard_hint("live_session").unwrap();
+        for code in ["swarm_running", "draft_open", "part_stopped", "draft_view", "people_only"] {
+            let hint = fail::standard_hint(code).unwrap_or_else(|| panic!("{code} has no hint"));
+            assert_ne!(hint, live, "{code} reads the live session's advice");
+            assert!(!hint.contains("force true"), "{code} tells the agent to force");
+        }
     }
 }

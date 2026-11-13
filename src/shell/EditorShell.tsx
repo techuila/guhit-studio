@@ -25,6 +25,7 @@ import { TypesPanel } from "./TypesPanel";
 import { UpdateNotice } from "./UpdateNotice";
 import { VersionsPanel } from "./VersionsPanel";
 import { ViewsPanel } from "./views/ViewsPanel";
+import { SwarmOverlay } from "../swarm/DraftBar";
 import { saveThumbnail } from "./actions";
 import { useShell, type DockTab } from "./shellStore";
 import s from "./EditorShell.module.css";
@@ -141,6 +142,7 @@ function CanvasArea() {
       {/* Keeps the canvases from swallowing the pointer while a divider moves. */}
       {drag.dragging ? <div className={s.dragShield} /> : null}
       <FollowFrame />
+      <SwarmOverlay />
     </div>
   );
 }

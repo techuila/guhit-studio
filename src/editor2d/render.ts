@@ -126,6 +126,11 @@ export interface ElementStyle {
   hinge?: number;
   /** Rooms only. Cross fade of the area readout while it changes. */
   areaFade?: { prev: string; p: number };
+  /**
+   * Swing doors only: how far the leaf has swung open, 0 (shut along the
+   * wall) to 1 (open as drawn). The swarm draft's reveal (src/swarm/draw2d.ts).
+   */
+  reveal?: number;
 }
 
 export interface RenderContext {
@@ -350,10 +355,13 @@ export function drawOpening(rc: RenderContext, o: Opening, host: Wall, style: El
         const h = style?.hinge ?? (o.flip_hinge ? 1 : 0);
         leaves.push({ hinge: lerp(f.jambA, f.jambB, h), other: lerp(f.jambB, f.jambA, h), w: f.width });
       }
+      // A revealing leaf turns from shut (toward the far jamb) to open.
+      const turn = style?.reveal === undefined ? 1 : Math.max(0, Math.min(1, style.reveal));
       for (const l of leaves) {
         const h = add(l.hinge, mul(n, half));
-        const tip = add(h, mul(n, l.w));
         const closed = add(l.other, mul(n, half));
+        const a = (turn * Math.PI) / 2;
+        const tip = turn >= 1 ? add(h, mul(n, l.w)) : add(h, add(mul(unit(sub(closed, h)), l.w * Math.cos(a)), mul(n, l.w * Math.sin(a))));
         ctx.lineWidth = 2 * rc.uiScale;
         seg(rc, h, tip);
         ctx.lineWidth = thin;

@@ -64,6 +64,9 @@ pub struct AiState {
     keys: Box<dyn KeyStore>,
     /// Set by tests. When None the real Claude client is used.
     client: Option<Arc<dyn ModelClient>>,
+    /// The swarm's requests in flight, across its workers (D56,
+    /// `client::Gate`).
+    pub(crate) gate: client::Gate,
 }
 
 impl Default for AiState {
@@ -73,6 +76,7 @@ impl Default for AiState {
             chat_gate: Mutex::new(()),
             keys: Box::new(KeychainStore),
             client: None,
+            gate: client::Gate::default(),
         }
     }
 }
@@ -363,6 +367,11 @@ fn active_level(project: &Project, requested: &Option<Id>) -> Result<Id, IpcErro
 }
 
 async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> {
+    // While a swarm draft is open the model is locked (D57): a turn would
+    // spend on a proposal nobody can apply, so none starts.
+    if app.swarm.is_open() {
+        return Err(crate::swarm::swarm_running());
+    }
     // A task with its own pipeline (D54): furnishing is lane L5's.
     if let Some(AiTask::Furnish { room_ids, style }) = &request.task {
         return furnish::run(app, &request, room_ids, style).await;
@@ -663,6 +672,11 @@ async fn resolve(app: &AppService, proposal_id: &str, accept: bool) -> Result<Ai
     let pending = {
         let mut slot = app.ai.pending.lock().await;
         match slot.as_ref() {
+            // Locked by a swarm draft (D57): the proposal stays, so it can
+            // still be applied once the draft is accepted or discarded.
+            Some(p) if p.proposal.id == proposal_id && accept && app.swarm.is_open() => {
+                return Err(crate::swarm::swarm_running());
+            }
             Some(p) if p.proposal.id == proposal_id => slot.take(),
             _ => None,
         }
@@ -718,6 +732,14 @@ async fn resolve(app: &AppService, proposal_id: &str, accept: bool) -> Result<Ai
         )
         .await;
     if let Err(e) = &committed {
+        if e.code == "swarm_running" {
+            // A draft opened meanwhile: the proposal goes back.
+            let mut slot = app.ai.pending.lock().await;
+            if slot.is_none() {
+                *slot = Some(pending);
+            }
+            return Err(crate::swarm::swarm_running());
+        }
         if e.code == "stale" {
             log::append(log_dir.as_deref(), "outcome", stale(None)).await;
             return Err(IpcError::new(

@@ -321,3 +321,49 @@ async fn placement_catalog_and_furnishing_are_wired() {
     let catalog = call(&app, "doc_query", json!({ "query": Query::Catalog { search: None, usage: None } })).await;
     assert!(catalog["items"].as_array().unwrap().len() >= 100, "{catalog}");
 }
+
+/// Gate P1-5: a room's proposal made before a swarm started is refused while
+/// the draft is open and stays queued, so it applies once the draft is
+/// discarded. Furnishing during the draft asks the model nothing.
+#[tokio::test]
+async fn a_furnishing_proposal_waits_out_a_swarm_draft() {
+    let model = Arc::new(ScriptedClient::new(vec![ScriptedClient::text("No picks.")]));
+    let (app, _dir) = app_with(model.clone());
+    let rooms = house(&app).await;
+    let ids: Vec<Id> = rooms.iter().map(|(id, _)| id.clone()).collect();
+    let turn = furnish_turn(&app, &request(ids.clone(), "modern")).await.unwrap();
+    assert!(turn.proposals.len() >= 2, "{}", turn.reply);
+    let asked = model.requests.lock().unwrap().len();
+    let revision = state(&app).await.revision;
+    // An MCP swarm opens its draft.
+    let hint = guhit_app::agents::AgentHint {
+        connection: Some("c-lead".into()),
+        client_name: Some("claude-code".into()),
+        client_version: Some("2.1".into()),
+        ..Default::default()
+    };
+    let lead = app.agent_call(&hint, "swarm", guhit_app::agents::CallKind::Edit).unwrap();
+    let part = SwarmPartPlan {
+        key: "shell".into(),
+        name: "Shell".into(),
+        role: String::new(),
+        instructions: String::new(),
+        scope: SwarmScope::default(),
+        after: vec![],
+        milestones: vec![],
+    };
+    let plan = SwarmPlan { summary: "Walls".into(), setup: SwarmSetup::default(), parts: vec![part] };
+    let swarm_id = app.swarm_start_mcp(&lead, "Walls", plan).await.unwrap().swarm.id;
+    for p in &turn.proposals[..2] {
+        let e = fail(&app, "ai_resolve", json!({ "proposal_id": p.id, "accept": true })).await;
+        assert_eq!(e.code, "swarm_running");
+    }
+    assert_eq!(fail(&app, "ai_chat", json!({ "request": request(ids, "modern") })).await.code, "swarm_running");
+    assert_eq!(model.requests.lock().unwrap().len(), asked, "nothing asked during the draft");
+    assert_eq!(state(&app).await.revision, revision);
+    app.swarm_discard(Some(&swarm_id)).await.unwrap();
+    for p in &turn.proposals[..2] {
+        let r: AiResolveResult = serde_json::from_value(call(&app, "ai_resolve", json!({ "proposal_id": p.id, "accept": true })).await).unwrap();
+        assert!(r.applied.is_some(), "applied after the discard");
+    }
+}

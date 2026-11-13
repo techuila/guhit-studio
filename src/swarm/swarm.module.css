@@ -1,0 +1,814 @@
+/* The swarm (DECISIONS D56, D57): the panel in the AI dock, the draft bar
+   and the lock banner over the canvas. --peer is a part's color. Purple
+   (--ai) only marks AI: the AI tag and a working part's breathing ring.
+   Motion: docs/MOTION.md, "Swarm". */
+
+/* ------------------------------------------------------------ panel */
+
+/* Switching the dock to Swarm cross-fades the panel in with a 4 px rise (--dur-base). */
+.panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  user-select: text;
+  cursor: auto;
+  animation: switch-in var(--dur-base) var(--ease-out);
+}
+
+.section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.label {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.prompt {
+  width: 100%;
+  min-height: 70px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: 1.45;
+  resize: vertical;
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
+}
+
+.prompt:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.prompt:disabled {
+  opacity: 0.6;
+}
+
+.briefShown {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* An MCP swarm: who drives it, in place of the prompt. */
+.driving {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: var(--radius-md);
+  background: var(--chrome);
+  color: var(--chrome-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  animation: rise var(--dur-base) var(--ease-out);
+}
+
+.driving b {
+  font-weight: 600;
+}
+
+.driving span {
+  color: var(--chrome-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.small {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.primary {
+  border-color: var(--accent-strong);
+  background: var(--accent);
+  color: #fff;
+}
+
+.primary:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+}
+
+.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.quiet:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
+}
+
+.danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 86%, #000);
+  background: color-mix(in srgb, var(--danger) 86%, #000);
+}
+
+.speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.speed input {
+  width: 84px;
+  accent-color: var(--accent);
+}
+
+.speedValue {
+  min-width: 34px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.capRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+
+.cost {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.wait {
+  color: var(--warn);
+}
+
+/* An unpriced model: billed at the highest rate. Its own line, warn ink. */
+.priceNote {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.cap input {
+  width: 56px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  transition: border-color var(--dur-hover) var(--ease-out);
+}
+
+.cap input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.note {
+  margin: 8px 12px 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  animation: rise var(--dur-base) var(--ease-out);
+}
+
+.noteError {
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--danger);
+}
+
+.empty {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.empty p {
+  margin: 0;
+}
+
+.quietLine {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+/* ------------------------------------------------------------ part rows */
+
+.rows {
+  display: grid;
+  gap: 6px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    background var(--dur-base) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out);
+}
+
+/* A new part rises in; rows on first show stagger 30 ms each (MOTION rule 8). */
+.rowEnter {
+  animation: rise var(--dur-base) var(--ease-out) both;
+  animation-delay: var(--stagger, 0ms);
+}
+
+.rowLeave {
+  opacity: 0;
+  transition-duration: calc(var(--dur-base) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.row[data-state="stopped"],
+.row[data-state="failed"] {
+  opacity: 0.6;
+}
+
+.row[data-state="accepted"] {
+  background: color-mix(in srgb, var(--ok) 6%, var(--surface));
+}
+
+.who {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.who b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.aiTag {
+  display: inline-flex;
+  align-items: center;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--ai-soft);
+  color: var(--ai);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.leadTag {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+/* A new status line fades in (--dur-hover). */
+.line {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: fade var(--dur-hover) var(--ease-out);
+}
+
+/* Landed steps in a light fill, what the reveal has shown in the part's color.
+   Both slide (scaleX, --dur-panel), never animate width. */
+.prog {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+
+.prog i {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transition: transform var(--dur-panel) var(--ease-out);
+}
+
+.landed {
+  background: color-mix(in srgb, var(--peer) 32%, var(--surface));
+}
+
+.revealed {
+  background: var(--peer);
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+/* The state pill cross-fades with a small pop when the state changes. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  animation: pop var(--dur-base) var(--ease-spring);
+}
+
+.pill[data-state="working"] {
+  background: var(--ai-soft);
+  color: var(--ai);
+}
+
+.pill[data-state="paused"],
+.pill[data-state="blocked"] {
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  color: var(--warn);
+}
+
+.pill[data-state="done"] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.pill[data-state="accepted"] {
+  background: color-mix(in srgb, var(--ok) 14%, var(--surface));
+  color: var(--ok);
+}
+
+.pill[data-state="stopped"],
+.pill[data-state="failed"] {
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: var(--danger);
+}
+
+/* ------------------------------------------------------------ feed */
+
+.feedBox {
+  align-content: start;
+}
+
+.feed {
+  display: grid;
+  gap: 4px;
+  max-height: 168px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  list-style: none;
+}
+
+.feed li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 7px;
+  line-height: 1.4;
+}
+
+.feed li i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--peer);
+}
+
+.feed li b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* A new feed row rises in (--dur-base). */
+.feedIn {
+  animation: rise var(--dur-base) var(--ease-out);
+}
+
+/* ------------------------------------------------------------ review */
+
+.review {
+  border-bottom: 0;
+}
+
+.reviewList {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reviewList li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 6px;
+  border-radius: var(--radius-md);
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.reviewList li:hover {
+  background: var(--surface-2);
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--peer);
+}
+
+.reviewName {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reviewMeta {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* An Accept or Discard that asks first opens by height (grid rows 0fr to 1fr). */
+.ask {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-base) var(--ease-out);
+}
+
+.askOpen {
+  grid-template-rows: 1fr;
+}
+
+.askInner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.askBody {
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.askBody p {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.askDiffers {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding-left: 16px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.askActions {
+  display: flex;
+  gap: 6px;
+}
+
+.askCompact .askBody {
+  margin-top: 8px;
+}
+
+/* ------------------------------------------------------------ over the canvas */
+
+/* The draft bar drops in from 8 px above and fades (--dur-panel), and
+   leaves faster (70%, --ease-in). It sits under the 3D view's toolbar. */
+.overlay {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-panel) var(--ease-out),
+    transform var(--dur-panel) var(--ease-out);
+}
+
+.overlay[data-stage="enter"],
+.overlay[data-stage="exit"] {
+  opacity: 0;
+  transform: translate(-50%, -8px);
+}
+
+.overlay[data-stage="exit"] {
+  transition-duration: calc(var(--dur-panel) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.bar {
+  display: grid;
+  max-width: 100%;
+  padding: 7px 8px 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  color: var(--ink);
+  pointer-events: auto;
+  user-select: none;
+}
+
+.barRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.barText {
+  padding: 2px 4px;
+  margin-left: -4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.barText:hover {
+  background: var(--surface-2);
+}
+
+.readyPill {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  animation: pop var(--dur-base) var(--ease-spring);
+}
+
+.conflicts {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  color: var(--warn);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  animation: pop var(--dur-base) var(--ease-spring);
+}
+
+.eye {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.eye:hover {
+  border-color: var(--accent);
+}
+
+.eye:active {
+  transform: scale(var(--press-scale));
+}
+
+.eyeOn {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+/* The lock (D57): quiet, under the bar. */
+/* The row a "show the swarm" asked for washes in its part's color once (--dur-panel). */
+.rowFocus {
+  animation: focus-wash var(--dur-panel) var(--ease-out) 2;
+}
+
+@keyframes focus-wash {
+  50% {
+    background: color-mix(in srgb, var(--peer) 10%, var(--surface));
+    border-color: var(--peer);
+  }
+}
+
+.lock:hover {
+  background: var(--surface);
+}
+
+.lock:active {
+  transform: scale(var(--press-scale));
+}
+
+.lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: var(--shadow-1);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  pointer-events: auto;
+  backdrop-filter: blur(6px);
+}
+
+/* ------------------------------------------------------------ keyframes */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes switch-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .driving,
+  .note,
+  .rowEnter,
+  .rowFocus,
+  .line,
+  .pill,
+  .feedIn,
+  .readyPill,
+  .conflicts {
+    animation: none;
+  }
+}

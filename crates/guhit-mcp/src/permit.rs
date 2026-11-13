@@ -14,7 +14,6 @@ use serde_json::{json, Value};
 
 use crate::fail::ToolFail;
 use crate::geo::{self, pt};
-use crate::stage;
 use crate::tools::{obj, scope_schema, Output, ToolDef, MM};
 use crate::translate::{
     check_material, find, find_level, find_type, finite, kind_word, parse, pick_level, point, points, positive, positive_opt,
@@ -700,9 +699,9 @@ pub(crate) fn types(p: &Project, args: &Value) -> Result<Plan, ToolFail> {
 
 /// `types` action "list": every type with its mark, size and how many
 /// openings it has on each level, and how many openings have no type.
-pub(crate) async fn types_list(app: &AppService) -> Result<Output, ToolFail> {
-    let s = app.session.lock().await;
-    let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+pub(crate) async fn types_list(app: &AppService, ctx: &crate::agent::CallContext) -> Result<Output, ToolFail> {
+    let r = crate::view::read(app, ctx).await;
+    let doc = r.doc()?;
     let p = doc.project();
     let level_of = |o: &Opening| match p.elements.iter().find(|e| e.id() == &o.wall_id) {
         Some(Element::Wall(w)) => Some(w.level_id.clone()),

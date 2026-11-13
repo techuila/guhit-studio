@@ -15,7 +15,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::fail::ToolFail;
-use crate::stage;
 use crate::tools::{obj, Output, ToolDef, MM};
 use crate::translate::{find_level, parse, positive, Plan, Primary};
 
@@ -269,7 +268,7 @@ fn size_of(name: &str) -> Result<RenderSize, ToolFail> {
     })
 }
 
-pub(crate) async fn export_tour(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+pub(crate) async fn export_tour(app: &AppService, args: &Value, ctx: &crate::agent::CallContext) -> Result<Output, ToolFail> {
     let i: ExportIn = parse(args)?;
     let wait = Duration::from_secs_f64(i.wait_seconds.unwrap_or(WAIT_DEFAULT_S).clamp(1.0, WAIT_MAX_S));
     let (job, tour) = match (&i.job_id, &i.tour) {
@@ -281,9 +280,8 @@ pub(crate) async fn export_tour(app: &AppService, args: &Value) -> Result<Output
         }
         (None, Some(t)) => {
             let (id, name) = {
-                let s = app.session.lock().await;
-                let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
-                let tour = find_tour(doc.project(), t)?;
+                let r = crate::view::read(app, ctx).await;
+                let tour = find_tour(r.doc()?.project(), t)?;
                 (tour.id.clone(), tour.name.clone())
             };
             let size = size_of(i.size.as_deref().unwrap_or("hd"))?;

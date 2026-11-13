@@ -58,6 +58,7 @@ import { LightRig } from "../light/LightRig";
 import { markOccluders, ScreenAO } from "../light/ao";
 import { Highlight, spec, type HighlightState } from "./highlights";
 import { MeshFade, meshesUnder } from "./meshFade";
+import { DRAFT_MIN_MS, DraftGroup, rateLimit, type DraftOverlay } from "../../swarm/draft3d";
 import { ReferenceModelStore, type ReferenceModelPlacement } from "./referenceModels";
 import { ShellView } from "./shell";
 import { PipeCutSweep, pipeMaterials } from "./pipeCut";
@@ -198,7 +199,8 @@ const PACK_COALESCE_MS = 32;
  * not redraw the shadow map; only meshes that move, fade or get cut do.
  */
 const VIEW_ONLY_TRACKS = new Set(["camera", "walk", "shell", "shadow", "breath", "env"]);
-const isViewOnlyTrack = (key: string) => VIEW_ONLY_TRACKS.has(key) || key.startsWith("hl:") || key.startsWith("handle");
+// Swarm draft forms cast no shadow: their fades leave the shadow map alone.
+const isViewOnlyTrack = (key: string) => VIEW_ONLY_TRACKS.has(key) || key.startsWith("hl:") || key.startsWith("handle") || key.startsWith("draft:");
 /** How far back and up the camera settles when a walk ends, mm, and how close it may come to anything. */
 const EXIT_BACK_MM = 1200;
 const EXIT_UP_MM = 400;
@@ -272,6 +274,17 @@ export class ViewerEngine {
   private opts: DocOptions = { cutaway: false, roofVisible: true, activeLevelId: null, ghostsRemoved: null };
   /** Meshes kept alive past their rebuild so a removal can animate out. */
   private leaving: { group: THREE.Group; kit: BuiltScene["kit"] } | null = null;
+
+  /** The swarm draft (D56): its own group, outside the scene key (`setDraftOverlay`). */
+  private draft: DraftGroup | null = null;
+  private draftWanted: DraftOverlay | null = null;
+  private draftKey = "";
+  /** At most 4 rebuilds a second (DRAFT_MIN_MS). */
+  private draftBuild = rateLimit(DRAFT_MIN_MS, () => this.buildDraft());
+  private draftShown: (id: string) => boolean = () => true;
+  private draftHide = new Set<string>();
+  /** Model meshes hidden while their draft version shows. */
+  private draftHidden: THREE.Mesh[] = [];
 
   /** What the user asked for, and what the geometry is currently built with. */
   private cutWanted = false;
@@ -831,6 +844,7 @@ export class ViewerEngine {
     // New door leaves take the opening the walk gave the old ones.
     this.walkDoors.attach(this.built.root, this.doc);
     this.syncHighlights();
+    this.hideUnderDraft();
   }
 
   private disposeBuilt(): void {
@@ -994,6 +1008,99 @@ export class ViewerEngine {
       },
     });
     this.invalidate();
+  }
+
+  // ------------------------------------------------------------ swarm draft
+
+  /**
+   * The swarm draft (D56, D57): its own group beside the model, outside the
+   * scene key, so a new draft never rebuilds the model. Rebuilt only when its
+   * key changes, at most 4 times a second. Null takes it away and shows the
+   * model's meshes again.
+   */
+  setDraftOverlay(overlay: DraftOverlay | null): void {
+    if (this.disposed) return;
+    this.draftWanted = overlay;
+    if (overlay && this.draft && overlay.key === this.draftKey) return;
+    // Taking the draft away (an accept, a discard, the eye) is never held back.
+    if (!overlay) {
+      this.draftBuild.cancel();
+      this.buildDraft();
+      return;
+    }
+    this.draftBuild.request();
+  }
+
+  /** Which draft elements show (the reveal's moment). One that just came in rises and fades in. */
+  setDraftShown(shown: (id: string) => boolean): void {
+    this.draftShown = shown;
+    this.applyDraftShown();
+  }
+
+  /** For the dev probe and tests: the draft elements built and shown, and the model meshes hidden under them. */
+  draftState(): { built: number; shown: number; hidden: number } {
+    return { built: this.draft?.ids().length ?? 0, shown: this.draft?.shownIds().length ?? 0, hidden: this.draftHidden.length };
+  }
+
+  private buildDraft(): void {
+    if (this.disposed) return;
+    const o = this.draftWanted;
+    if (!o) {
+      this.draftKey = "";
+      this.draftHide.clear();
+      this.draft?.dispose();
+      this.draft = null;
+      this.hideUnderDraft();
+      this.invalidate();
+      return;
+    }
+    if (!this.draft) {
+      this.draft = new DraftGroup();
+      this.scene.add(this.draft.root);
+    }
+    this.draftKey = o.key;
+    const hide = new Set(o.hide);
+    const hideChanged = hide.size !== this.draftHide.size || [...hide].some((id) => !this.draftHide.has(id));
+    this.draftHide = hide;
+    const changed = this.draft.sync(o);
+    this.applyDraftShown(changed || hideChanged);
+  }
+
+  /**
+   * Shows what the reveal reached. Draws only when something changed: a
+   * redraw at rest would start the resting view's refine over, so a draft
+   * that does not move leaves the view asleep.
+   */
+  private applyDraftShown(changed = false): void {
+    const draft = this.draft;
+    if (!draft) return;
+    const fresh = draft.show(this.draftShown);
+    if (fresh.length > 0 && motionOK()) this.pushFade(`draft:${this.fadeSeq++}`, new MeshFade(fresh), ENTER_LIFT_M, 0, 1, dur("base"), ease.spring);
+    const hidden = this.hideUnderDraft();
+    if (changed || fresh.length > 0 || hidden) this.invalidate();
+  }
+
+  /**
+   * The model's meshes of what the draft changes hide while their draft
+   * version shows. True when that changed what is hidden.
+   */
+  private hideUnderDraft(): boolean {
+    const before = this.draftHidden;
+    for (const m of before) m.visible = true;
+    this.draftHidden = [];
+    const draft = this.draft;
+    const built = this.built;
+    if (draft && built && draft.root.visible) {
+      for (const id of draft.shownIds()) {
+        if (!this.draftHide.has(id)) continue;
+        for (const m of built.byElement.get(id) ?? []) {
+          if (!m.visible) continue;
+          m.visible = false;
+          this.draftHidden.push(m);
+        }
+      }
+    }
+    return before.length !== this.draftHidden.length || before.some((m, i) => m !== this.draftHidden[i]);
   }
 
   // -------------------------------------------------------------- highlights
@@ -2414,6 +2521,12 @@ export class ViewerEngine {
     this.releaseHighlights();
     this.syncPipes();
     this.pipeHandle.setCaptureHidden(true);
+    // A capture is of the model: a swarm draft stays out of it.
+    const draft = this.draft;
+    if (draft) {
+      draft.root.visible = false;
+      this.hideUnderDraft();
+    }
     const prevRatio = this.renderer.getPixelRatio();
     const prevAspect = cam.aspect;
     try {
@@ -2434,6 +2547,10 @@ export class ViewerEngine {
       cam.aspect = prevAspect;
       cam.updateProjectionMatrix();
       this.pipeHandle.setCaptureHidden(false);
+      if (draft) {
+        draft.root.visible = true;
+        this.hideUnderDraft();
+      }
       this.syncHighlights();
       this.renderNow();
     }
@@ -2983,6 +3100,9 @@ export class ViewerEngine {
     this.raf = 0;
     if (this.packTimer) clearTimeout(this.packTimer);
     this.packTimer = 0;
+    this.draftBuild.cancel();
+    this.draft?.dispose();
+    this.draft = null;
     this.packOff?.();
     this.packOff = null;
     this.resizeObserver.disconnect();

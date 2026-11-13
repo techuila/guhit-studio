@@ -2,6 +2,7 @@
 // a remount of the dock. The document itself stays in the app store.
 import { create } from "zustand";
 import type { AiMessage, AiProposal, AiSettings } from "../contract/bindings";
+import { LOCK_HINT } from "../swarm/view";
 
 export type ProposalStatus = "pending" | "applying" | "applied" | "discarded" | "stale";
 
@@ -93,6 +94,23 @@ export const useCopilot = create<CopilotState>((set, get) => ({
 /** The pending proposal, if any. There is at most one. */
 export function pendingItem(items: ChatItem[]): ChatItem | undefined {
   return items.find((m) => m.proposalStatus === "pending" || m.proposalStatus === "applying");
+}
+
+/** What the composer may start now, and why not, for the buttons' tip. */
+export interface ComposerGate {
+  canSend: boolean;
+  canFurnish: boolean;
+  tip: string | null;
+}
+
+/**
+ * While a swarm draft is open the model is locked (D57) and the engine
+ * refuses chat and furnish before any request, so Send and Furnish are off
+ * with the lock's hint and nothing is spent.
+ */
+export function composerGate(o: { hasDoc: boolean; busy: boolean; noKey: boolean; locked: boolean; text: string }): ComposerGate {
+  const can = o.hasDoc && !o.busy && !o.noKey && !o.locked;
+  return { canSend: can && o.text.trim() !== "", canFurnish: can, tip: o.locked ? LOCK_HINT : null };
 }
 
 /** Conversation as the backend wants it: user and assistant text only. */

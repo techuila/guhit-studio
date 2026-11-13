@@ -186,6 +186,7 @@ pub fn reads_only(name: &str, args: &Value) -> bool {
         | "visualize_render" | "send_chat_message" | "set_status" => true,
         "project" => matches!(action, Some("list" | "save_version")),
         "levels" | "history" => action == Some("list"),
+        "swarm" => matches!(action, Some("status" | "wait")),
         "import_dxf" => action == Some("inspect"),
         "build" | "batch" => dry_run,
         // Wave 2: reads of the editing tools, and work that writes files or
@@ -228,6 +229,8 @@ pub async fn call_with(app: &AppService, name: &str, mut args: Value, ctx: &Call
         hint.agent = Some(named);
     }
     agent::admit(app, &mut ctx, name, &args, call_kind(name, &args))?;
+    // A swarm part reads its draft; what shows the model instead is refused.
+    crate::view::refuse_window_backed(app, &ctx, name, &args)?;
     let mut result = dispatch(app, name, &args, &ctx).await;
     agent::after(app, &ctx, &args, &result).await;
     // What the agent should hear, on every answer it gets: the registry's
@@ -300,10 +303,10 @@ pub(crate) async fn dispatch(app: &AppService, name: &str, args: &Value, ctx: &C
         // --------------------------------------------------------- v1 read
         n if copilot::is_read(n) => {
             let query = copilot::to_query(n, &args)?;
-            ok(app.handle("doc_query", json!({ "query": query })).await?)
+            ok(crate::view::query(app, ctx, &query).await?)
         }
         "list_renders" => ok(app.handle("render_list", json!({})).await?),
-        "get_plan_image" => crate::visuals::plan_image(app, &args).await,
+        "get_plan_image" => crate::visuals::plan_image(app, &args, ctx).await,
 
         // --------------------------------------------------------- v1 edit
         n if copilot::is_edit(n) => {
@@ -332,7 +335,7 @@ pub(crate) async fn dispatch(app: &AppService, name: &str, args: &Value, ctx: &C
             let label = req_str(&args, "label")?;
             ok(app.handle("snapshot_create", json!({ "label": label })).await?)
         }
-        "export_plan" => ok(export_plan(app, &args, None).await?),
+        "export_plan" => ok(export_plan(app, &args, None, ctx).await?),
 
         other => {
             let mut f = ToolFail::new("unknown_tool", format!("unknown tool `{other}`"));
@@ -347,15 +350,13 @@ pub(crate) async fn dispatch(app: &AppService, name: &str, args: &Value, ctx: &C
 
 /// A plan sheet: `export_plan` in v1, `export` pdf, svg and dxf in v2, of
 /// `level_id` (None: the first level).
-pub(crate) async fn export_plan(app: &AppService, args: &Value, level_id: Option<Id>) -> Result<Value, ToolFail> {
+pub(crate) async fn export_plan(app: &AppService, args: &Value, level_id: Option<Id>, ctx: &CallContext) -> Result<Value, ToolFail> {
     let format = req_str(args, "format")?;
-    let settings_paper = {
-        let s = app.session.lock().await;
-        s.doc
-            .as_ref()
-            .map(|d| d.project().settings.paper)
-            .ok_or_else(|| IpcError::new("no_document", "no project is open"))?
-    };
+    let settings_paper = crate::view::read(app, ctx)
+        .await
+        .get()
+        .map(|d| d.project().settings.paper)
+        .ok_or_else(|| IpcError::new("no_document", "no project is open"))?;
     let paper = match opt_str(args, "paper")?.as_deref() {
         None => settings_paper,
         Some("a4") => PaperSize::A4,
@@ -452,8 +453,8 @@ async fn set_review_mark(app: &AppService, args: &Value, ctx: &CallContext) -> R
         commands: vec![Command::SetReviewMark { target: target.clone(), note }],
     };
     let revision = {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+        let r = crate::view::read(app, ctx).await;
+        let doc = r.doc()?;
         if let Some(scope) = stage::resolve_scope(app, doc.project(), asked.as_ref())? {
             guhit_core::scope::check(doc.project(), doc.derived(), &scope.ids, &command)
                 .map_err(|e| stage::scope_fail(e, doc.project(), doc.derived(), &scope))?;
@@ -548,8 +549,8 @@ mod tests {
     fn the_list_is_the_v2_toolsets() {
         let names: Vec<&str> = definitions().iter().map(|d| d.name).collect();
         assert_eq!(names, toolsets::all_v2(), "definitions and toolsets disagree");
-        assert_eq!(Toolsets::core().tools().len(), 26);
-        assert_eq!(names.len(), 45);
+        assert_eq!(Toolsets::core().tools().len(), 27);
+        assert_eq!(names.len(), 46);
     }
 
     #[test]

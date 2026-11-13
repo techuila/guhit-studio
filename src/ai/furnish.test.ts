@@ -5,6 +5,8 @@ const calls: { chat: unknown[]; resolve: [string, boolean][]; preview: unknown[]
 let nextTurn: AiTurn | null = null;
 /** Proposals the engine no longer holds: resolving them answers not_found. */
 const gone = new Set<string>();
+/** While true the engine refuses every commit `swarm_running`, as with a swarm draft open (D57). */
+let swarmOpen = false;
 
 vi.mock("../contract/ipc", async (orig) => ({
   ...(await orig<typeof import("../contract/ipc")>()),
@@ -15,6 +17,7 @@ vi.mock("../contract/ipc", async (orig) => ({
     }),
     aiResolve: vi.fn(async (id: string, accept: boolean) => {
       calls.resolve.push([id, accept]);
+      if (accept && swarmOpen) throw { code: "swarm_running", message: "A swarm draft is open." };
       if (gone.has(id)) throw { code: "not_found", message: "That proposal is no longer pending." };
       return { applied: accept ? { state: doc(9) } : null };
     }),
@@ -29,7 +32,8 @@ vi.mock("../contract/ipc", async (orig) => ({
 
 import { useApp } from "../state/store";
 import { useCopilot } from "./copilotStore";
-import { applyRoom, discardRoom, resetFurnishState, roomsToFurnish, turnRooms } from "./furnish";
+import { LOCKED_APPLY_TEXT } from "./apply";
+import { applyRoom, discardRoom, previewRoom, resetFurnishState, roomsToFurnish, turnRooms } from "./furnish";
 
 function doc(revision: number, extra: unknown[] = []): DocState {
   return {
@@ -69,6 +73,7 @@ function setup(): number {
   calls.resolve = [];
   calls.preview = [];
   gone.clear();
+  swarmOpen = false;
   resetFurnishState();
   useCopilot.getState().reset("p1");
   useApp.setState({ doc: doc(5), selection: [], activeLevelId: "L1" });
@@ -218,6 +223,26 @@ describe("furnish rooms", () => {
       expect(calls.resolve[1]).toEqual(["pa", true]);
       expect(calls.chat).toHaveLength(0);
     });
+  });
+
+  // Gate P1-5: Apply during a swarm draft must not lose the room's proposal.
+  it("a room refused swarm_running stays pending with its preview, and applies after the draft", async () => {
+    const item = setup();
+    const pa = roomsOf(item)[0];
+    previewRoom(pa);
+    swarmOpen = true;
+    await applyRoom(item, "living", "modern");
+    expect(roomsOf(item)[0].status).toBe("pending");
+    expect(roomsOf(item)[0].note).toBe(LOCKED_APPLY_TEXT);
+    expect(roomsOf(item)[0].proposal.id).toBe("pa");
+    expect(useApp.getState().preview).toBe(pa.proposal.preview);
+    // Nothing asked the model again.
+    expect(calls.chat).toHaveLength(0);
+    // The draft is discarded: the same proposal applies.
+    swarmOpen = false;
+    await applyRoom(item, "living", "modern");
+    expect(calls.resolve).toEqual([["pa", true], ["pa", true]]);
+    expect(roomsOf(item)[0].status).toBe("applied");
   });
 
   it("discards a room, telling the engine", () => {

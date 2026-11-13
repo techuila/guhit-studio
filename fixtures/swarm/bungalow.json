@@ -1,0 +1,833 @@
+{
+ "about": "Dev script for Guhit's own swarm (D56, lane L2): a 4-part bungalow, 12 x 9 m. Run the dev bridge with GUHIT_AI_SCRIPT set to this file and start a swarm from the Swarm tab with any brief. A turn matches a conversation by its first line, \"Part: <key>\". A \"$result:<n><JSON pointer>\" string takes a value from the n-th tool result of the round before. usage is as the API reports it, so the panel shows spend.",
+ "turns": [
+  {
+   "match": "part: lead",
+   "delay_ms": 1500,
+   "responses": [
+    {
+     "content": [
+      {
+       "type": "text",
+       "text": "Four parts: the walls first, then the rooms and the roof, then the furniture."
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_001",
+       "name": "plan_swarm",
+       "input": {
+        "summary": "Bungalow, 12 x 9 m, three bedrooms",
+        "setup": {
+         "levels": []
+        },
+        "parts": [
+         {
+          "key": "shell",
+          "name": "Shell",
+          "role": "Walls",
+          "instructions": "Draw the outside walls as a closed 12000 x 9000 mm box from (0,0), then the partitions: an east-west wall at y 4500 across the house, a north-south wall at x 7000 from the south wall to it, and two north-south walls at x 4000 and x 8000 from it to the north wall. Report walls once every wall is in.",
+          "scope": {
+           "levels": [],
+           "kinds": [
+            "wall"
+           ]
+          },
+          "after": [],
+          "milestones": [
+           "walls"
+          ]
+         },
+         {
+          "key": "rooms",
+          "name": "Rooms",
+          "role": "Rooms, doors and windows",
+          "instructions": "Name the five rooms the walls make: the living room (south-west), the kitchen (south-east) and three bedrooms on the north side, the east one the master bedroom. Put a 900 mm front door in the living room's south wall, a door from the living room into the west and middle bedrooms, one from the kitchen into the master bedroom and one between the living room and the kitchen. Give every room a 1200 mm window on an outside wall.",
+          "scope": {
+           "levels": [],
+           "kinds": [
+            "room",
+            "opening"
+           ]
+          },
+          "after": [
+           {
+            "part": "shell",
+            "milestone": "walls"
+           }
+          ],
+          "milestones": []
+         },
+         {
+          "key": "roof",
+          "name": "Roof",
+          "role": "Roof",
+          "instructions": "A gable roof over the whole house, ridge east-west, 25 degrees, 600 mm overhang.",
+          "scope": {
+           "levels": [],
+           "kinds": [
+            "roof"
+           ]
+          },
+          "after": [
+           {
+            "part": "shell",
+            "milestone": "done"
+           }
+          ],
+          "milestones": []
+         },
+         {
+          "key": "furnish",
+          "name": "Furnish",
+          "role": "Furniture",
+          "instructions": "Furnish the rooms once they are named: a sofa, a coffee table and a dining table in the living room, a counter and a refrigerator in the kitchen, a bed in each bedroom (queen in the master bedroom).",
+          "scope": {
+           "levels": [],
+           "kinds": [
+            "asset"
+           ]
+          },
+          "after": [
+           {
+            "part": "rooms",
+            "milestone": "done"
+           }
+          ],
+          "milestones": []
+         }
+        ]
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 120,
+      "output_tokens": 1900,
+      "cache_read_input_tokens": 0,
+      "cache_creation_input_tokens": 9800
+     }
+    }
+   ]
+  },
+  {
+   "match": "part: shell",
+   "delay_ms": 1100,
+   "responses": [
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_002",
+       "name": "set_status",
+       "input": {
+        "text": "Outside walls, 12 x 9 m"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_003",
+       "name": "add_wall_chain",
+       "input": {
+        "points": [
+         {
+          "x": 0,
+          "y": 0
+         },
+         {
+          "x": 12000,
+          "y": 0
+         },
+         {
+          "x": 12000,
+          "y": 9000
+         },
+         {
+          "x": 0,
+          "y": 9000
+         }
+        ],
+        "closed": true
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 650,
+      "cache_read_input_tokens": 11800,
+      "cache_creation_input_tokens": 2300
+     }
+    },
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_004",
+       "name": "set_status",
+       "input": {
+        "text": "Partitions"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_005",
+       "name": "add_wall",
+       "input": {
+        "start": {
+         "x": 0,
+         "y": 4500
+        },
+        "end": {
+         "x": 12000,
+         "y": 4500
+        }
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_006",
+       "name": "add_wall",
+       "input": {
+        "start": {
+         "x": 7000,
+         "y": 0
+        },
+        "end": {
+         "x": 7000,
+         "y": 4500
+        }
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_007",
+       "name": "add_wall",
+       "input": {
+        "start": {
+         "x": 4000,
+         "y": 4500
+        },
+        "end": {
+         "x": 4000,
+         "y": 9000
+        }
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_008",
+       "name": "add_wall",
+       "input": {
+        "start": {
+         "x": 8000,
+         "y": 4500
+        },
+        "end": {
+         "x": 8000,
+         "y": 9000
+        }
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 820,
+      "cache_read_input_tokens": 14100,
+      "cache_creation_input_tokens": 1400
+     }
+    },
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_009",
+       "name": "swarm_milestone",
+       "input": {
+        "name": "walls"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_010",
+       "name": "finish_part",
+       "input": {
+        "summary": "Outside walls and four partitions"
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 260,
+      "cache_read_input_tokens": 15500,
+      "cache_creation_input_tokens": 1300
+     }
+    }
+   ]
+  },
+  {
+   "match": "part: rooms",
+   "delay_ms": 1100,
+   "responses": [
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_011",
+       "name": "set_status",
+       "input": {
+        "text": "Reading the walls"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_012",
+       "name": "list_elements",
+       "input": {
+        "kind": "wall"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_013",
+       "name": "list_rooms",
+       "input": {}
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 300,
+      "cache_read_input_tokens": 11900,
+      "cache_creation_input_tokens": 2500
+     }
+    },
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_014",
+       "name": "rename_room",
+       "input": {
+        "room_id": "$result:2/data/rooms/1/id",
+        "name": "Living"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_015",
+       "name": "rename_room",
+       "input": {
+        "room_id": "$result:2/data/rooms/2/id",
+        "name": "Kitchen"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_016",
+       "name": "rename_room",
+       "input": {
+        "room_id": "$result:2/data/rooms/3/id",
+        "name": "Bedroom 1"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_017",
+       "name": "rename_room",
+       "input": {
+        "room_id": "$result:2/data/rooms/0/id",
+        "name": "Bedroom 2"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_018",
+       "name": "rename_room",
+       "input": {
+        "room_id": "$result:2/data/rooms/4/id",
+        "name": "Master Bedroom"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_019",
+       "name": "list_elements",
+       "input": {
+        "kind": "wall"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_020",
+       "name": "list_rooms",
+       "input": {}
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 700,
+      "cache_read_input_tokens": 14600,
+      "cache_creation_input_tokens": 1900
+     }
+    },
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_021",
+       "name": "set_room_usage",
+       "input": {
+        "room_id": "$result:6/data/rooms/1/id",
+        "usage": "living"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_022",
+       "name": "set_room_usage",
+       "input": {
+        "room_id": "$result:6/data/rooms/2/id",
+        "usage": "kitchen"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_023",
+       "name": "set_room_usage",
+       "input": {
+        "room_id": "$result:6/data/rooms/3/id",
+        "usage": "bedroom"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_024",
+       "name": "set_room_usage",
+       "input": {
+        "room_id": "$result:6/data/rooms/0/id",
+        "usage": "bedroom"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_025",
+       "name": "set_room_usage",
+       "input": {
+        "room_id": "$result:6/data/rooms/4/id",
+        "usage": "master_bedroom"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_026",
+       "name": "list_elements",
+       "input": {
+        "kind": "wall"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_027",
+       "name": "list_rooms",
+       "input": {}
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 620,
+      "cache_read_input_tokens": 16700,
+      "cache_creation_input_tokens": 1700
+     }
+    },
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_028",
+       "name": "set_status",
+       "input": {
+        "text": "Doors, 900 mm"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_029",
+       "name": "add_door",
+       "input": {
+        "wall_id": "$result:5/data/elements/0/id",
+        "position": "offset",
+        "offset_mm": 3500
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_030",
+       "name": "add_door",
+       "input": {
+        "wall_id": "$result:5/data/elements/4/id",
+        "position": "offset",
+        "offset_mm": 3000
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_031",
+       "name": "add_door",
+       "input": {
+        "wall_id": "$result:5/data/elements/4/id",
+        "position": "offset",
+        "offset_mm": 5000
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_032",
+       "name": "add_door",
+       "input": {
+        "wall_id": "$result:5/data/elements/4/id",
+        "position": "offset",
+        "offset_mm": 9000
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_033",
+       "name": "add_door",
+       "input": {
+        "wall_id": "$result:5/data/elements/5/id",
+        "position": "offset",
+        "offset_mm": 3000
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_034",
+       "name": "list_elements",
+       "input": {
+        "kind": "wall"
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 900,
+      "cache_read_input_tokens": 18600,
+      "cache_creation_input_tokens": 1600
+     }
+    },
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_035",
+       "name": "set_status",
+       "input": {
+        "text": "Windows, 1200 mm"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_036",
+       "name": "add_window",
+       "input": {
+        "wall_id": "$result:6/data/elements/0/id",
+        "position": "offset",
+        "offset_mm": 9500,
+        "width_mm": 1200
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_037",
+       "name": "add_window",
+       "input": {
+        "wall_id": "$result:6/data/elements/3/id",
+        "position": "offset",
+        "offset_mm": 6750,
+        "width_mm": 1200
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_038",
+       "name": "add_window",
+       "input": {
+        "wall_id": "$result:6/data/elements/2/id",
+        "position": "offset",
+        "offset_mm": 10000,
+        "width_mm": 1200
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_039",
+       "name": "add_window",
+       "input": {
+        "wall_id": "$result:6/data/elements/2/id",
+        "position": "offset",
+        "offset_mm": 6000,
+        "width_mm": 1200
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_040",
+       "name": "add_window",
+       "input": {
+        "wall_id": "$result:6/data/elements/2/id",
+        "position": "offset",
+        "offset_mm": 2000,
+        "width_mm": 1200
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 880,
+      "cache_read_input_tokens": 21000,
+      "cache_creation_input_tokens": 1500
+     }
+    },
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_041",
+       "name": "finish_part",
+       "input": {
+        "summary": "Five rooms named, five doors and five windows"
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 180,
+      "cache_read_input_tokens": 22700,
+      "cache_creation_input_tokens": 1200
+     }
+    }
+   ]
+  },
+  {
+   "match": "part: roof",
+   "delay_ms": 1300,
+   "responses": [
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_042",
+       "name": "set_status",
+       "input": {
+        "text": "Gable roof, 25 degrees"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_043",
+       "name": "set_roof",
+       "input": {
+        "kind": "gable",
+        "pitch_deg": 25,
+        "overhang_mm": 600,
+        "ridge_axis": "x"
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 420,
+      "cache_read_input_tokens": 11900,
+      "cache_creation_input_tokens": 2400
+     }
+    },
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_044",
+       "name": "finish_part",
+       "input": {
+        "summary": "Gable roof, ridge east-west"
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 150,
+      "cache_read_input_tokens": 14400,
+      "cache_creation_input_tokens": 900
+     }
+    }
+   ]
+  },
+  {
+   "match": "part: furnish",
+   "delay_ms": 1100,
+   "responses": [
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_045",
+       "name": "set_status",
+       "input": {
+        "text": "Living room and kitchen"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_046",
+       "name": "add_asset",
+       "input": {
+        "catalog_key": "sofa-3",
+        "position": {
+         "x": 3000,
+         "y": 1000
+        }
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_047",
+       "name": "add_asset",
+       "input": {
+        "catalog_key": "coffee-table",
+        "position": {
+         "x": 3000,
+         "y": 2200
+        }
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_048",
+       "name": "add_asset",
+       "input": {
+        "catalog_key": "dining-4",
+        "position": {
+         "x": 5600,
+         "y": 3000
+        }
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_049",
+       "name": "add_asset",
+       "input": {
+        "catalog_key": "kitchen-counter",
+        "position": {
+         "x": 9500,
+         "y": 4000
+        }
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_050",
+       "name": "add_asset",
+       "input": {
+        "catalog_key": "refrigerator",
+        "position": {
+         "x": 11400,
+         "y": 1000
+        }
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 760,
+      "cache_read_input_tokens": 12100,
+      "cache_creation_input_tokens": 2600
+     }
+    },
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_051",
+       "name": "set_status",
+       "input": {
+        "text": "Bedrooms"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_052",
+       "name": "add_asset",
+       "input": {
+        "catalog_key": "bed-double",
+        "position": {
+         "x": 2000,
+         "y": 7600
+        }
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_053",
+       "name": "add_asset",
+       "input": {
+        "catalog_key": "bed-single",
+        "position": {
+         "x": 6000,
+         "y": 7700
+        }
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_054",
+       "name": "add_asset",
+       "input": {
+        "catalog_key": "bed-queen",
+        "position": {
+         "x": 10000,
+         "y": 7600
+        }
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 520,
+      "cache_read_input_tokens": 15000,
+      "cache_creation_input_tokens": 1500
+     }
+    },
+    {
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_fx_055",
+       "name": "finish_part",
+       "input": {
+        "summary": "Eight pieces of furniture in five rooms"
+       }
+      }
+     ],
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 40,
+      "output_tokens": 140,
+      "cache_read_input_tokens": 16700,
+      "cache_creation_input_tokens": 1100
+     }
+    }
+   ]
+  }
+ ]
+}

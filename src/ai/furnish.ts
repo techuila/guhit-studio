@@ -15,6 +15,7 @@ import type { AiProposal, AiTurn, DocState, Element } from "../contract/bindings
 import { ipc, toIpcError } from "../contract/ipc";
 import { pointInPolygon } from "../editor2d/geom";
 import { useApp } from "../state/store";
+import { LOCKED_APPLY_TEXT } from "./apply";
 import { useCopilot, type FurnishRoom } from "./copilotStore";
 
 /** The styles offered, as the engine reads them (`placement::style_of`). */
@@ -189,6 +190,12 @@ export async function applyRoom(itemId: number, roomId: string, style: string): 
     await landed(itemId, room, result.applied?.state ?? null);
   } catch (e) {
     const err = toIpcError(e);
+    if (err.code === "swarm_running") {
+      // A swarm draft locks the model (D57). The engine keeps the room's
+      // proposal, so the card and its preview stay for after the draft.
+      patchRoom(itemId, roomId, { status: "pending", note: LOCKED_APPLY_TEXT });
+      return;
+    }
     patchRoom(itemId, roomId, { status: "stale", note: err.code === "stale" || err.code === "not_found" ? "The plan changed, so this room was not applied. Ask again." : `Not applied: ${err.message}` });
     useApp.getState().setPreview(null);
     try {

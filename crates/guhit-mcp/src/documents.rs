@@ -15,10 +15,11 @@ use guhit_model::*;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::agent::CallContext;
 use crate::fail::ToolFail;
 use crate::geo::{self, pt};
-use crate::stage;
 use crate::tools::{obj, scope_schema, Output, ToolDef, MM};
+use crate::view;
 use crate::translate::{find, find_level, parse, pick_level, point, positive, positive_opt, Plan, Primary, Then};
 
 // ------------------------------------------------------------- definitions
@@ -104,14 +105,14 @@ pub fn definitions() -> Vec<ToolDef> {
 
 /// The reads of this toolset, which answer on their own; None for the
 /// edits, which run through `stage`.
-pub(crate) async fn read(app: &AppService, name: &str, args: &Value) -> Option<Result<Output, ToolFail>> {
+pub(crate) async fn read(app: &AppService, name: &str, args: &Value, ctx: &CallContext) -> Option<Result<Output, ToolFail>> {
     let action = args.get("action").and_then(Value::as_str);
     Some(match (name, action) {
-        ("title_block", Some("get")) => title_block_get(app, args).await,
-        ("sheets", Some("list")) => sheets_list(app, args).await,
-        ("sheets", Some("preview")) => sheets_preview(app, args).await,
-        ("sheets", Some("export")) => sheets_export(app, args).await,
-        ("view_marks", Some("list")) => marks_list(app, args).await,
+        ("title_block", Some("get")) => title_block_get(app, args, ctx).await,
+        ("sheets", Some("list")) => sheets_list(app, args, ctx).await,
+        ("sheets", Some("preview")) => sheets_preview(app, args, ctx).await,
+        ("sheets", Some("export")) => sheets_export(app, args, ctx).await,
+        ("view_marks", Some("list")) => marks_list(app, args, ctx).await,
         _ => return None,
     })
 }
@@ -186,15 +187,15 @@ pub(crate) fn title_block(p: &Project, args: &Value) -> Result<Plan, ToolFail> {
     Ok(Plan::of(vec![Command::SetTitleBlock { title_block: Box::new(tb) }], Primary::None))
 }
 
-async fn title_block_get(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+async fn title_block_get(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     refuse_signatory(args)?;
     let i: TitleBlockIn = parse(args)?;
     let extra = [i.project_title, i.lot_no, i.block_no, i.tct_no, i.firm_name, i.firm_address, i.firm_logo];
     if extra.iter().any(Option::is_some) {
         return Err(ToolFail::args("action \"get\" takes no fields; action \"set\" changes them"));
     }
-    let s = app.session.lock().await;
-    let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+    let r = view::read(app, ctx).await;
+    let doc = r.doc()?;
     let p = doc.project();
     let masked = p.title_block.masked();
     Ok(Output::Json(json!({
@@ -418,13 +419,13 @@ fn view_text(p: &Project, v: &ViewRef) -> String {
     }
 }
 
-async fn sheets_list(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+async fn sheets_list(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let i: SheetsIn = parse(args)?;
     if i.sheet.is_some() || i.paper.is_some() || i.format.is_some() {
         return Err(ToolFail::args("action \"list\" takes no other arguments"));
     }
-    let s = app.session.lock().await;
-    let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+    let r = view::read(app, ctx).await;
+    let doc = r.doc()?;
     let p = doc.project();
     let sheets: Vec<Value> = p
         .sheet_set
@@ -500,12 +501,8 @@ pub(crate) fn mask_svg(svg: &str, signatory: &Signatory) -> String {
 }
 
 /// A sheet as SVG for an agent: license numbers masked, images in.
-pub(crate) async fn sheet_svg_for_agent(app: &AppService, wanted: &str) -> Result<(String, Value), ToolFail> {
-    let (project, derived) = {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
-        (doc.project().clone(), doc.derived().clone())
-    };
+pub(crate) async fn sheet_svg_for_agent(app: &AppService, wanted: &str, ctx: &CallContext) -> Result<(String, Value), ToolFail> {
+    let (project, derived, _) = view::snapshot(app, ctx).await?;
     let sheet = find_sheet(&project, wanted)?.clone();
     let images = sheet_images(app, &project, &sheet).await;
     let inputs = SheetInputs { date: None, images, mask_signatory: true };
@@ -523,17 +520,17 @@ pub(crate) fn export_fail(e: guhit_export::ExportError) -> ToolFail {
     }
 }
 
-async fn sheets_preview(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+async fn sheets_preview(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let i: SheetsIn = parse(args)?;
     let wanted = i.sheet.as_deref().or_else(|| i.sheets.as_ref().and_then(|v| v.first()).map(String::as_str)).ok_or_else(|| ToolFail::args("action \"preview\" needs sheet: its number (A-1) or id"))?;
     let mut args = json!({"mode": "sheet", "sheet": wanted});
     if let Some(w) = i.width_px {
         args["width_px"] = json!(w);
     }
-    crate::look::look(app, &args, &crate::agent::CallContext::local()).await
+    crate::look::look(app, &args, ctx).await
 }
 
-async fn sheets_export(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+async fn sheets_export(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let i: SheetsIn = parse(args)?;
     let format = match i.format.as_deref().unwrap_or("pdf") {
         "pdf" => PlanFormat::Pdf,
@@ -542,9 +539,8 @@ async fn sheets_export(app: &AppService, args: &Value) -> Result<Output, ToolFai
         other => return Err(ToolFail::args(format!("unknown format `{other}`. Use pdf, svg or dxf"))),
     };
     let ids = {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
-        let p = doc.project();
+        let r = view::read(app, ctx).await;
+        let p = r.doc()?.project();
         if p.sheet_set.sheets.is_empty() {
             return Err(ToolFail::new("invalid", "the project has no sheets to export").with_hint("sheets action \"make\" makes the permit set first."));
         }
@@ -611,10 +607,10 @@ pub(crate) fn view_marks(p: &Project, args: &Value, default_level: &Id) -> Resul
     }
 }
 
-async fn marks_list(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+async fn marks_list(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let i: MarksIn = parse(args)?;
-    let s = app.session.lock().await;
-    let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+    let r = view::read(app, ctx).await;
+    let doc = r.doc()?;
     let p = doc.project();
     let level = match i.level.as_deref() {
         Some(l) => Some(find_level(p, l)?.id.clone()),

@@ -14,7 +14,7 @@
 pub const EXTENDED: [&str; 7] = ["services", "visuals", "live", "review", "interop", "documents", "tours"];
 
 /// The core toolset, in the order `tools/list` shows it.
-pub const DRAFT: [&str; 26] = [
+pub const DRAFT: [&str; 27] = [
     "project",
     "get_guide",
     "query",
@@ -41,6 +41,7 @@ pub const DRAFT: [&str; 26] = [
     "set_project",
     "history",
     "export",
+    "swarm",
 ];
 
 /// Extended tools by toolset.
@@ -257,12 +258,12 @@ mod tests {
 
     #[test]
     fn toolsets_parse_and_list() {
-        assert_eq!(Toolsets::core().tools().len(), 26);
-        assert_eq!(Toolsets::all().tools().len(), 45);
+        assert_eq!(Toolsets::core().tools().len(), 27);
+        assert_eq!(Toolsets::all().tools().len(), 46);
         let t = Toolsets::parse("visuals, services,nope");
         assert_eq!(t.enabled(), &["services", "visuals"]);
-        assert_eq!(t.tools().len(), 26 + 3 + 3);
-        assert_eq!(Toolsets::parse("documents,tours").tools().len(), 26 + 4 + 3);
+        assert_eq!(t.tools().len(), 27 + 3 + 3);
+        assert_eq!(Toolsets::parse("documents,tours").tools().len(), 27 + 4 + 3);
         assert_eq!(Toolsets::from_query("a=1&toolsets=live%2Creview"), Some(Toolsets::parse("live,review")));
         assert_eq!(Toolsets::from_query("a=1"), None);
         assert_eq!(Toolsets::parse("all"), Toolsets::all());

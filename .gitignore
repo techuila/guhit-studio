@@ -42,5 +42,6 @@ dist-ssr
 /docs/product-context.md
 /docs/research-ai-features.md
 
-# Screenshots of scripts/live-check.mjs
+# Screenshots of scripts/live-check.mjs and scripts/swarm-check.mjs
 /live-check/
+/swarm-check/

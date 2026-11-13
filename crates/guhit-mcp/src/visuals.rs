@@ -13,6 +13,7 @@ use guhit_app::{store, AppService};
 use guhit_model::*;
 use serde_json::{json, Value};
 
+use crate::agent::CallContext;
 use crate::tools::{obj, opt_f64, opt_str, req_str, Output, Picture, ToolDef, ToolFail, MM};
 
 /// Longest side of an image handed to the model.
@@ -216,17 +217,23 @@ fn find_view(project: &Project, wanted: &str) -> Result<Id, ToolFail> {
     }
 }
 
-async fn views_of(app: &AppService, names: &[String]) -> Result<Vec<Id>, ToolFail> {
-    let s = app.session.lock().await;
-    let doc = s.doc.as_ref().ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
+/// The open document, for what the window draws (a swarm part is refused
+/// those before they get here, `view::refuse_window_backed`).
+fn open<'a>(r: &'a crate::view::Read<'_>) -> Result<&'a guhit_core::Document, ToolFail> {
+    r.get().ok_or_else(|| ToolFail::msg("no_document: no project is open"))
+}
+
+async fn views_of(app: &AppService, names: &[String], ctx: &CallContext) -> Result<Vec<Id>, ToolFail> {
+    let r = crate::view::read(app, ctx).await;
+    let doc = open(&r)?;
     names.iter().map(|n| find_view(doc.project(), n)).collect()
 }
 
 /// A saved view's camera as the engine holds it (G4 problem 7): the window
 /// is handed this camera, not asked to look the id up in its own copy.
-async fn saved_camera(app: &AppService, name: &str) -> Result<Camera, ToolFail> {
-    let s = app.session.lock().await;
-    let doc = s.doc.as_ref().ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
+async fn saved_camera(app: &AppService, name: &str, ctx: &CallContext) -> Result<Camera, ToolFail> {
+    let r = crate::view::read(app, ctx).await;
+    let doc = open(&r)?;
     let id = find_view(doc.project(), name)?;
     doc.project()
         .elements
@@ -398,8 +405,8 @@ fn running(job_id: &str) -> Output {
 pub async fn call(app: &AppService, name: &str, args: &Value, ctx: &crate::agent::CallContext) -> Option<Result<Output, ToolFail>> {
     Some(match name {
         "add_camera" => add_camera(app, args, ctx).await,
-        "capture_view" => capture_view(app, args).await,
-        "render_view" => render_view(app, args).await,
+        "capture_view" => capture_view(app, args, ctx).await,
+        "render_view" => render_view(app, args, ctx).await,
         "get_render_job" => get_render_job(app, args).await,
         "get_render_image" => get_render_image(app, args).await,
         "visualize_render" => visualize_render(app, args, ctx).await,
@@ -443,9 +450,8 @@ async fn add_camera(app: &AppService, args: &Value, ctx: &crate::agent::CallCont
         return Err(ToolFail::msg("invalid arguments: target must be at least 100 mm from position"));
     }
     let floor = {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
-        let project = doc.project();
+        let r = crate::view::read(app, ctx).await;
+        let project = open(&r)?.project();
         let level = match input.level.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
             None => project.levels.first(),
             Some(wanted) => project
@@ -473,11 +479,11 @@ async fn add_camera(app: &AppService, args: &Value, ctx: &crate::agent::CallCont
     crate::tools::commit_one(app, "MCP: add camera", command, args, ctx).await
 }
 
-async fn capture_view(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+async fn capture_view(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     // A saved view goes to the window as its camera, exactly as the engine
     // holds it (G4 problem 7), never as an id the window looks up.
     let camera = match opt_str(args, "view")? {
-        Some(v) if !v.trim().is_empty() => Some(saved_camera(app, &v).await?),
+        Some(v) if !v.trim().is_empty() => Some(saved_camera(app, &v, ctx).await?),
         _ => None,
     };
     let wait = wait_of(args)?;
@@ -528,13 +534,13 @@ pub(crate) async fn set_look(app: &AppService, args: &Value) -> Result<Output, T
     })))
 }
 
-async fn render_view(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+async fn render_view(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let names: Vec<String> = match args.get("views") {
         None | Some(Value::Null) => vec![],
         Some(v) => serde_json::from_value(v.clone())
             .map_err(|_| ToolFail::msg("invalid arguments: `views` must be a list of saved view ids or names"))?,
     };
-    let views = views_of(app, &names).await?;
+    let views = views_of(app, &names, ctx).await?;
     let quality = match opt_str(args, "quality")?.as_deref() {
         None | Some("quick") => TraceQuality::Quick,
         Some("final") => TraceQuality::Final,
@@ -549,10 +555,7 @@ async fn render_view(app: &AppService, args: &Value) -> Result<Output, ToolFail>
     };
     let wait = wait_of(args)?;
     let visibility = visibility_of(args)?;
-    {
-        let s = app.session.lock().await;
-        s.doc.as_ref().ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
-    }
+    open(&crate::view::read(app, ctx).await)?;
     let job = app.window_start(WindowTask::Render { views, quality, size, visibility })?;
     // The render this one waits behind, if the window refuses it as busy.
     let before = last_render().lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -648,13 +651,12 @@ async fn visualize_render(app: &AppService, args: &Value, ctx: &crate::agent::Ca
 
 /// `get_plan_image`: a fresh drawing of the plan from the window when one is
 /// open, else the last thumbnail the window saved.
-pub async fn plan_image(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+pub async fn plan_image(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let level_id = match opt_str(args, "level")?.map(|l| l.trim().to_string()).filter(|l| !l.is_empty()) {
         None => None,
         Some(wanted) => {
-            let s = app.session.lock().await;
-            let doc = s.doc.as_ref().ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
-            let project = doc.project();
+            let r = crate::view::read(app, ctx).await;
+            let project = open(&r)?.project();
             let level = project
                 .levels
                 .iter()

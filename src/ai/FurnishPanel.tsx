@@ -14,8 +14,8 @@ function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
 }
 
-/** The bar above the composer: style pills and the Furnish button. */
-export function FurnishBar({ disabled, onFurnish }: { disabled: boolean; onFurnish: (style: string) => void }) {
+/** The bar above the composer: style pills and the Furnish button. `tip`: why it is off (the swarm lock). */
+export function FurnishBar({ disabled, tip = null, onFurnish }: { disabled: boolean; tip?: string | null; onFurnish: (style: string) => void }) {
   const doc = useApp((st) => st.doc);
   const selection = useApp((st) => st.selection);
   const activeLevelId = useApp((st) => st.activeLevelId);
@@ -39,7 +39,7 @@ export function FurnishBar({ disabled, onFurnish }: { disabled: boolean; onFurni
           </button>
         ))}
       </div>
-      <button type="button" className={s.go} disabled={disabled || rooms.length === 0} onClick={() => onFurnish(style)} data-testid="furnish-go">
+      <button type="button" className={s.go} disabled={disabled || rooms.length === 0} onClick={() => onFurnish(style)} data-tip={tip ?? undefined} data-testid="furnish-go">
         {label}
       </button>
     </div>

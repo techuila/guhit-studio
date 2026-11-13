@@ -14,15 +14,26 @@
 //! types, sheets, viewports, revisions and tour shots are hashed and
 //! reserved (P0-5): two identical commands that each make one of them get
 //! two different ids.
+//!
+//! Swarm drafts (DECISIONS D57) pin ids: while `replay` records a step,
+//! every id a generator hands out is noted with its slot (`Slot`); while it
+//! replays one, a slot that was recorded gets the recorded id back instead
+//! of a new one. Outside `replay` nothing changes.
 
 use std::collections::BTreeSet;
 
 use guhit_model::*;
 
+pub use crate::replay::Slot;
+
 pub struct IdGen {
     seed: u64,
     counter: u64,
     used: BTreeSet<Id>,
+    /// Ids handed out for the command's own arguments so far (`Slot::Own`).
+    own: u32,
+    /// The leaf's place on `replay`'s tape, while one records or replays.
+    leaf: Option<usize>,
 }
 
 fn fnv1a(hash: &mut u64, bytes: &[u8]) {
@@ -87,6 +98,8 @@ impl IdGen {
             seed: hash,
             counter: 0,
             used,
+            own: 0,
+            leaf: crate::replay::begin_leaf(),
         }
     }
 
@@ -95,7 +108,31 @@ impl IdGen {
         self.used.insert(id.clone());
     }
 
+    /// The next id for what the command makes from its own arguments, in
+    /// order (`Slot::Own`).
     pub fn next_id(&mut self) -> Id {
+        let slot = Slot::Own(self.own);
+        self.own += 1;
+        self.next_keyed(slot)
+    }
+
+    /// The next id for what the engine makes on its own, keyed so a replay
+    /// finds it again whatever order it comes in: a room for a new face
+    /// (`Slot::room`), a type for an opening that moved (`Slot::Type`).
+    pub fn next_keyed(&mut self, slot: Slot) -> Id {
+        let Some(leaf) = self.leaf else {
+            return self.fresh();
+        };
+        let (nth, pinned) = crate::replay::pinned(leaf, &slot);
+        let id = match pinned {
+            Some(id) if self.used.insert(id.clone()) => id,
+            _ => self.fresh(),
+        };
+        crate::replay::handed(leaf, slot, nth, &id);
+        id
+    }
+
+    fn fresh(&mut self) -> Id {
         loop {
             let hi = splitmix(self.seed ^ self.counter.wrapping_mul(0x2545_f491_4f6c_dd1d));
             let lo = splitmix(hi ^ self.seed.rotate_left(32) ^ self.counter);

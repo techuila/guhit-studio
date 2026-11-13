@@ -84,6 +84,12 @@ export interface LightStats {
   lights: number;
   refineSamples: number;
   refining: boolean;
+  /**
+   * An exposure reading is on its way back from the GPU. When it lands it
+   * may move the exposure, which settles over a few frames: the view is not
+   * at rest until this is false.
+   */
+  metering: boolean;
   refineMs: number;
   sunAltitude: number;
   sunAzimuth: number;
@@ -127,6 +133,8 @@ export class LightRig {
   private displayDirty = false;
   /** Metering run for this rest. */
   private metering = false;
+  /** Meter readings still on their way back from the GPU (`stats().metering`). */
+  private meterInFlight = 0;
   /** Lamp sets whose shaders are compiled (LampRig.configKey). The first frame compiles "off". */
   private compiled = new Set<string>(["off"]);
   /** A lamp set compiling in the background, by key. */
@@ -487,7 +495,9 @@ export class LightRig {
     this.metering = true;
     const scale = this.accScale;
     const ev = this.ev;
-    void accum.meter(this.host.renderer).then((log2) => {
+    this.meterInFlight++;
+    const reading = accum.meter(this.host.renderer).finally(() => this.meterInFlight--);
+    void reading.then((log2) => {
       if (this.disposed || log2 === null || this.light().exposureEv !== null) return;
       // The reading was taken at `ev`: where it should have been, relative to base.
       const want = ev + (log2 - METER_KEY) - Math.log2(scale / exposureScale(ev));
@@ -561,6 +571,7 @@ export class LightRig {
       lights: this.lamps.count,
       refineSamples: this.samples,
       refining: this.refineOn && !this.refineDone,
+      metering: this.meterInFlight > 0,
       refineMs: Math.round(this.refineMs),
       sunAltitude: Math.round(this.frame.sun.altitudeDeg * 10) / 10,
       sunAzimuth: Math.round(this.frame.sun.azimuthDeg * 10) / 10,

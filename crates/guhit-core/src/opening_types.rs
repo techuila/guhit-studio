@@ -584,7 +584,8 @@ pub fn follow(before: &Project, project: &mut Project, ids: &mut IdGen) -> Vec<S
                     } else {
                         default_description(o.opening_type, o.style)
                     },
-                    ..spec_of(&o, ids.next_id(), next_mark(project, o.opening_type))
+                    // Keyed by the opening, so a replayed swarm step finds it (D57).
+                    ..spec_of(&o, ids.next_keyed(crate::ids::Slot::Type { opening_id: o.id.clone() }), next_mark(project, o.opening_type))
                 };
                 project.opening_types.push(spec.clone());
                 (spec, true)

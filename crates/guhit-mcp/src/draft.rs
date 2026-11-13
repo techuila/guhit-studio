@@ -1,12 +1,14 @@
 //! MCP v2: the core toolset `draft` and the extended toolsets
 //! (docs/MCP.md "The tools", docs/CONTRACT.md "MCP v2").
 //!
-//! Twenty-two core tools cover drafting and checking a house: open a
+//! Twenty-seven core tools cover drafting and checking a house: open a
 //! project, read it (`query`, `look`, `measure`, `check`), draw it (`build`,
 //! `batch` and one tool per element kind), change it (`modify`, `reshape`,
-//! `delete`, `levels`, `set_project`), take steps back (`history`) and hand it
-//! over (`export`). Every edit runs through `stage`: validated by the
-//! engine, one undo step, with the review items it added and resolved.
+//! `delete`, `levels`, `set_project`), take steps back (`history`), hand it
+//! over (`export`) and draw it with several agents at once (`swarm`). Every
+//! edit runs through `stage`: validated by the engine, one undo step, with
+//! the review items it added and resolved. Every read goes through `view`,
+//! so an agent drawing a swarm part reads its draft.
 
 use guhit_app::AppService;
 use guhit_model::*;
@@ -206,8 +208,8 @@ pub fn definitions() -> Vec<ToolDef> {
     ));
     out.push(def(
         "get_guide",
-        format!("A guide as markdown. conventions: units, coordinates, joins, openings, levels, slabs. workflows: how to draft a house and the verify loop. ph_defaults: sizes and material ids. catalog: every library item key. Read conventions and workflows before drawing. {MM}"),
-        obj(json!({"topic": enumerated(&["conventions", "workflows", "ph_defaults", "catalog"], "")}), &["topic"]),
+        format!("A guide as markdown. conventions: units, coordinates, joins, openings, levels, slabs. workflows: how to draft a house and the verify loop. ph_defaults: sizes and material ids. catalog: every library item key. swarm: several agents at once. Read conventions and workflows before drawing. {MM}"),
+        obj(json!({"topic": enumerated(&["conventions", "workflows", "ph_defaults", "catalog", "swarm"], "")}), &["topic"]),
         true,
     ));
     out.push(def(
@@ -384,6 +386,7 @@ pub fn definitions() -> Vec<ToolDef> {
         }), &["format"]),
         false,
     ));
+    out.push(crate::swarm::definition());
     out.extend(crate::extended::definitions());
     out.extend(crate::documents::definitions());
     out.extend(crate::tours::definitions());
@@ -399,16 +402,17 @@ pub async fn call(app: &AppService, name: &str, args: &Value, ctx: &CallContext)
         "get_guide" => guide(args),
         "query" => query(app, args, ctx).await,
         "look" => crate::look::look(app, args, ctx).await,
-        "measure" => crate::look::measure(app, args).await,
-        "check" => check(app, args).await,
+        "measure" => crate::look::measure(app, args, ctx).await,
+        "check" => check(app, args, ctx).await,
         "build" => build(app, args, ctx).await,
         "batch" => batch(app, args, ctx).await,
-        "levels" if args.get("action").and_then(Value::as_str) == Some("list") => levels_list(app).await,
+        "levels" if args.get("action").and_then(Value::as_str) == Some("list") => levels_list(app, ctx).await,
         "history" => history(app, args, ctx).await,
-        "export" => export(app, args).await,
+        "export" => export(app, args, ctx).await,
+        "swarm" => crate::swarm::call(app, args, ctx).await,
         // Wave 2 reads answer on their own; their edits run through stage.
-        "types" if args.get("action").and_then(Value::as_str) == Some("list") => crate::permit::types_list(app).await,
-        n @ ("title_block" | "sheets" | "view_marks") => match Box::pin(crate::documents::read(app, n, args)).await {
+        "types" if args.get("action").and_then(Value::as_str) == Some("list") => crate::permit::types_list(app, ctx).await,
+        n @ ("title_block" | "sheets" | "view_marks") => match Box::pin(crate::documents::read(app, n, args, ctx)).await {
             Some(done) => done,
             None => match crate::documents::store_vicinity(app, n, args).await {
                 Ok(args) => single(app, n, &args, ctx).await,
@@ -471,7 +475,7 @@ async fn project(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Ou
     }
 }
 
-fn guide(args: &Value) -> Result<Output, ToolFail> {
+pub(crate) fn guide(args: &Value) -> Result<Output, ToolFail> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct GuideIn {
@@ -483,9 +487,10 @@ fn guide(args: &Value) -> Result<Output, ToolFail> {
         "workflows" => crate::text::WORKFLOWS.to_string(),
         "ph_defaults" => crate::text::PH_DEFAULTS.to_string(),
         "catalog" => catalog_text(),
+        "swarm" => crate::text::SWARM.to_string(),
         other => {
             return Err(ToolFail::args(format!(
-                "unknown topic `{other}`. Use \"conventions\", \"workflows\", \"ph_defaults\" or \"catalog\"."
+                "unknown topic `{other}`. Use \"conventions\", \"workflows\", \"ph_defaults\", \"catalog\" or \"swarm\"."
             )))
         }
     }))
@@ -647,7 +652,7 @@ async fn query(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Outp
     match i.what.as_str() {
         "selection" => return crate::tools::dispatch(app, "get_selection", &json!({}), ctx).await,
         "history" => return history(app, &json!({"action": "list"}), ctx).await,
-        "levels" => return levels_list(app).await,
+        "levels" => return levels_list(app, ctx).await,
         _ => {}
     }
     // Arguments that belong to another `what`.
@@ -664,15 +669,15 @@ async fn query(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Outp
     if i.what == "catalog" {
         // The library needs no project; with one open the engine's catalog
         // answers (room usages, tags).
-        let s = app.session.lock().await;
-        let out = match s.doc.as_ref() {
+        let r = crate::view::read(app, ctx).await;
+        let out = match r.get() {
             Some(doc) => catalog_query(&i, |q| doc.query(&q).map_err(ToolFail::from)),
             None => catalog_builtin(&i),
         };
         return Ok(Output::Json(out));
     }
-    let s = app.session.lock().await;
-    let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+    let r = crate::view::read(app, ctx).await;
+    let doc = r.doc()?;
     let project = doc.project();
     let revision = doc.revision();
     let level_id = match i.level.as_deref() {
@@ -887,9 +892,9 @@ fn rows_empty(v: &Value) -> bool {
     v["count"] == 0
 }
 
-async fn levels_list(app: &AppService) -> Result<Output, ToolFail> {
-    let s = app.session.lock().await;
-    let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+async fn levels_list(app: &AppService, ctx: &CallContext) -> Result<Output, ToolFail> {
+    let r = crate::view::read(app, ctx).await;
+    let doc = r.doc()?;
     let project = doc.project();
     let mut levels: Vec<&Level> = project.levels.iter().collect();
     levels.sort_by(|a, b| a.elevation_mm.total_cmp(&b.elevation_mm));
@@ -927,10 +932,10 @@ struct CheckIn {
     include_ignored: Option<bool>,
 }
 
-async fn check(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+async fn check(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let i: CheckIn = parse(args)?;
-    let s = app.session.lock().await;
-    let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+    let r = crate::view::read(app, ctx).await;
+    let doc = r.doc()?;
     let project = doc.project();
     let derived = doc.derived();
     let revision = doc.revision();
@@ -1032,8 +1037,8 @@ async fn build(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Outp
     }
     let mut steps = vec![];
     if let Some(level) = &i.replace_level {
-        let s = app.session.lock().await;
-        let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
+        let r = crate::view::read(app, ctx).await;
+        let doc = r.doc()?;
         let project = doc.project();
         let id = translate::find_level(project, level)?.id.clone();
         let ids: Vec<Id> = project
@@ -1155,6 +1160,10 @@ fn step_brief(index: usize, s: &HistoryStep) -> Value {
 
 async fn history(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let i: HistoryIn = parse(args)?;
+    // An agent drawing a swarm part has the draft's history (D57).
+    if let (Some(call), Some(_)) = (&ctx.call, crate::view::draft_of(app, ctx)) {
+        return draft_history(app, &i, call, ctx).await;
+    }
     let force = i.force.unwrap_or(false);
     let step = |cmd: &str, steps: u32, expected: Option<u32>| {
         let mut a = json!({"force": force, "steps": steps});
@@ -1165,8 +1174,7 @@ async fn history(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Ou
     };
     let (cmd, call_args) = match i.action.as_str() {
         "list" => {
-            let list: HistoryList = serde_json::from_value(app.handle("history_list", json!({})).await?)
-                .map_err(|e| ToolFail::new("io", e.to_string()))?;
+            let list = crate::view::main_history(app).await?;
             let limit = i.limit.unwrap_or(20).clamp(1, 200);
             return Ok(Output::Json(json!({
                 "undo": list.undo.iter().take(limit).enumerate().map(|(n, s)| step_brief(n, s)).collect::<Vec<_>>(),
@@ -1180,7 +1188,7 @@ async fn history(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Ou
         "redo" => step("doc_redo", i.steps.unwrap_or(1).max(1), None),
         "undo_to" => {
             let index = i.index.ok_or_else(|| ToolFail::args("action \"undo_to\" needs index, from history action \"list\""))?;
-            let revision: u32 = app.handle("doc_revision", json!({})).await?["revision"].as_u64().unwrap_or(0) as u32;
+            let revision = crate::view::main_revision(app).await?;
             step("doc_undo", index + 1, Some(revision))
         }
         other => return Err(ToolFail::args(format!("unknown action `{other}`. Use list, undo, redo or undo_to"))),
@@ -1197,10 +1205,9 @@ async fn history(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Ou
         Some(call) => {
             let revision = match call_args["expected_revision"].as_u64() {
                 Some(r) => r as u32,
-                None => app.handle("doc_revision", json!({})).await?["revision"].as_u64().unwrap_or(0) as u32,
+                None => crate::view::main_revision(app).await?,
             };
-            let list: HistoryList = serde_json::from_value(app.handle("history_list", json!({})).await?)
-                .map_err(|e| ToolFail::new("io", e.to_string()))?;
+            let list = crate::view::main_history(app).await?;
             check_own_steps(if redo { &list.redo } else { &list.undo }, steps, &call.id, force, redo)?;
             // Never across a change of the signing architect, `force` or not.
             app.agent_steps_allowed(redo, steps).await?;
@@ -1251,6 +1258,91 @@ fn check_own_steps(list: &[HistoryStep], n: u32, agent: &str, force: bool, redo:
     Ok(())
 }
 
+/// `history` for an agent drawing a swarm part (D57, amendments "Undo"):
+/// the list is the draft's steps, newest first, and undo, redo and
+/// undo_to act on the agent's own draft steps only, through
+/// `AppService::agent_undo`, which never touches the model.
+async fn draft_history(app: &AppService, i: &HistoryIn, call: &guhit_app::agents::AgentCall, ctx: &CallContext) -> Result<Output, ToolFail> {
+    let (status, steps) = crate::view::draft_steps(app, ctx)
+        .await?
+        .ok_or_else(|| ToolFail::new("part_stopped", "The swarm draft this agent drew in has ended."))?;
+    let newest: Vec<&SwarmStep> = steps.iter().rev().collect();
+    let name_of = |key: &str| status.parts.iter().find(|p| p.key == key).map(|p| p.name.clone()).unwrap_or_else(|| key.to_string());
+    let force = i.force.unwrap_or(false);
+    let n = match i.action.as_str() {
+        "list" => {
+            let limit = i.limit.unwrap_or(20).clamp(1, 200);
+            let rows: Vec<Value> = newest
+                .iter()
+                .take(limit)
+                .enumerate()
+                .map(|(n, s)| {
+                    json!({
+                        "index": n, "label": s.label, "by": name_of(&s.part), "yours": s.agent_id == call.id, "at": s.at,
+                        "elements": s.added.len() + s.modified.len() + s.removed.len(),
+                    })
+                })
+                .collect();
+            return Ok(Output::Json(json!({
+                "draft": true,
+                "undo": rows,
+                "undo_count": newest.len(),
+                "note": "The swarm draft's steps, newest first. undo takes back your own newest draft step; undo_to an index takes back that step and every later one when all of them are yours. The model changes only when a person accepts the draft.",
+            })));
+        }
+        "undo" | "redo" => i.steps.unwrap_or(1).max(1),
+        "undo_to" => {
+            let index = i.index.ok_or_else(|| ToolFail::args("action \"undo_to\" needs index, from history action \"list\""))? as usize;
+            if newest.len() <= index {
+                return Err(ToolFail::new("invalid", format!("the draft has {} steps", newest.len())));
+            }
+            if let Some((k, s)) = newest.iter().take(index + 1).enumerate().find(|(_, s)| s.agent_id != call.id) {
+                return Err(ToolFail::new(
+                    "other_author",
+                    format!("step {k} of the draft, \"{}\", is {}'s, so nothing was undone", s.label, name_of(&s.part)),
+                )
+                .with_hint("A swarm part takes back only its own draft steps. Take back fewer steps."));
+            }
+            index as u32 + 1
+        }
+        other => return Err(ToolFail::args(format!("unknown action `{other}`. Use list, undo, redo or undo_to"))),
+    };
+    let redo = i.action == "redo";
+    let mut last: Option<DocState> = None;
+    let mut done = 0;
+    let mut stopped = None;
+    for _ in 0..n {
+        match app.agent_undo(call, redo, force).await {
+            Ok(state) => {
+                last = Some(state);
+                done += 1;
+            }
+            Err(e) if done == 0 => return Err(e.into()),
+            Err(e) => {
+                stopped = Some(ToolFail::from(e).structured());
+                break;
+            }
+        }
+    }
+    let state = last.ok_or_else(|| ToolFail::new("invalid", "nothing was undone"))?;
+    let mut out = json!({
+        "ok": true,
+        "draft": true,
+        "steps": done,
+        "revision": state.revision,
+        "what": if redo { "redone" } else { "undone" },
+        "can_undo": state.can_undo,
+        "can_redo": state.can_redo,
+        "next_undo": state.undo_label,
+        "next_redo": state.redo_label,
+    });
+    if let Some(s) = stopped {
+        out["stopped"] = s;
+        out["note"] = json!(format!("{done} of {n} steps went; the rest were refused as `stopped` says."));
+    }
+    Ok(Output::Json(out))
+}
+
 // ------------------------------------------------------------------ export
 
 #[derive(Deserialize)]
@@ -1266,7 +1358,7 @@ struct ExportIn {
     review_page: Option<bool>,
 }
 
-async fn export(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+async fn export(app: &AppService, args: &Value, ctx: &CallContext) -> Result<Output, ToolFail> {
     let i: ExportIn = parse(args)?;
     let file = |v: Value, level: Option<&Level>| {
         let mut f = json!({"path": v["path"], "scale": v["scale_denominator"].as_u64().map(|n| format!("1:{n}"))});
@@ -1293,9 +1385,8 @@ async fn export(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
         "pdf" | "svg" | "dxf" => {
             let all = i.level.as_deref().map(str::trim) == Some("all");
             let levels: Vec<Level> = {
-                let s = app.session.lock().await;
-                let doc = s.doc.as_ref().ok_or_else(stage::no_document)?;
-                let p = doc.project();
+                let r = crate::view::read(app, ctx).await;
+                let p = r.doc()?.project();
                 match i.level.as_deref().map(str::trim) {
                     Some("all") => p.levels.clone(),
                     Some(l) => vec![translate::find_level(p, l)?.clone()],
@@ -1317,7 +1408,7 @@ async fn export(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
                         v1[k] = v;
                     }
                 }
-                match crate::tools::export_plan(app, &v1, Some(level.id.clone())).await {
+                match crate::tools::export_plan(app, &v1, Some(level.id.clone()), ctx).await {
                     Ok(result) => out.push(file(result, Some(level))),
                     // Every level: an empty one is left out and named.
                     Err(e) if all && e.message.contains("nothing to export") => {

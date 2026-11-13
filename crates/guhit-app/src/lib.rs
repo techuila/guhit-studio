@@ -19,6 +19,7 @@ pub mod render_ai;
 pub mod renders;
 pub mod snapshots;
 pub mod store;
+pub mod swarm;
 pub mod video;
 pub mod window;
 
@@ -107,6 +108,9 @@ pub struct AppService {
     /// The agents working through MCP, with or without a live session
     /// (DECISIONS D47, `agents`).
     pub agents: Arc<agents::AgentsState>,
+    /// The swarm and its draft (DECISIONS D56, D57, `swarm`). While a
+    /// draft is open the model is locked.
+    pub swarm: Arc<swarm::Swarms>,
 }
 
 /// Deserialize one named argument out of the args object.
@@ -348,6 +352,7 @@ impl AppService {
             live,
             lan: external_paths,
             agents,
+            swarm: Arc::new(swarm::Swarms::default()),
         }
     }
 
@@ -360,8 +365,12 @@ impl AppService {
     }
 
     /// Push one event to every window. Never fails: with no window listening
-    /// the event is dropped.
+    /// the event is dropped. `swarm` events go out at most 8 a second, the
+    /// newest always (`swarm::emit_swarm`).
     pub fn emit(&self, event: AppEvent) {
+        if matches!(event, AppEvent::Swarm { .. }) {
+            return swarm::emit_swarm(self, event);
+        }
         let _ = self.events.send(event);
     }
 
@@ -484,6 +493,8 @@ impl AppService {
         project: Option<&str>,
         apply: impl FnOnce(&mut Document, Option<Id>, &str) -> Result<ApplyResult, guhit_core::CoreError>,
     ) -> Result<ApplyResult, IpcError> {
+        // The main lock (D57): every commit comes through here.
+        swarm::check_main_write(self)?;
         let doc = s.doc.as_mut().ok_or_else(no_document)?;
         if project.is_some_and(|p| doc.project().id != p) {
             return Err(live::not_live("The host closed the project."));
@@ -523,6 +534,8 @@ impl AppService {
         requester: Option<&Id>,
         project: Option<&str>,
     ) -> Result<DocState, IpcError> {
+        // The main lock (D57): every undo and redo comes through here.
+        swarm::check_main_write(self)?;
         let doc = s.doc.as_mut().ok_or_else(no_document)?;
         if project.is_some_and(|p| doc.project().id != p) {
             return Err(live::not_live("The host closed the project."));
@@ -562,6 +575,8 @@ impl AppService {
         if let Some(result) = live::guest_route(self, cmd, &args).await {
             return result;
         }
+        // While a swarm draft is open, nothing replaces the open project.
+        swarm::guard(self, cmd, &args)?;
         // Checked before the `ai_` prefix: `render_ai_*` is the image
         // provider, not the copilot.
         if render_ai::OWNS.contains(&cmd) {
@@ -592,6 +607,10 @@ impl AppService {
         }
         if video::OWNS.contains(&cmd) {
             return video::handle(self, cmd, args).await;
+        }
+        // Swarms (D56, D57).
+        if swarm::OWNS.contains(&cmd) {
+            return swarm::handle(self, cmd, args).await;
         }
         match cmd {
             // ------------------------------------------------------ library

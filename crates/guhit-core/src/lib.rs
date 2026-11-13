@@ -34,6 +34,9 @@
 //! - L2: `roofs`, `stairs` (and `slabs`, `pipes`).
 //! - L5: `placement`.
 //! - L9: `tours`.
+//!
+//! Swarms (DECISIONS D57): `replay`, recorded steps replayed onto the
+//! model on accept (`Document::apply_replayed`).
 
 use std::collections::BTreeMap;
 
@@ -55,6 +58,7 @@ mod pipes;
 pub mod placement;
 mod query;
 mod repair;
+pub mod replay;
 pub mod roofs;
 mod rooms;
 pub mod schedules;
@@ -73,6 +77,7 @@ pub use error::CoreError;
 pub use issues::{is_review_code, REVIEW_CODES};
 pub use pipes::pipe_name;
 pub use repair::repair;
+pub use replay::Replayed;
 
 /// The room each object stands in, by object id: the room of the closed wall
 /// face that holds its position. Objects outside every room are left out.

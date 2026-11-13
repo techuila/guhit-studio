@@ -1395,3 +1395,57 @@ async fn a_staged_fence_is_site_walls_and_a_staged_move_names_what_followed() {
     assert_eq!(state.derived.rooms.len(), 1, "the yard is no room");
     assert_eq!(proposal.preview.diff.also_moved.len(), 0, "against the plan before the turn every wall is new");
 }
+
+// ====================================================== the swarm lock (D57)
+
+/// An MCP swarm with one part, its draft open: the model is locked.
+async fn open_swarm(app: &AppService) -> Id {
+    let hint = crate::agents::AgentHint {
+        connection: Some("c-lead".into()),
+        client_name: Some("claude-code".into()),
+        client_version: Some("2.1".into()),
+        ..Default::default()
+    };
+    let lead = app.agent_call(&hint, "swarm", crate::agents::CallKind::Edit).expect("lead");
+    let part = SwarmPartPlan {
+        key: "shell".into(),
+        name: "Shell".into(),
+        role: String::new(),
+        instructions: String::new(),
+        scope: SwarmScope::default(),
+        after: vec![],
+        milestones: vec![],
+    };
+    let plan = SwarmPlan { summary: "Walls".into(), setup: SwarmSetup::default(), parts: vec![part] };
+    app.swarm_start_mcp(&lead, "Walls", plan).await.expect("swarm").swarm.id
+}
+
+/// Gate P1-5: while a swarm draft is open the copilot asks the model
+/// nothing, so nothing is spent: chat and furnishing are refused first.
+#[tokio::test]
+async fn the_copilot_asks_nothing_while_a_swarm_draft_is_open() {
+    let r = rig(vec![ScriptedClient::text("never sent")]).await;
+    open_swarm(&r.app).await;
+    assert_eq!(r.chat("add a wall").await.unwrap_err().code, "swarm_running");
+    let furnish = json!({"message": "Furnish", "selection_ids": [], "history": [], "task": {"type": "furnish", "room_ids": [], "style": "modern"}});
+    let e = r.app.handle("ai_chat", json!({"request": furnish})).await.unwrap_err();
+    assert_eq!(e.code, "swarm_running");
+    assert!(r.model.requests.lock().unwrap().is_empty(), "no request went out");
+}
+
+/// Gate P1-5: a proposal made before a swarm started is refused while the
+/// draft is open and kept, so it applies once the draft is discarded.
+#[tokio::test]
+async fn a_proposal_waits_out_a_swarm_draft() {
+    let r = rig(vec![ScriptedClient::tools(&[("add_wall", wall(0.0, 0.0, 4000.0, 0.0))]), ScriptedClient::text("Staged.")]).await;
+    let proposal = r.chat("a wall").await.unwrap().proposal.expect("proposal");
+    let revision = r.revision().await;
+    let swarm_id = open_swarm(&r.app).await;
+    assert_eq!(r.resolve(&proposal.id, true).await.unwrap_err().code, "swarm_running");
+    assert_eq!(r.revision().await, revision);
+    let still = r.app.ai.pending.lock().await.as_ref().map(|p| p.proposal.id.clone());
+    assert_eq!(still.as_deref(), Some(proposal.id.as_str()), "the proposal is still pending");
+    r.app.swarm_discard(Some(&swarm_id)).await.unwrap();
+    let applied = r.resolve(&proposal.id, true).await.unwrap().applied.expect("applied after the discard");
+    assert_eq!(applied.state.revision, revision + 1);
+}

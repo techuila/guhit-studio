@@ -606,6 +606,13 @@ async fn a_guest_cannot_reach_what_is_the_hosts() {
     for (cmd, args) in hosts_only {
         assert_eq!(fail(&ben.app, cmd, args).await.code, "host_only", "{cmd}");
     }
+    // No swarms for a guest (D57): the window's status questions answer
+    // "none", and starting one is refused with a reason.
+    let none: Value = call(&ben.app, "swarm_status", json!({})).await;
+    assert_eq!(none, Value::Null);
+    let none: Value = call(&ben.app, "swarm_draft", json!({})).await;
+    assert_eq!(none, Value::Null);
+    assert_eq!(fail(&ben.app, "swarm_start", json!({ "request": { "brief": "A house" } })).await.code, "live_session");
     // The window saving a thumbnail of the shared plan does nothing.
     let _: Value = call(&ben.app, "hub_set_thumbnail", json!({ "id": shared_id, "png": PNG_1X1 })).await;
     assert!(!ben.data().join("projects").join(&shared_id).exists());

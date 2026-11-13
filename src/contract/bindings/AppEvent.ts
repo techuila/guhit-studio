@@ -3,6 +3,7 @@ import type { AgentSummary } from "./AgentSummary";
 import type { ChatMessage } from "./ChatMessage";
 import type { LiveStatus } from "./LiveStatus";
 import type { Presence } from "./Presence";
+import type { SwarmStatus } from "./SwarmStatus";
 import type { WindowRequest } from "./WindowRequest";
 
 /**
@@ -10,4 +11,4 @@ import type { WindowRequest } from "./WindowRequest";
  * `GET /events` (server-sent events) on the dev bridge. Document changes keep
  * their own `doc_changed` event.
  */
-export type AppEvent = { "type": "live", status: LiveStatus, } | { "type": "presence", participant_id: string, presence: Presence | null, } | { "type": "chat", message: ChatMessage, } | { "type": "window_request", request: WindowRequest, } | { "type": "agents", agents: Array<AgentSummary>, };
+export type AppEvent = { "type": "live", status: LiveStatus, } | { "type": "presence", participant_id: string, presence: Presence | null, } | { "type": "chat", message: ChatMessage, } | { "type": "window_request", request: WindowRequest, } | { "type": "agents", agents: Array<AgentSummary>, } | { "type": "swarm", swarm: SwarmStatus | null, };

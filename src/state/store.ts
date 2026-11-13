@@ -397,7 +397,8 @@ export const useApp = create<AppState>((set, get) => ({
 
   reportError: (e) => {
     const err = toIpcError(e);
-    get().toast("error", err.message);
+    // A swarm draft is open (D57): the model waits for an accept or a discard. Not a failure.
+    get().toast(err.code === "swarm_running" ? "info" : "error", err.message);
     return err;
   },
 
