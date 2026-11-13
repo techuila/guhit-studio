@@ -776,7 +776,17 @@ fn title_strip(k: f64) -> f64 {
 
 /// Render the plumbing isometric sheet. Returns the SVG and the scale the
 /// diagrams are drawn at along their axes.
-pub(crate) fn render(project: &Project, _derived: &Derived, opts: &PlanExportOptions) -> Result<(String, u32), ExportError> {
+pub(crate) fn render(project: &Project, derived: &Derived, opts: &PlanExportOptions) -> Result<(String, u32), ExportError> {
+    render_in(project, derived, opts, Layout::new(opts.paper, opts.orientation, opts.title_block))
+}
+
+/// `render` on a given page layout (the permit set's sheets).
+pub(crate) fn render_in(
+    project: &Project,
+    _derived: &Derived,
+    opts: &PlanExportOptions,
+    layout: Layout,
+) -> Result<(String, u32), ExportError> {
     if project.levels.is_empty() {
         return Err(ExportError::Empty("the project has no levels".into()));
     }
@@ -785,9 +795,13 @@ pub(crate) fn render(project: &Project, _derived: &Derived, opts: &PlanExportOpt
             "the model has no water, drainage or vent runs for the isometric diagrams".into(),
         ));
     }
-    let layout = Layout::new(opts.paper, opts.orientation, opts.title_block);
     let k = layout.k;
-    let blocks = blocks(project);
+    let mut blocks = blocks(project);
+    // On a sheet of the set the title block carries the Master Plumber's
+    // block (`titleblock`): no second one in the panel.
+    if layout.title_h <= 0.0 {
+        blocks.retain(|b| b.id != "signatory");
+    }
     let panel = place_panel(&blocks, &layout);
     let strip = title_strip(k);
     let which = [Which::Water, Which::Sanitary];

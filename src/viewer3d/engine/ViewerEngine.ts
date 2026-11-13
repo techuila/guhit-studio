@@ -17,6 +17,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import type { Camera, DocState, Element, LiveCamera, Vec3 } from "../../contract/bindings";
+import { elementLevel } from "../../contract/elements";
 import { dur, ease, motionOK } from "../../ui/motion";
 import {
   axonometric,
@@ -40,14 +41,18 @@ import { buildExportGroup, exportDAE, exportGLB, exportOBJ } from "../scene/expo
 import { BuildCache } from "../scene/buildCache";
 import { buildScene, CUTAWAY_MM, levelFilter, type BuiltScene } from "../scene/buildScene";
 import { MaterialLibrary } from "../scene/materials";
-import { loadPackManifest, modelPack } from "../scene/pack";
+import { loadPackManifest, modelPack, packKeysOf } from "../scene/pack";
 import { PIPE_PICK_LAYER, pipeShown, pipeTopMm, pipeWorldPoints } from "../scene/pipes";
 import { DoorSwing } from "../walk/doors";
 import { glideDurationMs, hitTarget, levelTarget } from "../walk/glide";
 import { Minimap, type MinimapScene } from "../walk/minimap";
-import { WalkWorlds } from "../walk/worlds";
+import type { DoorAt } from "../tour/frames";
+import { startTour, stepTour, stopTour } from "../tour/player";
+import { walkWorldsFor } from "../walk/entry";
+import type { WalkWorlds } from "../walk/worlds";
 import type { NavMode, ShellMode } from "../viewerStore";
 import { Animator } from "./animator";
+import { poseCamera } from "./viewCamera";
 import { Environment, TONE_EXPOSURE, TONE_MAPPING } from "./environment";
 import { LightRig } from "../light/LightRig";
 import { markOccluders, ScreenAO } from "../light/ao";
@@ -246,6 +251,8 @@ export class ViewerEngine {
   private raf = 0;
   private needsRender = true;
   private tween: CameraTween | null = null;
+  /** Holders of `holdRefine`: while above 0 the resting view takes no refine samples. */
+  private refineHolds = 0;
   private disposed = false;
   private contextLost = false;
   private firstRendered = false;
@@ -573,9 +580,7 @@ export class ViewerEngine {
   /** Starts the GLB load for every catalog key on screen. Already-known keys are free. */
   private requestPackModels(): void {
     if (!this.packAssets) return;
-    for (const e of this.doc?.project.elements ?? []) {
-      if (e.kind === "asset") modelPack.request(e.catalog_key);
-    }
+    for (const key of packKeysOf(this.doc)) modelPack.request(key);
   }
 
   /**
@@ -1345,6 +1350,25 @@ export class ViewerEngine {
   }
 
   /**
+   * Puts the camera at a pose in this frame for tour playback (tour/player.ts),
+   * dropping any fly on its way: a fly left half dropped would put the camera
+   * back at its end on the next capture (GR3 P1-1). Asks for no render: the
+   * caller is inside the frame that draws it.
+   */
+  placeCamera(pose: WorldPose): void {
+    this.tween = null;
+    this.anim.remove("camera");
+    this.camera.position.set(...pose.position);
+    this.controls.target.set(...pose.target);
+    if (Math.abs(this.camera.fov - pose.fovDeg) > 1e-4) {
+      this.camera.fov = pose.fovDeg;
+      this.camera.updateProjectionMatrix();
+    }
+    this.camera.lookAt(this.controls.target);
+    this.camera.updateMatrixWorld();
+  }
+
+  /**
    * Eases to a pose with the shared `--dur-scene` easing. Interruptible at any
    * moment: any orbit, pan or zoom drops the fly where it is, with no jump.
    */
@@ -1899,7 +1923,8 @@ export class ViewerEngine {
     const first = ids.map((id) => doc.project.elements.find((e) => e.id === id)).find((e) => e);
     let levelId = this.activeLevelIdOrLowest();
     if (first) {
-      if ("level_id" in first && typeof first.level_id === "string") levelId = first.level_id;
+      const own = elementLevel(first);
+      if (own) levelId = own;
       else if (first.kind === "opening") {
         const wall = doc.project.elements.find((e) => e.id === first.wall_id);
         if (wall?.kind === "wall") levelId = wall.level_id;
@@ -1990,7 +2015,7 @@ export class ViewerEngine {
     this.walkWorldDoc = doc;
     this.walkWorldLevel = levelId;
     this.walkWorldEye = w.eyeMm;
-    if (rebuilt) this.walkWorlds = doc ? new WalkWorlds(doc, w.eyeMm) : null;
+    if (rebuilt) this.walkWorlds = walkWorldsFor(doc, w.eyeMm);
     const worlds = this.walkWorlds;
     const id = worlds ? worlds.levelId(levelId) : null;
     if (rebuilt) w.setNav(worlds, id);
@@ -2335,8 +2360,8 @@ export class ViewerEngine {
    * Every running animation lands first, so a capture never catches a frame
    * halfway through a rise, a fade or a cutaway.
    */
-  capture(width = 1920, height = 1080): string {
-    return this.captureCanvas(width, height, (canvas) => canvas.toDataURL("image/png"));
+  capture(width = 1920, height = 1080, view?: THREE.PerspectiveCamera): string {
+    return this.captureCanvas(width, height, (canvas) => canvas.toDataURL("image/png"), view);
   }
 
   /**
@@ -2344,17 +2369,17 @@ export class ViewerEngine {
    * not as this window happens to show them: an MCP client's picture cannot
    * see the window's toggles (`WindowTask::CaptureView::visibility`; the
    * model's defaults are roof on, no cutaway). The window's own state comes
-   * back right after.
+   * back right after. `view`: from a camera of its own (`captureCanvas`).
    */
-  captureWith(width: number, height: number, show: { roof: boolean; cutaway: boolean } = { roof: true, cutaway: false }): string {
+  captureWith(width: number, height: number, show: { roof: boolean; cutaway: boolean } = { roof: true, cutaway: false }, view?: THREE.PerspectiveCamera): string {
     const doc = this.doc;
     const opts = this.opts;
     const shell = this.shell.mode;
-    if (!doc || (opts.cutaway === show.cutaway && opts.roofVisible === show.roof && shell === "solid")) return this.capture(width, height);
+    if (!doc || (opts.cutaway === show.cutaway && opts.roofVisible === show.roof && shell === "solid")) return this.capture(width, height, view);
     this.setDoc(doc, { ...opts, cutaway: show.cutaway, roofVisible: show.roof });
     if (shell !== "solid") this.setShell("solid", false);
     try {
-      return this.capture(width, height);
+      return this.capture(width, height, view);
     } finally {
       if (shell !== "solid") this.setShell(shell, false);
       this.setDoc(doc, opts);
@@ -2365,10 +2390,15 @@ export class ViewerEngine {
    * `capture`, handing the canvas to `use` right after the frame is drawn and
    * before anything else touches it: the shadow study copies its frames out
    * this way instead of encoding a PNG per frame.
+   *
+   * `view` draws from a camera of its own (`viewCamera`) instead of the view's:
+   * a tour video's frames, or a picture an agent asks for while one exports.
+   * The view's camera, and a fly it is on, are left exactly as they are, so
+   * nobody moving the view can change what the capture shows (GR3 P1-1).
    */
-  captureCanvas<T>(width: number, height: number, use: (canvas: HTMLCanvasElement) => T): T {
+  captureCanvas<T>(width: number, height: number, use: (canvas: HTMLCanvasElement) => T, view?: THREE.PerspectiveCamera): T {
     if (this.disposed || this.contextLost) throw new Error("The 3D view is not available right now.");
-    this.anim.finishAll();
+    this.anim.finishAll(view ? "camera" : undefined);
     this.walkDoors.finish();
     this.applyAnimated();
     // A flight that landed here without a frame in between (a capture right
@@ -2376,36 +2406,61 @@ export class ViewerEngine {
     // moved the camera and its target but not turned the camera to the
     // target yet: the orbit controls do that in a frame. Do it now, or the
     // capture keeps the old view direction from the new position.
-    if (this.nav === "orbit") {
+    if (!view && this.nav === "orbit") {
       this.landDamping();
       this.camera.updateMatrixWorld();
     }
+    const cam = view ?? this.camera;
     this.releaseHighlights();
     this.syncPipes();
     this.pipeHandle.setCaptureHidden(true);
     const prevRatio = this.renderer.getPixelRatio();
-    const prevAspect = this.camera.aspect;
+    const prevAspect = cam.aspect;
     try {
       this.renderer.setPixelRatio(1);
       this.renderer.setSize(width, height, false);
-      this.camera.aspect = width / height;
-      this.camera.updateProjectionMatrix();
-      this.env.followCamera(this.camera);
+      cam.aspect = width / height;
+      cam.updateProjectionMatrix();
+      this.env.followCamera(cam);
       this.shadowDirty();
       this.lighting.beforeRender(width, height);
       this.armAo();
-      this.renderer.render(this.scene, this.camera);
+      this.renderer.render(this.scene, cam);
       return use(this.renderer.domElement);
     } finally {
       this.renderer.setPixelRatio(prevRatio);
       this.renderer.setSize(Math.max(this.width, 1), Math.max(this.height, 1), false);
       this.shadowDirty();
-      this.camera.aspect = prevAspect;
-      this.camera.updateProjectionMatrix();
+      cam.aspect = prevAspect;
+      cam.updateProjectionMatrix();
       this.pipeHandle.setCaptureHidden(false);
       this.syncHighlights();
       this.renderNow();
     }
+  }
+
+  /**
+   * A camera of its own at a contract pose (plan mm), with the view's lens
+   * range and layers, for `captureCanvas(..., view)`. Reuses `into`.
+   */
+  viewCamera(pose: Pick<Camera, "position" | "target" | "fov_deg">, into?: THREE.PerspectiveCamera): THREE.PerspectiveCamera {
+    return poseCamera(pose, this.camera, into);
+  }
+
+  /**
+   * Holds the resting view's refine and exposure settling until the returned
+   * release is called: a tour video's frames come first, and each one would
+   * restart the refine (GR3 P2). The view still draws when something moves.
+   */
+  holdRefine(): () => void {
+    this.refineHolds++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.refineHolds = Math.max(0, this.refineHolds - 1);
+      if (this.refineHolds === 0) this.invalidate();
+    };
   }
 
   // ----------------------------------------------------------------- export
@@ -2429,6 +2484,23 @@ export class ViewerEngine {
     } finally {
       dispose();
     }
+  }
+
+  /**
+   * A tour's doors at its frame (tour/frames.ts `doorsAt`), in the view only:
+   * playback and the video open the doors the camera passes through. `null`
+   * puts every leaf back as drawn. A leaf that moved redraws the sun's
+   * shadow map and the next frame.
+   */
+  setTourDoors(doors: ReadonlyMap<string, DoorAt> | null): void {
+    if (!this.walkDoors.pose(doors)) return;
+    this.shadowDirty();
+    this.needsRender = true;
+  }
+
+  /** Plays a tour from its first shot (the `play_tour` bus event; lane L9, tour/player.ts). */
+  playTour(tourId: string): void {
+    if (!this.disposed) startTour(this, tourId);
   }
 
   // ------------------------------------------------------------ render loop
@@ -2564,6 +2636,8 @@ export class ViewerEngine {
     if (this.anim.animating()) active = true;
     // Walking, flying, and door leaves settling after a walk.
     if (this.stepWalk(now)) active = true;
+    // A tour playing (lane L9, tour/player.ts): it moves inside this frame only.
+    if (stepTour(this, now)) active = true;
     // No hover raycast while the camera is being driven or a button is down:
     // the pointer is orbiting, not pointing at anything.
     if (this.hoverQueued) {
@@ -2598,8 +2672,9 @@ export class ViewerEngine {
       this.sampleLive();
     }
     // At rest: the exposure settles and the refine passes run, one frame at a
-    // time, each asked for here (light/LightRig.ts).
-    else if (!this.interacting && !this.pointerDown && this.lighting.idleFrame(now)) this.schedule();
+    // time, each asked for here (light/LightRig.ts). Not while a tour video
+    // exports (`holdRefine`).
+    else if (!this.interacting && !this.pointerDown && this.refineHolds === 0 && this.lighting.idleFrame(now)) this.schedule();
     if (this.minimapDirty) this.drawMinimap();
     this.noteFrameCost(performance.now() - started, interval);
     // The interaction tail needs frames of its own to land the clean one.
@@ -2903,6 +2978,7 @@ export class ViewerEngine {
     if (this.disposed) return;
     this.disposed = true;
     liveEngines--;
+    stopTour();
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
     if (this.packTimer) clearTimeout(this.packTimer);

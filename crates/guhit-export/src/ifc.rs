@@ -26,17 +26,18 @@
 //!   IfcWall with PredefinedType .USERDEFINED. and ObjectType 'BOUNDARYWALL',
 //!   named "Site wall N", external and not load bearing. IFC4 has no
 //!   boundary wall type of its own.
-//! - A gable roof is one IfcRoof aggregating two sloped IfcSlab planes. The
-//!   triangular gable ends are not written as walls: the walls keep their own
-//!   height and the roof planes cover them, exactly as the live 3D view does.
+//! - A pitched roof is one IfcRoof aggregating one sloped IfcSlab per plane.
+//!   Its gable ends are walls when `Derived::roofs` gives them (below),
+//!   IfcWall .USERDEFINED. with ObjectType 'GABLEWALL', named "Gable wall
+//!   N"; the Wave 1 planes have none, and the walls keep their own height.
 //! - Openings are boxes, so an arched or shaped head is squared off. The void
 //!   is 10 mm deeper than the wall on each face so it cuts clean everywhere.
 //! - A door or window is a single thin box, not a frame with leaves and
 //!   glazing. It exists so the hole reads as an opening in a viewer.
-//! - A stair is one IfcStairFlight box the full level height, with the riser
-//!   and tread numbers as properties. Individual treads are not modelled.
-//!   A flight of n risers has n - 1 treads of `run_mm / (n - 1)`, as the
-//!   inspector shows them.
+//! - Without `Derived::stairs`, a stair is one IfcStairFlight box the full
+//!   level height, with the riser and tread numbers as properties.
+//!   Individual treads are not modelled. A flight of n risers has n - 1
+//!   treads of `run_mm / (n - 1)`, as the inspector shows them.
 //! - Dimension elements are skipped: IFC has no plain 2D dimension in this
 //!   context and a wrong one is worse than none.
 //! - Linework, ReferenceModel, Underlay and Camera elements are skipped. They
@@ -59,19 +60,47 @@
 //! - Each `Derived::railings` run is one IfcRailing, `.GUARDRAIL.` for slab
 //!   edges and stair wells, `.HANDRAIL.` for stair sides, its solids from
 //!   `model3d::railing_pieces`.
+//!
+//! What a firm's Revit or ArchiCAD expects on top (Wave 2, lane L8):
+//! - Base quantities (`qto`): Qto_WallBaseQuantities, Qto_SlabBaseQuantities
+//!   (floors, balconies, decks, landings, roof planes),
+//!   Qto_SpaceBaseQuantities, Qto_DoorBaseQuantities,
+//!   Qto_WindowBaseQuantities, Qto_RoofBaseQuantities and
+//!   Qto_StairFlightBaseQuantities.
+//! - Types (`types`): an IfcDoorType or IfcWindowType per door and window
+//!   type with its mark as name and tag, untyped openings grouped by kind,
+//!   style and size, and an IfcWallType per thickness and material. A typed
+//!   opening carries its mark as Tag and as Pset_*Common Reference.
+//! - Stairs from `Derived::stairs` when the engine has them: one
+//!   IfcStairFlight per flight, its treads as steps, and IfcSlab .LANDING.
+//!   landings, aggregated by an IfcStair of the stair's shape. Without it,
+//!   the one-box flight above.
+//! - Roofs from `Derived::roofs` when the engine has them: an IfcRoof over
+//!   one sloped IfcSlab per plane (the top surface swept straight down by
+//!   the roof's vertical thickness), and the gable-end infill as walls.
+//! - One IfcGrid from the grid lines, the IfcSite's latitude and longitude
+//!   from the project's site and its land title number from the title
+//!   block's TCT, and an IfcSanitaryTerminal per WC, lavatory, shower,
+//!   bathtub and sink.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use guhit_model::{
-    ColumnShape, Derived, Opening, OpeningStyle, OpeningType, Project, RailingRunKind,
-    RailingStyle, RoofKind, RoomUsage, SlabKind,
+    ColumnShape, Derived, Element, GridLine, Opening, OpeningStyle, OpeningType, Project,
+    RailingRunKind, RailingStyle, RoofKind, RoomUsage, SlabKind,
 };
 
 use crate::geom::*;
 use crate::model3d::*;
 use crate::pipes;
 use crate::ExportError;
+
+mod extra;
+mod qto;
+mod types;
+
+use qto::{m2, m3, perimeter, Q};
 
 // ------------------------------------------------------------------ IFC GUID
 
@@ -468,9 +497,24 @@ pub struct Counts {
     pub unitary: usize,
     pub cable_segments: usize,
     pub railings: usize,
+    pub sanitary: usize,
+    pub grids: usize,
+    pub door_types: usize,
+    pub window_types: usize,
+    pub wall_types: usize,
+    /// IfcElementQuantity sets.
+    pub quantity_sets: usize,
+    pub stair_flights: usize,
 }
 
 impl<'a> Build<'a> {
+    /// The name of a material id, or `fallback`.
+    fn material_name(&self, id: Option<&String>, fallback: &str) -> String {
+        id.and_then(|m| self.project.materials.iter().find(|x| &x.id == m))
+            .map(|m| m.name.clone())
+            .unwrap_or_else(|| fallback.to_string())
+    }
+
     fn material_named(&mut self, name: &str, elements: &[Ref]) {
         match self.materials.iter_mut().find(|(n, _)| n == name) {
             Some((_, list)) => list.extend_from_slice(elements),
@@ -597,8 +641,18 @@ pub fn write_with_counts(
     } else {
         project.settings.location.trim().to_string()
     };
+    // Latitude and longitude when the project says where it stands; the
+    // land title (TCT) number when the title block has one.
+    let (lat, lon) = match &project.settings.site {
+        Some(g) if g.latitude_deg.is_finite() && g.longitude_deg.is_finite() => {
+            (extra::compound_angle(g.latitude_deg), extra::compound_angle(g.longitude_deg))
+        }
+        _ => ("$".to_string(), "$".to_string()),
+    };
+    let tct = crate::text::clean(&project.title_block.tct_no);
+    let tct = if tct.is_empty() { "$".to_string() } else { s(&tct) };
     let site = step.add(&format!(
-        "IFCSITE({},$,{},$,$,{site_place},$,$,.ELEMENT.,$,$,$,$,$)",
+        "IFCSITE({},$,{},$,$,{site_place},$,$,.ELEMENT.,{lat},{lon},$,{tct},$)",
         s(&guid_for("site", &project.id)),
         s(&site_name)
     ));
@@ -645,6 +699,14 @@ pub fn write_with_counts(
     let mut names = Names::default();
     // Rails of each host so far: a stair has up to two sides and a well.
     let mut rails_of: HashMap<&str, usize> = HashMap::new();
+    let mut types = types::Types::default();
+    // Each opening's mark from the schedule (DECISIONS D53).
+    let marks: HashMap<&str, &str> = derived
+        .opening_schedule
+        .marks
+        .iter()
+        .map(|m| (m.opening_id.as_str(), m.mark.as_str()))
+        .collect();
 
     for (i, ls) in scene.levels.iter().enumerate() {
         let place_parent = storey_places[i];
@@ -682,6 +744,41 @@ pub fn write_with_counts(
             wall_refs.insert(w.wall.id.as_str(), wall);
             build.counts.walls += 1;
             build.material_for(w.wall.material_id.as_ref(), "Wall", wall);
+            let material = build.material_name(w.wall.material_id.as_ref(), "Wall");
+            types.add_wall(w.wall, &material, wall);
+            {
+                // Openings come off the sides and the volume, at the size
+                // their voids cut.
+                let t = w.wall.thickness_mm.abs();
+                let length = (V::from(w.wall.end) - V::from(w.wall.start)).len();
+                let cut: f64 = w
+                    .openings
+                    .iter()
+                    .map(|o| {
+                        let sill = o.sill_mm.max(0.0);
+                        let h = o.height_mm.max(1.0).min((w.height - sill).max(1.0));
+                        m2(o.width_mm.max(0.0) * h)
+                    })
+                    .sum();
+                let foot = m2(polygon_area(&w.plan_outline));
+                let side = m2(length * w.height);
+                build.qto(
+                    "Qto_WallBaseQuantities",
+                    &w.wall.id,
+                    &[
+                        ("Length", Q::Length(length)),
+                        ("Width", Q::Length(t)),
+                        ("Height", Q::Length(w.height)),
+                        ("GrossFootprintArea", Q::Area(foot)),
+                        ("NetFootprintArea", Q::Area(foot)),
+                        ("GrossSideArea", Q::Area(side)),
+                        ("NetSideArea", Q::Area(side - cut)),
+                        ("GrossVolume", Q::Volume(m3(foot, w.height))),
+                        ("NetVolume", Q::Volume(m3(foot, w.height) - m3(cut, t))),
+                    ],
+                    &[wall],
+                );
+            }
             build.pset(
                 "Pset_WallCommon",
                 &w.wall.id,
@@ -756,24 +853,38 @@ pub fn write_with_counts(
                     let a = build.step.axis_at(0.0, 0.0, 0.0);
                     build.step.placement(Some(place_parent), a)
                 };
+                // A typed opening is named and tagged with its mark.
+                let mark: Option<String> = marks
+                    .get(o.id.as_str())
+                    .map(|m| m.to_string())
+                    .or_else(|| o.type_id.as_ref().and_then(|t| project.opening_type(t)).map(|t| t.mark.clone()))
+                    .map(|m| crate::text::clean(&m))
+                    .filter(|m| !m.is_empty());
+                let tag = mark.as_deref().map(s).unwrap_or_else(|| "$".into());
+                let label = |kind: &str| match &mark {
+                    Some(m) => format!("{kind} {m}"),
+                    None => format!("{kind} {}", style_label(o.style)),
+                };
                 let filler = match o.opening_type {
                     OpeningType::Door => build.step.add(&format!(
-                        "IFCDOOR({},$,{},$,$,{f_place},{panel_shape},$,{},{},.DOOR.,{},$)",
+                        "IFCDOOR({},$,{},$,$,{f_place},{panel_shape},{tag},{},{},.DOOR.,{},$)",
                         s(&guid(&o.id)),
-                        s(&format!("Door {}", style_label(o.style))),
+                        s(&label("Door")),
                         r(height),
                         r(o.width_mm),
                         door_operation(o)
                     )),
                     OpeningType::Window => build.step.add(&format!(
-                        "IFCWINDOW({},$,{},$,$,{f_place},{panel_shape},$,{},{},.WINDOW.,{},$)",
+                        "IFCWINDOW({},$,{},$,$,{f_place},{panel_shape},{tag},{},{},.WINDOW.,{},$)",
                         s(&guid(&o.id)),
-                        s(&format!("Window {}", style_label(o.style))),
+                        s(&label("Window")),
                         r(height),
                         r(o.width_mm),
                         window_partitioning(o.style)
                     )),
                 };
+                types.add_opening(project, o, mark.as_deref(), filler);
+                build.opening_qto(&o.id, o.opening_type == OpeningType::Door, o.width_mm, height, filler);
                 build.step.add(&format!(
                     "IFCRELFILLSELEMENT({},$,$,$,{opening},{filler})",
                     s(&guid_for("fills", &o.id))
@@ -799,7 +910,7 @@ pub fn write_with_counts(
                     &o.id,
                     &[
                         ("IsExternal", Val::Bool(w.exterior)),
-                        ("Reference", Val::Text(style_label(o.style).to_string())),
+                        ("Reference", Val::Text(mark.clone().unwrap_or_else(|| style_label(o.style).to_string()))),
                     ],
                     &[filler],
                 );
@@ -821,6 +932,11 @@ pub fn write_with_counts(
         // ------------------------------------------------------- slabs
         // The floors of this level a void may cut.
         let mut floors: Vec<Floor> = Vec::new();
+        // Each void's clear part: it never takes the slab under the walls
+        // (GA P0-1), so the slab's net area is the schedule's gross area.
+        let clear: Vec<Vec<Vec<V>>> = ls.voids.iter().map(|vd| crate::model3d::void_clear(&slab_outline(vd), &ls.walls)).collect();
+        // The area of this level's voids over an outline, m².
+        let void_cut = |outline: &[V]| -> f64 { clear.iter().flatten().map(|piece| m2(overlap_area(piece, outline))).sum() };
         for (n, fp) in ls.footprints.iter().enumerate() {
             let Some(profile) = build.step.profile(fp) else {
                 continue;
@@ -842,6 +958,7 @@ pub fn write_with_counts(
             build.contained[i].push(slab);
             build.counts.slabs += 1;
             build.material_for(None, "Concrete slab", slab);
+            build.slab_qto(&format!("{}:slab-{n}", ls.level.id), fp, SLAB_THICKNESS_MM, void_cut(fp), slab);
             floors.push(Floor {
                 key: format!("slab-{n}"),
                 slab,
@@ -896,6 +1013,8 @@ pub fn write_with_counts(
                 ],
                 &[slab],
             );
+            let cut = if sl.kind == SlabKind::Floor { void_cut(&outline) } else { 0.0 };
+            build.slab_qto(&sl.id, &outline, top - bottom, cut, slab);
             floors.push(Floor {
                 key: sl.id.clone(),
                 slab,
@@ -908,23 +1027,28 @@ pub fn write_with_counts(
 
         // Voids: one opening through each floor they overlap, 10 mm past
         // both faces so it cuts clean.
-        for vd in &ls.voids {
-            let outline = slab_outline(vd);
+        for (vd, pieces) in ls.voids.iter().zip(&clear) {
             let cut: Vec<&Floor> = floors
                 .iter()
-                .filter(|f| overlap_area(&outline, &f.outline) > 1.0)
+                .filter(|f| pieces.iter().any(|piece| overlap_area(piece, &f.outline) > 1.0))
                 .collect();
             if cut.is_empty() {
                 continue;
             }
             let void_name = numbered(&mut names.voids, "Void");
             for f in cut {
-                let Some(profile) = build.step.profile(&outline) else {
-                    break;
-                };
+                // One extrusion per clear piece: the walls keep their slab.
                 let pos = build.step.axis_at(0.0, 0.0, f.bottom - 10.0);
-                let solid = build.step.extruded(profile, pos, f.top - f.bottom + 20.0);
-                let body = build.step.shape(body_ctx, "Body", "SweptSolid", &[solid]);
+                let mut solids: Vec<Ref> = Vec::new();
+                for piece in pieces {
+                    if let Some(profile) = build.step.profile(piece) {
+                        solids.push(build.step.extruded(profile, pos, f.top - f.bottom + 20.0));
+                    }
+                }
+                if solids.is_empty() {
+                    break;
+                }
+                let body = build.step.shape(body_ctx, "Body", "SweptSolid", &solids);
                 let shape = build.step.product_shape(&[body]);
                 let place = {
                     let a = build.step.axis_at(0.0, 0.0, 0.0);
@@ -1016,10 +1140,21 @@ pub fn write_with_counts(
             let Some(profile) = build.step.profile(&rm.polygon) else {
                 continue;
             };
+            // The schedule's row: its floor area (as Totals count it) and
+            // its ceiling.
+            let row = derived.room_schedule.iter().find(|r| r.room_id == rm.room.id);
+            // The ceiling: the room's own, else the schedule's, else the
+            // level height. A room under a void reaches the ceiling over it,
+            // so the space is as tall as its ceiling when that is higher.
+            let ceiling = rm
+                .room
+                .ceiling_height_mm
+                .or_else(|| row.map(|r| r.ceiling_height_mm))
+                .filter(|h| h.is_finite() && *h > 0.0)
+                .unwrap_or(ls.level.height_mm.max(1.0));
+            let height = ls.level.height_mm.max(1.0).max(ceiling);
             let pos = build.step.axis_at(0.0, 0.0, 0.0);
-            let solid = build
-                .step
-                .extruded(profile, pos, ls.level.height_mm.max(1.0));
+            let solid = build.step.extruded(profile, pos, height);
             let body = build.step.shape(body_ctx, "Body", "SweptSolid", &[solid]);
             let shape = build.step.product_shape(&[body]);
             let place = {
@@ -1035,7 +1170,10 @@ pub fn write_with_counts(
             ));
             spaces_per_storey[i].push(space);
             build.counts.spaces += 1;
+            // Gross: inside the walls less voids; net: the floor area the
+            // schedule and Totals count, also less balconies and decks.
             let area_m2 = rm.area_mm2 / 1_000_000.0;
+            let floor_m2 = row.map(|r| r.floor_area_m2).filter(|a| a.is_finite()).unwrap_or(area_m2);
             build.pset(
                 "Pset_SpaceCommon",
                 &rm.room.id,
@@ -1043,7 +1181,20 @@ pub fn write_with_counts(
                     ("Reference", Val::Text(usage_label(rm.room.usage).to_string())),
                     ("IsExternal", Val::Bool(false)),
                     ("GrossPlannedArea", Val::Area(area_m2)),
-                    ("NetPlannedArea", Val::Area(area_m2)),
+                    ("NetPlannedArea", Val::Area(floor_m2)),
+                ],
+                &[space],
+            );
+            build.qto(
+                "Qto_SpaceBaseQuantities",
+                &rm.room.id,
+                &[
+                    ("Height", Q::Length(height)),
+                    ("FinishCeilingHeight", Q::Length(ceiling)),
+                    ("GrossFloorArea", Q::Area(area_m2)),
+                    ("NetFloorArea", Q::Area(floor_m2)),
+                    ("GrossPerimeter", Q::Length(perimeter(&rm.polygon))),
+                    ("GrossVolume", Q::Volume(m3(area_m2, ceiling))),
                 ],
                 &[space],
             );
@@ -1088,9 +1239,10 @@ pub fn write_with_counts(
             };
             let Some(profile) = profile else { continue };
             let pos = build.step.axis_at(0.0, 0.0, 0.0);
+            // Up to the roof over its center (a carport or lanai post).
             let solid = build
                 .step
-                .extruded(profile, pos, ls.level.height_mm.max(1.0));
+                .extruded(profile, pos, crate::model3d::column_height(derived, ls.level, c));
             let body = build.step.shape(body_ctx, "Body", "SweptSolid", &[solid]);
             let shape = build.step.product_shape(&[body]);
             let column = build.step.add(&format!(
@@ -1104,6 +1256,43 @@ pub fn write_with_counts(
 
         // ------------------------------------------------------ stairs
         for st in &ls.stairs {
+            // The engine's flights and landings when it has them.
+            if let Some(geo) = derived.stairs.iter().find(|g| g.stair_id == st.id && !g.flights.is_empty()) {
+                let parts = build.derived_stair(st, geo, place_parent, body_ctx, &mut names);
+                if parts.is_empty() {
+                    continue;
+                }
+                let stair_place = {
+                    let a = build.step.axis_at(0.0, 0.0, 0.0);
+                    build.step.placement(Some(place_parent), a)
+                };
+                let stair = build.step.add(&format!(
+                    "IFCSTAIR({},$,'Stair',$,$,{stair_place},$,$,{})",
+                    s(&guid(&st.id)),
+                    extra::stair_kind(st.shape)
+                ));
+                build.step.add(&format!(
+                    "IFCRELAGGREGATES({},$,$,$,{stair},{})",
+                    s(&guid_for("stair-parts", &st.id)),
+                    list(&parts)
+                ));
+                build.contained[i].push(stair);
+                build.counts.stairs += 1;
+                let risers = st.riser_count.max(1) as i64;
+                let treads: i64 = geo.flights.iter().map(|f| f.nosings.len() as i64).sum();
+                build.pset(
+                    "Guhit_Pset_Stair",
+                    &st.id,
+                    &[
+                        ("NumberOfRiser", Val::Count(risers)),
+                        ("NumberOfTreads", Val::Count(treads)),
+                        ("RiserHeight", Val::Length(geo.riser_mm)),
+                        ("TreadLength", Val::Length(geo.tread_mm)),
+                    ],
+                    &[stair],
+                );
+                continue;
+            }
             let Some(profile) = build.step.profile(&stair_box(st)) else {
                 continue;
             };
@@ -1154,6 +1343,18 @@ pub fn write_with_counts(
                 ],
                 &[flight],
             );
+            build.counts.stair_flights += 1;
+            let volume = m3(m2(polygon_area(&stair_box(st))), rise);
+            build.qto(
+                "Qto_StairFlightBaseQuantities",
+                &st.id,
+                &[
+                    ("Length", Q::Length(tread * treads as f64)),
+                    ("GrossVolume", Q::Volume(volume)),
+                    ("NetVolume", Q::Volume(volume)),
+                ],
+                &[flight],
+            );
         }
 
         // ------------------------------------------------------ assets
@@ -1175,6 +1376,24 @@ pub fn write_with_counts(
                 let ax = build.step.axis_at(0.0, 0.0, 0.0);
                 build.step.placement(Some(place_parent), ax)
             };
+            // Plumbing fixtures are sanitary terminals.
+            if let Some(kind) = extra::sanitary_kind(a) {
+                let fixture = build.step.add(&format!(
+                    "IFCSANITARYTERMINAL({},$,{},$,{},{place},{shape},$,{kind})",
+                    s(&guid(&a.id)),
+                    s(&a.name),
+                    s(&a.catalog_key)
+                ));
+                build.contained[i].push(fixture);
+                build.counts.sanitary += 1;
+                build.pset(
+                    "Guhit_Pset_Object",
+                    &a.id,
+                    &[("CatalogKey", Val::Text(a.catalog_key.clone()))],
+                    &[fixture],
+                );
+                continue;
+            }
             let Some((entity, kind)) = device_entity(a) else {
                 let furn = build.step.add(&format!(
                     "IFCFURNISHINGELEMENT({},$,{},$,$,{place},{shape},{})",
@@ -1314,11 +1533,44 @@ pub fn write_with_counts(
         }
     }
 
-    // --------------------------------------------------------------- roof
-    if let Some(top) = scene.roof_level {
+    // -------------------------------------------------------------- roofs
+    // From `Derived::roofs` when the engine has them, else the Wave 1 planes
+    // of the scene. The first roof keeps the Wave 1 GUIDs, so a re-export of
+    // the same house matches.
+    let derived_roofs = derived.roofs.iter().any(|g| !g.planes.is_empty());
+    for (ri, g) in derived.roofs.iter().enumerate().filter(|_| derived_roofs) {
+        let Some(top) = scene.levels.iter().position(|l| l.level.id == g.level_id) else {
+            continue;
+        };
+        let area = project.elements.iter().find_map(|e| match e {
+            Element::Roof(r) if r.id == g.roof_id => Some(r),
+            _ => None,
+        });
+        // A roof element that is gone draws nothing, even when `Derived`
+        // still has its planes; an empty id is the legacy project roof.
+        if area.is_none() && !g.roof_id.is_empty() {
+            continue;
+        }
+        let kind = area.map(|r| r.shape.kind()).unwrap_or_else(|| project.top_roof().kind);
+        let material = area.and_then(|r| r.material_id.clone());
+        let tag = |what: &str| if ri == 0 { what.to_string() } else { format!("{what}-{ri}") };
+        let owner = if ri == 0 { project.id.clone() } else { g.roof_id.clone() };
+        let place_parent = storey_places[top];
+        let guid_of = |n: usize| guid_for(&format!("{}-{n}", tag("roof-plane")), &owner);
+        let (planes, surface) =
+            build.derived_roof_planes(&g.planes, g.vertical_mm, &guid_of, material.as_ref(), place_parent, body_ctx);
+        let gables = build.gable_walls(&g.infill, &scene.levels[top].walls, &g.roof_id, place_parent, body_ctx, &mut names);
+        build.contained[top].extend(gables);
+        let surface = if g.surface_area_m2 > 0.0 { g.surface_area_m2 } else { surface };
+        finish_roof(&mut build, kind, &planes, top, place_parent, &tag, &owner, surface, g.plan_area_m2);
+    }
+    for (ri, roof_solid) in scene.roofs.iter().enumerate().filter(|_| !derived_roofs) {
+        let top = roof_solid.level;
+        let tag = |what: &str| if ri == 0 { what.to_string() } else { format!("{what}-{ri}") };
         let place_parent = storey_places[top];
         let mut planes: Vec<Ref> = Vec::new();
-        for (n, plane) in scene.roof.iter().enumerate() {
+        let (mut surface, mut projected) = (0.0, 0.0);
+        for (n, plane) in roof_solid.planes.iter().enumerate() {
             let profile_poly: Vec<V> = plane.plan.iter().map(|p| plane.profile(*p)).collect();
             let Some(profile) = build.step.profile(&profile_poly) else {
                 continue;
@@ -1346,48 +1598,69 @@ pub fn write_with_counts(
                 let a = build.step.axis_at(0.0, 0.0, 0.0);
                 build.step.placement(Some(place_parent), a)
             };
+            let id = guid_for(&format!("{}-{n}", tag("roof-plane")), &project.id);
             let slab = build.step.add(&format!(
                 "IFCSLAB({},$,{},$,$,{place},{shape},$,.ROOF.)",
-                s(&guid_for(&format!("roof-plane-{n}"), &project.id)),
+                s(&id),
                 s(&format!("Roof plane {}", n + 1))
             ));
             planes.push(slab);
             build.counts.slabs += 1;
-            build.material_for(project.roof.material_id.as_ref(), "Roofing", slab);
+            build.material_for(roof_solid.material_id.as_ref(), "Roofing", slab);
+            let plan = m2(polygon_area(&plane.plan));
+            let sloped = plan / plane.cos.max(1e-6);
+            surface += sloped;
+            projected += plan;
+            build.qto(
+                "Qto_SlabBaseQuantities",
+                &id,
+                &[
+                    ("Width", Q::Length(plane.thickness)),
+                    ("Perimeter", Q::Length(perimeter(&profile_poly))),
+                    ("GrossArea", Q::Area(sloped)),
+                    ("NetArea", Q::Area(sloped)),
+                    ("GrossVolume", Q::Volume(m3(sloped, plane.thickness))),
+                ],
+                &[slab],
+            );
         }
-        if !planes.is_empty() {
-            match project.roof.kind {
-                RoofKind::Flat | RoofKind::None => {
-                    // A flat roof is a single slab, contained directly.
-                    for p in &planes {
-                        build.contained[top].push(*p);
-                    }
-                }
-                RoofKind::Shed | RoofKind::Gable => {
-                    let place = {
-                        let a = build.step.axis_at(0.0, 0.0, 0.0);
-                        build.step.placement(Some(place_parent), a)
-                    };
-                    let kind = if project.roof.kind == RoofKind::Gable {
-                        ".GABLE_ROOF."
-                    } else {
-                        ".SHED_ROOF."
-                    };
-                    let roof = build.step.add(&format!(
-                        "IFCROOF({},$,'Roof',$,$,{place},$,$,{kind})",
-                        s(&guid_for("roof", &project.id))
-                    ));
-                    build.step.add(&format!(
-                        "IFCRELAGGREGATES({},$,$,$,{roof},{})",
-                        s(&guid_for("roof-parts", &project.id)),
-                        list(&planes)
-                    ));
-                    build.contained[top].push(roof);
-                    build.counts.roofs += 1;
-                }
-            }
+        let gables = build.gable_walls(
+            &roof_solid.infill,
+            &scene.levels[top].walls,
+            &format!("{}:{ri}", project.id),
+            place_parent,
+            body_ctx,
+            &mut names,
+        );
+        build.contained[top].extend(gables);
+        finish_roof(&mut build, roof_solid.kind, &planes, top, place_parent, &tag, &project.id, surface, projected);
+    }
+
+    // --------------------------------------------------------------- grid
+    // One grid for the whole building, on the lowest storey.
+    let lines: Vec<&GridLine> = project
+        .elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Grid(g) => Some(g),
+            _ => None,
+        })
+        .collect();
+    let lowest = (0..scene.levels.len()).min_by(|a, b| {
+        scene.levels[*a]
+            .level
+            .elevation_mm
+            .partial_cmp(&scene.levels[*b].level.elevation_mm)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    if let Some(low) = lowest {
+        if let Some(grid) = build.grid(&lines, &project.id, storey_places[low], anno_ctx) {
+            build.contained[low].push(grid);
         }
     }
+
+    // -------------------------------------------------------------- types
+    types.write(&mut build, ifc_project, &project.id);
 
     // ------------------------------------------------------ relationships
     build.step.add(&format!(
@@ -1501,6 +1774,59 @@ struct Names {
     voids: usize,
     guards: usize,
     handrails: usize,
+    landings: usize,
+    gables: usize,
+}
+
+/// The roof over its planes: an IfcRoof of its kind aggregating them, with
+/// Qto_RoofBaseQuantities. A flat roof is its one slab, contained directly.
+#[allow(clippy::too_many_arguments)]
+fn finish_roof(
+    build: &mut Build,
+    kind: RoofKind,
+    planes: &[Ref],
+    top: usize,
+    place_parent: Ref,
+    tag: &dyn Fn(&str) -> String,
+    owner: &str,
+    surface_m2: f64,
+    projected_m2: f64,
+) {
+    if planes.is_empty() {
+        return;
+    }
+    let predefined = match kind {
+        RoofKind::Flat | RoofKind::None => {
+            build.contained[top].extend_from_slice(planes);
+            return;
+        }
+        RoofKind::Gable => ".GABLE_ROOF.",
+        RoofKind::Hip => ".HIP_ROOF.",
+        RoofKind::Shed => ".SHED_ROOF.",
+    };
+    let place = {
+        let a = build.step.axis_at(0.0, 0.0, 0.0);
+        build.step.placement(Some(place_parent), a)
+    };
+    let id = guid_for(&tag("roof"), owner);
+    let roof = build.step.add(&format!("IFCROOF({},$,'Roof',$,$,{place},$,$,{predefined})", s(&id)));
+    build.step.add(&format!(
+        "IFCRELAGGREGATES({},$,$,$,{roof},{})",
+        s(&guid_for(&tag("roof-parts"), owner)),
+        list(planes)
+    ));
+    build.contained[top].push(roof);
+    build.counts.roofs += 1;
+    build.qto(
+        "Qto_RoofBaseQuantities",
+        &id,
+        &[
+            ("GrossArea", Q::Area(surface_m2)),
+            ("NetArea", Q::Area(surface_m2)),
+            ("ProjectedArea", Q::Area(projected_m2)),
+        ],
+        &[roof],
+    );
 }
 
 /// The next name of a numbered kind: "Balcony 2".
@@ -1650,6 +1976,13 @@ pub fn count_entities(ifc: &str) -> Counts {
         unitary: n("IFCUNITARYEQUIPMENT"),
         cable_segments: n("IFCCABLECARRIERSEGMENT"),
         railings: n("IFCRAILING"),
+        sanitary: n("IFCSANITARYTERMINAL"),
+        grids: n("IFCGRID"),
+        door_types: n("IFCDOORTYPE"),
+        window_types: n("IFCWINDOWTYPE"),
+        wall_types: n("IFCWALLTYPE"),
+        quantity_sets: n("IFCELEMENTQUANTITY"),
+        stair_flights: n("IFCSTAIRFLIGHT"),
     }
 }
 

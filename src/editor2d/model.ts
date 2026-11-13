@@ -13,9 +13,22 @@ import type {
   Wall,
   WallGeometry,
 } from "../contract/bindings";
+import { elementLevel, isView } from "../contract/elements";
 import { PIPE_LAYER } from "../contract/pipes";
+import {
+  GRID_BUBBLE_PX,
+  gridOutline,
+  isDimensionString,
+  lotOutline,
+  markOutline,
+  markRadiusMm,
+  mmPerPx,
+  stringGeometry,
+  stringPoints,
+} from "./permit/shapes";
 import type { StairEl } from "./slab";
 import { railingsOn, stairsArrivingAt, underlayWalls } from "./slab";
+import { roofShape, stairShape } from "./roofsStairsGeom";
 import { assetSymbolOutline, symbolSizeMm } from "./symbols";
 import type { P, Rect } from "./geom";
 import {
@@ -79,6 +92,17 @@ export function layerOf(el: Element): LayerKey {
       return PIPE_LAYER[el.system];
     case "slab":
       return "slabs";
+    case "roof":
+      return "roofs";
+    case "grid":
+      return "grids";
+    case "view_mark":
+      return "annotations";
+    case "lot":
+      return "site";
+    case "tour":
+      // A view on no layer, like a camera; never drawn on the plan.
+      return "annotations";
   }
 }
 
@@ -102,13 +126,17 @@ export interface DocIndex {
   roomPolygons: P[][];
 }
 
+/**
+ * The level an element is drawn on: openings follow their wall. Null
+ * (`elementLevel`: views, grid lines, the lot, the roof over the top floor)
+ * shows on every level.
+ */
 export function levelOf(el: Element, byId: Map<string, Element>): string | null {
   if (el.kind === "opening") {
     const host = byId.get(el.wall_id);
     return host && host.kind === "wall" ? host.level_id : null;
   }
-  if (el.kind === "camera") return null;
-  return el.level_id;
+  return elementLevel(el);
 }
 
 export function buildIndex(doc: DocState, activeLevelId: string | null): DocIndex {
@@ -295,8 +323,12 @@ export function elementShape(el: Element, index: DocIndex, opt: ShapeOptions): S
     }
     case "column":
       return { points: orientedRect(el.center, el.width_mm, el.shape === "round" ? el.width_mm : el.depth_mm, el.rotation_deg), closed: true };
+    // Lane L2: an L or U by its flights and landing, a roof by its outline
+    // and overhang, from Derived.
     case "stair":
-      return { points: stairOutline(el.origin, el.rotation_deg, el.width_mm, el.run_mm), closed: true };
+      return stairShape(el, index);
+    case "roof":
+      return roofShape(el, index);
     case "asset":
       // Devices pick by their symbol, which is larger than a 70 mm outlet.
       return {
@@ -306,6 +338,11 @@ export function elementShape(el: Element, index: DocIndex, opt: ShapeOptions): S
     case "annotation":
       return { points: annotationBox(el.position, el.text, el.size_mm, el.rotation_deg), closed: true };
     case "dimension": {
+      // A dimension string (lane L1): its line from the first point to the last.
+      if (isDimensionString(el)) {
+        const sg = stringGeometry(el);
+        return { points: [sg.p1, sg.p2], closed: false };
+      }
       const g = dimensionGeometry(el.a, el.b, el.offset_mm);
       return { points: [g.p1, g.p2], closed: false };
     }
@@ -335,6 +372,18 @@ export function elementShape(el: Element, index: DocIndex, opt: ShapeOptions): S
       return { points: el.points.map((v) => ({ x: v.x, y: v.y })), closed: false };
     case "slab":
       return { points: el.polygon, closed: true };
+    // Lane L1: bubble, line and bubble; head, cut and head (or the target on
+    // its plane); the lot's sides closed on the first corner, open so a
+    // marquee inside the lot does not pick it.
+    case "grid":
+      return { points: gridOutline(el, GRID_BUBBLE_PX * mmPerPx(opt.labelHeightMm)), closed: false };
+    case "view_mark":
+      return { points: markOutline(el, markRadiusMm(el, mmPerPx(opt.labelHeightMm))), closed: false };
+    case "lot":
+      return el.corners.length >= 2 ? { points: lotOutline(el), closed: false } : null;
+    // A tour is a view with no plan shape.
+    case "tour":
+      return null;
   }
 }
 
@@ -364,7 +413,7 @@ export function keyPoints(el: Element, index: DocIndex): P[] {
     case "annotation":
       return [el.position];
     case "dimension":
-      return [el.a, el.b];
+      return isDimensionString(el) ? stringPoints(el) : [el.a, el.b];
     case "camera":
       return [{ x: el.position.x, y: el.position.y }];
     case "underlay":
@@ -381,7 +430,14 @@ export function keyPoints(el: Element, index: DocIndex): P[] {
       return el.points.map((v) => ({ x: v.x, y: v.y }));
     case "slab":
       return el.polygon;
+    case "grid":
+    case "view_mark":
+      return [el.start, el.end, lerp(el.start, el.end, 0.5)];
+    case "lot":
+      return el.corners;
     case "opening":
+    case "roof":
+    case "tour":
       return [];
   }
 }
@@ -389,7 +445,7 @@ export function keyPoints(el: Element, index: DocIndex): P[] {
 export function modelBounds(index: DocIndex, includeCameras = false): Rect {
   const r = emptyRect();
   for (const el of index.visible) {
-    if (el.kind === "camera" && !includeCameras) continue;
+    if (isView(el) && !includeCameras) continue;
     if (el.kind === "room") {
       const g = index.roomGeo.get(el.id);
       if (g) for (const p of g.polygon) expandRect(r, p);

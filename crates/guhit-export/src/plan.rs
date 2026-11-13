@@ -11,6 +11,10 @@
 //!   (start to end), that is toward the counter-clockwise normal.
 //! - `flip_hinge == false`: the hinge is on the jamb nearer to the wall start.
 //!
+//! The permit set's marks (door and window tags, grids, dimension strings,
+//! section and elevation marks) come from `views::planmarks`. Site walls
+//! print light over a grey band, never as heavy as the house.
+//!
 //! Slabs, railings and stairs follow docs/CONTRACT.md "Slabs and railings":
 //! slab outlines with a light tint, voids crossed and marked OPEN TO BELOW,
 //! railings drawn from `Derived::railings`, and a flight of n risers as n - 1
@@ -18,12 +22,16 @@
 
 use guhit_model::{
     ColumnShape, Derived, DisplayUnit, Element, Id, LayerKey, Level, Opening, OpeningStyle,
-    OpeningType, Project, RailingRun, RailingRunKind, RailingStyle, Slab, SlabKind, Stair, Wall,
+    OpeningType, Project, RailingRun, RailingRunKind, RailingStyle, Slab, SlabKind, Wall,
 };
 
 use crate::geom::*;
 use crate::text::{clean, est_width, format_length};
 use crate::ExportError;
+
+/// Moved to `stairs` (lane L2); kept here so `plan::stair_arrival` reads as
+/// before.
+pub use crate::stairs::{stair_arrival, STAIR_TOP_MATCH_MM};
 
 /// Drawing category. Maps to an SVG group and a DXF layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,22 +54,31 @@ pub enum Cat {
     Dims,
     Text,
     Area,
+    /// Roof outlines, ridges, hips, valleys and slope arrows (roof plan, views).
+    Roof,
+    /// Grid lines, their bubbles and level datums.
+    Grid,
+    /// Tags, view marks and other drawing symbols.
+    Symb,
 }
 
 impl Cat {
     /// Back to front draw order. Railings draw over both stair drawings.
-    pub const ALL: [Cat; 13] = [
+    pub const ALL: [Cat; 16] = [
         Cat::Slab,
         Cat::Furn,
         Cat::Site,
         Cat::StrsBelow,
         Cat::Strs,
         Cat::Rail,
+        Cat::Roof,
         Cat::Wall,
         Cat::Cols,
         Cat::Door,
         Cat::Glaz,
         Cat::Dims,
+        Cat::Grid,
+        Cat::Symb,
         Cat::Text,
         Cat::Area,
     ];
@@ -80,6 +97,9 @@ impl Cat {
             Cat::Area => "A-AREA",
             Cat::Dims => "A-ANNO-DIMS",
             Cat::Text => "A-ANNO-TEXT",
+            Cat::Roof => "A-ROOF-OTLN",
+            Cat::Grid => "S-GRID",
+            Cat::Symb => "A-ANNO-SYMB",
         }
     }
 
@@ -98,6 +118,9 @@ impl Cat {
             Cat::Area => "room-labels",
             Cat::Dims => "dimensions",
             Cat::Text => "annotations",
+            Cat::Roof => "roofs",
+            Cat::Grid => "grids",
+            Cat::Symb => "symbols",
         }
     }
 }
@@ -310,6 +333,10 @@ pub fn build_items(
                         }
                         let lp = V::from(g.label_point);
                         let at = if lp.is_finite() { lp } else { r.seed.into() };
+                        // On the part of the room that has floor, never in
+                        // its void (the void says OPEN TO BELOW).
+                        let poly: Vec<V> = g.polygon.iter().map(V::from).collect();
+                        let at = on_floor(at, &poly, &level_voids(project, level));
                         (at, Some(g.area_mm2), b.width() * 0.9)
                     }
                     None => (V::from(r.seed), None, f64::INFINITY),
@@ -359,15 +386,8 @@ pub fn build_items(
     }
 
     if on(LayerKey::Stairs) {
-        for e in &project.elements {
-            if let Element::Stair(s) = e {
-                if s.level_id == level.id {
-                    stair_items(s, n, &mut out);
-                } else if stair_arrival(project, s).is_some_and(|l| l.id == level.id) {
-                    stair_from_below_items(s, n, &mut out);
-                }
-            }
-        }
+        // L and U flights, landings, the cut and UP and DN, from the engine.
+        crate::stairs::stairs_items(derived, level, n, &mut out);
     }
 
     // Slab rails follow the slabs layer, stair rails the stairs layer.
@@ -457,7 +477,10 @@ pub fn build_items(
         let meters = project.settings.display_unit == DisplayUnit::M;
         for e in &project.elements {
             if let Element::Dimension(d) = e {
-                if d.level_id == level.id {
+                if d.level_id == level.id && !d.through.is_empty() {
+                    let through: Vec<V> = d.through.iter().map(V::from).collect();
+                    crate::views::planmarks::dimension_string(d.a.into(), &through, d.b.into(), d.offset_mm, meters, n, &mut out);
+                } else if d.level_id == level.id {
                     dimension_items(
                         d.a.into(),
                         d.b.into(),
@@ -472,44 +495,154 @@ pub fn build_items(
         }
     }
 
-    if on(LayerKey::Annotations) {
-        for e in &project.elements {
-            if let Element::Annotation(a) = e {
-                if a.level_id != level.id {
-                    continue;
-                }
-                let h = if a.size_mm.is_finite() && a.size_mm > 0.0 {
-                    a.size_mm
-                } else {
-                    2.5 * n
-                };
-                let down = dir(a.rotation_deg - 90.0);
-                for (i, line) in a.text.lines().enumerate() {
-                    let t = clean(line);
-                    if t.is_empty() {
-                        continue;
-                    }
-                    out.push(Item {
-                        cat: Cat::Text,
-                        pen: Pen::Light,
-                        prim: Prim::Text {
-                            pos: V::from(a.position) + down * (i as f64 * h * 1.4),
-                            height: h,
-                            rot_deg: a.rotation_deg,
-                            align: HAlign::Start,
-                            text: t,
-                            bold: false,
-                        },
-                    });
-                }
-            }
-        }
-    }
+    // The permit set's plan marks: door and window tags, grids, section
+    // and elevation marks.
+    crate::views::planmarks::type_tags(project, derived, level, n, &mut out);
+    crate::views::planmarks::grids(project, n, &mut out);
+    crate::views::planmarks::view_marks(project, level, n, &mut out);
+    // "UP" and "DN" clear of the walls (G4 problem 11).
+    crate::views::planmarks::clear_stair_labels(&mut out);
 
     out.append(&mut room_items);
 
+    // Notes last, so they can keep clear of everything else.
+    if on(LayerKey::Annotations) {
+        annotation_items(project, level, n, &mut out);
+    }
+
     out.retain(item_is_finite);
     out
+}
+
+/// The level's voids, counter-clockwise.
+fn level_voids(project: &Project, level: &Level) -> Vec<Vec<V>> {
+    project
+        .elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Slab(s) if s.kind == SlabKind::Void && s.level_id == level.id && s.polygon.len() >= 3 => Some(ensure_ccw(&s.polygon.iter().map(V::from).collect::<Vec<V>>())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `at` when it is on floor; else the point of the room clearest of its
+/// walls and of the voids, on the part that has floor. `at` again when the
+/// whole room is void.
+fn on_floor(at: V, room: &[V], voids: &[Vec<V>]) -> V {
+    if !voids.iter().any(|vd| point_in_polygon(at, vd)) {
+        return at;
+    }
+    let b = bounds_of(room);
+    let step = (b.width().max(b.height()) / 40.0).max(50.0);
+    let edges: Vec<(V, V)> = std::iter::once(room)
+        .chain(voids.iter().map(|vd| vd.as_slice()))
+        .flat_map(|poly| (0..poly.len()).map(move |i| (poly[i], poly[(i + 1) % poly.len()])))
+        .collect();
+    let clearance = |q: V| {
+        edges
+            .iter()
+            .map(|(a, c)| {
+                let d = *c - *a;
+                let t = ((q - *a).dot(d) / d.dot(d).max(1e-9)).clamp(0.0, 1.0);
+                (*a + d * t - q).len()
+            })
+            .fold(f64::INFINITY, f64::min)
+    };
+    let mut best: Option<(f64, V)> = None;
+    let mut y = b.min.y + step / 2.0;
+    while y < b.max.y {
+        let mut x = b.min.x + step / 2.0;
+        while x < b.max.x {
+            let q = v(x, y);
+            if point_in_polygon(q, room) && !voids.iter().any(|vd| point_in_polygon(q, vd)) {
+                let c = clearance(q);
+                if best.is_none_or(|(bc, _)| c > bc) {
+                    best = Some((c, q));
+                }
+            }
+            x += step;
+        }
+        y += step;
+    }
+    best.map(|(_, q)| q).unwrap_or(at)
+}
+
+/// Notes on the plan (`Annotation`). `size_mm` is model mm at the project
+/// scale, so a note prints that size on paper (kept between 1.8 and 3.5
+/// mm) at whatever scale the sheet draws the plan, like the plan's other
+/// text. A note that would print over a line, a symbol or other text moves
+/// to the nearest clear spot around where it was put.
+fn annotation_items(project: &Project, level: &Level, n: f64, out: &mut Vec<Item>) {
+    let project_n = Some(project.settings.scale_denominator).filter(|d| *d > 0).unwrap_or(100) as f64;
+    for e in &project.elements {
+        let Element::Annotation(a) = e else { continue };
+        if a.level_id != level.id {
+            continue;
+        }
+        let paper = if a.size_mm.is_finite() && a.size_mm > 0.0 { (a.size_mm / project_n).clamp(1.8, 3.5) } else { 2.5 };
+        let h = paper * n;
+        let lines: Vec<String> = a.text.lines().map(clean).filter(|t| !t.is_empty()).collect();
+        if lines.is_empty() {
+            continue;
+        }
+        let (along, down) = (dir(a.rotation_deg), dir(a.rotation_deg - 90.0));
+        let w = lines.iter().map(|t| est_width(t, h, false)).fold(0.0, f64::max);
+        let depth = (lines.len() as f64 - 1.0) * h * 1.4 + 0.3 * h;
+        let block = |o: V| -> Vec<V> {
+            let top = o - down * (0.9 * h);
+            vec![top, top + along * w, top + along * w + down * (0.9 * h + depth), top + down * (0.9 * h + depth)]
+        };
+        let clear = |o: V| {
+            let pad = 0.6 * n;
+            let poly = block(o);
+            let mut bx = bounds_of(&poly);
+            bx.min = bx.min - v(pad, pad);
+            bx.max = bx.max + v(pad, pad);
+            let rect = [bx.min, v(bx.max.x, bx.min.y), bx.max, v(bx.min.x, bx.max.y)];
+            !out.iter().any(|it| prim_hits(&it.prim, &bx, &rect))
+        };
+        let start = V::from(a.position);
+        let step = 1.5 * h;
+        let mut at = start;
+        'search: for ring in 0..=14 {
+            let r = ring as f64 * step;
+            let around: Vec<V> = if ring == 0 { vec![v(0.0, 0.0)] } else { (0..8).map(|k| dir(270.0 - 45.0 * k as f64) * r).collect() };
+            for o in around {
+                if clear(start + o) {
+                    at = start + o;
+                    break 'search;
+                }
+            }
+        }
+        for (i, t) in lines.into_iter().enumerate() {
+            out.push(Item {
+                cat: Cat::Text,
+                pen: Pen::Light,
+                prim: Prim::Text { pos: at + down * (i as f64 * h * 1.4), height: h, rot_deg: a.rotation_deg, align: HAlign::Start, text: t, bold: false },
+            });
+        }
+    }
+}
+
+/// Whether a drawn primitive reaches into the box `bx` (`rect` its corners):
+/// a line or an outline edge crossing it, a circle, arc or text whose
+/// bounds meet it. A large outline round the box (a room, a slab) does not.
+fn prim_hits(p: &Prim, bx: &Bounds, rect: &[V; 4]) -> bool {
+    let seg = |a: V, b: V| !clip_segment(a, b, rect).is_empty();
+    match p {
+        Prim::Line { a, b } => seg(*a, *b),
+        Prim::Poly { pts, closed, .. } => {
+            let k = pts.len();
+            let last = if *closed { k } else { k.saturating_sub(1) };
+            (0..last).any(|i| seg(pts[i], pts[(i + 1) % k]))
+        }
+        Prim::Circle { c, r, .. } | Prim::Arc { c, r, .. } => Bounds { min: *c - v(*r, *r), max: *c + v(*r, *r) }.intersects(bx),
+        Prim::Text { .. } => {
+            let item = Item { cat: Cat::Text, pen: Pen::Light, prim: p.clone() };
+            items_bounds(std::slice::from_ref(&item)).intersects(bx)
+        }
+    }
 }
 
 fn item_is_finite(item: &Item) -> bool {
@@ -605,13 +738,14 @@ fn corner_patches(walls: &[&Wall], outlines: &[Vec<V>], cat: Cat, out: &mut Vec<
                     if outlines.iter().any(|o| point_in_polygon(probe, o)) {
                         continue;
                     }
+                    let (pen, fill) = wall_ink(cat == Cat::Site);
                     out.push(Item {
                         cat,
-                        pen: Pen::Heavy,
+                        pen,
                         prim: Prim::Poly {
                             pts: vec![joint - a - b, joint + a - b, joint + a + b, joint - a + b],
                             closed: true,
-                            fill: Fill::Ink,
+                            fill,
                         },
                     });
                 }
@@ -659,16 +793,28 @@ fn wall_items(wall: &Wall, outline: &[V], openings: &[&Opening], out: &mut Vec<I
         from = Some(b);
     }
 
+    let (pen, fill) = wall_ink(wall.is_site());
     for pts in pieces {
         out.push(Item {
             cat: wall_cat(wall.is_site()),
-            pen: Pen::Heavy,
+            pen,
             prim: Prim::Poly {
                 pts,
                 closed: true,
-                fill: Fill::Ink,
+                fill,
             },
         });
+    }
+}
+
+/// House walls print as heavy poche. A site wall (fence, boundary wall)
+/// prints as a light outline over a grey band, so it never reads as heavy
+/// as the house (G4 problem 11).
+fn wall_ink(site: bool) -> (Pen, Fill) {
+    if site {
+        (Pen::Light, Fill::Tint(crate::views::planmarks::SITE_WALL_TINT))
+    } else {
+        (Pen::Heavy, Fill::Ink)
     }
 }
 
@@ -758,7 +904,7 @@ fn opening_items(wall: &Wall, o: &Opening, out: &mut Vec<Item>) {
     }
 }
 
-fn line(cat: Cat, pen: Pen, a: V, b: V) -> Item {
+pub(crate) fn line(cat: Cat, pen: Pen, a: V, b: V) -> Item {
     Item {
         cat,
         pen,
@@ -799,137 +945,6 @@ fn door_leaf(hinge: V, along: V, nrm: V, w: f64, wall_t: f64, out: &mut Vec<Item
             end_deg: norm_deg(end_deg),
         },
     });
-}
-
-// --------------------------------------------------------------------- stairs
-
-/// A level counts as the top of a flight when its floor is this close to it.
-pub const STAIR_TOP_MATCH_MM: f64 = 300.0;
-
-/// The level a stair arrives at: of the levels above the stair's own, the
-/// one whose elevation is closest to the stair's top (its level's elevation
-/// plus height), within 300 mm. The 3D view finds it the same way
-/// (`src/viewer3d/walk/stairs.ts`).
-pub fn stair_arrival<'a>(project: &'a Project, s: &Stair) -> Option<&'a Level> {
-    let own = project.levels.iter().find(|l| l.id == s.level_id)?;
-    let top = own.elevation_mm + own.height_mm;
-    let mut best: Option<(&Level, f64)> = None;
-    for l in &project.levels {
-        if l.id == own.id || l.elevation_mm <= own.elevation_mm {
-            continue;
-        }
-        let d = (l.elevation_mm - top).abs();
-        if d <= STAIR_TOP_MATCH_MM && best.is_none_or(|(_, b)| d < b) {
-            best = Some((l, d));
-        }
-    }
-    best.map(|(l, _)| l)
-}
-
-/// A flight's plan frame: first riser center, unit vector up the flight,
-/// unit vector across it, half width and run. None for a degenerate flight.
-fn stair_frame(s: &Stair) -> Option<(V, V, V, f64, f64)> {
-    let hw = s.width_mm.abs() / 2.0;
-    let run = s.run_mm.abs();
-    if !(hw >= 1.0 && run >= 1.0) {
-        return None;
-    }
-    Some((V::from(s.origin), dir(s.rotation_deg + 90.0), dir(s.rotation_deg), hw, run))
-}
-
-/// The flight outline and its tread lines (DECISIONS D44): n risers make
-/// n - 1 treads of run / (n - 1), so the lines sit at k * run / (n - 1) for
-/// k = 1 .. n - 2 and the last tread ends at the top of the flight.
-fn flight_items(s: &Stair, cat: Cat, out: &mut Vec<Item>) {
-    let Some((o, f, r, hw, run)) = stair_frame(s) else { return };
-    out.push(Item {
-        cat,
-        pen: Pen::Medium,
-        prim: Prim::Poly {
-            pts: vec![o - r * hw, o + r * hw, o + r * hw + f * run, o - r * hw + f * run],
-            closed: true,
-            fill: Fill::None,
-        },
-    });
-    let treads = crate::model3d::tread_count(s.riser_count);
-    for k in 1..treads {
-        let d = f * (run * k as f64 / treads as f64);
-        out.push(line(cat, Pen::Light, o - r * hw + d, o + r * hw + d));
-    }
-}
-
-/// Direction of travel from `from` to `to`: a dot where it starts, a shaft
-/// and a head. Always solid, on the stairs layer.
-fn travel_arrow(from: V, to: V, n: f64, out: &mut Vec<Item>) {
-    let Some(u) = (to - from).unit() else { return };
-    let across = u.left();
-    out.push(line(Cat::Strs, Pen::Light, from, to));
-    out.push(Item {
-        cat: Cat::Strs,
-        pen: Pen::Light,
-        prim: Prim::Circle {
-            c: from,
-            r: 0.45 * n,
-            fill: Fill::Ink,
-        },
-    });
-    let hl = (paper::STAIR_ARROW * n).min((to - from).len() * 0.45);
-    out.push(Item {
-        cat: Cat::Strs,
-        pen: Pen::Light,
-        prim: Prim::Poly {
-            pts: vec![to, to - u * hl + across * (hl * 0.32), to - u * hl - across * (hl * 0.32)],
-            closed: true,
-            fill: Fill::Ink,
-        },
-    });
-}
-
-/// "UP" or "DN" centered on `center`, readable along the flight.
-fn stair_label(s: &Stair, center: V, th: f64, text: &str, out: &mut Vec<Item>) {
-    let rot = readable_deg(s.rotation_deg);
-    let up = dir(rot + 90.0);
-    out.push(Item {
-        cat: Cat::Strs,
-        pen: Pen::Light,
-        prim: Prim::Text {
-            pos: center - up * (th * 0.36),
-            height: th,
-            rot_deg: rot,
-            align: HAlign::Middle,
-            text: text.into(),
-            bold: false,
-        },
-    });
-}
-
-/// Where a travel arrow starts or ends inside the flight: half a tread in,
-/// at most a fifth of the run.
-fn arrow_inset(s: &Stair, run: f64) -> f64 {
-    let going = run / crate::model3d::tread_count(s.riser_count) as f64;
-    (going * 0.5).min(run * 0.2)
-}
-
-/// A stair on its own level: the flight, an arrow from the first tread to
-/// the top, "UP" just before the first riser.
-fn stair_items(s: &Stair, n: f64, out: &mut Vec<Item>) {
-    let Some((o, f, _, _, run)) = stair_frame(s) else { return };
-    flight_items(s, Cat::Strs, out);
-    let inset = arrow_inset(s, run);
-    travel_arrow(o + f * inset, o + f * (run - inset), n, out);
-    let th = paper::STAIR_LABEL * n;
-    stair_label(s, o - f * (th * 1.1), th, "UP", out);
-}
-
-/// A stair seen from the level it arrives at: the flight dashed, an arrow
-/// from the top end down the flight, "DN" just past the top.
-fn stair_from_below_items(s: &Stair, n: f64, out: &mut Vec<Item>) {
-    let Some((o, f, _, _, run)) = stair_frame(s) else { return };
-    flight_items(s, Cat::StrsBelow, out);
-    let inset = arrow_inset(s, run);
-    travel_arrow(o + f * (run - inset), o + f * inset, n, out);
-    let th = paper::STAIR_LABEL * n;
-    stair_label(s, o + f * (run + th * 1.1), th, "DN", out);
 }
 
 // ---------------------------------------------------------------------- slabs
@@ -1057,10 +1072,35 @@ fn railing_items(run: &RailingRun, out: &mut Vec<Item>) {
 
 // --------------------------------------------------------------------- assets
 
+/// An object's catalog symbol in the plan (`symbols::furniture`), turned
+/// and placed, and its label ("REF"). None for an item with no symbol.
+pub(crate) fn asset_symbol(a: &guhit_model::Asset, n: f64) -> Option<(Vec<Prim>, &'static str)> {
+    let (w, d) = (a.width_mm.abs(), a.depth_mm.abs());
+    let (prims, label) = crate::symbols::furniture(&a.catalog_key, w, d, a.built_in.as_deref(), n)?;
+    let c = V::from(a.position);
+    let (ex, ey) = (dir(a.rotation_deg), dir(a.rotation_deg + 90.0));
+    let to = |q: V| c + ex * q.x + ey * q.y;
+    Some((prims.iter().map(|p| crate::symbols::map_prim(p, &to)).collect(), label))
+}
+
 pub(crate) fn asset_items(a: &guhit_model::Asset, n: f64, avoid: &[Bounds], out: &mut Vec<Item>) {
     let c = V::from(a.position);
     let (w, d) = (a.width_mm.abs(), a.depth_mm.abs());
     if w < 1.0 || d < 1.0 {
+        return;
+    }
+    // The catalog item's own symbol, as the screen draws it (GA P1-5).
+    if let Some((prims, label)) = asset_symbol(a, n) {
+        out.extend(prims.into_iter().map(|prim| Item { cat: Cat::Furn, pen: Pen::Light, prim }));
+        if !label.is_empty() {
+            let th = paper::ASSET_LABEL * n;
+            let rot = readable_deg(a.rotation_deg);
+            out.push(Item {
+                cat: Cat::Furn,
+                pen: Pen::Light,
+                prim: Prim::Text { pos: c - dir(rot + 90.0) * (th * 0.36), height: th, rot_deg: rot, align: HAlign::Middle, text: label.into(), bold: false },
+            });
+        }
         return;
     }
     let pts = rotated_rect(c, w, d, a.rotation_deg);

@@ -13,6 +13,8 @@ import { dur, ease, motionOK, tween, usePresence } from "../ui/motion";
 import { collapseOut, growIn, play, settled } from "../ui/motionWaapi";
 import { pendingItem, toHistory, useCopilot, type ChatItem } from "./copilotStore";
 import { affectedRows, selectionLabel, suggestionsFor, toolLabel, type Suggestion } from "./describe";
+import { requestFurnish, retireFurnish, roomsToFurnish, turnRooms } from "./furnish";
+import { FurnishBar, FurnishCards } from "./FurnishPanel";
 import { SettingsPopover } from "./SettingsPopover";
 import { DrawnCheck, GearIcon, KindIcon, SendIcon, StopIcon } from "./icons";
 import s from "./AiDock.module.css";
@@ -66,6 +68,7 @@ export function AiDock() {
     if (st.projectId === projectId) return;
     const open = pendingItem(st.items);
     if (open?.proposal) dropProposal(open.proposal.id);
+    retireFurnish("The project changed.");
     useApp.getState().setPreview(null);
     st.reset(projectId);
   }, [projectId]);
@@ -85,6 +88,10 @@ export function AiDock() {
   useEffect(() => {
     return () => {
       const st = useCopilot.getState();
+      if (st.items.some((m) => m.furnish?.some((r) => r.status === "pending"))) {
+        retireFurnish("Discarded when the copilot closed.");
+        useApp.getState().setPreview(null);
+      }
       const open = pendingItem(st.items);
       if (!open?.proposal) return;
       useApp.getState().setPreview(null);
@@ -121,6 +128,7 @@ export function AiDock() {
 
       // A new turn replaces the old proposal. The backend drops it too.
       retirePending("Replaced by a newer request.");
+      retireFurnish("Replaced by a newer request.");
       const history = toHistory(useCopilot.getState().items);
       copilot.push({ role: "user", text: message });
       copilot.setBusy(true);
@@ -154,6 +162,45 @@ export function AiDock() {
             // collapsed dock opens the moment a proposal is ready to review.
             useShell.getState().setDockCollapsed(false);
           } else dropProposal(turn.proposal.id);
+        }
+      } catch (e) {
+        if (!isCurrent()) return;
+        const err = toIpcError(e);
+        if (err.code === "ai_not_configured") void loadSettings();
+        useCopilot.getState().push({ role: "note", tone: "error", text: err.message });
+      } finally {
+        if (isCurrent()) useCopilot.getState().setBusy(false);
+      }
+    },
+    [loadSettings, retirePending],
+  );
+
+  // "Furnish rooms" (lane L5): one proposal per room, each applied on its own (D8).
+  const furnish = useCallback(
+    async (style: string) => {
+      const copilot = useCopilot.getState();
+      if (copilot.busy) return;
+      const app = useApp.getState();
+      const rooms = roomsToFurnish(app.doc, app.selection, app.activeLevelId);
+      if (rooms.length === 0) return;
+      retirePending("Replaced by a newer request.");
+      retireFurnish("Replaced by a newer request.");
+      app.setPreview(null);
+      copilot.push({ role: "user", text: `Furnish ${rooms.length === 1 ? rooms[0].name : `${rooms.length} rooms`}, ${style} style` });
+      copilot.setBusy(true);
+      const request = copilot.nextRequest();
+      const isCurrent = () => useCopilot.getState().requestSeq === request;
+      try {
+        const turn = await requestFurnish(rooms, style);
+        if (!isCurrent()) {
+          for (const p of turn.proposals ?? []) dropProposal(p.id);
+          return;
+        }
+        const cards = turnRooms(turn, rooms);
+        useCopilot.getState().push({ role: "assistant", text: turn.reply, toolsUsed: turn.tools_used, furnish: cards, furnishStyle: style });
+        if (cards[0]) {
+          useApp.getState().setPreview(cards[0].proposal.preview);
+          useShell.getState().setDockCollapsed(false);
         }
       } catch (e) {
         if (!isCurrent()) return;
@@ -345,6 +392,8 @@ export function AiDock() {
         </div>
       ) : null}
 
+      {doc && !noKey ? <FurnishBar disabled={busy} onFurnish={(style) => void furnish(style)} /> : null}
+
       <div className={s.composer}>
         <textarea
           ref={inputRef}
@@ -465,6 +514,7 @@ function Message({ item, onApply, onDiscard }: { item: ChatItem; onApply: (item:
       </div>
       <div className={s.bubbleAi}>{item.text}</div>
       {item.proposal ? <ProposalCard item={item} proposal={item.proposal} onApply={onApply} onDiscard={onDiscard} /> : null}
+      {item.furnish && item.furnish.length > 0 ? <FurnishCards item={item} /> : null}
     </div>
   );
 }

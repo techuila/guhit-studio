@@ -916,6 +916,7 @@ fn opening_command(
         style: None,
         flip_side: i.flip_side,
         flip_hinge: i.flip_hinge,
+        type_id: None,
     })
 }
 
@@ -1258,7 +1259,9 @@ fn single_command(
         }
         "set_roof" => {
             let i: SetRoofInput = parse(input)?;
-            let mut roof = project.roof.clone();
+            // The roof over the top floor as it is now (P0-2): an edit built
+            // from the retired `Project::roof` would delete it.
+            let mut roof = project.top_roof();
             if i.kind.is_none()
                 && i.pitch_deg.is_none()
                 && i.overhang_mm.is_none()
@@ -1335,6 +1338,7 @@ fn single_command(
                     light: item.light,
                     links: vec![],
                     circuit: String::new(),
+                    built_in: None,
                 }),
             }
         }
@@ -1371,6 +1375,15 @@ pub fn element_label(el: &Element) -> String {
             SlabKind::Deck => "Deck".into(),
             SlabKind::Void => "Floor void".into(),
         },
+        Element::Roof(r) if r.outline == RoofOutline::TopFootprint => "Roof over the top floor".into(),
+        Element::Roof(_) => "Roof".into(),
+        Element::Grid(g) => format!("Grid line {}", g.label),
+        Element::ViewMark(m) => match m.mark_kind {
+            MarkKind::Section => format!("Section mark {}", m.label),
+            MarkKind::Elevation => format!("Elevation mark {}", m.label),
+        },
+        Element::Lot(_) => "Lot".into(),
+        Element::Tour(t) => format!("Tour {}", t.name),
         // "Heater feed (cold water, 20 mm)", "Bedroom line set (aircon line
         // set, 9.52 mm)", or "Cold water pipe 20 mm".
         Element::Pipe(p) => {
@@ -1490,13 +1503,48 @@ pub fn step_diff(before: &Project, after: &Project) -> Value {
         "added": added,
         "modified": modified,
         "removed": removed,
-        "roof_changed": before.roof != after.roof,
+        "roof_changed": before.top_roof() != after.top_roof(),
     });
     if !levels_added.is_empty() {
         out["levels_added"] = json!(levels_added);
     }
     if !levels_removed.is_empty() {
         out["levels_removed"] = json!(levels_removed);
+    }
+    // Project data that is not an element (D53, D54): door and window types,
+    // sheets, revisions and the title block. The signatory never shows.
+    fn types(p: &Project) -> BTreeMap<&Id, &OpeningSpec> {
+        p.opening_types.iter().map(|t| (&t.id, t)).collect()
+    }
+    fn sheets(p: &Project) -> BTreeMap<&Id, &Sheet> {
+        p.sheet_set.sheets.iter().map(|s| (&s.id, s)).collect()
+    }
+    let (tb, ta) = (types(before), types(after));
+    let type_brief = |t: &&OpeningSpec| json!({"id": t.id, "mark": t.mark});
+    let types_added: Vec<Value> = ta.iter().filter(|(id, _)| !tb.contains_key(*id)).map(|(_, t)| type_brief(t)).collect();
+    let types_changed: Vec<Value> = ta.iter().filter(|(id, t)| tb.get(*id).is_some_and(|b| b != *t)).map(|(_, t)| type_brief(t)).collect();
+    let types_removed: Vec<Value> = tb.iter().filter(|(id, _)| !ta.contains_key(*id)).map(|(_, t)| type_brief(t)).collect();
+    for (key, list) in [("types_added", types_added), ("types_changed", types_changed), ("types_removed", types_removed)] {
+        if !list.is_empty() {
+            out[key] = json!(list);
+        }
+    }
+    let (sb, sa) = (sheets(before), sheets(after));
+    let sheet = |s: &Sheet| json!({"id": s.id, "number": s.number, "title": s.title});
+    let sheets_added: Vec<Value> = sa.iter().filter(|(id, _)| !sb.contains_key(*id)).map(|(_, s)| sheet(s)).collect();
+    let sheets_changed: Vec<Value> = sa.iter().filter(|(id, s)| sb.get(*id).is_some_and(|b| b != *s)).map(|(_, s)| sheet(s)).collect();
+    let sheets_removed: Vec<Value> = sb.iter().filter(|(id, _)| !sa.contains_key(*id)).map(|(_, s)| sheet(s)).collect();
+    for (key, list) in [("sheets_added", sheets_added), ("sheets_changed", sheets_changed), ("sheets_removed", sheets_removed)] {
+        if !list.is_empty() {
+            out[key] = json!(list);
+        }
+    }
+    if before.sheet_set.revisions != after.sheet_set.revisions {
+        out["revisions"] = json!(after.sheet_set.revisions.iter().map(|r| json!({"mark": r.mark, "date": r.date, "description": r.description})).collect::<Vec<_>>());
+    }
+    let without_signatory = |t: &TitleBlock| TitleBlock { signatory: Signatory::default(), ..t.clone() };
+    if without_signatory(&before.title_block) != without_signatory(&after.title_block) {
+        out["title_block_changed"] = json!(true);
     }
     out
 }

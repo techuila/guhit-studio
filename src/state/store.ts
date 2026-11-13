@@ -46,7 +46,15 @@ export type Tool =
   | "pipe"
   /** Link a switch (or an aircon outlet) to what it controls: click the
    * device, then its loads. Writes `Asset::links`. */
-  | "link";
+  | "link"
+  /** Wave 2 tools in the lanes' own modules (editor2d/laneTools.ts): grid
+   * lines, dimension strings, section and elevation marks and the lot (L1),
+   * roofs over drawn outlines (L2). Each is off until its lane ships it. */
+  | "grid"
+  | "dimension_string"
+  | "view_mark"
+  | "lot"
+  | "roof";
 
 export interface ToolOptions {
   wallThicknessMm: number | null;
@@ -342,8 +350,10 @@ export const useApp = create<AppState>((set, get) => ({
   openProject: async (id) => {
     set({ busy: true });
     try {
-      get().setDoc(await ipc.hubOpen(id));
+      const opened = await ipc.hubOpen(id);
+      get().setDoc(opened);
       set({ screen: "editor", tool: "select", selection: [], preview: null });
+      toastRepairs(opened.repairs);
     } catch (e) {
       get().reportError(e);
     } finally {
@@ -422,6 +432,15 @@ async function stepHistory(redo: boolean, force: boolean, steps = 1, expectedRev
 }
 
 /** The state to draw: the AI preview when one is active, else the document. */
+/** Say what opening a project mended: the file had parts the app could not
+ * use, now dropped. The file keeps them until the next change is saved. */
+export function toastRepairs(repairs: string[] | undefined): void {
+  if (!repairs?.length) return;
+  const shown = repairs.slice(0, 3).join(" ");
+  const more = repairs.length > 3 ? ` And ${repairs.length - 3} more (see the log).` : "";
+  useApp.getState().toast("info", `Opening this project mended it: ${shown}${more}`);
+}
+
 export function useVisibleDoc(): DocState | null {
   return useApp((s) => s.preview?.state ?? s.doc);
 }

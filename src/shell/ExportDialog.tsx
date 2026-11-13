@@ -9,11 +9,14 @@ import { Icon, type IconName } from "../ui/icons";
 import type { PresenceStage } from "../ui/motion";
 import { useSlidingIndicator } from "../ui/motionDom";
 import { catalogItem } from "./devices";
+import { makePermitSet } from "./sheets/permitSet";
+import { PAPERS, today } from "./sheets/sheetModel";
+import sh from "./sheets/sheets.module.css";
 import { useProjectName, useShell } from "./shellStore";
 import s from "./overlays.module.css";
 
 type SceneFormat = "glb" | "obj" | "dae";
-type Format = PlanFormat | "dwg2d" | "png_plan" | "png_3d" | "ifc" | "dxf3d" | SceneFormat | "bundle";
+type Format = PlanFormat | "permit" | "dwg2d" | "png_plan" | "png_3d" | "ifc" | "dxf3d" | SceneFormat | "bundle";
 type Group = "Drawings" | "Model" | "Images" | "Project bundle";
 
 interface FormatDef {
@@ -29,6 +32,7 @@ interface FormatDef {
 const GROUPS: Group[] = ["Drawings", "Model", "Images", "Project bundle"];
 
 const FORMATS: FormatDef[] = [
+  { value: "permit", group: "Drawings", name: "Permit set", apps: "Every sheet in one PDF, with the PH title block, ready to print and sign", icon: "schedule", ext: "pdf" },
   { value: "pdf", group: "Drawings", name: "PDF", apps: "Any PDF viewer, for printing or sending to a client", icon: "export", ext: "pdf" },
   { value: "svg", group: "Drawings", name: "SVG", apps: "Illustrator, Inkscape, Figma", icon: "pencil", ext: "svg" },
   { value: "dxf", group: "Drawings", name: "DXF (2D)", apps: "AutoCAD, BricsCAD, LibreCAD, SketchUp Pro", icon: "layers", ext: "dxf" },
@@ -151,7 +155,12 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
   const [format, setFormat] = useState<Format>("pdf");
   const [paper, setPaper] = useState<PaperSize>(settings?.paper ?? "a3");
   const [orientation, setOrientation] = useState<Orientation>("landscape");
-  const [scale, setScale] = useState<string>("auto");
+  // The project's scale, not "best fit": a 1:100 project prints at 1:100
+  // unless the user picks otherwise (G4 problem 9).
+  const [scale, setScale] = useState<string>(settings?.scale_denominator ? String(settings.scale_denominator) : "auto");
+  // A level, or "all": every level in one PDF, through the permit set.
+  const [level, setLevel] = useState<string>(activeLevelId ?? "all");
+  const [setSheets, setSetSheets] = useState<string[] | null>(null);
   const [showDimensions, setShowDimensions] = useState(true);
   const [showRoomLabels, setShowRoomLabels] = useState(true);
   const [showAssets, setShowAssets] = useState(true);
@@ -189,6 +198,17 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
   const dwgReady = dwg?.configured === true;
   const def = FORMATS.find((f) => f.value === format)!;
   const isPlanFile = format === "pdf" || format === "svg" || format === "dxf";
+  const isPermit = format === "permit";
+  const set = doc.project.sheet_set.sheets;
+  const levelChoice =
+    doc.project.levels.some((l) => l.id === level) || (level === "all" && format !== "dxf" && doc.project.levels.length > 1)
+      ? level
+      : (activeLevelId ?? doc.project.levels[0]?.id ?? "all");
+  const allLevels = isPlanFile && levelChoice === "all";
+  const levelOptions = [
+    ...doc.project.levels.map((l) => ({ value: l.id, label: l.name || "Level" })),
+    ...(format === "dxf" || doc.project.levels.length < 2 ? [] : [{ value: "all", label: format === "pdf" ? "All levels, one PDF" : "All levels, one file each" }]),
+  ];
   const usesSheet = format === "pdf" || format === "svg";
   const isScene = format === "glb" || format === "obj" || format === "dae";
   const scaleOptions = [
@@ -218,9 +238,17 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
       if (path === "cancelled") return;
 
       let result: ExportResult;
-      if (isPlanFile) {
+      if (isPermit || allLevels) {
+        // Every level and sheet in one PDF (G4 problem 9). A project with
+        // no set gets one made first, on the chosen paper.
+        if (set.length === 0 && isPermit) await makePermitSet(paper === "a4" ? "a3" : paper);
+        const fresh = useApp.getState().doc?.project.sheet_set.sheets ?? [];
+        const ids = isPermit ? (setSheets ?? []).filter((id) => fresh.some((x) => x.id === id)) : [];
+        const fmt = format === "svg" ? "svg" : "pdf";
+        result = await ipc.exportSheets({ format: fmt, sheet_ids: ids, path, date: today() });
+      } else if (isPlanFile) {
         const options: PlanExportOptions = {
-          level_id: activeLevelId,
+          level_id: levelChoice === "all" ? activeLevelId : levelChoice,
           paper,
           orientation,
           scale_denominator: scale === "auto" || notToScale ? null : Number(scale),
@@ -346,7 +374,44 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
         </div>
 
         <div className={s.exportOptions}>
-          {isPlanFile ? (
+          {isPermit ? (
+            <>
+              {set.length === 0 ? (
+                <>
+                  <p className={s.exportNote}>
+                    The project has no permit set yet. Export makes it first: the site, a plan per level, elevations, sections, the roof plan and the schedules, each with the PH title block. Check and move views in Sheets.
+                  </p>
+                  <Field label="Paper">
+                    <Select label="Paper size" value={paper === "a4" ? "a3" : paper} onChange={setPaper} options={PAPERS} />
+                  </Field>
+                </>
+              ) : (
+                <div className={s.sheetBlock}>
+                  <span className={s.sheetLabel}>Sheets</span>
+                  <div className={sh.exportSheets}>
+                    <CheckRow checked={setSheets === null || setSheets.length === 0} onChange={(on) => setSetSheets(on ? null : [set[0].id])}>
+                      All {set.length} sheets, in set order
+                    </CheckRow>
+                    {set.map((x) => (
+                      <CheckRow
+                        key={x.id}
+                        checked={setSheets === null || setSheets.length === 0 || setSheets.includes(x.id)}
+                        onChange={(on) => {
+                          const now = setSheets === null || setSheets.length === 0 ? set.map((y) => y.id) : setSheets;
+                          const next = on ? [...now, x.id] : now.filter((id) => id !== x.id);
+                          setSetSheets(next.length === set.length ? null : next.length === 0 ? [x.id] : next);
+                        }}
+                        hint={`${x.paper.toUpperCase()} ${x.orientation}`}
+                      >
+                        {x.number} {x.title}
+                      </CheckRow>
+                    ))}
+                  </div>
+                  <p className={s.sheetAbout}>Paper, views and scales are set per sheet in Sheets. One PDF, the license numbers printed as typed.</p>
+                </div>
+              )}
+            </>
+          ) : isPlanFile ? (
             <>
               {sheets.length > 1 ? (
                 <div className={s.sheetBlock}>
@@ -357,7 +422,16 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
                   </p>
                 </div>
               ) : null}
-              {usesSheet ? (
+              {levelOptions.length > 1 ? (
+                <Field label="Level">
+                  <Select label="Level" value={levelChoice} onChange={setLevel} options={levelOptions} />
+                </Field>
+              ) : null}
+              {allLevels ? (
+                <p className={s.exportNote}>
+                  Every level goes into one {format === "svg" ? "set of SVG files" : "PDF"} through the permit set, each sheet with its own paper and scale (set in Sheets).
+                </p>
+              ) : usesSheet ? (
                 <>
                   <Field label="Paper">
                     <Select
@@ -369,6 +443,7 @@ export function ExportDialog({ onClose, stage }: { onClose: () => void; stage?: 
                         { value: "a3", label: "A3" },
                         { value: "a2", label: "A2" },
                         { value: "a1", label: "A1" },
+                        { value: "a0", label: "A0" },
                       ]}
                     />
                   </Field>

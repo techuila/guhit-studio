@@ -441,7 +441,7 @@ async fn accept_commits_one_undo_step_and_undo_restores_the_project() {
     let undone = r.app.handle("doc_undo", json!({})).await.unwrap();
     let undone: DocState = serde_json::from_value(undone).unwrap();
     assert_eq!(undone.project.elements, before.elements);
-    assert_eq!(undone.project.roof, before.roof);
+    assert_eq!(undone.project.top_roof(), before.top_roof());
     assert!(!undone.can_undo || undone.undo_label != applied.state.undo_label);
 
     // A resolved proposal cannot be resolved twice.
@@ -661,6 +661,8 @@ fn every_edit_tool_translates_to_a_typed_command() {
         seed: Point { x: 1.0, y: 1.0 },
         floor_material_id: None,
         auto_named: true,
+        finishes: RoomFinishes::default(),
+        ceiling_height_mm: None,
     }));
     project.elements.push(Element::Wall(Wall {
         id: "w1".into(),
@@ -684,6 +686,7 @@ fn every_edit_tool_translates_to_a_typed_command() {
         flip_side: false,
         flip_hinge: false,
         material_id: None,
+        type_id: None,
     }));
     project.elements.push(Element::Pipe(Pipe {
         id: "p1".into(),
@@ -858,7 +861,8 @@ async fn staged_edits_move_pipes_and_respect_a_locked_pipe_layer() {
     assert!(refused.contains("layer is locked") && refused.contains("Drainage"), "{refused}");
 
     let proposal = turn.proposal.expect("the move is proposed");
-    assert!(proposal.preview.diff.summary.ends_with("changed 1 pipe"), "{}", proposal.preview.diff.summary);
+    // The batch keeps the move's own sentence after the diff ("; Moved 1 other element").
+    assert!(proposal.preview.diff.summary.contains("changed 1 pipe"), "{}", proposal.preview.diff.summary);
     // The staged move clears the door clash in the preview; nothing is applied.
     let codes: Vec<&str> = proposal.preview.state.derived.issues.iter().map(|i| i.code.as_str()).collect();
     assert!(!codes.contains(&"pipe_across_opening"), "{codes:?}");
@@ -1259,7 +1263,7 @@ async fn a_scoped_turn_refuses_what_reaches_outside_and_stages_none_of_it() {
     let staged = &proposal.preview.state.project;
     assert_eq!(proposal.preview.diff.added.len(), 1);
     assert!(proposal.preview.diff.removed.is_empty() && proposal.preview.diff.modified.is_empty());
-    assert_eq!(staged.roof, before.roof);
+    assert_eq!(staged.top_roof(), before.top_roof());
     let refused: Vec<Value> = r.log_lines().await.into_iter().filter(|l| l["event"] == "tool" && l["ok"] == json!(false)).collect();
     assert_eq!(refused.len(), 4, "every refusal is logged");
     assert!(refused.iter().all(|l| l["staged"] == json!(false)));

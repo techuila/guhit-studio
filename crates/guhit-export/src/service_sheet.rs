@@ -78,6 +78,7 @@ pub(crate) fn sheet_title(sheet: SheetKind, level_name: &str) -> String {
         SheetKind::Plumbing => "PLUMBING LAYOUT",
         SheetKind::Aircon => "AIRCON LAYOUT",
         SheetKind::PlumbingIsometric => return "PLUMBING ISOMETRIC DIAGRAMS".into(),
+        SheetKind::ReflectedCeiling => "REFLECTED CEILING PLAN",
     };
     let upper = clean(level_name).to_uppercase();
     let name = upper.strip_suffix("PLAN").unwrap_or(&upper).trim().to_string();
@@ -848,12 +849,26 @@ pub(crate) fn blocks(project: &Project, derived: &Derived, level: &Level, opts: 
 /// Render a lighting, power, plumbing or aircon sheet. Returns the SVG and
 /// the scale used.
 pub(crate) fn render(project: &Project, derived: &Derived, opts: &PlanExportOptions) -> Result<(String, u32), ExportError> {
+    render_in(project, derived, opts, Layout::new(opts.paper, opts.orientation, opts.title_block))
+}
+
+/// `render` on a given page layout (the permit set's sheets).
+pub(crate) fn render_in(
+    project: &Project,
+    derived: &Derived,
+    opts: &PlanExportOptions,
+    layout: Layout,
+) -> Result<(String, u32), ExportError> {
     let level = resolve_level(project, opts.level_id.as_ref())?;
-    let layout = Layout::new(opts.paper, opts.orientation, opts.title_block);
     if drawing(project, derived, level, opts, 100.0).is_empty() {
         return Err(empty_level(level));
     }
-    let blocks = blocks(project, derived, level, opts);
+    let mut blocks = blocks(project, derived, level, opts);
+    // On a sheet of the set the title block carries the trade's signing
+    // block (`titleblock`): no second one in the panel.
+    if layout.title_h <= 0.0 {
+        blocks.retain(|b| b.id != "signatory");
+    }
     let panel = place_panel(&blocks, &layout);
     let (px, py, pw, ph) = panel.area;
     let scale = match opts.scale_denominator {

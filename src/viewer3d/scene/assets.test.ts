@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import type { Asset, AssetLight } from "../../contract/bindings";
-import catalogSource from "../../../crates/guhit-model/src/defaults.rs?raw";
+import catalogSource from "../../../crates/guhit-model/src/catalog.rs?raw";
 import { buildAssetForm, hasAssetForm, KNOWN_ASSET_KEYS, lampAnchor, lampMaterial, type LampInfo } from "./assets";
 import { Kit } from "./kit";
 import { MaterialLibrary } from "./materials";
@@ -32,7 +32,11 @@ const CATALOG: Item[] = catalogSource
   })
   .filter((x): x is Item => x !== null);
 
-const NEW_KEYS = CATALOG.slice(CATALOG.findIndex((c) => c.key === "floor-drain")).map((c) => c.key);
+/** The services and devices (Wave 1): from the floor drain up to catalog v2. */
+const V2_START = CATALOG.findIndex((c) => c.key === "sofa-leather");
+const NEW_KEYS = CATALOG.slice(CATALOG.findIndex((c) => c.key === "floor-drain"), V2_START).map((c) => c.key);
+/** Catalog v2 (lane L5): furniture from the pack, built-ins and the site kit. */
+const V2_KEYS = CATALOG.slice(V2_START).map((c) => c.key);
 
 function asset(item: Item, patch: Partial<Asset> = {}): Asset {
   return {
@@ -87,7 +91,7 @@ const item = (key: string) => {
 };
 
 describe("catalog forms", () => {
-  it("reads the catalog, mounts and lights from defaults.rs", () => {
+  it("reads the catalog, mounts and lights from catalog.rs", () => {
     expect(CATALOG.length).toBeGreaterThanOrEqual(57);
     expect(NEW_KEYS.length).toBe(33);
     expect(item("switch-1").mount).toBe("wall");
@@ -186,6 +190,99 @@ describe("catalog forms", () => {
         for (let i = 0; i < pos.count; i++) expect(Number.isFinite(pos.getX(i)) && Number.isFinite(pos.getY(i)), key).toBe(true);
       }
     }
+  });
+});
+
+describe("catalog v2 forms", () => {
+  const BUILT_INS = ["kitchen-run", "wardrobe-builtin", "vanity", "counter", "shelf-wall"];
+
+  it("reads about fifty new keys, each with its own form", () => {
+    expect(V2_KEYS.length).toBeGreaterThanOrEqual(45);
+    for (const key of V2_KEYS) expect(KNOWN_ASSET_KEYS, key).toContain(key);
+    for (const key of BUILT_INS) expect(V2_KEYS).toContain(key);
+  });
+
+  it("builds every one into more than the fallback box, with few triangles", () => {
+    for (const key of V2_KEYS) {
+      const { g } = build(item(key));
+      expect(meshes(g).length, key).toBeGreaterThan(0);
+      expect(triangles(g), key).toBeGreaterThan(12);
+      expect(triangles(g), key).toBeLessThan(3000);
+    }
+  });
+
+  it("stays inside its footprint, wall items against the wall", () => {
+    for (const key of V2_KEYS) {
+      const it = item(key);
+      const box = new THREE.Box3().setFromObject(build(it).g);
+      const w = it.w / 1000;
+      const d = it.d / 1000;
+      expect(box.min.x, key).toBeGreaterThan(-w / 2 - 0.03);
+      expect(box.max.x, key).toBeLessThan(w / 2 + 0.03);
+      expect(box.min.z, key).toBeGreaterThan(-d / 2 - 0.03);
+      // Handles stand a little proud of the front, as the oven door handle of the range does.
+      expect(box.max.z, key).toBeLessThan(d / 2 + 0.04);
+      expect(box.min.y, key).toBeGreaterThanOrEqual(-1e-6);
+      if (it.mount === "wall") {
+        expect(box.min.z, key).toBeGreaterThanOrEqual(-d / 2 - 1e-6);
+        expect(box.min.z, key).toBeLessThan(-d / 2 + 0.002);
+      }
+    }
+  });
+
+  it("hangs the ceiling fan from the ceiling", () => {
+    const it = item("ceiling-fan");
+    const box = new THREE.Box3().setFromObject(build(it).g);
+    expect(box.max.y).toBeCloseTo(it.h / 1000, 3);
+    expect(box.max.x - box.min.x).toBeGreaterThan(it.w / 1000 * 0.75);
+  });
+
+  it("puts a kitchen run's sink and cooktop where its options say, and its wall cabinets only when asked", () => {
+    const it = item("kitchen-run");
+    const tall = (patch: Partial<Asset>) => new THREE.Box3().setFromObject(build(it, patch).g).max.y;
+    // Upper cabinets reach 2150 mm by default; without them the run stops at the counter and faucet.
+    expect(tall({})).toBeCloseTo(2.15, 2);
+    expect(tall({ built_in: { upper: false, sink_at_mm: 700, cooktop_at_mm: 1800, doors: 5 } })).toBeLessThan(1.2);
+    // The faucet stands at the sink: it is the tallest part over the counter.
+    const faucetX = (sink: number) => {
+      const g = build(it, { built_in: { upper: false, sink_at_mm: sink, cooktop_at_mm: null, doors: 5 } }).g;
+      let best = { x: 0, y: -1 };
+      g.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const pos = m.geometry.getAttribute("position");
+        for (let i = 0; i < pos.count; i++) if (pos.getY(i) > best.y) best = { x: pos.getX(i), y: pos.getY(i) };
+      });
+      return best.x;
+    };
+    expect(faucetX(600)).toBeCloseTo(-1.2 + 0.6, 1);
+    expect(faucetX(1800)).toBeCloseTo(-1.2 + 1.8, 1);
+  });
+
+  it("draws a door per option across a built-in wardrobe", () => {
+    const it = item("wardrobe-builtin");
+    const fronts = (doors: number) => triangles(build(it, { built_in: { upper: false, sink_at_mm: null, cooktop_at_mm: null, doors } }).g);
+    expect(fronts(4)).toBeGreaterThan(fronts(2));
+  });
+
+  it("gives the lamp posts a glowing lantern and a light anchor inside it", () => {
+    for (const key of ["lamp-post", "lamp-post-classic"]) {
+      const it = item(key);
+      expect(it.light, key).not.toBeNull();
+      const { g } = build(it);
+      const lamp = g.userData.lamp as LampInfo;
+      expect(lamp, key).toBeDefined();
+      const anchor = new THREE.Vector3(...lamp.anchor);
+      const inGlow = meshes(g)
+        .filter((m) => m.userData.lampPart === true)
+        .some((m) => new THREE.Box3().setFromObject(m).containsPoint(anchor));
+      expect(inGlow, key).toBe(true);
+    }
+  });
+
+  it("cuts tall built-ins at the cutaway", () => {
+    const { g } = build(item("wardrobe-builtin"), {}, 1.2);
+    expect(new THREE.Box3().setFromObject(g).max.y).toBeLessThanOrEqual(1.2 + 0.03);
   });
 });
 

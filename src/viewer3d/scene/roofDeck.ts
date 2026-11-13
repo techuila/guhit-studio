@@ -53,6 +53,25 @@ function width(poly: Pt[]): number {
 }
 
 /**
+ * What of `pieces` no cover reaches: the roof decks a roof over the level
+ * drops (DECISIONS D54 revisits D26). Covers may be any simple polygon (a
+ * roof's planes); they are cut into triangles and taken away one by one.
+ */
+export function uncovered(pieces: Pt[][], covers: Pt[][]): Pt[][] {
+  let out = pieces;
+  for (const c of covers) {
+    const cover = ensureCCW(c);
+    if (cover.length < 3) continue;
+    for (const [i, j, k] of triangulate(cover)) {
+      const tri = ensureCCW([cover[i], cover[j], cover[k]]);
+      if (Math.abs(signedArea(tri)) < 1) continue;
+      out = out.flatMap((p) => minusConvex(p, tri));
+    }
+  }
+  return out.filter((p) => p.length >= 3 && width(p) >= MIN_WIDTH_MM);
+}
+
+/**
  * Plan pieces of a level's footprints that the next level's footprints do
  * not cover, where the level needs a deck. Upper footprints may be any simple
  * polygon: they are cut into triangles and taken away one by one.

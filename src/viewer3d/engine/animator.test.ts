@@ -107,6 +107,22 @@ describe("Animator", () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
+  it("finishes every track but one: a capture from its own camera leaves the view's fly going (GR3 P1-1)", () => {
+    const a = full();
+    const landed = vi.fn();
+    a.set("camera", 0);
+    a.to("camera", 1, 0, { duration: 360, easing: (x) => x, onDone: landed });
+    a.to("enter:1", 1, 0, { duration: 240 });
+    a.sample(90);
+    a.finishAll("camera");
+    expect(a.value("enter:1")).toBe(1);
+    expect(a.value("camera")).toBeCloseTo(0.25);
+    expect(a.active()).toBe(1);
+    expect(landed).not.toHaveBeenCalled();
+    a.sample(360);
+    expect(landed).toHaveBeenCalledTimes(1);
+  });
+
   it("removes a key without firing its onDone", () => {
     const a = full();
     const done = vi.fn();

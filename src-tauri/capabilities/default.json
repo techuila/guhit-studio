@@ -23,7 +23,9 @@
     {
       "identifier": "opener:allow-open-path",
       "allow": [
-        { "path": "$APPDATA/claude-desktop/*" }
+        { "path": "$APPDATA/claude-desktop/*" },
+        { "path": "$APPDATA/projects/*/renders/*.mp4" },
+        { "path": "$APPDATA/live/*/renders/*.mp4" }
       ]
     },
     "dialog:default",

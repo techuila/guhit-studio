@@ -1,0 +1,564 @@
+/* Tours (lane L9): the top bar button, the Tours panel with its timeline,
+   the tour fields and the tours section. Tokens only; motion per
+   docs/MOTION.md, "Tours". No colored side borders: state is a tint, an
+   outline or a pill. */
+
+/* ------------------------------------------------------------ the button */
+
+.buttonWrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.buttonPct {
+  position: absolute;
+  right: -6px;
+  bottom: -4px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px var(--chrome);
+  animation: pop-in var(--dur-base) var(--ease-spring);
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+/* ------------------------------------------------------------- the panel */
+
+.panel {
+  position: fixed;
+  z-index: 250;
+  left: calc(var(--rail-w) + 12px);
+  right: calc(var(--inspector-w) + 12px);
+  bottom: calc(var(--statusbar-h) + 12px);
+  display: flex;
+  flex-direction: column;
+  max-height: min(380px, calc(100vh - var(--topbar-h) - 80px));
+  border: 1px solid rgba(20, 40, 63, 0.16);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  color: var(--ink);
+  font-size: var(--text-md);
+  transform-origin: bottom center;
+  transition:
+    opacity var(--dur-panel) var(--ease-out),
+    transform var(--dur-panel) var(--ease-out);
+}
+
+/* Rises 8 px from the bottom, as a dialog does. */
+.panel[data-stage="enter"] {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.panel[data-stage="exit"] {
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition-duration: calc(var(--dur-panel) * 0.7);
+  transition-timing-function: var(--ease-in);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 14px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0 4px 0 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.headTools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.clock {
+  min-width: 92px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.pathToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 10px 14px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: body-in var(--dur-base) var(--ease-out);
+}
+
+@keyframes body-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* ------------------------------------------------------------- make tour */
+
+.make {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.makeLead {
+  flex: 1 1 260px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.pace {
+  width: 92px;
+}
+
+/* -------------------------------------------------------------- timeline */
+
+.timeline {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.timelineInner {
+  position: relative;
+  min-width: 100%;
+}
+
+/* The scrub bar: seconds along the top, drag anywhere to scrub. */
+.ruler {
+  position: relative;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  cursor: ew-resize;
+  touch-action: none;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.ruler:hover {
+  background: var(--surface-3);
+}
+
+.tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line-strong);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.tickLabel {
+  position: absolute;
+  top: 3px;
+  padding-left: 3px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.track {
+  position: relative;
+  display: flex;
+  height: 54px;
+  /* Room for the transition chips between the ruler and the shots. */
+  margin-top: 18px;
+}
+
+.block {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px 0 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    width var(--dur-base) var(--ease-out),
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
+}
+
+.block + .block {
+  margin-left: 2px;
+}
+
+.block:hover {
+  background: var(--surface-3);
+}
+
+.block:active {
+  transform: scale(var(--press-scale));
+}
+
+.blockOn {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.blockOn:hover {
+  background: var(--accent-soft);
+}
+
+.blockDragging {
+  border-color: var(--accent);
+  box-shadow: 0 2px 10px rgba(14, 138, 143, 0.22);
+}
+
+/* Drags track the pointer 1:1: no width transition and no press scale
+   while dragging. */
+.dragging,
+.dragging .block {
+  transition: none;
+}
+
+.dragging .block:active {
+  transform: none;
+}
+
+.settled {
+  animation: settle var(--dur-base) var(--ease-out);
+}
+
+@keyframes settle {
+  from {
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+}
+
+.blockName {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.blockMeta {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The transition into a shot: a shaded run at its start. */
+.shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: repeating-linear-gradient(135deg, rgba(20, 40, 63, 0.08) 0 4px, transparent 4px 8px);
+  pointer-events: none;
+}
+
+/* The right edge: drag to make the shot longer or shorter. */
+.handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.handle::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  right: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ink-3);
+  opacity: 0.35;
+  transform: scaleY(0.7);
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-out),
+    background var(--dur-hover) var(--ease-out);
+}
+
+.handle:hover::after,
+.blockDragging .handle::after {
+  opacity: 1;
+  transform: scaleY(1);
+  background: var(--accent);
+}
+
+/* The transition chip on the boundary into each shot, above the blocks so
+   it never covers a length handle. (The tooltip rule
+   makes every [data-tip] relative: the track's chips stay absolute.) */
+.track > .chip {
+  position: absolute;
+}
+
+.chip {
+  position: absolute;
+  z-index: 2;
+  top: -9px;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  box-shadow: var(--shadow-1);
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.chip:active {
+  transform: translate(-50%, -50%) scale(var(--press-scale));
+}
+
+.chipCut {
+  color: var(--ink-3);
+}
+
+.playhead {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.playhead::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ----------------------------------------------------- the shot's fields */
+
+.shotFields {
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(140px, 1.4fr) minmax(110px, 1fr) 96px minmax(150px, 1.2fr) minmax(170px, 1.4fr) auto;
+  gap: 8px;
+  animation: body-in var(--dur-base) var(--ease-out);
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.transFields {
+  display: flex;
+  gap: 6px;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.foot > span {
+  margin-right: auto;
+}
+
+/* ----------------------------------------------------------- the export */
+
+.exportBox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress {
+  position: relative;
+  width: 120px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--surface-3);
+}
+
+.progressFill {
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform var(--dur-hover) linear;
+}
+
+.progressText {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------- inspector: fields, section */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  animation: body-in var(--dur-base) var(--ease-out);
+}
+
+.rowText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rowName {
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rowMeta {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.videoPill {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.shots {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.shots li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.shots li span:last-child {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}

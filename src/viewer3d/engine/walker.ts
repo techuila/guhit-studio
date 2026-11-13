@@ -29,7 +29,7 @@ import { ease, motionOK } from "../../ui/motion";
 import { EYE_HEIGHT_MM } from "../geom/cameraMath";
 import { EMPTY_WORLD, moveWithCollision, pushOut, WALKER_RADIUS_MM, type CollisionWorld } from "../geom/collision";
 import type { Pt } from "../geom/coords";
-import { flightLevelId, rampHeight, stairLocal, type StairInfo } from "../walk/stairs";
+import { flightLevelId, rampHeight, stairLocal, staysOnStair, type StairInfo } from "../walk/stairs";
 
 export type WalkMode = "walk" | "fly";
 
@@ -431,8 +431,9 @@ export class WalkState {
     if (!nav || this.levelId === null) return;
     const s = this.stair;
     if (s) {
-      const { u, v } = stairLocal(s, this);
-      if (u >= 0 && u <= s.run && Math.abs(v) <= s.width / 2 + 1) {
+      const { u } = stairLocal(s, this);
+      // Still over the stair: its flight (an L or U's flights and landing).
+      if (staysOnStair(s, this)) {
         this.floorZ = s.bottomZ + rampHeight(s, u);
         return;
       }

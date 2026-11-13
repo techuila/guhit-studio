@@ -103,9 +103,13 @@ impl ToolFail {
         }
     }
 
-    /// The hint given, or the standard one for the code.
+    /// The hint given, or the standard one for the code, or the general one:
+    /// every failure says how to fix it (Wave 2 rule).
     pub fn hint(&self) -> Option<String> {
-        self.hint.clone().or_else(|| standard_hint(&self.code).map(str::to_string))
+        self.hint
+            .clone()
+            .or_else(|| standard_hint(&self.code).map(str::to_string))
+            .or_else(|| Some(GENERAL_HINT.to_string()))
     }
 
     /// The structured content of the error result.
@@ -219,9 +223,26 @@ pub fn strip_step_prefix(message: &str) -> String {
     }
 }
 
+/// The hint of a failure whose code has no hint of its own.
+pub const GENERAL_HINT: &str = "The message names what to change: fix that argument and call again. tools/list has each tool's arguments; get_guide topic \"workflows\" has examples.";
+
 /// The hint for a code, naming the tool and argument that fixes it.
 pub fn standard_hint(code: &str) -> Option<&'static str> {
     Some(match code {
+        // Wave 2 (D53, D54).
+        "not_built" => "That part of Guhit is not built in this version yet; the message says which. Do the rest, and tell the user what is missing.",
+        "forbidden" => "Only people may do that. Ask the user to do it in the app.",
+        "roof_outline" => "add_roof: square every corner (90 or 270 degrees); a hip takes 4, 6 or 8 corners, gable and shed 4; gable_sides only on a rectangle. Or use shape \"flat\".",
+        "roof_level" => "add_roof: the roof over the top floor (outline top_footprint) takes no level; footprint and polygon roofs take one.",
+        "bad_roof" => "add_roof: pitch_deg, overhang_mm and thickness_mm in range (the message says which).",
+        "lot_exists" => "A project has one lot: set_lot replaces it.",
+        "tour_fps" | "tour_shot" => "edit_tour: fps 24, 30 or 60; each shot 0.1 to 600 s; a transition 0 to 10 s.",
+        "claimed" => "Another agent claimed that level or element: work elsewhere, or ask it with send_chat_message. get_session lists the claims.",
+        "rate_limited" => "Slow down: wait a second, or put the edits in one batch or build.",
+        "too_many_agents" => "At most 8 agents work on one computer at once. Ask the user to stop one in the Agents panel.",
+        "project_changed" => "The user opened another project. Read it with query before editing.",
+        "window_busy" => "Wait for the window's render (render action \"status\"), then call again.",
+        "io" => "Try again once; if it repeats, tell the user what the message says.",
         "bad_args" => "Check the arguments against this tool's input schema. get_guide topic \"workflows\" has examples.",
         "not_found" => "Find ids with query (what \"elements\", with kind and level), or levels with query what \"levels\".",
         "no_document" => "Open or create a project first: project action \"open\" or \"create\".",
@@ -247,7 +268,7 @@ pub fn standard_hint(code: &str) -> Option<&'static str> {
         "stretch_turns_wall" => "Move the named wall as well (modify ids), or pass stretch_connected false.",
         "resize_breaks_room" => "Use a smaller delta_mm in reshape op \"resize_room\".",
         "layer_locked" | "underlay_locked" => "Ask the user to unlock that layer in the app.",
-        "stair_size" => "add_stair width_mm is 300 to 10000, run_mm 300 to 30000, riser_count 1 to 100.",
+        "stair_size" => "add_stair width_mm is 300 to 10000, run_mm 300 to 30000, riser_count 2 to 100 (4 or more for shape l or u, with first_flight_risers 2 to n - 2).",
         "column_size" => "add_column width_mm and depth_mm are 50 to 5000.",
         "slab_outline" | "slab_thickness" | "railing_height" => {
             "add_slab needs 3 or more points, thickness_mm 50 to 1000 (not for a void) and a railing 300 to 2000 mm high."

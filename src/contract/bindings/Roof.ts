@@ -3,7 +3,9 @@ import type { Axis } from "./Axis";
 import type { RoofKind } from "./RoofKind";
 
 /**
- * One roof preset over the building footprint (`Derived::footprint`).
+ * One roof preset over the building footprint (`Derived::footprints`): the
+ * project roof of files before schema 6, and the value `SetRoof` and
+ * `Project::top_roof` carry for the roof over the top floor.
  */
 export type Roof = { kind: RoofKind, pitch_deg: number, overhang_mm: number, thickness_mm: number, 
 /**

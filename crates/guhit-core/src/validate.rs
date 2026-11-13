@@ -1,4 +1,7 @@
 //! Validation rules. Every rule has a machine code and a plain message.
+//!
+//! HUB (DECISIONS D54): after C0 only the orchestrator edits this file.
+//! Every Wave 2 element kind is a one-line arm into its lane's module.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -29,7 +32,13 @@ pub fn layer_of(kind: ElementKind) -> Option<LayerKey> {
         ElementKind::Dimension => LayerKey::Dimensions,
         ElementKind::Slab => LayerKey::Slabs,
         ElementKind::Underlay | ElementKind::Linework | ElementKind::ReferenceModel => LayerKey::Underlays,
-        ElementKind::Camera => return None,
+        ElementKind::Roof => LayerKey::Roofs,
+        ElementKind::Grid => LayerKey::Grids,
+        // Section and elevation marks are drawn like notes.
+        ElementKind::ViewMark => LayerKey::Annotations,
+        ElementKind::Lot => LayerKey::Site,
+        // Views are on no layer: a locked layer never stops one.
+        ElementKind::Camera | ElementKind::Tour => return None,
         // Pipes live on one layer per system: see `element_layer`.
         ElementKind::Pipe => return None,
     })
@@ -77,6 +86,8 @@ pub fn layer_name(key: LayerKey) -> &'static str {
         LayerKey::Aircon => "Aircon",
         LayerKey::Site => "Site",
         LayerKey::Slabs => "Slabs",
+        LayerKey::Grids => "Grids",
+        LayerKey::Roofs => "Roofs",
     }
 }
 
@@ -136,7 +147,7 @@ pub fn ensure_element_unlocked(project: &Project, el: &Element) -> Result<(), Co
     }
 }
 
-fn finite(name: &str, v: f64, ids: &[Id]) -> Result<(), CoreError> {
+pub(crate) fn finite(name: &str, v: f64, ids: &[Id]) -> Result<(), CoreError> {
     if v.is_finite() && v.abs() <= MAX_COORD_MM {
         Ok(())
     } else if v.is_finite() {
@@ -154,12 +165,12 @@ fn finite(name: &str, v: f64, ids: &[Id]) -> Result<(), CoreError> {
     }
 }
 
-fn finite_point(name: &str, p: Point, ids: &[Id]) -> Result<(), CoreError> {
+pub(crate) fn finite_point(name: &str, p: Point, ids: &[Id]) -> Result<(), CoreError> {
     finite(&format!("{name} x"), p.x, ids)?;
     finite(&format!("{name} y"), p.y, ids)
 }
 
-fn in_range(
+pub(crate) fn in_range(
     code: &str,
     name: &str,
     v: f64,
@@ -486,7 +497,8 @@ fn validate_opening_static(project: &Project, o: &Opening) -> Result<(), CoreErr
         10_000.0,
         "mm",
         &ids,
-    )
+    )?;
+    crate::opening_types::check(project, o)
 }
 
 /// Rules of one element that do not depend on other elements, plus
@@ -507,7 +519,7 @@ pub fn validate_element(project: &Project, el: &Element) -> Result<(), CoreError
                     ids.to_vec(),
                 ));
             }
-            Ok(())
+            crate::rooms::validate_finishes(project, r)
         }
         // Slabs (DECISIONS D50): only what one slab can check on its own.
         // Overlaps and the floor area rules belong to the slab lane.
@@ -576,37 +588,7 @@ pub fn validate_element(project: &Project, el: &Element) -> Result<(), CoreError
                 &ids,
             )
         }
-        Element::Stair(s) => {
-            require_level(project, &s.level_id)?;
-            finite_point("Stair origin", s.origin, &ids)?;
-            finite("Stair rotation", s.rotation_deg, &ids)?;
-            in_range(
-                "stair_size",
-                "Stair width",
-                s.width_mm,
-                300.0,
-                10_000.0,
-                "mm",
-                &ids,
-            )?;
-            in_range(
-                "stair_size",
-                "Stair run",
-                s.run_mm,
-                300.0,
-                30_000.0,
-                "mm",
-                &ids,
-            )?;
-            if s.riser_count < 1 || s.riser_count > 100 {
-                return Err(CoreError::invalid_for(
-                    "stair_size",
-                    "A stair needs between 1 and 100 risers.",
-                    ids.to_vec(),
-                ));
-            }
-            Ok(())
-        }
+        Element::Stair(s) => crate::stairs::validate(project, s),
         Element::Asset(a) => {
             require_level(project, &a.level_id)?;
             finite_point("Object position", a.position, &ids)?;
@@ -647,7 +629,8 @@ pub fn validate_element(project: &Project, el: &Element) -> Result<(), CoreError
                 "mm",
                 &ids,
             )?;
-            validate_asset_services(project, a)
+            validate_asset_services(project, a)?;
+            crate::placement::validate_built_in(project, a)
         }
         Element::Annotation(a) => {
             require_level(project, &a.level_id)?;
@@ -675,7 +658,7 @@ pub fn validate_element(project: &Project, el: &Element) -> Result<(), CoreError
                     ids.to_vec(),
                 ));
             }
-            Ok(())
+            crate::dims_auto::validate(project, d)
         }
         Element::Camera(c) => {
             for (n, v) in [("Camera position", c.position), ("Camera target", c.target)] {
@@ -760,6 +743,12 @@ pub fn validate_element(project: &Project, el: &Element) -> Result<(), CoreError
             }
             Ok(())
         }
+        // Wave 2: one arm per element kind, into its lane's module.
+        Element::Roof(r) => crate::roofs::validate(project, r),
+        Element::Grid(g) => crate::grids::validate(project, g),
+        Element::ViewMark(m) => crate::sheets::validate_mark(project, m),
+        Element::Lot(l) => crate::site::validate(project, l),
+        Element::Tour(t) => crate::tours::validate(project, t),
     }
 }
 

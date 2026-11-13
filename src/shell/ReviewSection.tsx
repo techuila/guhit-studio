@@ -8,6 +8,7 @@
 // aside (the note field takes focus), O reopens, Enter shows it.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { Command, DocState, Element, Issue, ReviewMark } from "../contract/bindings";
+import { isView } from "../contract/elements";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
 import { Button, Section, cx } from "../ui/controls";
@@ -61,7 +62,7 @@ const domId = (key: string) => `review-${key.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 /** How an element is called in "on ..." phrases. */
 function nameOf(el: Element, doc: DocState): string {
   const t = elementTitle(el, doc);
-  if (el.kind === "room" || el.kind === "asset" || el.kind === "camera") return t.subtitle || t.title;
+  if (el.kind === "room" || el.kind === "asset" || isView(el)) return t.subtitle || t.title;
   if (el.kind === "pipe" && el.name) return el.name;
   return `the ${t.title.toLowerCase()}`;
 }

@@ -260,6 +260,11 @@ export const KIND_LABEL: Record<ElementKind, string> = {
   reference_model: "3D models",
   pipe: "Services",
   slab: "Slabs",
+  roof: "Roofs",
+  grid: "Grid lines",
+  view_mark: "Section and elevation marks",
+  lot: "The lot",
+  tour: "Tours",
 };
 
 /** The kinds offered in the limit menu, in the order an architect thinks of them. */

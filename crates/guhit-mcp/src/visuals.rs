@@ -94,7 +94,7 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "visualize_render",
-            description: format!("Make an AI visualization from a saved model view (a capture or a render, source \"model_view\" in list_renders) with the image model and Google key the user set up in Guhit Studio's Visuals panel. It costs the user money per image (the Visuals panel shows the price) and takes 10 to 60 seconds, so only call it when the user asks for an AI image. The result is labelled \"AI visualization\", keeps a link to the view it came from, and never changes the model: geometry stays the authority. Styles are listed by the render_styles of the app; leave style_key out for the default look. {MM}"),
+            description: format!("Make an AI visualization from a saved model view (a capture or a render, source \"model_view\" in render action \"list\") with the image model and Google key the user set up in Guhit Studio. It costs the user money per image (the result gives the price; agents get 20 images per project per day unless the user raises it) and takes 10 to 60 seconds, so only call it when the user asks. It follows the model's depth, edges and the project look (set_look), checks the image against the model's lines (drift), is labelled \"AI visualization\" and never changes the model. {MM}"),
             schema: obj(
                 json!({
                     "source_render_id": {"type": "string", "description": "A model view record id."},
@@ -102,6 +102,8 @@ pub fn definitions() -> Vec<ToolDef> {
                     "style_key": {"type": "string", "description": "A render style key, for example \"modern-tropical\". Omit for none."},
                     "quality": {"type": "string", "enum": ["draft", "standard", "high"], "description": "draft about 0.5K and cheapest, standard 1K to 2K (the default), high up to 4K."},
                     "keep_geometry": {"type": "boolean", "description": "Keep walls, openings and the camera strictly. Defaults to true."},
+                    "style_reference_id": {"type": "string", "description": "A saved visual whose look to follow; \"none\" for no reference. Default the project look."},
+                    "use_maps": {"type": "boolean", "description": "Send the model's depth and line maps with the view. Default true."},
                 }),
                 &["source_render_id", "prompt"],
             ),
@@ -171,7 +173,16 @@ async fn record(app: &AppService, id: &str) -> Result<Value, ToolFail> {
     let list = app.handle("render_list", json!({})).await?;
     list.as_array()
         .and_then(|l| l.iter().find(|r| r["id"] == id).cloned())
-        .ok_or_else(|| ToolFail::msg(format!("not_found: no saved visual has id `{id}`. list_renders shows them")))
+        .ok_or_else(|| ToolFail::msg(format!("not_found: no saved visual has id `{id}`. render action \"list\" shows them")))
+}
+
+/// The saved records of `ids`, each `{id}` alone when it cannot be read.
+pub(crate) async fn records(app: &AppService, ids: &[Id]) -> Vec<Value> {
+    let mut out = vec![];
+    for id in ids {
+        out.push(record(app, id).await.unwrap_or_else(|_| json!({"id": id})));
+    }
+    out
 }
 
 // -------------------------------------------------------------------- views
@@ -209,6 +220,52 @@ async fn views_of(app: &AppService, names: &[String]) -> Result<Vec<Id>, ToolFai
     let s = app.session.lock().await;
     let doc = s.doc.as_ref().ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
     names.iter().map(|n| find_view(doc.project(), n)).collect()
+}
+
+/// A saved view's camera as the engine holds it (G4 problem 7): the window
+/// is handed this camera, not asked to look the id up in its own copy.
+async fn saved_camera(app: &AppService, name: &str) -> Result<Camera, ToolFail> {
+    let s = app.session.lock().await;
+    let doc = s.doc.as_ref().ok_or_else(|| ToolFail::msg("no_document: no project is open"))?;
+    let id = find_view(doc.project(), name)?;
+    doc.project()
+        .elements
+        .iter()
+        .find_map(|e| match e {
+            Element::Camera(c) if c.id == id => Some(c.clone()),
+            _ => None,
+        })
+        .ok_or_else(|| ToolFail::msg(format!("not_found: no saved view has id `{id}`")))
+}
+
+/// How far the camera a picture was taken from is from the saved view, mm:
+/// the eye and the target, whichever is further off.
+fn camera_gap(want: &Camera, got: &Value) -> Option<f64> {
+    let v = |c: &Value| -> Option<Vec3> { serde_json::from_value(c.clone()).ok() };
+    let (pos, target) = (v(&got["position"])?, v(&got["target"])?);
+    let d = |a: Vec3, b: Vec3| ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt();
+    Some(d(want.position, pos).max(d(want.target, target)))
+}
+
+/// A picture from a saved view is checked against it: the eye and target
+/// it was taken from, and whether they are the view's within 50 mm.
+fn note_camera(mut out: Output, want: &Camera) -> Output {
+    if let Output::Json(json) | Output::Rich { json, .. } = &mut out {
+        let got = json["renders"].get(0).map(|r| r["camera"].clone()).unwrap_or(Value::Null);
+        let gap = camera_gap(want, &got);
+        json["camera"] = json!({
+            "view": want.name,
+            "position": want.position,
+            "target": want.target,
+            "fov_deg": want.fov_deg,
+            "matches_view": gap.map(|g| g <= 50.0),
+            "off_by_mm": gap.map(|g| (g * 10.0).round() / 10.0),
+        });
+        if gap.is_some_and(|g| g > 50.0) {
+            json["warning"] = json!("The picture was not taken from the saved view's camera. Try again; if it repeats, tell the user the window's 3D view did not reach the view.");
+        }
+    }
+    out
 }
 
 fn wait_of(args: &Value) -> Result<Duration, ToolFail> {
@@ -262,19 +319,22 @@ fn note_render(job: &str, quality: TraceQuality) {
 }
 
 /// The window refused because a render is still running: say so plainly,
-/// with when to try again and the job to wait on.
-pub(crate) fn window_busy(e: IpcError) -> ToolFail {
+/// with what it is doing (its own report of its render queue, G4 problem
+/// 8, when it sent one), when to try again and the job to wait on.
+pub(crate) fn window_busy_with(e: IpcError, activity: Option<&Value>) -> ToolFail {
     if !e.message.to_ascii_lowercase().contains("already running") {
         return e.into();
     }
     let last = last_render().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let eta = activity.and_then(|a| a["state"]["eta_s"].as_f64()).filter(|s| s.is_finite() && *s >= 0.0);
     let (retry, job) = match last {
-        Some((job, at, quality)) => (render_seconds(quality).saturating_sub(at.elapsed().as_secs()).max(15), Some(job)),
-        None => (60, None),
+        Some((job, at, quality)) => (eta.map(|s| s.ceil() as u64 + 5).unwrap_or_else(|| render_seconds(quality).saturating_sub(at.elapsed().as_secs())).max(15), Some(job)),
+        None => (eta.map(|s| s.ceil() as u64 + 5).unwrap_or(60).max(15), None),
     };
+    let doing = activity.and_then(|a| a["status"].as_str()).map(|s| format!(" {s}")).unwrap_or_default();
     let mut f = ToolFail::new(
         "window_busy",
-        format!("the Guhit Studio window is still rendering (it shows its progress), so nothing new was started. Try again in about {retry} s"),
+        format!("the Guhit Studio window is still rendering, so nothing new was started.{doing} Try again in about {retry} s"),
     );
     f.hint = Some(match job {
         Some(job) => format!("Call render with action \"status\" and job_id \"{job}\" to wait for the render that is running, then start yours."),
@@ -329,7 +389,7 @@ fn running(job_id: &str) -> Output {
     Output::Json(json!({
         "status": "running",
         "job_id": job_id,
-        "note": "The window is still working on it. Call get_render_job with this job_id to wait for it; the images also appear in the app's Visuals panel.",
+        "note": "The window is still working on it. Call render with action \"status\" and this job_id to wait for it; the images also appear in the app's Visuals panel.",
     }))
 }
 
@@ -342,7 +402,7 @@ pub async fn call(app: &AppService, name: &str, args: &Value, ctx: &crate::agent
         "render_view" => render_view(app, args).await,
         "get_render_job" => get_render_job(app, args).await,
         "get_render_image" => get_render_image(app, args).await,
-        "visualize_render" => visualize_render(app, args).await,
+        "visualize_render" => visualize_render(app, args, ctx).await,
         _ => return None,
     })
 }
@@ -414,18 +474,58 @@ async fn add_camera(app: &AppService, args: &Value, ctx: &crate::agent::CallCont
 }
 
 async fn capture_view(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
-    let camera_id = match opt_str(args, "view")? {
-        Some(v) if !v.trim().is_empty() => Some(views_of(app, &[v]).await?.remove(0)),
+    // A saved view goes to the window as its camera, exactly as the engine
+    // holds it (G4 problem 7), never as an id the window looks up.
+    let camera = match opt_str(args, "view")? {
+        Some(v) if !v.trim().is_empty() => Some(saved_camera(app, &v).await?),
         _ => None,
     };
     let wait = wait_of(args)?;
     let visibility = visibility_of(args)?;
-    let job = app.window_start(WindowTask::CaptureView { camera_id, visibility })?;
-    let out = match app.window_wait(&job, wait).await.map_err(window_busy)? {
+    let job = app.window_start(WindowTask::CaptureView { camera_id: None, visibility, camera: camera.clone() })?;
+    let out = match app.window_wait(&job, wait).await.map_err(|e| window_busy_with(e, app.window_activity().as_ref()))? {
         Some(reply) => finished(app, Some(&job), reply).await?,
         None => running(&job),
     };
+    let out = match &camera {
+        Some(c) => note_camera(out, c),
+        None => out,
+    };
     Ok(note_visibility(out, visibility))
+}
+
+/// A frame of a tour from the window: `camera` is that frame's camera.
+pub(crate) async fn capture_camera(app: &AppService, camera: Camera, visibility: Option<ViewVisibility>, wait: Duration) -> Result<Output, ToolFail> {
+    let job = app.window_start(WindowTask::CaptureView { camera_id: None, visibility, camera: Some(camera.clone()) })?;
+    let out = match app.window_wait(&job, wait).await.map_err(|e| window_busy_with(e, app.window_activity().as_ref()))? {
+        Some(reply) => finished(app, Some(&job), reply).await?,
+        None => running(&job),
+    };
+    Ok(note_visibility(note_camera(out, &camera), visibility))
+}
+
+/// `set_look` (DECISIONS D53): a saved visual becomes the project look, the
+/// style reference AI renders follow; null clears it.
+pub(crate) async fn set_look(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+    let id = match args.get("id") {
+        None => return Err(ToolFail::args("give id: a saved visual's id (render action \"list\"), or null to clear the look")),
+        Some(Value::Null) => None,
+        Some(Value::String(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        Some(_) => return Err(ToolFail::args("id is a saved visual's id, or null")),
+    };
+    if let Some(bad) = args.as_object().and_then(|m| m.keys().find(|k| k.as_str() != "id")) {
+        return Err(ToolFail::args(format!("set_look takes id, not `{bad}`")));
+    }
+    let list = app.handle("render_set_look", json!({"id": id})).await?;
+    let look = list.as_array().and_then(|l| l.iter().find(|r| r["look"] == true).cloned());
+    Ok(Output::Json(json!({
+        "ok": true,
+        "look": look,
+        "note": match &id {
+            Some(_) => "AI renders follow this picture's look unless a call names another style reference. It never changes the model.",
+            None => "The project has no look now.",
+        },
+    })))
 }
 
 async fn render_view(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
@@ -461,7 +561,7 @@ async fn render_view(app: &AppService, args: &Value) -> Result<Output, ToolFail>
         if e.message.to_ascii_lowercase().contains("already running") {
             *last_render().lock().unwrap_or_else(|e| e.into_inner()) = before.clone();
         }
-        window_busy(e)
+        window_busy_with(e, app.window_activity().as_ref())
     });
     let out = match waited? {
         Some(reply) => finished(app, Some(&job), reply).await?,
@@ -473,7 +573,7 @@ async fn render_view(app: &AppService, args: &Value) -> Result<Output, ToolFail>
 async fn get_render_job(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
     let job = req_str(args, "job_id")?;
     let wait = wait_of(args)?;
-    match app.window_wait(&job, wait).await.map_err(window_busy)? {
+    match app.window_wait(&job, wait).await.map_err(|e| window_busy_with(e, app.window_activity().as_ref()))? {
         Some(reply) => finished(app, Some(&job), reply).await,
         None => Ok(running(&job)),
     }
@@ -490,7 +590,7 @@ async fn get_render_image(app: &AppService, args: &Value) -> Result<Output, Tool
     Ok(Output::Rich { json, images: vec![picture] })
 }
 
-async fn visualize_render(app: &AppService, args: &Value) -> Result<Output, ToolFail> {
+async fn visualize_render(app: &AppService, args: &Value, ctx: &crate::agent::CallContext) -> Result<Output, ToolFail> {
     let source = req_str(args, "source_render_id")?;
     let prompt = req_str(args, "prompt")?;
     let quality = match opt_str(args, "quality")?.as_deref() {
@@ -510,15 +610,35 @@ async fn visualize_render(app: &AppService, args: &Value) -> Result<Output, Tool
         prompt,
         quality,
         keep_geometry,
+        use_maps: crate::tools::opt_bool(args, "use_maps")?.unwrap_or(true),
+        // "none" leaves the project look out; the engine reads it so.
+        style_reference_id: opt_str(args, "style_reference_id")?.map(|s| s.trim().to_string()),
     };
-    let result: RenderAiResult = serde_json::from_value(app.handle("render_ai_generate", json!({ "request": request })).await?)
+    // The agent's own id: the engine applies the agents' daily cap (D53) and
+    // has the window draw any maps the view lacks.
+    let agent = ctx.call.as_ref().map(|c| c.id.clone());
+    let estimate = app.handle("render_ai_estimate", json!({ "request": request, "agent": agent })).await?;
+    let price = estimate["price_usd"].as_str().unwrap_or("").to_string();
+    if let Some(call) = &ctx.call {
+        app.agent_set_status(call, Some(&format!("Making an AI image, about ${price}")));
+    }
+    let result: RenderAiResult = serde_json::from_value(app.handle("render_ai_generate", json!({ "request": request, "agent": agent })).await?)
         .map_err(|e| ToolFail::msg(format!("io: {e}")))?;
     let picture = record_picture(app, &result.record.id).await?;
+    let mut label = "AI visualization. It shows a look, not the design: the model is the authority, and the picture never changes it.".to_string();
+    if let Some(d) = result.record.drift.as_ref().filter(|d| d.warn) {
+        label = format!("{label} The drift check found the image may not match the model: {}", d.note);
+    }
     Ok(Output::Rich {
         json: json!({
             "record": result.record,
             "seconds": result.seconds,
-            "label": "AI visualization. It shows a look, not the design: the model is the authority, and the picture never changes it.",
+            "price_usd": price,
+            "model": estimate["model_label"],
+            "image_size": estimate["image_size"],
+            "agents_today": estimate["agents"],
+            "drift": result.record.drift,
+            "label": label,
         }),
         images: vec![picture],
     })

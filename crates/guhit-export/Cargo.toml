@@ -12,7 +12,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 # SVG to vector PDF. Brings usvg (SVG parsing, text layout) and fontdb
 # (system font discovery) as re-exports, so the versions always match.
-svg2pdf = { version = "0.13", default-features = false, features = ["text"] }
+svg2pdf = { version = "0.13", default-features = false, features = ["text", "image"] }
 # Joins the pages of a multi-page PDF (the sheet and its review page).
 # svg2pdf already builds on this exact version; it writes one page per SVG.
 pdf-writer = "0.12"
@@ -22,3 +22,6 @@ pdf-writer = "0.12"
 resvg = "0.45"
 # Parse our own DXF output in tests.
 dxf = "0.6"
+# Tests re-derive a project they changed (plans draw stairs and roofs from
+# Derived, D54). The library itself still depends on guhit-model only.
+guhit-core.workspace = true

@@ -17,7 +17,6 @@ import type {
   ReferenceModel,
   Room,
   Slab,
-  Stair,
   Underlay,
   Wall,
 } from "../contract/bindings";
@@ -25,10 +24,12 @@ import { PIPE_COLOR_HEX, PIPE_COLOR_VAR, PIPE_SYSTEM_ORDER, pipeFalls } from "..
 import type { P } from "./geom";
 import { add, angleDeg, dirDeg, dist, lerp, mul, orientedRect, readableDeg, sub, unit } from "./geom";
 import type { DocIndex } from "./model";
-import { ANNOTATION_LINE, dimensionGeometry, elementShape, openingFrame, openingRect, stairOutline, symbolMmOf, wallOutline } from "./model";
+import { clipOutStairWells, drawRoof, drawRoofs, drawStair, drawStairs, highlightRoofOrStair } from "./drawRoofsStairs";
+import { ANNOTATION_LINE, dimensionGeometry, elementShape, openingFrame, openingRect, symbolMmOf, wallOutline } from "./model";
+import { drawDimensionString, drawDimensionStrings, drawGridLine, drawGrids, drawLot, drawLotShape, drawTypeTags, drawViewMark, drawViewMarks, isDimensionString } from "./permit/draw";
 import type { PipePlan, PipeShape } from "./pipe";
 import { lineSetPx, pipeBandHalfPx, pipePlan, pipeRiserRadiusPx, pipeWidthPx } from "./pipe";
-import { labelPoint, railingPlan, stairTreadOffsets, voidCross } from "./slab";
+import { labelPoint, railingPlan, voidCross } from "./slab";
 import { drawAssetSymbol } from "./symbols";
 import type { Box } from "./tags";
 import { boxAround } from "./tags";
@@ -150,7 +151,8 @@ export function labelHeightMm(view: View, uiScale = 1): number {
   return (LABEL_PX * uiScale) / view.scale;
 }
 
-function path(rc: RenderContext, pts: readonly P[], close = true): void {
+/** Traces model points as a screen path. Shared with the lanes' drawing modules. */
+export function path(rc: RenderContext, pts: readonly P[], close = true): void {
   const { ctx, view } = rc;
   ctx.beginPath();
   pts.forEach((p, i) => {
@@ -161,7 +163,8 @@ function path(rc: RenderContext, pts: readonly P[], close = true): void {
   if (close) ctx.closePath();
 }
 
-function seg(rc: RenderContext, a: P, b: P): void {
+/** Strokes one model segment. Shared with the lanes' drawing modules. */
+export function seg(rc: RenderContext, a: P, b: P): void {
   const { ctx, view } = rc;
   const sa = toScreen(view, a);
   const sb = toScreen(view, b);
@@ -432,26 +435,10 @@ export function drawRoomFill(rc: RenderContext, room: Room, style: ElementStyle 
     ctx.fillStyle = palette.roomFill;
   }
   // A stair arriving from below is an opening: the fill leaves it clear (D44).
-  if (rc.index.arriving.length > 0) clipOutWells(rc);
+  if (rc.index.arriving.length > 0) clipOutStairWells(rc);
   path(rc, g.polygon);
   ctx.fill();
   ctx.restore();
-}
-
-/** Clips to everything but the openings of the stairs that arrive on this level. */
-function clipOutWells(rc: RenderContext): void {
-  const { ctx, view } = rc;
-  ctx.beginPath();
-  ctx.rect(-1, -1, rc.width + 2, rc.height + 2);
-  for (const st of rc.index.arriving) {
-    stairOutline(st.origin, st.rotation_deg, st.width_mm, st.run_mm).forEach((p, i) => {
-      const q = toScreen(view, p);
-      if (i === 0) ctx.moveTo(q.x, q.y);
-      else ctx.lineTo(q.x, q.y);
-    });
-    ctx.closePath();
-  }
-  ctx.clip("evenodd");
 }
 
 export function drawRoomLabel(rc: RenderContext, room: Room, style: ElementStyle | null): void {
@@ -486,7 +473,7 @@ export function drawRoomLabel(rc: RenderContext, room: Room, style: ElementStyle
   ctx.restore();
 }
 
-// ---------------------------------------------------------------- columns, stairs, assets
+// ---------------------------------------------------------------- columns, assets (stairs: drawRoofsStairs.ts)
 
 export function drawColumn(rc: RenderContext, c: Column, style: ElementStyle | null): void {
   const { ctx, palette, view } = rc;
@@ -505,100 +492,6 @@ export function drawColumn(rc: RenderContext, c: Column, style: ElementStyle | n
   }
   if (!style?.hollow) ctx.fill();
   ctx.stroke();
-  ctx.restore();
-}
-
-export function drawStair(rc: RenderContext, s: Stair, style: ElementStyle | null): void {
-  const { ctx, palette } = rc;
-  const outline = stairOutline(s.origin, s.rotation_deg, s.width_mm, s.run_mm);
-  const run = unit(sub(outline[3], outline[0]));
-  const across = unit(sub(outline[1], outline[0]));
-  ctx.save();
-  ctx.globalAlpha = style?.alpha ?? 1;
-  ctx.strokeStyle = style?.color ?? palette.ink2;
-  ctx.fillStyle = palette.surface;
-  ctx.lineWidth = 1.2 * rc.uiScale;
-  if (style?.dashed) ctx.setLineDash([5, 4]);
-  path(rc, outline);
-  if (!style?.hollow) {
-    ctx.save();
-    ctx.globalAlpha *= 0.75;
-    ctx.fill();
-    ctx.restore();
-  }
-  ctx.stroke();
-  // n - 1 treads of run / (n - 1): the top riser lands on the floor above (D44).
-  ctx.lineWidth = 0.8 * rc.uiScale;
-  for (const d of stairTreadOffsets(s.run_mm, s.riser_count)) {
-    const a = add(outline[0], mul(run, d));
-    seg(rc, a, add(a, mul(across, s.width_mm)));
-  }
-  // walking line with an arrow pointing up the flight
-  const start = add(s.origin, mul(run, s.run_mm * 0.04));
-  const end = add(s.origin, mul(run, s.run_mm * 0.94));
-  ctx.lineWidth = 1.2 * rc.uiScale;
-  seg(rc, start, end);
-  const head = Math.min(s.width_mm * 0.22, 260);
-  seg(rc, end, add(end, add(mul(run, -head), mul(across, head * 0.6))));
-  seg(rc, end, add(end, add(mul(run, -head), mul(across, -head * 0.6))));
-  const sp = toScreen(rc.view, start);
-  ctx.beginPath();
-  ctx.arc(sp.x, sp.y, 2.5 * rc.uiScale, 0, Math.PI * 2);
-  ctx.fillStyle = style?.color ?? palette.ink2;
-  ctx.fill();
-  if (s.width_mm * rc.view.scale > 40 * rc.uiScale) {
-    const lp = toScreen(rc.view, add(start, mul(across, s.width_mm * 0.28)));
-    ctx.font = `${9 * rc.uiScale}px ${palette.fontMono}`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("UP", lp.x, lp.y);
-  }
-  ctx.restore();
-}
-
-/**
- * A stair of the level below seen from the level it arrives at (D44): its
- * outline and treads dashed, with a DN arrow from the top end down the flight.
- */
-export function drawStairFromBelow(rc: RenderContext, s: Stair, style: ElementStyle | null = null): void {
-  const { ctx, palette } = rc;
-  const outline = stairOutline(s.origin, s.rotation_deg, s.width_mm, s.run_mm);
-  const run = unit(sub(outline[3], outline[0]));
-  const across = unit(sub(outline[1], outline[0]));
-  const color = style?.color ?? palette.ink2;
-  ctx.save();
-  ctx.globalAlpha = style?.alpha ?? 1;
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
-  ctx.setLineDash([6 * rc.uiScale, 4 * rc.uiScale]);
-  ctx.lineWidth = 1.1 * rc.uiScale;
-  path(rc, outline);
-  ctx.stroke();
-  ctx.lineWidth = 0.7 * rc.uiScale;
-  for (const d of stairTreadOffsets(s.run_mm, s.riser_count)) {
-    const a = add(outline[0], mul(run, d));
-    seg(rc, a, add(a, mul(across, s.width_mm)));
-  }
-  ctx.setLineDash([]);
-  // DN: from the top end down the flight, the arrow head at the bottom.
-  const start = add(s.origin, mul(run, s.run_mm * 0.96));
-  const end = add(s.origin, mul(run, s.run_mm * 0.08));
-  ctx.lineWidth = 1.1 * rc.uiScale;
-  seg(rc, start, end);
-  const head = Math.min(s.width_mm * 0.22, 260);
-  seg(rc, end, add(end, add(mul(run, head), mul(across, head * 0.6))));
-  seg(rc, end, add(end, add(mul(run, head), mul(across, -head * 0.6))));
-  const sp = toScreen(rc.view, start);
-  ctx.beginPath();
-  ctx.arc(sp.x, sp.y, 2.5 * rc.uiScale, 0, Math.PI * 2);
-  ctx.fill();
-  if (s.width_mm * rc.view.scale > 40 * rc.uiScale) {
-    const lp = toScreen(rc.view, add(start, mul(across, s.width_mm * 0.28)));
-    ctx.font = `${9 * rc.uiScale}px ${palette.fontMono}`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("DN", lp.x, lp.y);
-  }
   ctx.restore();
 }
 
@@ -732,6 +625,8 @@ export function drawAsset(rc: RenderContext, a: Asset, style: ElementStyle | nul
     symbolMm: symbolMmOf(rc.index),
     threeWay: rc.threeWay?.has(a.id) ?? false,
     font: palette.fontUi,
+    // A built-in's sink, cooktop and doors where it really has them.
+    builtIn: a.built_in ?? null,
   });
   if (label === null) {
     ctx.beginPath();
@@ -1313,7 +1208,8 @@ export function drawElement(rc: RenderContext, el: Element, style: ElementStyle 
       drawAnnotation(local, el, style);
       break;
     case "dimension":
-      drawDimension(local, el, style);
+      if (isDimensionString(el)) drawDimensionString(local, el, style);
+      else drawDimension(local, el, style);
       break;
     case "camera":
       drawCamera(local, el, style);
@@ -1332,6 +1228,22 @@ export function drawElement(rc: RenderContext, el: Element, style: ElementStyle 
       break;
     case "slab":
       drawSlab(local, el, style);
+      break;
+    // Wave 2 kinds: each lane's module draws one (nothing until it is built).
+    case "roof":
+      drawRoof(local, el, style);
+      break;
+    case "grid":
+      drawGridLine(local, el, style);
+      break;
+    case "view_mark":
+      drawViewMark(local, el, style);
+      break;
+    case "lot":
+      drawLotShape(local, el, style);
+      break;
+    case "tour":
+      // A view: nothing on the plan.
       break;
   }
 }
@@ -1357,8 +1269,7 @@ export function drawModel(rc: RenderContext, opt: SceneOptions): void {
   for (const l of of("linework")) drawLinework(rc, l, opt.styleOf(l.id));
   for (const r of of("room")) drawRoomFill(rc, r, opt.styleOf(r.id));
   for (const sl of of("slab")) drawSlab(rc, sl, opt.styleOf(sl.id));
-  for (const s of rc.index.arriving) drawStairFromBelow(rc, s);
-  for (const s of of("stair")) drawStair(rc, s, opt.styleOf(s.id));
+  drawStairs(rc, of("stair"), opt.styleOf);
   for (const a of of("asset")) drawAsset(rc, a, opt.styleOf(a.id));
   drawWalls(rc, of("wall"), opt.styleOf);
   for (const o of of("opening")) {
@@ -1375,12 +1286,21 @@ export function drawModel(rc: RenderContext, opt: SceneOptions): void {
   for (const p of pipes) drawPipe(rc, p, opt.styleOf(p.id), "risers");
   drawPipeFittings(rc, opt.styleOf);
   for (const r of of("room")) drawRoomLabel(rc, r, opt.styleOf(r.id));
-  for (const d of of("dimension")) drawDimension(rc, d, opt.styleOf(d.id));
+  // Plain dimensions; dimension strings (`through` points) are lane L1's pass below.
+  const dims = of("dimension");
+  for (const d of dims) if (!isDimensionString(d)) drawDimension(rc, d, opt.styleOf(d.id));
   for (const a of of("annotation")) drawAnnotation(rc, a, opt.styleOf(a.id));
   for (const m of of("reference_model")) drawReferenceModel(rc, m, opt.styleOf(m.id));
   if (opt.showCameras) {
     for (const c of of("camera")) drawCamera(rc, c, opt.styleOf(c.id), c.id === opt.activeCameraId);
   }
+  // Wave 2 passes, one line per lane module (each draws nothing until built).
+  drawRoofs(rc, of("roof"), opt.styleOf);
+  drawGrids(rc, of("grid"), opt.styleOf);
+  drawLot(rc, of("lot"), opt.styleOf);
+  drawViewMarks(rc, of("view_mark"), opt.styleOf);
+  drawTypeTags(rc, of("opening"), opt.styleOf);
+  drawDimensionStrings(rc, dims.filter(isDimensionString), opt.styleOf);
 }
 
 function meanZ(points: readonly { z: number }[]): number {
@@ -1396,6 +1316,10 @@ function meanZ(points: readonly { z: number }[]): number {
 export function drawHighlight(rc: RenderContext, el: Element, strength: "hover" | "selected", alpha = 1): void {
   const { ctx, palette } = rc;
   if (alpha <= 0.002) return;
+  if (el.kind === "stair" || el.kind === "roof") {
+    highlightRoofOrStair(rc, el, strength, alpha);
+    return;
+  }
   ctx.save();
   ctx.strokeStyle = palette.selection;
   ctx.fillStyle = palette.selection;
@@ -1416,7 +1340,9 @@ export function drawHighlight(rc: RenderContext, el: Element, strength: "hover" 
   }
   if (el.kind === "dimension") {
     ctx.restore();
-    drawDimension(rc, el, { color: palette.selection, alpha: (sel ? 1 : 0.8) * alpha });
+    const hl = { color: palette.selection, alpha: (sel ? 1 : 0.8) * alpha };
+    if (isDimensionString(el)) drawDimensionString(rc, el, hl);
+    else drawDimension(rc, el, hl);
     return;
   }
   if (el.kind === "column" && el.shape === "round") {
@@ -1482,6 +1408,10 @@ export function drawHighlight(rc: RenderContext, el: Element, strength: "hover" 
  */
 export function drawPeerOutline(rc: RenderContext, el: Element, color: string, alpha = 1): void {
   if (alpha <= 0.002) return;
+  if (el.kind === "stair" || el.kind === "roof") {
+    highlightRoofOrStair(rc, el, "hover", alpha, color);
+    return;
+  }
   const { ctx } = rc;
   ctx.save();
   ctx.strokeStyle = color;

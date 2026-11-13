@@ -334,15 +334,9 @@ pub fn read_data_url(path: &Path, kind: ImageKind) -> Result<String, IpcError> {
 
 // ---------------------------------------------------------------------- time
 
-/// `20260922-143005` from the current UTC time. Used in file names.
+/// `20260922-143005` from this computer's local time. Used in file names.
 pub fn file_timestamp() -> String {
-    let t = defaults::now_rfc3339();
-    let digits: String = t.chars().filter(|c| c.is_ascii_digit()).collect();
-    if digits.len() >= 14 {
-        format!("{}-{}", &digits[..8], &digits[8..14])
-    } else {
-        digits
-    }
+    chrono::Local::now().format("%Y%m%d-%H%M%S").to_string()
 }
 
 /// Seconds since the Unix epoch for a `YYYY-MM-DDTHH:MM:SSZ` timestamp, the

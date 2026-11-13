@@ -27,6 +27,8 @@ Honesty rules:
   try again; never work around a refusal.
 - A review item set aside with `set_review_mark` is never approved. Only set one aside \
   when the user asks and says why.
+- Only people set the signing architect's name and license numbers (PRC, PTR, TIN): \
+  `title_block` reads them masked and never writes them.
 
 Ask the user first:
 - Other people and agents may be editing this plan (`get_session`). `project` open, \
@@ -58,6 +60,9 @@ How to draft:
   it reshaped that the call did not name). Tell the user about them.
 - With other agents on the project, claim your level first (`set_status`
   claim) and read the `inbox` in results.
+- Permit set: `types` (D1, W1 marks), `add_grid`, `annotate` (dimension strings, \
+  notes), `add_roof`; toolset documents: `set_lot` from the TCT, `sheets` make and \
+  export. `look` shows elevations, sections, sheets and schedules.
 
 Verify before you hand over: `look` the plan with show dims and ids, `measure` key \
 dimensions against the brief, `look` mode 3d from a saved view, then `check`.
@@ -177,6 +182,34 @@ with the user's own key: it costs money, only when they ask, and is labelled
   edits wait. `agent_stopped`: stop and tell the user. `get_session` shows
   whether you are paused.
 
+## The permit set (core tools and toolset documents)
+1. Door and window types: `types` action \"set\" (kind, style, width_mm,
+   height_mm, sill_mm, description) makes D1, W1; `add_opening` with `type`
+   hangs a typed opening; `types` action \"assign\" types every untyped one.
+   Changing a type changes every opening of it in the same step.
+2. `add_grid` x_spacings_mm and y_spacings_mm: grid lines 1, 2, 3 and A, B, C
+   on every level.
+3. `annotate` kind \"auto\" adds the exterior strings of a level (overall,
+   walls and grids, openings) that follow every later edit; kind \"string\"
+   dimensions walls' openings or grids; kind \"note\" writes a note.
+4. `add_roof`: the house roof (outline top_footprint, shape hip), and
+   carport or lanai roofs over drawn points with `posts` true.
+5. `set_lot` with the TCT technical description as written; read the
+   misclosure in the summary and `query` what \"site\" for area, bearings and
+   coverage.
+6. `title_block` action \"set\": project title, lot, block, TCT, firm. Only
+   people set the signing architect; it reads masked.
+7. `sheets` action \"make\" (paper a1), then \"list\", `look` mode \"sheet\" per
+   sheet, and \"export\" format pdf: one PDF for the whole set.
+8. Check: `look` mode \"elevation\" and \"section\" with a mark, mode
+   \"schedule\", `query` what \"schedules\", then `check`. Nothing here is
+   permit approval: the architect reviews and signs.
+
+## Tours (toolset tours)
+`make_tour` plans a tour through the front door and the rooms; `look` mode
+\"tour\" with `at_s` shows a frame; `edit_tour` changes shots; `export_tour`
+renders the video in the window (a job id: call again with it to wait).
+
 ## Errors
 Every failure has `code`, `message`, `element_ids`, `location_mm`, `step`,
 `ref` and a `hint` naming the tool and argument that fixes it. A tool name
@@ -243,7 +276,25 @@ pub const CONVENTIONS: &str = "\
   `direction_deg`, `width_mm` wide. It rises its level's floor-to-floor height
   in `riser_count` risers, with riser_count - 1 treads of run / (riser_count - 1);
   the top riser lands on the floor above. New stairs get a 900 mm handrail.
+- Shape l or u: two flights with a landing, turning `turn` left or right
+  going up, at least 4 risers. Each flight's top riser lands on its landing or
+  the floor, so n risers make n - 2 treads; `run_mm` is the going of all
+  treads, the landing left out. `first_flight_risers` (default half),
+  `landing_mm` (default the width), `well_mm` (u: the gap between flights).
 - Cut the upper floor with a void slab over the flight.
+
+## Roofs
+- The roof over the top floor (outline top_footprint) follows the outer wall
+  faces of the topmost level with a building and belongs to no level. Other
+  roofs sit on a level: over its walls (footprint) or a drawn area (polygon).
+- Pitched roofs need square corners: a hip on 4, 6 or 8 corners, gable and
+  shed on 4. Planes, ridges, hips, eaves and areas are derived.
+
+## Grids, dimensions, types
+- Grid lines hold on every level. A dimension string runs through witness
+  points; an automatic one stores what it measures and is rewritten after
+  every edit. A door or window type (D1, W1) writes its size, style and sill
+  into every opening of it.
 
 ## Slabs
 - On a level: `floor` adds floor where the level's own does not reach;

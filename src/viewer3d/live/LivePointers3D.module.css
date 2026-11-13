@@ -202,6 +202,26 @@
   left: 11px;
   max-width: 240px;
   border-radius: 4px 10px 10px 10px;
+  transform-origin: top left;
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out),
+    opacity var(--dur-panel) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+/* An idle agent's label folds away, so it never covers the model; the mark
+   stays where it last worked (G4 problem 10). */
+.marker[data-activity="idle"] .agentLabel {
+  opacity: 0;
+  transform: scale(0.92);
+  transition-timing-function: var(--ease-in);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marker[data-activity="idle"] .agentLabel {
+    transform: none;
+  }
 }
 
 .agentName {

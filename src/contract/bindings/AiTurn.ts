@@ -5,4 +5,10 @@ export type AiTurn = { reply: string, proposal: AiProposal | null,
 /**
  * Names of the tools the model called, for transparency.
  */
-tools_used: Array<string>, };
+tools_used: Array<string>, 
+/**
+ * A task with one proposal per room (`AiTask::Furnish`): each is
+ * resolved on its own with `ai_resolve`, and `proposal` is None. Left
+ * out of the JSON when empty.
+ */
+proposals?: Array<AiProposal>, };

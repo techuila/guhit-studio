@@ -6,6 +6,7 @@
 //! behavior. It is owned by the orchestrator: propose changes, do not edit.
 
 pub mod api;
+pub mod catalog;
 pub mod command;
 pub mod defaults;
 pub mod derived;

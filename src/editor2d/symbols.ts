@@ -1,4 +1,4 @@
-// Plan symbols for the asset catalog (crates/guhit-model/src/defaults.rs).
+// Plan symbols for the asset catalog (crates/guhit-model/src/catalog.rs).
 // Every symbol draws in local millimeters: origin at the footprint center,
 // +x right, +y toward the BACK of the object (bed head, sofa back, WC tank).
 // The caller sets the transform, stroke and fill styles. `px` is the size of
@@ -47,7 +47,8 @@
 // room-side edge, 0.07D clear of it. On screen tags stay upright, so their
 // offset allows for the text's width when the object is turned.
 
-import type { Asset, Element } from "../contract/bindings";
+import type { Asset, BuiltInParams, Element } from "../contract/bindings";
+import { builtInParams } from "../viewer3d/scene/builtins";
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -122,13 +123,13 @@ function sofa(ctx: Ctx, w: number, d: number, seats: number): void {
   for (let i = 1; i < seats; i++) line(ctx, x + arm + sw * i, y + 30, x + arm + sw * i, d / 2 - back);
 }
 
-function chair(ctx: Ctx, cx: number, cy: number, angle: number, size: number): void {
+function chair(ctx: Ctx, cx: number, cy: number, angle: number, size: number, depth = size): void {
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(angle);
-  box(ctx, -size / 2, -size / 2, size, size, size * 0.18);
+  box(ctx, -size / 2, -depth / 2, size, depth, Math.min(size, depth) * 0.18);
   // back rest on local +y
-  line(ctx, -size / 2 + size * 0.1, size / 2 - size * 0.18, size / 2 - size * 0.1, size / 2 - size * 0.18);
+  line(ctx, -size / 2 + size * 0.1, depth / 2 - depth * 0.18, size / 2 - size * 0.1, depth / 2 - depth * 0.18);
   ctx.restore();
 }
 
@@ -199,6 +200,229 @@ function car(ctx: Ctx, w: number, d: number): void {
   box(ctx, w / 2, y + hood + 60, 90, 160, 30);
 }
 
+/** A filled dot in the stroke color, so a tint reaches it. */
+function dot(ctx: Ctx, cx: number, cy: number, r: number): void {
+  ctx.save();
+  ctx.fillStyle = ctx.strokeStyle;
+  ellipse(ctx, cx, cy, r, r, true);
+  ctx.restore();
+}
+
+/** A table top, ottoman or similar slab: rounded body with an inset edge line. */
+function tableTop(ctx: Ctx, w: number, d: number, r: number): void {
+  const k = Math.min(70, Math.min(w, d) * 0.15);
+  box(ctx, -w / 2, -d / 2, w, d, r);
+  box(ctx, -w / 2 + k, -d / 2 + k, w - k * 2, d - k * 2, r * 0.6, false);
+}
+
+/** A round top, stool or vase: the disc with one inner ring at `inner` of its radius. */
+function disc(ctx: Ctx, w: number, d: number, inner: number): void {
+  ellipse(ctx, 0, 0, w / 2, d / 2, true);
+  ellipse(ctx, 0, 0, (w / 2) * inner, (d / 2) * inner);
+}
+
+/** A plant from above: a core ringed by `leaves` ovals that end on radius `r`. */
+function plant(ctx: Ctx, r: number, leaves: number, core: number, len: number, wid: number): void {
+  ellipse(ctx, 0, 0, r * core, r * core, true);
+  for (let i = 0; i < leaves; i++) {
+    const a = (i / leaves) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(Math.cos(a) * r * (1 - len), Math.sin(a) * r * (1 - len), r * len, r * wid, a, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+/** Case furniture: the front half (-y) holds `cells` doors or drawers, with a knob each for drawers. */
+function cabinet(ctx: Ctx, w: number, d: number, cells: number, knobs: boolean): void {
+  const x = -w / 2;
+  const y = -d / 2;
+  box(ctx, x, y, w, d, 20);
+  line(ctx, x, 0, x + w, 0);
+  const cw = w / cells;
+  for (let i = 1; i < cells; i++) line(ctx, x + cw * i, y, x + cw * i, 0);
+  if (!knobs) return;
+  const r = Math.min(22, d * 0.05);
+  for (let i = 0; i < cells; i++) ellipse(ctx, x + cw * (i + 0.5), y + d * 0.22, r, r, true);
+}
+
+/** Weave marks: 45 degree strokes every `gap` mm, cut to the rectangle. */
+function weave(ctx: Ctx, x0: number, y0: number, x1: number, y1: number, gap: number): void {
+  for (let c = x0 + y0 + gap; c < x1 + y1; c += gap) {
+    const a = Math.max(x0, c - y1);
+    const b = Math.min(x1, c - y0);
+    if (b - a > 1) line(ctx, a, c - a, b, c - b);
+  }
+}
+
+/** The wardrobe's inside: a hanging rod down the middle and hanger ticks across it. */
+function wardrobe(ctx: Ctx, w: number, d: number): void {
+  const x = -w / 2;
+  const y = -d / 2;
+  box(ctx, x, y, w, d);
+  line(ctx, x + 40, 0, x + w - 40, 0);
+  const n = Math.max(3, Math.round(w / 170));
+  for (let i = 1; i < n; i++) {
+    const hx = x + (w / n) * i;
+    line(ctx, hx - 40, -d * 0.32, hx + 40, d * 0.32);
+  }
+}
+
+/** A dining set: the table between two rows of chairs that fill the rest of the depth. */
+function diningSet(ctx: Ctx, w: number, d: number, seats: number): void {
+  const zone = Math.min(400, d * 0.25); // chair depth on each long side
+  const td = d - zone * 2;
+  const per = seats / 2;
+  const step = w / per;
+  const cs = Math.min(420, step * 0.85);
+  for (let i = 0; i < per; i++) {
+    const cx = -w / 2 + step * (i + 0.5);
+    chair(ctx, cx, td / 2 + zone - cs / 2, 0, cs);
+    chair(ctx, cx, -td / 2 - zone + cs / 2, Math.PI, cs);
+  }
+  box(ctx, -w / 2, -td / 2, w, td, 30);
+}
+
+/** A round table of radius `tr` between two chairs of size `cs` that sit at the ends of the depth, backs out. */
+function bistro(ctx: Ctx, d: number, cs: number, tr: number): void {
+  chair(ctx, 0, d / 2 - cs / 2, 0, cs);
+  chair(ctx, 0, -d / 2 + cs / 2, Math.PI, cs);
+  ellipse(ctx, 0, 0, tr, tr, true);
+  ellipse(ctx, 0, 0, tr * 0.78, tr * 0.78);
+}
+
+/** A hedge: a filled cloud, a row of overlapping arcs along both long sides and rounded ends. */
+function hedge(ctx: Ctx, w: number, d: number): void {
+  const a = Math.min(d * 0.12, 70); // how far a scallop bulges
+  const yb = d / 2 - a; // the chord line the scallops stand on
+  const cap = Math.min(d / 2, w * 0.2);
+  const x0 = -w / 2 + cap;
+  const x1 = w / 2 - cap;
+  const n = Math.max(2, Math.round((x1 - x0) / (d * 0.34)));
+  const p = (x1 - x0) / n;
+  const r = (p * p) / 4 / (2 * a) + a / 2; // radius of an arc with chord p and bulge a
+  const beta = Math.atan2(r - a, p / 2);
+  ctx.beginPath();
+  ctx.moveTo(x0, yb);
+  for (let i = 0; i < n; i++) ctx.arc(x0 + p * (i + 0.5), yb + a - r, r, Math.PI - beta, beta, true);
+  ctx.ellipse(x1, 0, cap, yb, 0, Math.PI / 2, -Math.PI / 2, true);
+  for (let i = n - 1; i >= 0; i--) ctx.arc(x0 + p * (i + 0.5), -(yb + a - r), r, -beta, beta - Math.PI, true);
+  ctx.ellipse(x0, 0, cap, yb, 0, -Math.PI / 2, Math.PI / 2, true);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+/** A ceiling fan: a hub and `blades` long narrow ovals out to the circle of the smaller side. Lines only. */
+function fan(ctx: Ctx, w: number, d: number, blades: number): void {
+  const ro = Math.min(w, d) / 2;
+  const rh = ro * 0.14;
+  const mid = (rh + ro) / 2;
+  ellipse(ctx, 0, 0, rh, rh);
+  for (let i = 0; i < blades; i++) {
+    const a = (i / blades) * Math.PI * 2 + Math.PI / 2;
+    ctx.beginPath();
+    ctx.ellipse(Math.cos(a) * mid, Math.sin(a) * mid, (ro - rh) / 2, ro * 0.09, a, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+/** Joints between `n` doors or drawers: ticks from the front edge, -y. */
+function joints(ctx: Ctx, w: number, d: number, n: number): void {
+  const len = Math.min(70, d * 0.2);
+  for (let i = 1; i < n; i++) {
+    const jx = -w / 2 + (w / n) * i;
+    line(ctx, jx, -d / 2, jx, -d / 2 + len);
+  }
+}
+
+/** A sink of `sw` mm centered on cx: two bowls when wide, one otherwise, the tap behind. */
+function sinkBowls(ctx: Ctx, cx: number, d: number, sw: number): void {
+  const bowls = sw >= 600 ? 2 : 1;
+  const gap = 30;
+  const bw = (sw - gap * (bowls - 1)) / bowls;
+  for (let i = 0; i < bowls; i++) box(ctx, cx - sw / 2 + i * (bw + gap), -d * 0.26, bw, d * 0.5, 50, false);
+  const r = Math.min(24, d * 0.04);
+  ellipse(ctx, cx, d * 0.36, r, r);
+  line(ctx, cx, d * 0.36 - r, cx, d * 0.16);
+}
+
+/** A cooktop of `cw` mm centered on cx, four burners. */
+function cooktop(ctx: Ctx, cx: number, d: number, cw: number): void {
+  const ch = d * 0.66;
+  const cy = d * 0.04;
+  box(ctx, cx - cw / 2, cy - ch / 2, cw, ch, 30, false);
+  const r = Math.min(cw, ch) * 0.19;
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) ellipse(ctx, cx + sx * cw * 0.24, cy + sy * ch * 0.23, r, r);
+  }
+}
+
+/**
+ * Built-ins, drawn at their own width and depth from their options: a base
+ * run with doors across the front (a line 40 mm in, joints), a sink and a
+ * cooktop where the options put them (centers from the left end), and a
+ * dashed line where the wall cabinets above stop.
+ */
+function drawBuiltIn(ctx: Ctx, key: string, w: number, d: number, px: number, p: BuiltInParams): void {
+  const x = -w / 2;
+  const y = -d / 2;
+  const doors = Math.max(1, Math.round(p.doors));
+  // Local x of a center `mm` from the left end, kept `half` + 20 mm inside the ends.
+  const at = (mm: number, half: number): number => x + Math.min(Math.max(mm, half + 20), w - half - 20);
+  const front = (): void => line(ctx, x, y + 40, x + w, y + 40);
+  switch (key) {
+    case "kitchen-run": {
+      box(ctx, x, y, w, d);
+      front();
+      joints(ctx, w, d, doors);
+      const sw = Math.min(800, w - 80);
+      if (p.sink_at_mm !== null && sw >= 200) sinkBowls(ctx, at(p.sink_at_mm, sw / 2), d, sw);
+      const cw = Math.min(560, w - 40);
+      if (p.cooktop_at_mm !== null && cw >= 200) cooktop(ctx, at(p.cooktop_at_mm, cw / 2), d, cw);
+      // The wall cabinets above reach 350 mm out from the wall, +y.
+      const uy = d / 2 - 350;
+      if (p.upper && uy > y + 1) {
+        ctx.save();
+        ctx.setLineDash([8 * px, 5 * px]);
+        line(ctx, x, uy, x + w, uy);
+        ctx.restore();
+      }
+      return;
+    }
+    case "counter":
+      box(ctx, x, y, w, d);
+      front();
+      joints(ctx, w, d, doors);
+      return;
+    case "vanity": {
+      box(ctx, x, y, w, d, 20);
+      front();
+      joints(ctx, w, d, doors);
+      const rx = Math.min(w * 0.3, 260);
+      const bx = at(p.sink_at_mm ?? w / 2, rx);
+      ellipse(ctx, bx, -d * 0.04, rx, Math.min(d * 0.28, 160));
+      const r = Math.min(18, d * 0.04);
+      ellipse(ctx, bx, d / 2 - Math.min(60, d * 0.12), r, r, true);
+      return;
+    }
+    case "wardrobe-builtin":
+      wardrobe(ctx, w, d);
+      joints(ctx, w, d, doors);
+      return;
+    case "shelf-wall": {
+      // Above the floor: dashed, with the shelves as lines parallel to the wall.
+      ctx.save();
+      ctx.setLineDash([6 * px, 4 * px]);
+      box(ctx, x, y, w, d, 0, false);
+      const n = d >= 300 ? 3 : 2;
+      for (let i = 1; i <= n; i++) line(ctx, x, y + (d * i) / (n + 1), x + w, y + (d * i) / (n + 1));
+      ctx.restore();
+      return;
+    }
+  }
+}
+
 // ------------------------------------------------------------ devices and fixtures
 
 /** Paper size of a device symbol, mm. D is this times the scale denominator. */
@@ -223,6 +447,13 @@ export interface SymbolOptions {
   threeWay?: boolean;
   /** Font family for the tags. Default: the UI font stack. */
   font?: string;
+  /**
+   * The asset's own built-in options (`Asset::built_in`): where a kitchen
+   * run's sink and cooktop sit, its door count, wall cabinets above. Used
+   * by the built-in keys only; without it they draw with the defaults for
+   * their width (`builtInParams`).
+   */
+  builtIn?: BuiltInParams | null;
 }
 
 type Fill = "none" | "body" | "ink";
@@ -730,6 +961,11 @@ export function drawAssetSymbol(ctx: Ctx, key: string, w: number, d: number, px:
     drawDevice(ctx, device, px, opts.font ?? SYMBOL_FONT);
     return "";
   }
+  const built = builtInParams(key, w, opts.builtIn);
+  if (built) {
+    drawBuiltIn(ctx, key, w, d, px, built);
+    return "";
+  }
   const x = -w / 2;
   const y = -d / 2;
   switch (key) {
@@ -740,28 +976,118 @@ export function drawAssetSymbol(ctx: Ctx, key: string, w: number, d: number, px:
     case "bed-queen":
       bed(ctx, w, d, 2);
       return "";
-    case "wardrobe": {
-      box(ctx, x, y, w, d);
-      line(ctx, x + 40, 0, x + w - 40, 0);
-      const n = Math.max(3, Math.round(w / 170));
-      for (let i = 1; i < n; i++) {
-        const hx = x + (w / n) * i;
-        line(ctx, hx - 40, -d * 0.32, hx + 40, d * 0.32);
-      }
+    case "wardrobe":
+      wardrobe(ctx, w, d);
       return "";
-    }
     case "sofa-3":
+    case "sofa-leather":
+    case "sofa-wood":
       sofa(ctx, w, d, 3);
       return "";
     case "sofa-2":
       sofa(ctx, w, d, 2);
       return "";
     case "armchair":
+    case "lounge-chair":
+    case "armchair-classic":
       sofa(ctx, w, d, 1);
       return "";
+    case "rocking-chair": {
+      // The chair sits between two bowed rockers that run the full depth.
+      sofa(ctx, w - 150, d - 40, 1);
+      for (const s of [-1, 1]) {
+        const rx = s * (w / 2 - 35);
+        ctx.beginPath();
+        ctx.moveTo(rx, y + 20);
+        ctx.quadraticCurveTo(rx + s * 50, 0, rx, d / 2 - 20);
+        ctx.stroke();
+      }
+      return "";
+    }
     case "coffee-table":
-      box(ctx, x, y, w, d, 50);
-      box(ctx, x + 70, y + 70, w - 140, d - 140, 30, false);
+    case "coffee-table-square":
+      tableTop(ctx, w, d, 50);
+      return "";
+    case "tea-table":
+      tableTop(ctx, w, d, 40);
+      return "";
+    case "side-table":
+      tableTop(ctx, w, d, 30);
+      return "";
+    case "table-wood":
+      tableTop(ctx, w, d, 20);
+      return "";
+    case "ottoman":
+      tableTop(ctx, w, d, Math.min(w, d) * 0.3);
+      return "";
+    case "coffee-table-round":
+      disc(ctx, w, d, 0.82);
+      return "";
+    case "side-table-round":
+      disc(ctx, w, d, 0.78);
+      return "";
+    case "stool-wood":
+      disc(ctx, w, d, 0.66);
+      return "";
+    case "vase-ceramic":
+      disc(ctx, w, d, 0.6);
+      return "";
+    case "dining-round-2":
+      // Chairs half under the table, all of it inside the square.
+      bistro(ctx, d, Math.min(w, d) * 0.36, Math.min(w, d) * 0.35);
+      return "";
+    case "sideboard":
+      cabinet(ctx, w, d, Math.max(2, Math.round(w / 500)), false);
+      return "";
+    case "cabinet-white":
+      cabinet(ctx, w, d, Math.max(2, Math.round(w / 600)), false);
+      return "";
+    case "dresser":
+      cabinet(ctx, w, d, Math.max(2, Math.round(w / 400)), true);
+      return "";
+    case "cabinet-drawers":
+      cabinet(ctx, w, d, Math.max(2, Math.round(w / 570)), true);
+      return "";
+    case "nightstand":
+      cabinet(ctx, w, d, 1, true);
+      return "";
+    case "shelf-cube": {
+      box(ctx, x, y, w, d, 20);
+      box(ctx, x + 40, y + 40, w - 80, d - 80, 0, false);
+      line(ctx, x + 40, y + 40, x + w - 40, y + d - 40);
+      line(ctx, x + 40, y + d - 40, x + w - 40, y + 40);
+      return "";
+    }
+    case "shelf-steel": {
+      box(ctx, x, y, w, d);
+      for (const f of [1 / 3, 2 / 3]) line(ctx, x, y + d * f, x + w, y + d * f);
+      const k = Math.min(60, Math.min(w, d) * 0.1);
+      for (const sx of [-1, 1]) {
+        for (const sy of [-1, 1]) ellipse(ctx, sx * (w / 2 - k), sy * (d / 2 - k), k * 0.6, k * 0.6, true);
+      }
+      return "";
+    }
+    case "basket-rattan": {
+      box(ctx, x, y, w, d, Math.min(w, d) * 0.3);
+      box(ctx, x + 35, y + 35, w - 70, d - 70, Math.min(w, d) * 0.2, false);
+      weave(ctx, x + 60, y + 60, x + w - 60, y + d - 60, 55);
+      return "";
+    }
+    case "ceiling-fan":
+      fan(ctx, w, d, 5);
+      return "";
+    case "wall-art":
+    case "mirror-wall": {
+      // Thin, on the wall face (back at y = d/2); never thinner than 2.5 pixels.
+      const t = Math.max(d, 2.5 * px);
+      box(ctx, x, d / 2 - t, w, t);
+      if (key === "mirror-wall") line(ctx, 0, d / 2 - t, 0, d / 2 - t - 4 * px);
+      return "";
+    }
+    case "chair-dining":
+    case "chair-wood-white":
+    case "chair-monobloc":
+      chair(ctx, 0, 0, 0, w, d);
       return "";
     case "tv-console":
       box(ctx, x, y, w, d);
@@ -777,7 +1103,14 @@ export function drawAssetSymbol(ctx: Ctx, key: string, w: number, d: number, px:
     case "dining-6":
       dining(ctx, w, d, 6);
       return "";
+    case "dining-set-4":
+      diningSet(ctx, w, d, 4);
+      return "";
+    case "dining-set-6":
+      diningSet(ctx, w, d, 6);
+      return "";
     case "desk":
+    case "desk-metal":
       chair(ctx, 0, -d / 2 - 120, Math.PI, 440);
       box(ctx, x, y, w, d);
       return "";
@@ -823,7 +1156,8 @@ export function drawAssetSymbol(ctx: Ctx, key: string, w: number, d: number, px:
       line(ctx, 0, d * 0.4, 0, d * 0.16);
       return "";
     }
-    case "range": {
+    case "range":
+    case "range-electric": {
       box(ctx, x, y, w, d);
       const r = Math.min(w, d) * 0.15;
       for (const sx of [-1, 1]) {
@@ -833,6 +1167,15 @@ export function drawAssetSymbol(ctx: Ctx, key: string, w: number, d: number, px:
         }
       }
       line(ctx, x, y + d * 0.1, x + w, y + d * 0.1);
+      return "";
+    }
+    case "microwave": {
+      box(ctx, x, y, w, d, 20);
+      // door with its window, and a control strip with three buttons
+      const strip = Math.min(110, w * 0.22);
+      box(ctx, x + 30, y + 30, w - strip - 60, d - 60, 15, false);
+      box(ctx, x + w - strip - 5, y + 30, strip - 25, d - 60, 10, false);
+      for (const f of [0.25, 0.5, 0.75]) line(ctx, x + w - strip + 10, y + d * f, x + w - 35, y + d * f);
       return "";
     }
     case "refrigerator":
@@ -848,24 +1191,96 @@ export function drawAssetSymbol(ctx: Ctx, key: string, w: number, d: number, px:
       ellipse(ctx, 0, -d * 0.08, r * 0.7, r * 0.7);
       return "";
     }
-    case "plant-pot": {
-      const r = Math.min(w, d) / 2;
-      ellipse(ctx, 0, 0, r * 0.45, r * 0.45, true);
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
-        ctx.beginPath();
-        ctx.ellipse(Math.cos(a) * r * 0.58, Math.sin(a) * r * 0.58, r * 0.42, r * 0.16, a, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
+    case "plant-pot":
+      plant(ctx, Math.min(w, d) / 2, 8, 0.45, 0.42, 0.16);
       return "";
-    }
+    case "plant-leafy":
+      plant(ctx, Math.min(w, d) / 2, 9, 0.24, 0.5, 0.2);
+      return "";
+    case "plant-succulent":
+      plant(ctx, Math.min(w, d) / 2, 12, 0.2, 0.55, 0.13);
+      return "";
     case "tree":
+    case "tree-flowering":
       tree(ctx, Math.min(w, d) / 2, px);
       return "";
     case "car-sedan":
       car(ctx, w, d);
       return "";
+    case "car-covered":
+      // The mirrors stand 90 mm out of the body: the body is narrower so they stay in the footprint.
+      car(ctx, w - 180, d);
+      return "";
+    case "outdoor-set":
+      // The pack model pulls the chairs out to the ends of the depth.
+      bistro(ctx, d, Math.min(440, w * 0.56), w * 0.38);
+      return "";
+    case "bench-wood":
+      box(ctx, x, y, w, d, 20);
+      // back rest against +y, seat slats in front of it
+      box(ctx, x, d / 2 - 90, w, 90, 20, false);
+      for (const f of [1 / 3, 2 / 3]) line(ctx, x + 40, y + (d - 90) * f, x + w - 40, y + (d - 90) * f);
+      return "";
+    case "planter-box": {
+      box(ctx, x, y, w, d, 20);
+      box(ctx, x + 50, y + 50, w - 100, d - 100, 10, false);
+      const n = Math.max(2, Math.round(w / 220));
+      const r = Math.min((d - 100) * 0.3, 70);
+      for (let i = 0; i < n; i++) {
+        const px0 = x + 50 + ((w - 100) / n) * (i + 0.5);
+        ellipse(ctx, px0, 0, r, r, true);
+        ellipse(ctx, px0, 0, r * 0.35, r * 0.35);
+      }
+      return "";
+    }
+    case "gate-iron": {
+      // Two leaves hinged on the posts, swinging into the lot (-y): the dashed quarter circles.
+      const post = Math.min(d, w / 10);
+      box(ctx, x, y, post, d);
+      box(ctx, x + w - post, y, post, d);
+      const hx = w / 2 - post / 2;
+      const len = hx - 10;
+      line(ctx, -hx, 0, -10, 0);
+      line(ctx, 10, 0, hx, 0);
+      ctx.save();
+      ctx.setLineDash([6 * px, 4 * px]);
+      ctx.beginPath();
+      ctx.arc(-hx, 0, len, -Math.PI / 2, 0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(hx, 0, len, Math.PI, Math.PI * 1.5);
+      ctx.stroke();
+      ctx.restore();
+      return "";
+    }
+    case "gate-steel": {
+      // A sliding gate: the frame, a tick for each bar, and an arrow along x for the slide.
+      box(ctx, x, y, w, d, 0);
+      const n = Math.max(2, Math.round(w / 150));
+      for (let i = 1; i < n; i++) {
+        const bx = x + (w / n) * i;
+        line(ctx, bx, y, bx, -d * 0.18);
+        line(ctx, bx, d * 0.18, bx, d / 2);
+      }
+      const head = Math.min(d * 0.8, 80);
+      line(ctx, -w * 0.3, 0, w * 0.3, 0);
+      line(ctx, w * 0.3, 0, w * 0.3 - head, head * 0.45);
+      line(ctx, w * 0.3, 0, w * 0.3 - head, -head * 0.45);
+      return "";
+    }
+    case "hedge":
+      hedge(ctx, w, d);
+      return "";
+    case "lamp-post":
+    case "lamp-post-classic": {
+      const r = Math.min(w, d) / 2;
+      const k = r * Math.SQRT1_2;
+      ellipse(ctx, 0, 0, r, r, true);
+      line(ctx, -k, -k, k, k);
+      line(ctx, -k, k, k, -k);
+      dot(ctx, 0, 0, Math.max(r * 0.12, px * 1.2));
+      return "";
+    }
     default:
       return null;
   }

@@ -13,6 +13,7 @@
 //                where two people move, select and chat. src/live/dev/liveMock.ts.
 import type { Command, DocState, IpcError, ProjectMeta, SnapshotMeta } from "../contract/bindings";
 import { ipc } from "../contract/ipc";
+import { withTopRoof } from "../contract/roof";
 import { bus } from "../state/bus";
 import { useApp } from "../state/store";
 import { useViewer } from "../viewer3d/viewerStore";
@@ -45,7 +46,8 @@ function applyShallow(doc: DocState, command: Command): string {
       );
       return "Set material";
     case "set_roof":
-      p.roof = command.roof;
+      // The roof over the top floor, as the engine sets it (contract/roof.ts).
+      doc.project = withTopRoof(p, command.roof);
       return "Change roof";
     case "set_project_settings":
       p.settings = command.settings;
@@ -102,7 +104,7 @@ async function installMock(empty: boolean) {
       // The mock has no plumbing: "plumbing-demo" opens as the plain sample.
       if (a.template !== "sample-bungalow" && a.template !== "plumbing-demo") {
         doc.project.elements = [];
-        doc.derived = { walls: [], rooms: [], footprints: [], totals: { floor_area_m2: 0, gross_area_m2: 0, wall_length_m: 0, room_count: 0, door_count: 0, window_count: 0 }, issues: [], pipes: { fittings: [], penetrations: [], takeoff: [], total_length_m: 0, elbow_count: 0, tee_count: 0, sleeve_count: 0 }, schedule: [], review_resolved: [], railings: [] };
+        doc.derived = { walls: [], rooms: [], footprints: [], totals: { floor_area_m2: 0, gross_area_m2: 0, wall_length_m: 0, room_count: 0, door_count: 0, window_count: 0 }, issues: [], pipes: { fittings: [], penetrations: [], takeoff: [], total_length_m: 0, elbow_count: 0, tee_count: 0, sleeve_count: 0 }, schedule: [], review_resolved: [], railings: [], stairs: [], roofs: [], opening_schedule: { rows: [], marks: [] }, room_schedule: [], level_areas: [], site: null };
       }
       return structuredClone(doc);
     },

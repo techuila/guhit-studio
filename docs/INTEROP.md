@@ -12,8 +12,8 @@ external converter.
 | In | DWG | same | Needs the ODA File Converter |
 | In | glTF, GLB, OBJ | `model_store` | Reference model in the 3D view |
 | In | `.guhit` bundle | `bundle_open` | A whole project |
-| Out | PDF, SVG, DXF (2D plan) | `export_plan` | The plan or a service sheet (`sheet`, see "Service sheets"), pipes when `show_pipes`, a review page in PDF when `review_page` |
-| Out | DWG (2D plan) | `export_model` `dwg` | Needs the converter |
+| Out | PDF, SVG, DXF 2013 (2D plan) | `export_plan` | The plan or a service sheet (`sheet`, see "Service sheets"), pipes when `show_pipes`, a review page in PDF when `review_page` |
+| Out | DWG (2D plans of every level) | `export_model` `dwg` | Needs the converter |
 | Out | IFC4, 3D DXF | `export_model` `ifc`, `dxf3d` | Whole model with pipes, written by `guhit-export` |
 | Out | GLB, OBJ, DAE | `export_bytes` | Made in the 3D view |
 | Out | `.guhit` bundle | `bundle_save` | A whole project |
@@ -165,7 +165,11 @@ snapshots/<id>.json   named and automatic versions
 underlays/<file>      traced images
 renders/<id>.png      saved visuals, plus renders/index.json
 models/<file>         glTF, GLB and OBJ reference models
+files/<file>          the firm logo and vicinity map the sheets print
 ```
+
+Tour videos (`renders/<id>.mp4` and frame folders) stay out unless asked
+(`bundle_save` with `videos: true`); their records and posters go in.
 
 `ai-log.jsonl` is left out. It is a private record of what was asked of the
 copilot and does not belong in a file you hand to someone else.
@@ -177,6 +181,15 @@ dialog supplied. `bundle_open` reads one back:
   `..`, no drive letter, no backslash, and each path element must already be
   a safe file name. A bundle over 200 MB expanded, or with more than 5000
   entries, is refused.
+- Only the kinds of file the app writes go in, folder by folder; anything
+  else is skipped and named in the app's log. At the top: `project.json`,
+  `thumbnail.png`, `chat.jsonl`. `snapshots/`: `.json`. `underlays/`: PNG
+  and JPEG. `models/`: `.glb`, `.gltf`, `.obj`. `renders/`: PNG, JPEG,
+  WebP, `.json`, and `.mp4` that starts with an MP4 `ftyp` box, plus tour
+  frames as `renders/<id>/frame-NNNNNN.png`. `files/`: PNG and JPEG. No
+  other folders, so a bundle
+  cannot plant a script or an `.app` folder where the desktop app opens
+  tour videos.
 - The bundle may carry one wrapping folder; the `project.json` nearest the
   root marks where the project folder starts.
 - The project keeps its own id when that id is free. When a different project
@@ -203,7 +216,9 @@ exports folder when no path is given:
 
 - `ifc` writes an IFC4 STEP file in millimeters, from `guhit_export::model_ifc`.
 - `dxf3d` writes a 3D DXF, from `guhit_export::model_dxf3d`.
-- `dwg` writes the 2D plan DXF and hands it to the ODA File Converter.
+- `dwg` writes the 2D plans of every level side by side, titled, as one
+  DXF 2013 (`guhit_export::dxf::plans`), and hands it to the ODA File
+  Converter.
 
 GLB, OBJ and DAE are produced in the 3D view and saved with `export_bytes`,
 because the geometry for them is built by the three.js scene.
@@ -227,7 +242,8 @@ Which pipes go where:
 | Export | Pipes drawn | Hidden pipe layer |
 |---|---|---|
 | PDF, SVG sheet | the exported level, when `show_pipes` is on | not drawn |
-| DXF 2D (and DWG) | the exported level, when `show_pipes` is on | not drawn |
+| DXF 2D | the exported level, when `show_pipes` is on | not drawn |
+| DWG | every level, when `show_pipes` is on | not drawn |
 | DXF 3D | tubes for every pipe; plan lines at z = 0 like the rest of the linework | tubes stay, plan lines go |
 | IFC4 | every pipe | written |
 
@@ -265,8 +281,10 @@ empty export.
 
 ### DXF
 
-One layer per system, with the AutoCAD color index nearest the system color
-(R12 has no true color):
+The 2D DXF is DXF 2013 (AC1027). One layer per system, with the AutoCAD
+color index nearest the system color. DXF 2013 can carry true color, but
+the color index stays on purpose, so the lines read on a white background
+and on a black one alike. The 3D DXF stays R12.
 
 | Layer | System | Color | Linetype |
 |---|---|---|---|

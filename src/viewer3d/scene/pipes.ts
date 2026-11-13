@@ -27,6 +27,7 @@
 import * as THREE from "three";
 import type { DocState, LayerKey, Level, Pipe, PipeFitting, PipePenetration, PipeSystem, Vec3 } from "../../contract/bindings";
 import { PIPE_COLOR_HEX, PIPE_LAYER, PIPE_SYSTEM_ORDER } from "../../contract/pipes";
+import { topRoof } from "../../contract/roof";
 import type { BuildCache } from "./buildCache";
 import { tagElement, type Kit } from "./kit";
 import type { MaterialLibrary } from "./materials";
@@ -544,7 +545,7 @@ export function buildPipes(ctx: PipeBuildContext): PipeScene {
   }
   const wallThickness = new Map<string, number>();
   for (const e of doc.project.elements) if (e.kind === "wall") wallThickness.set(e.id, e.thickness_mm);
-  const roofThickness = doc.project.roof?.thickness_mm ?? 100;
+  const roofThickness = topRoof(doc.project)?.thickness_mm ?? 100;
 
   lib.category = "pipe";
   const sleeveMat = lib.plain(SLEEVE_COLOR, 0.6);

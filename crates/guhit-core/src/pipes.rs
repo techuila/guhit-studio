@@ -34,7 +34,7 @@ use std::collections::BTreeMap;
 
 use guhit_model::*;
 
-use crate::geom::{bbox, dist, dot, perp_left, point_in_polygon, pt, signed_area, sub, unit};
+use crate::geom::{dist, dot, perp_left, point_in_polygon, pt, sub, unit};
 use crate::issues::{issue, openings_of_face};
 use crate::rooms::{face, FaceRef};
 use crate::topo::{Analysis, WallTopo};
@@ -53,9 +53,6 @@ const SLAB_LOWEST_MM: f64 = 150.0;
 const SLAB_UPPER_MM: f64 = 200.0;
 /// A body closer than its radius by less than this only touches.
 const TOUCH_MM: f64 = 1e-6;
-/// Without a closed footprint the 3D view roofs the walls of the top level
-/// when they span more than this both ways.
-const FALLBACK_ROOF_SPAN_MM: f64 = 1000.0;
 /// Pipes that are joined may overlap this far past their radii near the join.
 const JOIN_SLACK_MM: f64 = 1.0;
 
@@ -289,74 +286,6 @@ fn body_hit(a: Vec3, b: Vec3, r: f64, distance: &dyn Fn(Vec3) -> f64) -> Option<
     let t_in = if f(0.0) < 0.0 { 0.0 } else { edge(tm, 0.0) };
     let t_out = if f(1.0) < 0.0 { 1.0 } else { edge(tm, 1.0) };
     Some((t_in, t_out))
-}
-
-// ------------------------------------------------------------ polygons
-
-/// Cleaned, counter-clockwise copy of a plan polygon, the way the 3D view
-/// reads a footprint (`ensureCCW` in `src/viewer3d/geom/polygon.ts`). Empty
-/// when it is not a polygon.
-fn ensure_ccw(poly: &[Point]) -> Vec<Point> {
-    let tol = 1e-4;
-    let same = |a: Point, b: Point| (a.x - b.x).abs() < tol && (a.y - b.y).abs() < tol;
-    let mut out: Vec<Point> = vec![];
-    for p in poly {
-        if !(p.x.is_finite() && p.y.is_finite()) {
-            continue;
-        }
-        if out.last().map(|l| same(*l, *p)).unwrap_or(false) {
-            continue;
-        }
-        out.push(*p);
-    }
-    while out.len() > 1 && same(out[0], out[out.len() - 1]) {
-        out.pop();
-    }
-    if out.len() < 3 {
-        return vec![];
-    }
-    let area = signed_area(&out);
-    if area.abs() < 1e-6 {
-        return vec![];
-    }
-    if area < 0.0 {
-        out.reverse();
-    }
-    out
-}
-
-/// Mitred outward offset, the 3D view's `offsetPolygon`: the roof outline is
-/// the footprint grown by the overhang.
-fn offset_polygon(poly_in: &[Point], d: f64) -> Vec<Point> {
-    let poly = ensure_ccw(poly_in);
-    if poly.len() < 3 || d.abs() < 1e-6 {
-        return poly;
-    }
-    let normalize = |v: Point| {
-        let l = (v.x * v.x + v.y * v.y).sqrt();
-        if l < 1e-6 {
-            pt(0.0, 0.0)
-        } else {
-            pt(v.x / l, v.y / l)
-        }
-    };
-    let n = poly.len();
-    (0..n)
-        .map(|i| {
-            let prev = poly[(i + n - 1) % n];
-            let cur = poly[i];
-            let next = poly[(i + 1) % n];
-            let d1 = normalize(sub(cur, prev));
-            let d2 = normalize(sub(next, cur));
-            // The outward normal of a counter-clockwise edge is its right side.
-            let n1 = pt(d1.y, -d1.x);
-            let n2 = pt(d2.y, -d2.x);
-            let bis = normalize(pt(n1.x + n2.x, n1.y + n2.y));
-            let cos = bis.x * n1.x + bis.y * n1.y;
-            let s = d / cos.max(0.35);
-            pt(cur.x + bis.x * s, cur.y + bis.y * s)
-        })
-        .collect()
 }
 
 // ----------------------------------------------------------------- words
@@ -1090,79 +1019,49 @@ fn solids(project: &Project) -> Vec<Solid<'_>> {
     out
 }
 
-/// The roof over one building of the top level, as the 3D view draws it
-/// (`roofProfile` and `buildRoofMesh` in `src/viewer3d/geom/roofMesh.ts`).
+
+/// One plane of a roof, as `Derived::roofs` gives it and every view draws
+/// it: where a pipe on the roof's level passes through the roof.
 struct RoofShape {
-    kind: RoofKind,
-    /// Footprint grown by the overhang: where the roof exists.
+    /// The level that carries the roof; heights are above its floor.
+    level_id: Id,
+    /// The plane in plan, eaves included: where the roof exists.
     outline: Vec<Point>,
-    /// Wall top of the top level, above its floor: the underside at the
-    /// footprint edge.
-    base: f64,
+    /// Top height `z0 + gx * x + gy * y` above the level floor.
+    gx: f64,
+    gy: f64,
+    z0: f64,
     /// Vertical thickness.
     vertical: f64,
-    tan: f64,
-    /// True when the height depends on x, false when on y.
-    x_across: bool,
-    lo: f64,
-    mid: f64,
-    half: f64,
 }
 
 impl RoofShape {
-    fn across(&self, p: Point) -> f64 {
-        if self.x_across {
-            p.x
-        } else {
-            p.y
-        }
-    }
-
-    /// Height of the underside above the top level floor.
+    /// Height of the underside above the level floor.
     fn under(&self, p: Point) -> f64 {
-        match self.kind {
-            RoofKind::Shed => self.base + (self.across(p) - self.lo) * self.tan,
-            RoofKind::Gable => {
-                self.base + (self.half - (self.across(p) - self.mid).abs()) * self.tan
-            }
-            RoofKind::Flat | RoofKind::None => self.base,
-        }
+        self.z0 + self.gx * p.x + self.gy * p.y - self.vertical
     }
 
-    /// Where segment a-b (heights above the top level floor) goes from below
-    /// the underside to at or above it, or back, inside the roof outline:
-    /// the crossing parameter, and the point where the centerline meets the
+    /// Where segment a-b (heights above the level floor) goes from below
+    /// the underside to at or above it, or back, inside the plane: the
+    /// crossing parameter, and the point where the centerline meets the
     /// middle of the roof there.
     fn crossings(&self, a: Vec3, b: Vec3) -> Vec<(f64, Vec3)> {
-        let mut cuts = vec![0.0];
-        if self.kind == RoofKind::Gable {
-            let (ca, cb) = (self.across(plan(a)), self.across(plan(b)));
-            if (ca - self.mid) * (cb - self.mid) < 0.0 {
-                cuts.push((self.mid - ca) / (cb - ca));
-            }
-        }
-        cuts.push(1.0);
         let f = |t: f64| {
             let p = lerp3(a, b, t);
             p.z - self.under(plan(p))
         };
-        let mut out = vec![];
-        for w in cuts.windows(2) {
-            let (t0, t1) = (w[0], w[1]);
-            let (f0, f1) = (f(t0), f(t1));
-            if (f0 < 0.0) == (f1 < 0.0) {
-                continue;
-            }
-            // Linear between the cuts: the underside is one plane there.
-            let at = |target: f64| t0 + (t1 - t0) * (target - f0) / (f1 - f0);
-            let tu = at(0.0);
-            if !point_in_polygon(plan(lerp3(a, b, tu)), &self.outline) {
-                continue;
-            }
-            let tm = at(self.vertical / 2.0).clamp(0.0, 1.0);
-            out.push((tu, lerp3(a, b, tm)));
+        let (f0, f1) = (f(0.0), f(1.0));
+        if (f0 < 0.0) == (f1 < 0.0) {
+            return vec![];
         }
-        out
+        // Linear along the segment: the underside is one plane.
+        let at = |target: f64| (target - f0) / (f1 - f0);
+        let tu = at(0.0);
+        if !point_in_polygon(plan(lerp3(a, b, tu)), &self.outline) {
+            return vec![];
+        }
+        let tm = at(self.vertical / 2.0).clamp(0.0, 1.0);
+        vec![(tu, lerp3(a, b, tm))]
     }
 }
 
@@ -1173,97 +1072,38 @@ fn levels_by_elevation(project: &Project) -> Vec<&Level> {
     levels
 }
 
-/// The roofs the 3D view draws: one per building on the top level, or one
-/// over the walls of the top level when it has no closed footprint yet.
-fn roof_shapes(
-    project: &Project,
-    analysis: &Analysis,
-    walls: &BTreeMap<&str, &WallTopo>,
-) -> Vec<RoofShape> {
-    let roof = &project.roof;
-    if roof.kind == RoofKind::None {
-        return vec![];
-    }
-    let Some(top) = levels_by_elevation(project).last().copied() else {
-        return vec![];
-    };
-    let mut footprints: Vec<Vec<Point>> = analysis
-        .level(&top.id)
-        .map(|l| {
-            l.footprints
-                .iter()
-                .map(|(p, _)| ensure_ccw(p))
-                .filter(|p| p.len() >= 3)
-                .collect()
-        })
-        .unwrap_or_default();
-    if footprints.is_empty() {
-        let mut pts: Vec<Point> = vec![];
-        for el in &project.elements {
-            let Element::Wall(w) = el else { continue };
-            if w.level_id != top.id {
+/// Every plane of every roof (`Derived::roofs`, worked out here as derive
+/// does, since the pipes come before review in the derive order).
+fn roof_shapes(project: &Project, analysis: &Analysis) -> Vec<RoofShape> {
+    let mut out = vec![];
+    for g in crate::roofs::derive(project, analysis) {
+        for plane in &g.planes {
+            if plane.len() < 3 {
                 continue;
             }
-            match walls.get(w.id.as_str()) {
-                Some(t) if t.outline.len() >= 3 => pts.extend(t.outline.iter().copied()),
-                _ => pts.extend([w.start, w.end]),
+            // The plane z = gx x + gy y + c from its Newell normal.
+            let (mut nx, mut ny, mut nz) = (0.0, 0.0, 0.0);
+            let n = plane.len();
+            for i in 0..n {
+                let (a, b) = (plane[i], plane[(i + 1) % n]);
+                nx += (a.y - b.y) * (a.z + b.z);
+                ny += (a.z - b.z) * (a.x + b.x);
+                nz += (a.x - b.x) * (a.y + b.y);
             }
-        }
-        let pts: Vec<Point> = pts
-            .into_iter()
-            .filter(|p| p.x.is_finite() && p.y.is_finite())
-            .collect();
-        if !pts.is_empty() {
-            let (lo, hi) = bbox(&pts);
-            if hi.x - lo.x > FALLBACK_ROOF_SPAN_MM && hi.y - lo.y > FALLBACK_ROOF_SPAN_MM {
-                footprints.push(vec![
-                    pt(lo.x, lo.y),
-                    pt(hi.x, lo.y),
-                    pt(hi.x, hi.y),
-                    pt(lo.x, hi.y),
-                ]);
+            if nz.abs() < 1e-9 {
+                continue;
             }
+            let (gx, gy) = (-nx / nz, -ny / nz);
+            let o = plane[0];
+            out.push(RoofShape {
+                level_id: g.level_id.clone(),
+                outline: plane.iter().map(|q| pt(q.x, q.y)).collect(),
+                gx,
+                gy,
+                z0: o.z - gx * o.x - gy * o.y,
+                vertical: g.vertical_mm,
+            });
         }
-    }
-    let pitch = if roof.pitch_deg.is_finite() {
-        roof.pitch_deg.clamp(0.0, 60.0)
-    } else {
-        0.0
-    };
-    let thickness = roof.thickness_mm.max(10.0);
-    let overhang = roof.overhang_mm.max(0.0);
-    let mut out = vec![];
-    for fp in footprints {
-        let (lo, hi) = bbox(&fp);
-        let (tan, vertical) = if roof.kind == RoofKind::Flat {
-            (0.0, thickness)
-        } else {
-            let r = pitch.to_radians();
-            (r.tan(), thickness / r.cos())
-        };
-        // Gable: the ridge runs along ridge_axis and the height depends on the
-        // other axis. Shed: ridge_axis is the slope direction.
-        let x_across = match roof.kind {
-            RoofKind::Gable => roof.ridge_axis == Axis::Y,
-            RoofKind::Shed => roof.ridge_axis == Axis::X,
-            _ => false,
-        };
-        let (a, b) = if x_across { (lo.x, hi.x) } else { (lo.y, hi.y) };
-        let outline = offset_polygon(&fp, overhang);
-        if outline.len() < 3 {
-            continue;
-        }
-        out.push(RoofShape {
-            kind: roof.kind,
-            outline,
-            base: top.height_mm,
-            vertical,
-            tan,
-            x_across,
-            lo: a,
-            mid: (a + b) / 2.0,
-            half: (b - a) / 2.0,
-        });
     }
     out
 }
@@ -1285,9 +1125,9 @@ struct Pen {
 ///   other, both ends outside the wall's thickness, crossing the centerline
 ///   inside the wall's outline, between its floor and its top, and not inside
 ///   one of its openings. Chases along a wall and vertical segments never do.
-/// - `roof`: a segment of a pipe on the top level that crosses the underside
-///   of the roof the 3D view draws, inside its outline. Placed at the middle
-///   of the roof.
+/// - `roof`: a segment of a pipe that crosses the underside of a roof on the
+///   pipe's level (`Derived::roofs`, what every view draws), inside one of
+///   its planes. Placed at the middle of the roof.
 fn penetrations(
     project: &Project,
     analysis: &Analysis,
@@ -1297,7 +1137,6 @@ fn penetrations(
 ) -> Vec<Pen> {
     let levels = levels_by_elevation(project);
     let lowest = levels.first().map(|l| l.id.as_str());
-    let top = levels.last().map(|l| l.id.as_str());
     let mut out: Vec<Pen> = vec![];
     for run in runs {
         let pipe = run.pipe;
@@ -1313,7 +1152,6 @@ fn penetrations(
         } else {
             SLAB_UPPER_MM
         };
-        let on_top = top == Some(pipe.level_id.as_str());
         let mut mine: Vec<Pen> = vec![];
         let push = |mine: &mut Vec<Pen>,
                     i: usize,
@@ -1398,12 +1236,10 @@ fn penetrations(
                 }
             }
 
-            // Roof.
-            if on_top {
-                for roof in roofs {
-                    for (t, at) in roof.crossings(ar, br) {
-                        push(&mut mine, i, t, PenetrationKind::Roof, None, at, a, b);
-                    }
+            // Roof: the planes of the roofs on the pipe's level.
+            for roof in roofs.iter().filter(|r| r.level_id == pipe.level_id) {
+                for (t, at) in roof.crossings(ar, br) {
+                    push(&mut mine, i, t, PenetrationKind::Roof, None, at, a, b);
                 }
             }
         }
@@ -1994,7 +1830,7 @@ pub(crate) fn derive_pipes(
         .map(|w| (w.wall_id.as_str(), w))
         .collect();
     let bodies = wall_bodies(project, &walls);
-    let roofs = roof_shapes(project, analysis, &walls);
+    let roofs = roof_shapes(project, analysis);
 
     let (found, joins) = fittings(&runs);
     let pens = penetrations(project, analysis, &runs, &bodies, &roofs);

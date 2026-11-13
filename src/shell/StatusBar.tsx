@@ -26,6 +26,11 @@ const KIND_LABEL: Record<Element["kind"], [string, string]> = {
   reference_model: ["reference model", "reference models"],
   pipe: ["pipe", "pipes"],
   slab: ["slab", "slabs"],
+  roof: ["roof", "roofs"],
+  grid: ["grid line", "grid lines"],
+  view_mark: ["view mark", "view marks"],
+  lot: ["lot", "lots"],
+  tour: ["tour", "tours"],
 };
 
 function selectionSummary(doc: DocState, selection: string[]): string {

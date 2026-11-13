@@ -1,6 +1,6 @@
 {
   "project": {
-    "schema_version": 5,
+    "schema_version": 6,
     "id": "00000000-0000-4000-8000-000000000001",
     "name": "Sample Bungalow",
     "created_at": "2026-09-22T00:00:00Z",
@@ -115,6 +115,16 @@
         "key": "slabs",
         "visible": true,
         "locked": false
+      },
+      {
+        "key": "grids",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "key": "roofs",
+        "visible": true,
+        "locked": false
       }
     ],
     "materials": [
@@ -226,6 +236,17 @@
         "metalness": 0.0,
         "opacity": 1.0,
         "pattern": "concrete",
+        "builtin": true
+      },
+      {
+        "id": "mat-paving-stone",
+        "name": "Paving stones",
+        "category": "floor",
+        "color": "#a9a49a",
+        "roughness": 0.85,
+        "metalness": 0.0,
+        "opacity": 1.0,
+        "pattern": "tile",
         "builtin": true
       },
       {
@@ -546,17 +567,61 @@
         },
         "fov_deg": 50.0,
         "light": null
+      },
+      {
+        "kind": "roof",
+        "id": "16050954-6bd2-4be2-a84e-a9954dd93b8e",
+        "level_id": null,
+        "outline": {
+          "type": "top_footprint"
+        },
+        "shape": "gable",
+        "pitch_deg": 20.0,
+        "ridge_axis": "x",
+        "overhang_mm": 600.0,
+        "thickness_mm": 150.0,
+        "material_id": "mat-roof-longspan",
+        "fascia": {
+          "size_mm": 200.0,
+          "material_id": null
+        }
       }
     ],
     "roof": {
-      "kind": "gable",
+      "kind": "none",
       "pitch_deg": 20.0,
       "overhang_mm": 600.0,
       "thickness_mm": 150.0,
       "ridge_axis": "x",
       "material_id": "mat-roof-longspan"
     },
-    "review": []
+    "review": [],
+    "opening_types": [],
+    "title_block": {
+      "project_title": "",
+      "lot_no": "",
+      "block_no": "",
+      "tct_no": "",
+      "firm_name": "",
+      "firm_address": "",
+      "firm_logo": null,
+      "signatory": {
+        "name": "",
+        "prc_no": "",
+        "prc_valid_until": "",
+        "ptr_no": "",
+        "ptr_date": "",
+        "ptr_place": "",
+        "iapoa_no": "",
+        "iapoa_or_no": "",
+        "iapoa_date": "",
+        "tin": ""
+      }
+    },
+    "sheet_set": {
+      "sheets": [],
+      "revisions": []
+    }
   },
   "derived": {
     "walls": [
@@ -854,7 +919,379 @@
     },
     "schedule": [],
     "review_resolved": [],
-    "railings": []
+    "railings": [],
+    "stairs": [],
+    "roofs": [
+      {
+        "roof_id": "16050954-6bd2-4be2-a84e-a9954dd93b8e",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "planes": [
+          [
+            {
+              "x": -675.0,
+              "y": -675.0,
+              "z": 2941.2445253116653
+            },
+            {
+              "x": 8675.0,
+              "y": -675.0,
+              "z": 2941.2445253116653
+            },
+            {
+              "x": 8675.0,
+              "y": 3000.0,
+              "z": 4278.835136239959
+            },
+            {
+              "x": -675.0,
+              "y": 3000.0,
+              "z": 4278.835136239959
+            }
+          ],
+          [
+            {
+              "x": 8675.0,
+              "y": 3000.0,
+              "z": 4278.835136239959
+            },
+            {
+              "x": 8675.0,
+              "y": 6675.0,
+              "z": 2941.2445253116653
+            },
+            {
+              "x": -675.0,
+              "y": 6675.0,
+              "z": 2941.2445253116653
+            },
+            {
+              "x": -675.0,
+              "y": 3000.0,
+              "z": 4278.835136239959
+            }
+          ]
+        ],
+        "vertical_mm": 159.62666587138682,
+        "lines": [
+          {
+            "kind": "eave",
+            "a": {
+              "x": -675.0,
+              "y": -675.0,
+              "z": 2941.2445253116653
+            },
+            "b": {
+              "x": 8675.0,
+              "y": -675.0,
+              "z": 2941.2445253116653
+            }
+          },
+          {
+            "kind": "rake",
+            "a": {
+              "x": 8675.0,
+              "y": -675.0,
+              "z": 2941.2445253116653
+            },
+            "b": {
+              "x": 8675.0,
+              "y": 3000.0,
+              "z": 4278.835136239959
+            }
+          },
+          {
+            "kind": "ridge",
+            "a": {
+              "x": 8675.0,
+              "y": 3000.0,
+              "z": 4278.835136239959
+            },
+            "b": {
+              "x": -675.0,
+              "y": 3000.0,
+              "z": 4278.835136239959
+            }
+          },
+          {
+            "kind": "rake",
+            "a": {
+              "x": -675.0,
+              "y": 3000.0,
+              "z": 4278.835136239959
+            },
+            "b": {
+              "x": -675.0,
+              "y": -675.0,
+              "z": 2941.2445253116653
+            }
+          },
+          {
+            "kind": "rake",
+            "a": {
+              "x": 8675.0,
+              "y": 3000.0,
+              "z": 4278.835136239959
+            },
+            "b": {
+              "x": 8675.0,
+              "y": 6675.0,
+              "z": 2941.2445253116653
+            }
+          },
+          {
+            "kind": "eave",
+            "a": {
+              "x": 8675.0,
+              "y": 6675.0,
+              "z": 2941.2445253116653
+            },
+            "b": {
+              "x": -675.0,
+              "y": 6675.0,
+              "z": 2941.2445253116653
+            }
+          },
+          {
+            "kind": "rake",
+            "a": {
+              "x": -675.0,
+              "y": 6675.0,
+              "z": 2941.2445253116653
+            },
+            "b": {
+              "x": -675.0,
+              "y": 3000.0,
+              "z": 4278.835136239959
+            }
+          }
+        ],
+        "infill": [
+          [
+            {
+              "x": 8075.0,
+              "y": -75.0,
+              "z": 3000.0
+            },
+            {
+              "x": 8075.0,
+              "y": 6075.0,
+              "z": 3000.0
+            },
+            {
+              "x": 8075.0,
+              "y": 6075.0,
+              "z": 3000.0
+            },
+            {
+              "x": 8075.0,
+              "y": 3000.0,
+              "z": 4119.208470368572
+            },
+            {
+              "x": 8075.0,
+              "y": -75.0,
+              "z": 3000.0
+            }
+          ],
+          [
+            {
+              "x": -75.0,
+              "y": 6075.0,
+              "z": 3000.0
+            },
+            {
+              "x": -75.0,
+              "y": -75.0,
+              "z": 3000.0
+            },
+            {
+              "x": -75.0,
+              "y": -75.0,
+              "z": 3000.0
+            },
+            {
+              "x": -75.0,
+              "y": 3000.0,
+              "z": 4119.208470368572
+            },
+            {
+              "x": -75.0,
+              "y": 6075.0,
+              "z": 3000.0
+            }
+          ]
+        ],
+        "eaves": [
+          [
+            {
+              "x": 8675.0,
+              "y": 6675.0,
+              "z": 2941.2445253116653
+            },
+            {
+              "x": -675.0,
+              "y": 6675.0,
+              "z": 2941.2445253116653
+            }
+          ],
+          [
+            {
+              "x": -675.0,
+              "y": -675.0,
+              "z": 2941.2445253116653
+            },
+            {
+              "x": 8675.0,
+              "y": -675.0,
+              "z": 2941.2445253116653
+            }
+          ]
+        ],
+        "plan_area_m2": 68.7225,
+        "surface_area_m2": 73.132957
+      }
+    ],
+    "opening_schedule": {
+      "rows": [
+        {
+          "mark": "",
+          "type_id": null,
+          "opening_type": "door",
+          "style": "swing_single",
+          "width_mm": 900.0,
+          "height_mm": 2100.0,
+          "sill_mm": 0.0,
+          "material_id": null,
+          "description": "Single swing door",
+          "per_level": [
+            {
+              "level_id": "00000000-0000-4000-8000-0000000000a1",
+              "count": 1
+            }
+          ],
+          "total": 1
+        },
+        {
+          "mark": "",
+          "type_id": null,
+          "opening_type": "door",
+          "style": "swing_single",
+          "width_mm": 800.0,
+          "height_mm": 2100.0,
+          "sill_mm": 0.0,
+          "material_id": null,
+          "description": "Single swing door",
+          "per_level": [
+            {
+              "level_id": "00000000-0000-4000-8000-0000000000a1",
+              "count": 1
+            }
+          ],
+          "total": 1
+        },
+        {
+          "mark": "",
+          "type_id": null,
+          "opening_type": "window",
+          "style": "sliding",
+          "width_mm": 1500.0,
+          "height_mm": 1200.0,
+          "sill_mm": 900.0,
+          "material_id": null,
+          "description": "Sliding window",
+          "per_level": [
+            {
+              "level_id": "00000000-0000-4000-8000-0000000000a1",
+              "count": 1
+            }
+          ],
+          "total": 1
+        },
+        {
+          "mark": "",
+          "type_id": null,
+          "opening_type": "window",
+          "style": "casement",
+          "width_mm": 1200.0,
+          "height_mm": 1200.0,
+          "sill_mm": 900.0,
+          "material_id": null,
+          "description": "Casement window",
+          "per_level": [
+            {
+              "level_id": "00000000-0000-4000-8000-0000000000a1",
+              "count": 1
+            }
+          ],
+          "total": 1
+        },
+        {
+          "mark": "",
+          "type_id": null,
+          "opening_type": "window",
+          "style": "jalousie",
+          "width_mm": 1200.0,
+          "height_mm": 1200.0,
+          "sill_mm": 900.0,
+          "material_id": null,
+          "description": "Jalousie window",
+          "per_level": [
+            {
+              "level_id": "00000000-0000-4000-8000-0000000000a1",
+              "count": 1
+            }
+          ],
+          "total": 1
+        }
+      ],
+      "marks": []
+    },
+    "room_schedule": [
+      {
+        "room_id": "00000000-0000-4000-8000-000000000301",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "name": "Living / Dining",
+        "usage": "living",
+        "net_area_m2": 28.51875,
+        "floor_area_m2": 28.51875,
+        "perimeter_m": 21.45,
+        "ceiling_height_mm": 3000.0,
+        "floor_material_id": "mat-tile-ceramic",
+        "finishes": {
+          "wall_material_id": null,
+          "ceiling_material_id": null,
+          "base_material_id": null,
+          "remarks": ""
+        }
+      },
+      {
+        "room_id": "00000000-0000-4000-8000-000000000302",
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "name": "Bedroom",
+        "usage": "bedroom",
+        "net_area_m2": 16.81875,
+        "floor_area_m2": 16.81875,
+        "perimeter_m": 17.45,
+        "ceiling_height_mm": 3000.0,
+        "floor_material_id": "mat-tile-ceramic",
+        "finishes": {
+          "wall_material_id": null,
+          "ceiling_material_id": null,
+          "base_material_id": null,
+          "remarks": ""
+        }
+      }
+    ],
+    "level_areas": [
+      {
+        "level_id": "00000000-0000-4000-8000-0000000000a1",
+        "net_m2": 45.3375,
+        "gross_m2": 50.1225,
+        "open_m2": -0.0,
+        "void_m2": -0.0
+      }
+    ],
+    "site": null
   },
   "revision": 0,
   "can_undo": false,

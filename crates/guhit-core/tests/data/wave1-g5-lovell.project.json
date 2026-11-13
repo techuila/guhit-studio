@@ -1,0 +1,3216 @@
+{
+ "schema_version": 5,
+ "id": "f31ed11b-b9e9-4546-9d0e-52e1f1d72eb5",
+ "name": "Lovell Beach House",
+ "created_at": "2026-11-03T22:47:38Z",
+ "updated_at": "2026-11-03T22:48:37Z",
+ "settings": {
+  "display_unit": "mm",
+  "scale_denominator": 100,
+  "north_angle_deg": 0.0,
+  "paper": "a3",
+  "default_wall_thickness_mm": 150.0,
+  "grid_mm": 100.0,
+  "client_name": "Lovell family (1926)",
+  "location": "Newport Beach, California",
+  "designer": "After R. M. Schindler, 1926",
+  "site": {
+   "city": "Newport Beach, California",
+   "latitude_deg": 33.6,
+   "longitude_deg": -117.93,
+   "utc_offset_min": -480
+  }
+ },
+ "levels": [
+  {
+   "id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "name": "Ground floor",
+   "elevation_mm": 0.0,
+   "height_mm": 2600.0
+  },
+  {
+   "id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "name": "Main floor",
+   "elevation_mm": 2600.0,
+   "height_mm": 2400.0
+  },
+  {
+   "id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "name": "Bedroom floor",
+   "elevation_mm": 5000.0,
+   "height_mm": 2200.0
+  },
+  {
+   "id": "f198d547-144c-46fa-9cbb-6d08ca729776",
+   "name": "Roof",
+   "elevation_mm": 7200.0,
+   "height_mm": 2200.0
+  }
+ ],
+ "layers": [
+  {
+   "key": "walls",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "openings",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "rooms",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "columns",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "stairs",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "assets",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "annotations",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "dimensions",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "underlays",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "cold_water",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "hot_water",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "drainage",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "vent",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "storm",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "electrical",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "aircon",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "site",
+   "visible": true,
+   "locked": false
+  },
+  {
+   "key": "slabs",
+   "visible": true,
+   "locked": false
+  }
+ ],
+ "materials": [
+  {
+   "id": "mat-chb-painted",
+   "name": "CHB, plastered and painted",
+   "category": "wall",
+   "color": "#f2efe8",
+   "roughness": 0.9,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "none",
+   "builtin": true
+  },
+  {
+   "id": "mat-chb-bare",
+   "name": "CHB, bare",
+   "category": "wall",
+   "color": "#a9a9a4",
+   "roughness": 0.95,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "chb",
+   "builtin": true
+  },
+  {
+   "id": "mat-concrete-fairface",
+   "name": "Concrete, fair-faced",
+   "category": "wall",
+   "color": "#bdbdb8",
+   "roughness": 0.85,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "concrete",
+   "builtin": true
+  },
+  {
+   "id": "mat-paint-warm-white",
+   "name": "Paint, warm white",
+   "category": "wall",
+   "color": "#faf6ee",
+   "roughness": 0.9,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "none",
+   "builtin": true
+  },
+  {
+   "id": "mat-paint-sage",
+   "name": "Paint, sage green",
+   "category": "wall",
+   "color": "#b7c4ae",
+   "roughness": 0.9,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "none",
+   "builtin": true
+  },
+  {
+   "id": "mat-wood-cladding",
+   "name": "Wood cladding",
+   "category": "wood",
+   "color": "#9a6b43",
+   "roughness": 0.7,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "wood_plank",
+   "builtin": true
+  },
+  {
+   "id": "mat-tile-ceramic",
+   "name": "Ceramic tile 600 x 600",
+   "category": "floor",
+   "color": "#e4e0d8",
+   "roughness": 0.35,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "tile",
+   "builtin": true
+  },
+  {
+   "id": "mat-tile-granite",
+   "name": "Granite tile",
+   "category": "floor",
+   "color": "#6f6f73",
+   "roughness": 0.25,
+   "metalness": 0.05,
+   "opacity": 1.0,
+   "pattern": "tile",
+   "builtin": true
+  },
+  {
+   "id": "mat-floor-laminate",
+   "name": "Wood laminate",
+   "category": "floor",
+   "color": "#b98d5f",
+   "roughness": 0.55,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "wood_plank",
+   "builtin": true
+  },
+  {
+   "id": "mat-floor-concrete",
+   "name": "Polished concrete",
+   "category": "floor",
+   "color": "#b3b1ab",
+   "roughness": 0.4,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "concrete",
+   "builtin": true
+  },
+  {
+   "id": "mat-roof-longspan",
+   "name": "Long-span pre-painted metal roof",
+   "category": "roof",
+   "color": "#7a3b33",
+   "roughness": 0.45,
+   "metalness": 0.6,
+   "opacity": 1.0,
+   "pattern": "roof_sheet",
+   "builtin": true
+  },
+  {
+   "id": "mat-roof-gi",
+   "name": "GI corrugated sheet",
+   "category": "roof",
+   "color": "#aab0b5",
+   "roughness": 0.4,
+   "metalness": 0.8,
+   "opacity": 1.0,
+   "pattern": "roof_sheet",
+   "builtin": true
+  },
+  {
+   "id": "mat-roof-clay-tile",
+   "name": "Clay roof tile",
+   "category": "roof",
+   "color": "#b0583a",
+   "roughness": 0.8,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "roof_tile",
+   "builtin": true
+  },
+  {
+   "id": "mat-roof-concrete-deck",
+   "name": "Concrete roof deck",
+   "category": "roof",
+   "color": "#c4c2bc",
+   "roughness": 0.85,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "concrete",
+   "builtin": true
+  },
+  {
+   "id": "mat-glass-clear",
+   "name": "Clear glass",
+   "category": "glass",
+   "color": "#bfe3ee",
+   "roughness": 0.05,
+   "metalness": 0.0,
+   "opacity": 0.35,
+   "pattern": "glass",
+   "builtin": true
+  },
+  {
+   "id": "mat-wood-door",
+   "name": "Wood door, mahogany finish",
+   "category": "wood",
+   "color": "#6e4428",
+   "roughness": 0.6,
+   "metalness": 0.0,
+   "opacity": 1.0,
+   "pattern": "wood_plank",
+   "builtin": true
+  },
+  {
+   "id": "mat-aluminum-frame",
+   "name": "Aluminum frame, powder coated",
+   "category": "metal",
+   "color": "#3b3f45",
+   "roughness": 0.4,
+   "metalness": 0.8,
+   "opacity": 1.0,
+   "pattern": "none",
+   "builtin": true
+  },
+  {
+   "id": "mat-steel",
+   "name": "Steel, painted",
+   "category": "metal",
+   "color": "#4a4f57",
+   "roughness": 0.5,
+   "metalness": 0.7,
+   "opacity": 1.0,
+   "pattern": "none",
+   "builtin": true
+  }
+ ],
+ "elements": [
+  {
+   "kind": "wall",
+   "id": "8294bd34-cbf3-4ced-a5ab-4cde11d09373",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 2200.0,
+    "y": 15900.0
+   },
+   "end": {
+    "x": 8400.0,
+    "y": 15900.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "55a602b8-4e09-4c1f-892e-347ff2d4b3c0",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 8400.0,
+    "y": 15900.0
+   },
+   "end": {
+    "x": 8400.0,
+    "y": 0.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "f99b7029-9c65-4a61-8be4-0d9a31836a41",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 8400.0,
+    "y": 0.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 0.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "130c5e40-4061-41ce-9b35-da5ef78c7342",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 3430.0,
+    "y": 0.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 8600.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "ac236521-9c04-433e-a20b-fd5ed32b4cf6",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 3430.0,
+    "y": 8600.0
+   },
+   "end": {
+    "x": 2200.0,
+    "y": 8600.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "28424b46-effe-440c-8cae-a3f8fe2b0856",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 2200.0,
+    "y": 8600.0
+   },
+   "end": {
+    "x": 2200.0,
+    "y": 15900.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "room",
+   "id": "5236e46b-5230-4330-91bd-420b08bafe0d",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "name": "Entry and stair hall",
+   "usage": "hallway",
+   "seed": {
+    "x": 4620.8984375,
+    "y": 13499.0234375
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "wall",
+   "id": "9c08ae2d-60a0-4bef-879e-c596f5875c52",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 3430.0,
+    "y": 8600.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 11100.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "cf645230-8c7c-42ec-aeff-deb7e5b347d7",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 3430.0,
+    "y": 11100.0
+   },
+   "end": {
+    "x": 8400.0,
+    "y": 11100.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "room",
+   "id": "4a1dfa56-8ebf-4d4e-8599-7b7652c25017",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "name": "Living and dining",
+   "usage": "living",
+   "seed": {
+    "x": 5915.0,
+    "y": 5550.0
+   },
+   "floor_material_id": "mat-floor-laminate",
+   "auto_named": false
+  },
+  {
+   "kind": "wall",
+   "id": "34e1f5c3-6a60-4f30-ad82-08227ab95eea",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 4750.0,
+    "y": 11100.0
+   },
+   "end": {
+    "x": 4750.0,
+    "y": 15900.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "room",
+   "id": "b1f2b891-f91d-4312-8e5d-e2bff5cb8ffc",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "name": "Maid's room",
+   "usage": "bedroom",
+   "seed": {
+    "x": 6575.0,
+    "y": 13500.0
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "wall",
+   "id": "10e281a6-d601-418f-b02d-9ba7394e622d",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 4750.0,
+    "y": 13400.0
+   },
+   "end": {
+    "x": 8400.0,
+    "y": 13400.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "room",
+   "id": "055f82fd-624a-4e30-b139-d479869223d6",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "name": "Kitchen",
+   "usage": "kitchen",
+   "seed": {
+    "x": 6575.0,
+    "y": 12250.0
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "wall",
+   "id": "28be463c-e0fc-4484-ad49-807dfc6aba66",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 5850.0,
+    "y": 13400.0
+   },
+   "end": {
+    "x": 5850.0,
+    "y": 15900.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "room",
+   "id": "de53843a-f396-4856-8601-b8270f303899",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "name": "Maid's bath",
+   "usage": "bathroom",
+   "seed": {
+    "x": 5300.0,
+    "y": 14650.0
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "wall",
+   "id": "7f69f6d6-a02a-4431-a450-4e5dde822c13",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 0.0,
+    "y": 0.0
+   },
+   "end": {
+    "x": 8400.0,
+    "y": 0.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "c132e91c-00ec-4006-9692-7fe3f284b1a3",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 8400.0,
+    "y": 0.0
+   },
+   "end": {
+    "x": 8400.0,
+    "y": 14800.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "5ad531e0-ae6a-4203-b509-0f4292541fa0",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 8400.0,
+    "y": 14800.0
+   },
+   "end": {
+    "x": 5970.0,
+    "y": 14800.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "a4d17478-0971-4ad7-ac4b-0da35cb43c29",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 5970.0,
+    "y": 14800.0
+   },
+   "end": {
+    "x": 5970.0,
+    "y": 15900.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "3d24b1fb-e2bb-4c47-84fd-d5912eb7ca1c",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 5970.0,
+    "y": 15900.0
+   },
+   "end": {
+    "x": 2200.0,
+    "y": 15900.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "032a7452-46d9-42b6-b930-75af69d916bd",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 2200.0,
+    "y": 15900.0
+   },
+   "end": {
+    "x": 2200.0,
+    "y": 14800.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "16c58d0c-fd7c-4bca-8172-86adbf5148fc",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 2200.0,
+    "y": 14800.0
+   },
+   "end": {
+    "x": 0.0,
+    "y": 14800.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "5b2005c7-53ce-4231-98f0-354efe83b03f",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 0.0,
+    "y": 14800.0
+   },
+   "end": {
+    "x": 0.0,
+    "y": 0.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "room",
+   "id": "aa2eaf78-c45f-4f8a-bd80-b478a611e310",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "name": "Gallery and stair hall",
+   "usage": "hallway",
+   "seed": {
+    "x": 4200.0,
+    "y": 7950.0
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "wall",
+   "id": "363a7d2c-4ea3-4f2d-9a59-e2aad6a9f12b",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 0.0,
+    "y": 3700.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 3700.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "c9ea3ba8-de27-4b1d-913e-2163bde98a2e",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 0.0,
+    "y": 7400.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 7400.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "a4df6548-25eb-49f4-ad08-6df9f46fa135",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 0.0,
+    "y": 11100.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 11100.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "36c8b563-3e1e-4676-b9cd-8fe58fc3b8a8",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": -1270.0,
+    "y": 3700.0
+   },
+   "end": {
+    "x": 0.0,
+    "y": 3700.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "c8c92032-4305-4f17-ba5a-56d97a49533f",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": -1270.0,
+    "y": 7400.0
+   },
+   "end": {
+    "x": 0.0,
+    "y": 7400.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "e556934f-ad9a-41a4-8691-9c9f3b347bdf",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": -1270.0,
+    "y": 11100.0
+   },
+   "end": {
+    "x": 0.0,
+    "y": 11100.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "aebd736d-cfd6-424f-860b-aedf3edcb0fd",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 3430.0,
+    "y": 0.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 14800.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "room",
+   "id": "44a92e50-c0a3-4b84-8855-821fcd6f2d4f",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "name": "Bedroom 4",
+   "usage": "bedroom",
+   "seed": {
+    "x": 1715.0,
+    "y": 1850.0
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "room",
+   "id": "a83143a5-48f9-47b7-a744-074ee0477e42",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "name": "Bedroom 3",
+   "usage": "bedroom",
+   "seed": {
+    "x": 1715.0,
+    "y": 5550.0
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "room",
+   "id": "e6feb652-3ca9-46da-9151-69fa38a18027",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "name": "Bedroom 2",
+   "usage": "bedroom",
+   "seed": {
+    "x": 1715.0,
+    "y": 9250.0
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "wall",
+   "id": "f7e4580e-6867-46e6-b60f-d830212bcdbe",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 2200.0,
+    "y": 14800.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 14800.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "room",
+   "id": "ad50e126-5577-45db-8503-17fb3e572b35",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "name": "Bedroom 1",
+   "usage": "bedroom",
+   "seed": {
+    "x": 1715.0,
+    "y": 12950.0
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "wall",
+   "id": "a13f5463-ff78-40f9-81eb-09fd219e6169",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 4700.0,
+    "y": 11100.0
+   },
+   "end": {
+    "x": 8400.0,
+    "y": 11100.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "ccb015ea-192f-4fc0-9221-5ba85c04f679",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 4700.0,
+    "y": 11100.0
+   },
+   "end": {
+    "x": 4700.0,
+    "y": 11790.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "b63b2fd6-24bf-49bd-8440-06d9ebf88495",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 4700.0,
+    "y": 11790.0
+   },
+   "end": {
+    "x": 5970.0,
+    "y": 11790.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "545e53b7-640d-4271-9fbb-9936b12a6cb7",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "start": {
+    "x": 5970.0,
+    "y": 11100.0
+   },
+   "end": {
+    "x": 5970.0,
+    "y": 14800.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "room",
+   "id": "9f45c55e-ead4-4a17-8494-e2be0694202e",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "name": "Linen",
+   "usage": "storage",
+   "seed": {
+    "x": 5335.0,
+    "y": 11445.0
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "room",
+   "id": "4a51a3ef-abb1-42d1-917e-dd9ac4f9ee56",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "name": "Bath",
+   "usage": "bathroom",
+   "seed": {
+    "x": 7185.0,
+    "y": 12950.0
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "slab",
+   "id": "43ba4d75-fe94-4371-88bd-a605b48c6c09",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "slab_kind": "balcony",
+   "polygon": [
+    {
+     "x": -1270.0,
+     "y": 0.0
+    },
+    {
+     "x": 0.0,
+     "y": 0.0
+    },
+    {
+     "x": 0.0,
+     "y": 3700.0
+    },
+    {
+     "x": -1270.0,
+     "y": 3700.0
+    }
+   ],
+   "thickness_mm": 150.0,
+   "top_offset_mm": 0.0,
+   "material_id": null,
+   "railing": {
+    "height_mm": 1000.0,
+    "style": "solid"
+   }
+  },
+  {
+   "kind": "slab",
+   "id": "0ade3cd3-a14f-4e3c-800e-f890555ee263",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "slab_kind": "balcony",
+   "polygon": [
+    {
+     "x": -1270.0,
+     "y": 3700.0
+    },
+    {
+     "x": 0.0,
+     "y": 3700.0
+    },
+    {
+     "x": 0.0,
+     "y": 7400.0
+    },
+    {
+     "x": -1270.0,
+     "y": 7400.0
+    }
+   ],
+   "thickness_mm": 150.0,
+   "top_offset_mm": 0.0,
+   "material_id": null,
+   "railing": {
+    "height_mm": 1000.0,
+    "style": "solid"
+   }
+  },
+  {
+   "kind": "slab",
+   "id": "5745ac5c-71b2-4a7e-95cd-e1354f010997",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "slab_kind": "balcony",
+   "polygon": [
+    {
+     "x": -1270.0,
+     "y": 7400.0
+    },
+    {
+     "x": 0.0,
+     "y": 7400.0
+    },
+    {
+     "x": 0.0,
+     "y": 11100.0
+    },
+    {
+     "x": -1270.0,
+     "y": 11100.0
+    }
+   ],
+   "thickness_mm": 150.0,
+   "top_offset_mm": 0.0,
+   "material_id": null,
+   "railing": {
+    "height_mm": 1000.0,
+    "style": "solid"
+   }
+  },
+  {
+   "kind": "slab",
+   "id": "bbbf3782-977d-4be8-a487-7e9fc8fd6e89",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "slab_kind": "balcony",
+   "polygon": [
+    {
+     "x": -1270.0,
+     "y": 11100.0
+    },
+    {
+     "x": 0.0,
+     "y": 11100.0
+    },
+    {
+     "x": 0.0,
+     "y": 14800.0
+    },
+    {
+     "x": -1270.0,
+     "y": 14800.0
+    }
+   ],
+   "thickness_mm": 150.0,
+   "top_offset_mm": 0.0,
+   "material_id": null,
+   "railing": {
+    "height_mm": 1000.0,
+    "style": "solid"
+   }
+  },
+  {
+   "kind": "opening",
+   "id": "1ca7af40-7771-434e-a378-f2e2494f76ba",
+   "wall_id": "5b2005c7-53ce-4231-98f0-354efe83b03f",
+   "opening_type": "door",
+   "style": "sliding",
+   "offset_mm": 12950.0,
+   "width_mm": 1800.0,
+   "height_mm": 2000.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "e7d8b91b-cbe5-4a46-9894-e1597b5bd4d3",
+   "wall_id": "5b2005c7-53ce-4231-98f0-354efe83b03f",
+   "opening_type": "door",
+   "style": "sliding",
+   "offset_mm": 9250.0,
+   "width_mm": 1800.0,
+   "height_mm": 2000.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "b67c3faa-afe6-41db-a612-168768d47a80",
+   "wall_id": "5b2005c7-53ce-4231-98f0-354efe83b03f",
+   "opening_type": "door",
+   "style": "sliding",
+   "offset_mm": 5550.0,
+   "width_mm": 1800.0,
+   "height_mm": 2000.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "a3f88eb8-a51c-4455-a626-116877adb5cc",
+   "wall_id": "5b2005c7-53ce-4231-98f0-354efe83b03f",
+   "opening_type": "door",
+   "style": "sliding",
+   "offset_mm": 1850.0,
+   "width_mm": 1800.0,
+   "height_mm": 2000.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "f9c6ab23-fac2-4fea-8951-34663380105c",
+   "wall_id": "aebd736d-cfd6-424f-860b-aedf3edcb0fd",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 1850.0,
+   "width_mm": 900.0,
+   "height_mm": 2000.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "936a8874-b55e-4d69-93ab-e892cb3e3ebe",
+   "wall_id": "aebd736d-cfd6-424f-860b-aedf3edcb0fd",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 5550.0,
+   "width_mm": 900.0,
+   "height_mm": 2000.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "6168b966-4cd2-4411-9343-fce2e1fb5552",
+   "wall_id": "aebd736d-cfd6-424f-860b-aedf3edcb0fd",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 9250.0,
+   "width_mm": 900.0,
+   "height_mm": 2000.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "5444ed36-d402-485e-b68f-fccddd1bb951",
+   "wall_id": "f7e4580e-6867-46e6-b60f-d830212bcdbe",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 600.0,
+   "width_mm": 800.0,
+   "height_mm": 2000.0,
+   "sill_mm": 0.0,
+   "flip_side": true,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "1527510e-c4ed-4afa-a77f-c0cf71291968",
+   "wall_id": "a13f5463-ff78-40f9-81eb-09fd219e6169",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 2300.0,
+   "width_mm": 800.0,
+   "height_mm": 2000.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "62e92419-6cae-4f10-bf0b-52b10a02e990",
+   "wall_id": "b63b2fd6-24bf-49bd-8440-06d9ebf88495",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 635.0,
+   "width_mm": 700.0,
+   "height_mm": 2000.0,
+   "sill_mm": 0.0,
+   "flip_side": true,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "cddefc26-0f25-43b4-88a3-82e804c8d7b3",
+   "wall_id": "7f69f6d6-a02a-4431-a450-4e5dde822c13",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 1715.0,
+   "width_mm": 2400.0,
+   "height_mm": 1400.0,
+   "sill_mm": 600.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "40802fd3-2492-42f4-8d90-92dc37ab188b",
+   "wall_id": "7f69f6d6-a02a-4431-a450-4e5dde822c13",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 6550.0,
+   "width_mm": 3200.0,
+   "height_mm": 1800.0,
+   "sill_mm": 200.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "890f0a66-6946-4ec6-bab7-a3a7ef065698",
+   "wall_id": "c132e91c-00ec-4006-9692-7fe3f284b1a3",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 1850.0,
+   "width_mm": 2400.0,
+   "height_mm": 1800.0,
+   "sill_mm": 200.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "937c3385-896d-412f-acc1-f95651a6d6ba",
+   "wall_id": "c132e91c-00ec-4006-9692-7fe3f284b1a3",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 5550.0,
+   "width_mm": 2400.0,
+   "height_mm": 1800.0,
+   "sill_mm": 200.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "5be33e39-29ac-4f80-a53f-a96fe24fe6e1",
+   "wall_id": "c132e91c-00ec-4006-9692-7fe3f284b1a3",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 9250.0,
+   "width_mm": 1500.0,
+   "height_mm": 1200.0,
+   "sill_mm": 900.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "e77d1d2e-619a-4c0a-8823-a66af9466cc4",
+   "wall_id": "c132e91c-00ec-4006-9692-7fe3f284b1a3",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 12950.0,
+   "width_mm": 900.0,
+   "height_mm": 900.0,
+   "sill_mm": 1200.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "a5d954a5-a1de-45d7-a01b-7cbe3f431f62",
+   "wall_id": "16c58d0c-fd7c-4bca-8172-86adbf5148fc",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 1100.0,
+   "width_mm": 1500.0,
+   "height_mm": 1200.0,
+   "sill_mm": 800.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "17f12faf-8217-42f2-8e01-0b3546619403",
+   "wall_id": "3d24b1fb-e2bb-4c47-84fd-d5912eb7ca1c",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 1885.0,
+   "width_mm": 900.0,
+   "height_mm": 1200.0,
+   "sill_mm": 800.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "2a1dc4ed-e0dd-4185-aa8f-9ab7f5ad43b3",
+   "wall_id": "5ad531e0-ae6a-4203-b509-0f4292541fa0",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 1215.0,
+   "width_mm": 900.0,
+   "height_mm": 900.0,
+   "sill_mm": 1200.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "asset",
+   "id": "4e20392f-e0a6-4be1-96da-5e97e47f9760",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "catalog_key": "bed-double",
+   "name": "Double bed",
+   "category": "furniture",
+   "position": {
+    "x": 1715.0,
+    "y": 1150.0
+   },
+   "rotation_deg": 180.0,
+   "width_mm": 1370.0,
+   "depth_mm": 1900.0,
+   "height_mm": 500.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "62c2ddf5-2cb4-4fcd-b250-194cef2f3c11",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "catalog_key": "bed-double",
+   "name": "Double bed",
+   "category": "furniture",
+   "position": {
+    "x": 1715.0,
+    "y": 4850.0
+   },
+   "rotation_deg": 180.0,
+   "width_mm": 1370.0,
+   "depth_mm": 1900.0,
+   "height_mm": 500.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "ee00f912-8552-48c8-9412-2340aeeb00df",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "catalog_key": "bed-double",
+   "name": "Double bed",
+   "category": "furniture",
+   "position": {
+    "x": 1715.0,
+    "y": 8550.0
+   },
+   "rotation_deg": 180.0,
+   "width_mm": 1370.0,
+   "depth_mm": 1900.0,
+   "height_mm": 500.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "7168d547-e539-4817-9080-a2e25fb344c8",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "catalog_key": "bed-double",
+   "name": "Double bed",
+   "category": "furniture",
+   "position": {
+    "x": 1715.0,
+    "y": 12250.0
+   },
+   "rotation_deg": 180.0,
+   "width_mm": 1370.0,
+   "depth_mm": 1900.0,
+   "height_mm": 500.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "48a610b6-b05e-473f-9891-327fb25b65ec",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "catalog_key": "bathtub",
+   "name": "Bathtub",
+   "category": "sanitary",
+   "position": {
+    "x": 7600.0,
+    "y": 14300.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 1500.0,
+   "depth_mm": 750.0,
+   "height_mm": 550.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "cf3a8ea0-892a-4320-bad7-f3855b335d0c",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "catalog_key": "wc",
+   "name": "Water closet",
+   "category": "sanitary",
+   "position": {
+    "x": 6400.0,
+    "y": 14400.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 400.0,
+   "depth_mm": 700.0,
+   "height_mm": 780.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "065745c7-2dc6-4bba-9624-ac0116cf9e8f",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "catalog_key": "lavatory",
+   "name": "Lavatory",
+   "category": "sanitary",
+   "position": {
+    "x": 7900.0,
+    "y": 11400.0
+   },
+   "rotation_deg": 180.0,
+   "width_mm": 500.0,
+   "depth_mm": 420.0,
+   "height_mm": 200.0,
+   "elevation_mm": 650.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "wall",
+   "id": "348ee203-ce88-423a-908c-f41044709894",
+   "level_id": "f198d547-144c-46fa-9cbb-6d08ca729776",
+   "start": {
+    "x": 2200.0,
+    "y": 11800.0
+   },
+   "end": {
+    "x": 5970.0,
+    "y": 11800.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "04fa8003-8b0c-42a3-8a86-a133caeb9fd3",
+   "level_id": "f198d547-144c-46fa-9cbb-6d08ca729776",
+   "start": {
+    "x": 5970.0,
+    "y": 11800.0
+   },
+   "end": {
+    "x": 5970.0,
+    "y": 15900.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "7fa4750c-1782-4d41-a060-92b96473a5c0",
+   "level_id": "f198d547-144c-46fa-9cbb-6d08ca729776",
+   "start": {
+    "x": 5970.0,
+    "y": 15900.0
+   },
+   "end": {
+    "x": 2200.0,
+    "y": 15900.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "wall",
+   "id": "ca0c5c13-6879-4347-96ad-334327596cb2",
+   "level_id": "f198d547-144c-46fa-9cbb-6d08ca729776",
+   "start": {
+    "x": 2200.0,
+    "y": 15900.0
+   },
+   "end": {
+    "x": 2200.0,
+    "y": 11800.0
+   },
+   "thickness_mm": 100.0,
+   "height_mm": null,
+   "material_id": "mat-paint-warm-white"
+  },
+  {
+   "kind": "room",
+   "id": "f3d07b0a-ac94-42f8-94e9-3ef8d892cd95",
+   "level_id": "f198d547-144c-46fa-9cbb-6d08ca729776",
+   "name": "Sun porch",
+   "usage": "porch",
+   "seed": {
+    "x": 4085.0,
+    "y": 13850.0
+   },
+   "floor_material_id": "mat-tile-ceramic",
+   "auto_named": false
+  },
+  {
+   "kind": "slab",
+   "id": "2ba206ca-3f28-48cb-81d8-445e21cf803f",
+   "level_id": "f198d547-144c-46fa-9cbb-6d08ca729776",
+   "slab_kind": "deck",
+   "polygon": [
+    {
+     "x": 0.0,
+     "y": 0.0
+    },
+    {
+     "x": 8400.0,
+     "y": 0.0
+    },
+    {
+     "x": 8400.0,
+     "y": 14800.0
+    },
+    {
+     "x": 5970.0,
+     "y": 14800.0
+    },
+    {
+     "x": 5970.0,
+     "y": 11800.0
+    },
+    {
+     "x": 2200.0,
+     "y": 11800.0
+    },
+    {
+     "x": 2200.0,
+     "y": 14800.0
+    },
+    {
+     "x": 0.0,
+     "y": 14800.0
+    }
+   ],
+   "thickness_mm": 150.0,
+   "top_offset_mm": 0.0,
+   "material_id": null,
+   "railing": {
+    "height_mm": 1000.0,
+    "style": "solid"
+   }
+  },
+  {
+   "kind": "slab",
+   "id": "764fd8b9-ebe8-4319-af59-619ded3afe7d",
+   "level_id": "f198d547-144c-46fa-9cbb-6d08ca729776",
+   "slab_kind": "void",
+   "polygon": [
+    {
+     "x": 4835.0,
+     "y": 11950.0
+    },
+    {
+     "x": 5835.0,
+     "y": 11950.0
+    },
+    {
+     "x": 5835.0,
+     "y": 14950.0
+    },
+    {
+     "x": 4835.0,
+     "y": 14950.0
+    }
+   ],
+   "thickness_mm": 0.0,
+   "top_offset_mm": 0.0,
+   "material_id": null,
+   "railing": null
+  },
+  {
+   "kind": "stair",
+   "id": "a0f0c90a-390c-43e2-8baa-2c068611fa59",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "origin": {
+    "x": 5335.0,
+    "y": 11950.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 1000.0,
+   "run_mm": 3000.0,
+   "riser_count": 13,
+   "railing": {
+    "height_mm": 900.0,
+    "style": "bars"
+   }
+  },
+  {
+   "kind": "opening",
+   "id": "7988a4dd-64ae-47f9-93ff-b2a8aeaa27c9",
+   "wall_id": "348ee203-ce88-423a-908c-f41044709894",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 1000.0,
+   "width_mm": 900.0,
+   "height_mm": 2000.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "3a93a1f5-7408-41ac-9664-2b9490e9e43a",
+   "wall_id": "ca0c5c13-6879-4347-96ad-334327596cb2",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 2100.0,
+   "width_mm": 2400.0,
+   "height_mm": 1200.0,
+   "sill_mm": 600.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "908180e8-ce32-4dc0-8929-1df4a6394058",
+   "wall_id": "7fa4750c-1782-4d41-a060-92b96473a5c0",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 1885.0,
+   "width_mm": 2400.0,
+   "height_mm": 1200.0,
+   "sill_mm": 600.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "733638c6-867a-4738-857a-d659e9c9e7d0",
+   "wall_id": "04fa8003-8b0c-42a3-8a86-a133caeb9fd3",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 1600.0,
+   "width_mm": 1600.0,
+   "height_mm": 1200.0,
+   "sill_mm": 600.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "asset",
+   "id": "f93f372f-e9da-4015-a902-cfb307a7ce85",
+   "level_id": "f198d547-144c-46fa-9cbb-6d08ca729776",
+   "catalog_key": "armchair",
+   "name": "Armchair",
+   "category": "furniture",
+   "position": {
+    "x": 3000.0,
+    "y": 15200.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 850.0,
+   "depth_mm": 850.0,
+   "height_mm": 800.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "7ca27179-5e61-4640-b0fb-3379b8adb4cb",
+   "level_id": "f198d547-144c-46fa-9cbb-6d08ca729776",
+   "catalog_key": "armchair",
+   "name": "Armchair",
+   "category": "furniture",
+   "position": {
+    "x": 3900.0,
+    "y": 15200.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 850.0,
+   "depth_mm": 850.0,
+   "height_mm": 800.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "a37fb78e-dc64-462d-ac23-94246ec5bb8e",
+   "level_id": "f198d547-144c-46fa-9cbb-6d08ca729776",
+   "catalog_key": "plant-pot",
+   "name": "Potted plant",
+   "category": "plant",
+   "position": {
+    "x": 2600.0,
+    "y": 12300.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 500.0,
+   "depth_mm": 500.0,
+   "height_mm": 1200.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "wall",
+   "id": "2b40a236-5e2e-4460-8f21-0663f772fd8a",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "start": {
+    "x": 3430.0,
+    "y": 7400.0
+   },
+   "end": {
+    "x": 8400.0,
+    "y": 7400.0
+   },
+   "thickness_mm": 200.0,
+   "height_mm": null,
+   "material_id": "mat-chb-painted"
+  },
+  {
+   "kind": "wall",
+   "id": "c8a6d97d-a148-41a5-bf3b-5cb3eb07a62f",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "start": {
+    "x": 8400.0,
+    "y": 7400.0
+   },
+   "end": {
+    "x": 8400.0,
+    "y": 14800.0
+   },
+   "thickness_mm": 200.0,
+   "height_mm": null,
+   "material_id": "mat-chb-painted"
+  },
+  {
+   "kind": "wall",
+   "id": "98359379-5344-40f6-965e-40f19051598e",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "start": {
+    "x": 8400.0,
+    "y": 14800.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 14800.0
+   },
+   "thickness_mm": 200.0,
+   "height_mm": null,
+   "material_id": "mat-chb-painted"
+  },
+  {
+   "kind": "wall",
+   "id": "f0935c33-957f-4b05-a333-18fcfd934068",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "start": {
+    "x": 3430.0,
+    "y": 14800.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 7400.0
+   },
+   "thickness_mm": 200.0,
+   "height_mm": null,
+   "material_id": "mat-chb-painted"
+  },
+  {
+   "kind": "room",
+   "id": "304f0c90-7a6c-4022-8f35-c213b7c74ca2",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "name": "Garage",
+   "usage": "garage",
+   "seed": {
+    "x": 5915.0,
+    "y": 11100.0
+   },
+   "floor_material_id": "mat-floor-concrete",
+   "auto_named": false
+  },
+  {
+   "kind": "column",
+   "id": "248041bf-c398-4b0f-8ed0-dc542f6a683e",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "center": {
+    "x": 3430.0,
+    "y": 0.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "037a00d2-e8ba-4f53-bfb5-d8c5146dd55b",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "center": {
+    "x": 8400.0,
+    "y": 0.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "40defb48-01b4-4275-81b9-eda86c863b08",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "center": {
+    "x": 3430.0,
+    "y": 3700.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "ba9d0ce1-0f88-4537-a363-3fe523fc4ae8",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "center": {
+    "x": 8400.0,
+    "y": 3700.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "6795443a-1823-4a46-b62a-b44c39d5cc3a",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "center": {
+    "x": 3430.0,
+    "y": 7400.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "240281f4-219a-4795-8be9-15700c2f5af6",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "center": {
+    "x": 8400.0,
+    "y": 7400.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "8212da70-1ead-4cb8-b7d8-d96cd84b5863",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "center": {
+    "x": 3430.0,
+    "y": 11100.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "6859f563-738c-4664-b735-939fd94a094f",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "center": {
+    "x": 8400.0,
+    "y": 11100.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "79264b3a-5898-4742-8c5a-f935f4359d50",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "center": {
+    "x": 3430.0,
+    "y": 14800.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "b4eddc46-9593-4954-9716-9ad1a3bea155",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "center": {
+    "x": 8400.0,
+    "y": 14800.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "stair",
+   "id": "46c345bc-aa4f-49a0-ad44-4fbdb02ee547",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "origin": {
+    "x": 2815.0,
+    "y": 5050.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 1000.0,
+   "run_mm": 3500.0,
+   "riser_count": 15,
+   "railing": {
+    "height_mm": 900.0,
+    "style": "solid"
+   }
+  },
+  {
+   "kind": "opening",
+   "id": "4827db23-bee5-4216-a2f9-946288276eb8",
+   "wall_id": "98359379-5344-40f6-965e-40f19051598e",
+   "opening_type": "door",
+   "style": "sliding",
+   "offset_mm": 2485.0,
+   "width_mm": 2700.0,
+   "height_mm": 2200.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "10366039-b48a-4fd1-83b2-d91517859a6e",
+   "wall_id": "2b40a236-5e2e-4460-8f21-0663f772fd8a",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 3470.0,
+   "width_mm": 900.0,
+   "height_mm": 2100.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "asset",
+   "id": "964d5053-64da-424f-94c4-d04ab73d704e",
+   "level_id": "bf5f0618-487e-49e2-8bc2-64525f3c8688",
+   "catalog_key": "car-sedan",
+   "name": "Car, sedan",
+   "category": "vehicle",
+   "position": {
+    "x": 5915.0,
+    "y": 11300.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 1800.0,
+   "depth_mm": 4500.0,
+   "height_mm": 1450.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "camera",
+   "id": "eb5f76c4-5bcf-4490-8ec5-ea64c3ee58bf",
+   "name": "Street, from 13th Street",
+   "preset": "custom",
+   "position": {
+    "x": -16000.0,
+    "y": 6000.0,
+    "z": 1700.0
+   },
+   "target": {
+    "x": 3500.0,
+    "y": 7400.0,
+    "z": 4500.0
+   },
+   "fov_deg": 55.0,
+   "light": null
+  },
+  {
+   "kind": "camera",
+   "id": "a7351148-f024-47b7-a895-ece707bd0587",
+   "name": "Beach, from the south-west",
+   "preset": "custom",
+   "position": {
+    "x": -10000.0,
+    "y": -16000.0,
+    "z": 1700.0
+   },
+   "target": {
+    "x": 4200.0,
+    "y": 6500.0,
+    "z": 4200.0
+   },
+   "fov_deg": 50.0,
+   "light": null
+  },
+  {
+   "kind": "column",
+   "id": "56163093-8603-4bbe-8e55-5e9ab69c8b9f",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "center": {
+    "x": 3430.0,
+    "y": 0.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "c7435696-1bdc-4eb2-9c3f-943c3b5f7a9c",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "center": {
+    "x": 8400.0,
+    "y": 0.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "fac40b20-2f0e-4b52-a14b-9eee9a1d9293",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "center": {
+    "x": 3430.0,
+    "y": 3700.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "76d3fde5-19a5-4b03-a3b5-293660ed6d6c",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "center": {
+    "x": 8400.0,
+    "y": 3700.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "fe04595d-c631-40b0-a217-8734d73c77ec",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "center": {
+    "x": 3430.0,
+    "y": 7400.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "e14b3212-e8d2-4b0d-8cef-d22dea8bb53b",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "center": {
+    "x": 8400.0,
+    "y": 7400.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "bc0fa5f7-8098-4a56-94f5-2c01a5e8ac05",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "center": {
+    "x": 3430.0,
+    "y": 11100.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "a7544f29-a383-4c33-ac19-7f5bd791fa80",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "center": {
+    "x": 8400.0,
+    "y": 11100.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "84f92490-0b53-4387-a655-21259bd1af9e",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "center": {
+    "x": 3430.0,
+    "y": 14800.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "88966788-c83c-4f0c-b965-d1f6754ec8ae",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "center": {
+    "x": 8400.0,
+    "y": 14800.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "slab",
+   "id": "2966f048-e68b-4d7b-b1f9-4704c50b24cf",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "slab_kind": "balcony",
+   "polygon": [
+    {
+     "x": 3430.0,
+     "y": -2000.0
+    },
+    {
+     "x": 8400.0,
+     "y": -2000.0
+    },
+    {
+     "x": 8400.0,
+     "y": 0.0
+    },
+    {
+     "x": 3430.0,
+     "y": 0.0
+    }
+   ],
+   "thickness_mm": 150.0,
+   "top_offset_mm": 0.0,
+   "material_id": null,
+   "railing": {
+    "height_mm": 1000.0,
+    "style": "bars"
+   }
+  },
+  {
+   "kind": "slab",
+   "id": "069c1b19-870a-4355-8b96-f1a1916d50eb",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "slab_kind": "balcony",
+   "polygon": [
+    {
+     "x": 8400.0,
+     "y": 2000.0
+    },
+    {
+     "x": 9600.0,
+     "y": 2000.0
+    },
+    {
+     "x": 9600.0,
+     "y": 3500.0
+    },
+    {
+     "x": 8400.0,
+     "y": 3500.0
+    }
+   ],
+   "thickness_mm": 150.0,
+   "top_offset_mm": 0.0,
+   "material_id": null,
+   "railing": {
+    "height_mm": 1000.0,
+    "style": "bars"
+   }
+  },
+  {
+   "kind": "stair",
+   "id": "e2b6b003-83cd-42ab-9100-349397fa9905",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "origin": {
+    "x": 4200.0,
+    "y": 11600.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 1000.0,
+   "run_mm": 3250.0,
+   "riser_count": 14,
+   "railing": {
+    "height_mm": 900.0,
+    "style": "bars"
+   }
+  },
+  {
+   "kind": "opening",
+   "id": "3e9402a7-d410-4d34-aa5d-bcb9663a8988",
+   "wall_id": "f99b7029-9c65-4a61-8be4-0d9a31836a41",
+   "opening_type": "door",
+   "style": "sliding",
+   "offset_mm": 4100.0,
+   "width_mm": 1000.0,
+   "height_mm": 2100.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "27d60dc3-fec3-47ce-8853-c8da48f41051",
+   "wall_id": "f99b7029-9c65-4a61-8be4-0d9a31836a41",
+   "opening_type": "window",
+   "style": "fixed",
+   "offset_mm": 2400.0,
+   "width_mm": 2000.0,
+   "height_mm": 2100.0,
+   "sill_mm": 200.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "2058087a-23f1-4c78-9b3e-f48c74cbbef4",
+   "wall_id": "f99b7029-9c65-4a61-8be4-0d9a31836a41",
+   "opening_type": "door",
+   "style": "sliding",
+   "offset_mm": 800.0,
+   "width_mm": 1000.0,
+   "height_mm": 2100.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "864e11ca-ea05-474e-9da8-6726cd668c22",
+   "wall_id": "55a602b8-4e09-4c1f-892e-347ff2d4b3c0",
+   "opening_type": "window",
+   "style": "fixed",
+   "offset_mm": 14650.0,
+   "width_mm": 1800.0,
+   "height_mm": 2100.0,
+   "sill_mm": 300.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "afe80f13-ca53-40c3-ac49-fad8a0db50ff",
+   "wall_id": "55a602b8-4e09-4c1f-892e-347ff2d4b3c0",
+   "opening_type": "door",
+   "style": "sliding",
+   "offset_mm": 13000.0,
+   "width_mm": 900.0,
+   "height_mm": 2100.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "47452ef4-eb1d-47ab-9a97-b58658d7e7c2",
+   "wall_id": "55a602b8-4e09-4c1f-892e-347ff2d4b3c0",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 10350.0,
+   "width_mm": 2400.0,
+   "height_mm": 1500.0,
+   "sill_mm": 600.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "429aa22a-0ecf-44a1-866e-76137ca33703",
+   "wall_id": "55a602b8-4e09-4c1f-892e-347ff2d4b3c0",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 6650.0,
+   "width_mm": 2400.0,
+   "height_mm": 1500.0,
+   "sill_mm": 900.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "b5db5cb7-ed9e-47d2-b2d6-c0769080021f",
+   "wall_id": "55a602b8-4e09-4c1f-892e-347ff2d4b3c0",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 3650.0,
+   "width_mm": 1500.0,
+   "height_mm": 1000.0,
+   "sill_mm": 1050.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "edbbe6d4-638e-4012-8fab-ca2acdccb17a",
+   "wall_id": "55a602b8-4e09-4c1f-892e-347ff2d4b3c0",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 1800.0,
+   "width_mm": 1000.0,
+   "height_mm": 1200.0,
+   "sill_mm": 900.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "02e3280d-3ca1-4327-ab5c-737b776f4f81",
+   "wall_id": "8294bd34-cbf3-4ced-a5ab-4cde11d09373",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 1300.0,
+   "width_mm": 900.0,
+   "height_mm": 1200.0,
+   "sill_mm": 900.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "85b4e39c-39be-4f85-9455-4fc78077641a",
+   "wall_id": "8294bd34-cbf3-4ced-a5ab-4cde11d09373",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 3100.0,
+   "width_mm": 600.0,
+   "height_mm": 600.0,
+   "sill_mm": 1500.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "9a854ad6-2d5c-44e6-9f54-4ed579ea83d3",
+   "wall_id": "8294bd34-cbf3-4ced-a5ab-4cde11d09373",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 4900.0,
+   "width_mm": 1200.0,
+   "height_mm": 1200.0,
+   "sill_mm": 900.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "c7561830-699e-4090-9793-cf78615b65b2",
+   "wall_id": "28424b46-effe-440c-8cae-a3f8fe2b0856",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 1250.0,
+   "width_mm": 900.0,
+   "height_mm": 1200.0,
+   "sill_mm": 900.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "6560631b-c6b0-4768-97c6-1a0a96c5a441",
+   "wall_id": "28424b46-effe-440c-8cae-a3f8fe2b0856",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 3650.0,
+   "width_mm": 1500.0,
+   "height_mm": 1000.0,
+   "sill_mm": 1050.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "5b71fe77-e8f8-45bf-8a1a-ffea476df04a",
+   "wall_id": "28424b46-effe-440c-8cae-a3f8fe2b0856",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 5475.0,
+   "width_mm": 900.0,
+   "height_mm": 1200.0,
+   "sill_mm": 900.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "926d145a-154c-4d25-bc55-50a64e3d72c8",
+   "wall_id": "130c5e40-4061-41ce-9b35-da5ef78c7342",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 1850.0,
+   "width_mm": 1200.0,
+   "height_mm": 1500.0,
+   "sill_mm": 600.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "0bad7dc7-ffa8-4e0c-80e4-b2f61a1327a5",
+   "wall_id": "130c5e40-4061-41ce-9b35-da5ef78c7342",
+   "opening_type": "window",
+   "style": "sliding",
+   "offset_mm": 5550.0,
+   "width_mm": 2400.0,
+   "height_mm": 1500.0,
+   "sill_mm": 600.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "62a42e67-e6e3-4d06-8fbd-b0fe2dcc285b",
+   "wall_id": "ac236521-9c04-433e-a20b-fd5ed32b4cf6",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 615.0,
+   "width_mm": 1000.0,
+   "height_mm": 2100.0,
+   "sill_mm": 0.0,
+   "flip_side": true,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "5c02e51a-eef8-4596-8e4d-958747518b1c",
+   "wall_id": "9c08ae2d-60a0-4bef-879e-c596f5875c52",
+   "opening_type": "door",
+   "style": "swing_double",
+   "offset_mm": 1250.0,
+   "width_mm": 1200.0,
+   "height_mm": 2100.0,
+   "sill_mm": 0.0,
+   "flip_side": true,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "e581c9a3-25a7-4643-840d-c09b6cc06d8e",
+   "wall_id": "cf645230-8c7c-42ec-aeff-deb7e5b347d7",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 670.0,
+   "width_mm": 900.0,
+   "height_mm": 2100.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "d2c33481-09bf-45dd-8bc8-a0d20766bedf",
+   "wall_id": "cf645230-8c7c-42ec-aeff-deb7e5b347d7",
+   "opening_type": "door",
+   "style": "sliding",
+   "offset_mm": 3070.0,
+   "width_mm": 1200.0,
+   "height_mm": 2100.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "51098e48-de3c-4d1e-be80-ca609ab8b74b",
+   "wall_id": "34e1f5c3-6a60-4f30-ad82-08227ab95eea",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 3550.0,
+   "width_mm": 700.0,
+   "height_mm": 2100.0,
+   "sill_mm": 0.0,
+   "flip_side": true,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "opening",
+   "id": "f7664215-1f54-4034-a11a-101f0d777088",
+   "wall_id": "10e281a6-d601-418f-b02d-9ba7394e622d",
+   "opening_type": "door",
+   "style": "swing_single",
+   "offset_mm": 2350.0,
+   "width_mm": 800.0,
+   "height_mm": 2100.0,
+   "sill_mm": 0.0,
+   "flip_side": false,
+   "flip_hinge": false,
+   "material_id": null
+  },
+  {
+   "kind": "asset",
+   "id": "e4abb051-a9c4-44d4-8d7e-4f323498769b",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "sofa-3",
+   "name": "Sofa, 3 seater",
+   "category": "furniture",
+   "position": {
+    "x": 5900.0,
+    "y": 5400.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 2100.0,
+   "depth_mm": 900.0,
+   "height_mm": 800.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "e14c0691-42c2-46b3-80f6-3cd5b5e79512",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "coffee-table",
+   "name": "Coffee table",
+   "category": "furniture",
+   "position": {
+    "x": 5900.0,
+    "y": 4100.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 1100.0,
+   "depth_mm": 600.0,
+   "height_mm": 420.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "2b04f3bf-aa48-4bc6-aca1-150fa9132519",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "armchair",
+   "name": "Armchair",
+   "category": "furniture",
+   "position": {
+    "x": 4300.0,
+    "y": 3600.0
+   },
+   "rotation_deg": 90.0,
+   "width_mm": 850.0,
+   "depth_mm": 850.0,
+   "height_mm": 800.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "02db6a2b-da17-416c-8748-3378b4115da6",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "armchair",
+   "name": "Armchair",
+   "category": "furniture",
+   "position": {
+    "x": 7500.0,
+    "y": 3600.0
+   },
+   "rotation_deg": 270.0,
+   "width_mm": 850.0,
+   "depth_mm": 850.0,
+   "height_mm": 800.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "f517a242-a61b-41ba-b54f-e738c22e6f6b",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "dining-6",
+   "name": "Dining table, 6 seats",
+   "category": "furniture",
+   "position": {
+    "x": 6300.0,
+    "y": 9300.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 1800.0,
+   "depth_mm": 900.0,
+   "height_mm": 750.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "28e7868c-8bea-4f50-a520-b0f36f246c44",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "kitchen-sink",
+   "name": "Kitchen sink counter",
+   "category": "kitchen",
+   "position": {
+    "x": 5300.0,
+    "y": 13050.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 1200.0,
+   "depth_mm": 600.0,
+   "height_mm": 900.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "f403397e-824f-4be2-a04f-a1bac7676781",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "kitchen-counter",
+   "name": "Kitchen counter",
+   "category": "kitchen",
+   "position": {
+    "x": 6500.0,
+    "y": 13050.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 1800.0,
+   "depth_mm": 600.0,
+   "height_mm": 900.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "d033def0-b39d-4b4b-8661-ff588dce0321",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "range",
+   "name": "Cooking range",
+   "category": "appliance",
+   "position": {
+    "x": 7600.0,
+    "y": 13050.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 600.0,
+   "depth_mm": 600.0,
+   "height_mm": 900.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "e973bdbe-c174-49c5-8c8d-92db4179421d",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "refrigerator",
+   "name": "Refrigerator",
+   "category": "appliance",
+   "position": {
+    "x": 8000.0,
+    "y": 11600.0
+   },
+   "rotation_deg": 180.0,
+   "width_mm": 700.0,
+   "depth_mm": 700.0,
+   "height_mm": 1750.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "ece45036-6e74-4eef-a502-e6843361635e",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "bed-single",
+   "name": "Single bed",
+   "category": "furniture",
+   "position": {
+    "x": 7400.0,
+    "y": 14800.0
+   },
+   "rotation_deg": 270.0,
+   "width_mm": 920.0,
+   "depth_mm": 1900.0,
+   "height_mm": 500.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "d032372c-2364-4e85-a2db-7f4f6d7e9af3",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "wc",
+   "name": "Water closet",
+   "category": "sanitary",
+   "position": {
+    "x": 5500.0,
+    "y": 15500.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 400.0,
+   "depth_mm": 700.0,
+   "height_mm": 780.0,
+   "elevation_mm": 0.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "asset",
+   "id": "2fb5c184-d09b-41a5-976b-01d40c3d80cb",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "catalog_key": "lavatory",
+   "name": "Lavatory",
+   "category": "sanitary",
+   "position": {
+    "x": 5100.0,
+    "y": 15640.0
+   },
+   "rotation_deg": 0.0,
+   "width_mm": 500.0,
+   "depth_mm": 420.0,
+   "height_mm": 200.0,
+   "elevation_mm": 650.0,
+   "light": null,
+   "links": [],
+   "circuit": ""
+  },
+  {
+   "kind": "camera",
+   "id": "ed6c53aa-2675-4dec-8a74-698e834c7585",
+   "name": "Living room, inside the double height",
+   "preset": "custom",
+   "position": {
+    "x": 6300.0,
+    "y": 7100.0,
+    "z": 4100.0
+   },
+   "target": {
+    "x": 6300.0,
+    "y": 0.0,
+    "z": 5700.0
+   },
+   "fov_deg": 75.0,
+   "light": null
+  },
+  {
+   "kind": "wall",
+   "id": "a4c89e62-5c9d-45fd-8222-1207cdef6795",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 0.0,
+    "y": 0.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 0.0
+   },
+   "thickness_mm": 250.0,
+   "height_mm": null,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "wall",
+   "id": "7b3d5a0b-60f3-4bf4-a358-1d45d256a2ed",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 0.0,
+    "y": 3700.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 3700.0
+   },
+   "thickness_mm": 250.0,
+   "height_mm": null,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "wall",
+   "id": "57940895-d655-45c3-8caa-9aff9e1178fa",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 0.0,
+    "y": 7400.0
+   },
+   "end": {
+    "x": 3430.0,
+    "y": 7400.0
+   },
+   "thickness_mm": 250.0,
+   "height_mm": null,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "wall",
+   "id": "f7cbf0eb-94d3-4f50-8da7-ca8af39ffb00",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 0.0,
+    "y": 11100.0
+   },
+   "end": {
+    "x": 2200.0,
+    "y": 11100.0
+   },
+   "thickness_mm": 250.0,
+   "height_mm": null,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "wall",
+   "id": "353596c4-fff8-4200-b6e1-03860cc92a88",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "start": {
+    "x": 0.0,
+    "y": 14800.0
+   },
+   "end": {
+    "x": 2200.0,
+    "y": 14800.0
+   },
+   "thickness_mm": 250.0,
+   "height_mm": null,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "70fc088c-391e-420e-be87-2577a5d26dcc",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "center": {
+    "x": 3430.0,
+    "y": 0.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "3d0fe12d-90ef-4713-b276-4ec863ade7dd",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "center": {
+    "x": 8400.0,
+    "y": 0.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "4ed01b27-be9e-49bd-8c88-e13ba3363162",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "center": {
+    "x": 3430.0,
+    "y": 3700.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "532416cc-9339-4af4-9ff1-6df7bfaa68bb",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "center": {
+    "x": 8400.0,
+    "y": 3700.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "74530f22-534a-411d-b3dd-d4a3ae1ac622",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "center": {
+    "x": 3430.0,
+    "y": 7400.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "de02f55f-d90d-46f7-9e36-fc9fe065b3ca",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "center": {
+    "x": 8400.0,
+    "y": 7400.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "083120c3-de7f-4dcd-bd6b-b79940dd1551",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "center": {
+    "x": 3430.0,
+    "y": 11100.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "ba3d6747-1c3a-49b6-bad3-5670862446b3",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "center": {
+    "x": 8400.0,
+    "y": 11100.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "7a1b2e7e-20dc-4217-b41c-fde65693f143",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "center": {
+    "x": 3430.0,
+    "y": 14800.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "column",
+   "id": "35af5ca3-5218-4748-baa4-2784f77ddbcc",
+   "level_id": "21230eea-6bb8-4c66-bae3-b5e0c66605f2",
+   "center": {
+    "x": 8400.0,
+    "y": 14800.0
+   },
+   "shape": "rect",
+   "width_mm": 450.0,
+   "depth_mm": 300.0,
+   "rotation_deg": 0.0,
+   "material_id": "mat-concrete-fairface"
+  },
+  {
+   "kind": "slab",
+   "id": "852f9f8c-4418-42fb-b79d-4cb4ce6300ff",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "slab_kind": "void",
+   "polygon": [
+    {
+     "x": 4700.0,
+     "y": 0.0
+    },
+    {
+     "x": 8400.0,
+     "y": 0.0
+    },
+    {
+     "x": 8400.0,
+     "y": 7400.0
+    },
+    {
+     "x": 4700.0,
+     "y": 7400.0
+    }
+   ],
+   "thickness_mm": 0.0,
+   "top_offset_mm": 0.0,
+   "material_id": null,
+   "railing": {
+    "height_mm": 1000.0,
+    "style": "bars"
+   }
+  },
+  {
+   "kind": "slab",
+   "id": "da66dbbd-a97a-4abf-a250-b98434075639",
+   "level_id": "b2c677f5-e7c6-4487-aad2-48d9244d1bf3",
+   "slab_kind": "void",
+   "polygon": [
+    {
+     "x": 3700.0,
+     "y": 11600.0
+    },
+    {
+     "x": 4700.0,
+     "y": 11600.0
+    },
+    {
+     "x": 4700.0,
+     "y": 14850.0
+    },
+    {
+     "x": 3700.0,
+     "y": 14850.0
+    }
+   ],
+   "thickness_mm": 0.0,
+   "top_offset_mm": 0.0,
+   "material_id": null,
+   "railing": null
+  }
+ ],
+ "roof": {
+  "kind": "flat",
+  "pitch_deg": 20.0,
+  "overhang_mm": 300.0,
+  "thickness_mm": 150.0,
+  "ridge_axis": "x",
+  "material_id": "mat-roof-concrete-deck"
+ },
+ "review": []
+}

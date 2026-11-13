@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Element, Level } from "../contract/bindings";
-import { ADD_LEVEL_ABOVE, addedLevel, deleteLevelCommand, deleteLevelQuestion, elementsOnLevel, elevationLabel, levelsTopDown } from "./levels";
+import { ADD_LEVEL_ABOVE, addedLevel, deleteLevelCommand, deleteLevelQuestion, elementsOnLevel, elevationLabel, levelOfElement, levelsTopDown } from "./levels";
 
 const level = (id: string, elevation_mm: number, name = id): Level => ({ id, name, elevation_mm, height_mm: 3000 });
 
@@ -19,6 +19,20 @@ describe("levels", () => {
     expect(elementsOnLevel(elements, "u")).toBe(3);
     expect(elementsOnLevel(elements, "g")).toBe(1);
     expect(elementsOnLevel(elements, "x")).toBe(0);
+  });
+
+  it("never takes what stands on no level: grids, the lot, tours, the roof over the top floor (D54)", () => {
+    const none = [
+      { kind: "grid", id: "g1", label: "A", start: { x: 0, y: 0 }, end: { x: 0, y: 9000 } },
+      { kind: "lot", id: "l1", corners: [], sides: [], grade_mm: 0 },
+      { kind: "tour", id: "t1", name: "Walkthrough", shots: [], fps: 30 },
+      { kind: "roof", id: "r1", level_id: null, outline: { type: "top_footprint" }, shape: "gable", pitch_deg: 25, ridge_axis: "x", overhang_mm: 600, thickness_mm: 100, material_id: null },
+    ] as unknown as Element[];
+    const lanai = { kind: "roof", id: "r2", level_id: "g", outline: { type: "footprint" }, shape: "shed", pitch_deg: 10, ridge_axis: "y", overhang_mm: 300, thickness_mm: 100, material_id: null } as unknown as Element;
+    const elements = [wall("w1", "g"), ...none, lanai];
+    expect(elementsOnLevel(elements, "g")).toBe(2);
+    const byId = new Map(elements.map((e) => [e.id, e]));
+    for (const e of none) expect(levelOfElement(e, byId)).toBeNull();
   });
 
   it("lists the top floor first", () => {

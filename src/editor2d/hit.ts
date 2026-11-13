@@ -5,6 +5,9 @@ import type { P, Rect } from "./geom";
 import { dist, distToSegment, pointInPolygon, shapeInsideRect, shapeIntersectsRect } from "./geom";
 import type { DocIndex } from "./model";
 import { dimensionGeometry, elementShape, isLocked } from "./model";
+import { hitsRoofOrStair } from "./hitRoofsStairs";
+import { hitsDimensionString, hitsPermit } from "./permit/hitPermit";
+import { isDimensionString } from "./permit/shapes";
 import { hitsPipe } from "./pipe";
 import { hitsSlab } from "./slab";
 
@@ -26,14 +29,18 @@ const ORDER: Element["kind"][] = [
   "opening",
   "dimension",
   "annotation",
+  "view_mark",
   "camera",
   "reference_model",
   "column",
   "asset",
   "stair",
   "wall",
+  "roof",
+  "grid",
   // Slabs sit under the building: their outline, or their inside away from rooms.
   "slab",
+  "lot",
   "linework",
   "room",
   "underlay",
@@ -41,6 +48,8 @@ const ORDER: Element["kind"][] = [
 
 export function hitsElement(p: P, el: Element, index: DocIndex, opt: HitOptions): boolean {
   if (el.kind === "dimension") {
+    // A dimension string (lane L1) picks along its whole line.
+    if (isDimensionString(el)) return hitsDimensionString(p, el, opt);
     const g = dimensionGeometry(el.a, el.b, el.offset_mm);
     return distToSegment(p, g.p1, g.p2) <= opt.tol * 1.2;
   }
@@ -50,6 +59,8 @@ export function hitsElement(p: P, el: Element, index: DocIndex, opt: HitOptions)
   if (el.kind === "reference_model") {
     return dist(p, el.position) <= opt.labelHeightMm * 1.2 + opt.tol;
   }
+  if (el.kind === "stair" || el.kind === "roof") return hitsRoofOrStair(p, el, index, opt);
+  if (el.kind === "grid" || el.kind === "view_mark" || el.kind === "lot") return hitsPermit(p, el, opt);
   if (el.kind === "column" && el.shape === "round") {
     return dist(p, el.center) <= el.width_mm / 2 + opt.tol * 0.3;
   }

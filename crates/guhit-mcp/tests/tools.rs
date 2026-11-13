@@ -631,7 +631,8 @@ async fn an_edit_result_names_walls_it_also_moved() {
         assert_eq!(w["label"], "Wall 4500 mm");
     }
     let summary = moved["summary"].as_str().unwrap();
-    assert!(summary.ends_with("; also moved: Wall 4500 mm, Wall 4500 mm"), "{summary}");
+    // The step's own sentence follows (GR1 #6: staged batches keep it).
+    assert!(summary.contains("; also moved: Wall 4500 mm, Wall 4500 mm"), "{summary}");
     assert!(moved["note"].as_str().unwrap().contains("Tell the user"));
 
     // A move that would turn a square wall is refused with its name.

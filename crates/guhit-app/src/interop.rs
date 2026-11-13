@@ -9,7 +9,8 @@
 //! Every path that arrives over IPC is checked before it is used: a caller
 //! path must be absolute and free of `..`, and the dev bridge only accepts
 //! paths inside its own data dir. Zip entries are checked the same way, so a
-//! bundle cannot write outside the project folder it creates.
+//! bundle cannot write outside the project folder it creates, and only the
+//! kinds of file the app writes in each folder go in (`allowed_entry`).
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -98,6 +99,7 @@ fn export_err(e: guhit_export::ExportError) -> IpcError {
     match e {
         guhit_export::ExportError::Empty(_) => IpcError::new("invalid", e.to_string()),
         guhit_export::ExportError::Failed(_) => IpcError::new("io", e.to_string()),
+        guhit_export::ExportError::NotBuilt(_) => IpcError::new("not_built", e.to_string()),
     }
 }
 
@@ -512,7 +514,8 @@ async fn export_model(app: &AppService, args: Value) -> IpcResult {
     };
     let stem = files::slug(&project.name, "model");
     // IFC and 3D DXF are written by `guhit-export`; DWG goes out as a 2D DXF
-    // and through the converter. One command covers all three.
+    // of every level, side by side, and through the converter. One command
+    // covers all three.
     let text = match format {
         ModelFormat::Ifc => Some(("ifc", guhit_export::model_ifc(&project, &derived).map_err(export_err)?)),
         ModelFormat::Dxf3d => Some(("dxf", guhit_export::model_dxf3d(&project, &derived).map_err(export_err)?)),
@@ -524,6 +527,7 @@ async fn export_model(app: &AppService, args: Value) -> IpcResult {
         return to_value(&ExportResult {
             path: target.to_string_lossy().into_owned(),
             scale_denominator: None,
+                    notes: vec![],
         });
     }
     match format {
@@ -545,7 +549,7 @@ async fn export_model(app: &AppService, args: Value) -> IpcResult {
                 review_page: false,
                 date: None,
             };
-            let dxf = guhit_export::plan_dxf(&project, &derived, &opts).map_err(export_err)?;
+            let dxf = guhit_export::dxf::plans(&project, &derived, &opts).map_err(export_err)?;
             let dir = data_dir.clone();
             let stem2 = stem.clone();
             let dwg = tokio::task::spawn_blocking(move || {
@@ -558,6 +562,7 @@ async fn export_model(app: &AppService, args: Value) -> IpcResult {
             to_value(&ExportResult {
                 path: target.to_string_lossy().into_owned(),
                 scale_denominator: None,
+                    notes: vec![],
             })
         }
     }
@@ -566,12 +571,14 @@ async fn export_model(app: &AppService, args: Value) -> IpcResult {
 // ------------------------------------------------------------ .guhit bundle
 
 /// Folders inside a project that travel with the bundle, plus `project.json`
-/// and the thumbnail. `ai-log.jsonl` stays behind: it is a private record of
-/// what was asked of the copilot.
-const BUNDLE_DIRS: [&str; 4] = ["snapshots", "underlays", "renders", "models"];
+/// and the thumbnail. `files` holds the firm logo and the vicinity map the
+/// sheets print. `ai-log.jsonl` stays behind: it is a private record of what
+/// was asked of the copilot.
+const BUNDLE_DIRS: [&str; 5] = ["snapshots", "underlays", "renders", "models", "files"];
 const AI_LOG: &str = "ai-log.jsonl";
 
-fn collect_files(root: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> Result<(), IpcError> {
+/// `videos`: false leaves tour videos and their frames out (D54).
+fn collect_files(root: &Path, rel: &str, videos: bool, out: &mut Vec<(String, PathBuf)>) -> Result<(), IpcError> {
     let dir = if rel.is_empty() { root.to_path_buf() } else { root.join(rel) };
     let mut entries: Vec<PathBuf> = match std::fs::read_dir(&dir) {
         Ok(e) => e.flatten().map(|e| e.path()).collect(),
@@ -595,17 +602,17 @@ fn collect_files(root: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> Re
             if rel.is_empty() && !BUNDLE_DIRS.contains(&name) {
                 continue;
             }
-            collect_files(root, &entry, out)?;
-        } else if path.is_file() {
+            collect_files(root, &entry, videos, out)?;
+        } else if path.is_file() && (videos || !crate::video::is_video_file(&entry)) {
             out.push((entry, path));
         }
     }
     Ok(())
 }
 
-fn zip_folder(root: &Path) -> Result<Vec<u8>, IpcError> {
+fn zip_folder(root: &Path, videos: bool) -> Result<Vec<u8>, IpcError> {
     let mut files_in = vec![];
-    collect_files(root, "", &mut files_in)?;
+    collect_files(root, "", videos, &mut files_in)?;
     let io = |e: std::io::Error| IpcError::new("io", format!("cannot write the bundle: {e}"));
     let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
@@ -624,13 +631,15 @@ fn zip_folder(root: &Path) -> Result<Vec<u8>, IpcError> {
 
 async fn bundle_save(app: &AppService, args: Value) -> IpcResult {
     let path: Option<String> = arg(&args, "path")?;
+    // Tour videos stay out unless asked; their posters and records go in.
+    let videos: bool = arg::<Option<bool>>(&args, "videos")?.unwrap_or(false);
     let mut s = app.session.lock().await;
     // Everything on disk first, so the bundle holds the current plan.
     s.flush()?;
     let project_dir = s.open_project_dir()?;
     let name = s.open_doc()?.project().name.clone();
     let data_dir = s.data_dir.clone();
-    let bytes = zip_folder(&project_dir)?;
+    let bytes = zip_folder(&project_dir, videos)?;
     let target = crate::export_target(
         &data_dir,
         &s.exports_dir(),
@@ -643,6 +652,7 @@ async fn bundle_save(app: &AppService, args: Value) -> IpcResult {
     to_value(&ExportResult {
         path: target.to_string_lossy().into_owned(),
         scale_denominator: None,
+                    notes: vec![],
     })
 }
 
@@ -669,15 +679,73 @@ fn safe_entry_name(raw: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
+/// A tour's frame inside its folder: `frame-000001.png`.
+fn is_frame_name(name: &str) -> bool {
+    name.strip_prefix("frame-")
+        .and_then(|rest| rest.strip_suffix(".png"))
+        .is_some_and(|n| (6..=9).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// What a bundle may put in a project folder: only the kinds of file the app
+/// itself writes there, folder by folder. `rel` has already passed
+/// `safe_entry_name`. Anything else is skipped, so a received bundle cannot
+/// plant a program, a script or an `.app` folder next to the tour videos,
+/// which the desktop app opens with the system player
+/// (`opener:allow-open-path` on `renders/*.mp4`).
+fn allowed_entry(rel: &str) -> bool {
+    let ext_in = |name: &str, exts: &[&str]| {
+        let (stem, ext) = files::split_ext(name);
+        stem != name && exts.iter().any(|e| ext.eq_ignore_ascii_case(e))
+    };
+    let parts: Vec<&str> = rel.split('/').collect();
+    match parts.as_slice() {
+        [name] => [store::PROJECT_FILE, store::THUMBNAIL_FILE, live::CHAT_FILE].contains(name),
+        ["snapshots", name] => ext_in(name, &["json"]),
+        ["underlays", name] => ext_in(name, &["png", "jpg", "jpeg"]),
+        ["models", name] => ext_in(name, &["glb", "gltf", "obj"]),
+        // The logo and vicinity map, as `file_store` writes them.
+        ["files", name] => ext_in(name, &["png", "jpg", "jpeg"]),
+        // An unfinished video upload is not a file worth carrying.
+        ["renders", name] if name.ends_with(".part.json") => false,
+        ["renders", name] => ext_in(name, &["png", "jpg", "jpeg", "webp", "json", "mp4"]),
+        // A tour's PNG frames: renders/<id>/frame-000001.png.
+        ["renders", folder, frame] => files::check_id(folder, "render").is_ok() && is_frame_name(frame),
+        _ => false,
+    }
+}
+
+/// An MP4 starts with its `ftyp` box, as `video_finish` checks.
+fn looks_like_mp4(bytes: &[u8]) -> bool {
+    bytes.get(4..8) == Some(b"ftyp".as_slice())
+}
+
 struct Bundle {
     /// Entry path relative to the project folder, to its bytes.
     entries: Vec<(String, Vec<u8>)>,
     project: Project,
     project_json: Vec<u8>,
+    /// Entries left out by `allowed_entry`, as named in the bundle.
+    skipped: Vec<String>,
+}
+
+/// Read one entry, pulling at most `budget + 1` bytes out of it: the size an
+/// entry declares is only its word, so the cap holds on what it really
+/// expands to, before memory is spent on the rest. None when it is larger
+/// than `budget`.
+fn read_entry(reader: impl Read, budget: usize) -> std::io::Result<Option<Vec<u8>>> {
+    let mut buf = vec![];
+    reader.take(budget as u64 + 1).read_to_end(&mut buf)?;
+    Ok((buf.len() <= budget).then_some(buf))
 }
 
 fn read_bundle(bytes: &[u8]) -> Result<Bundle, IpcError> {
+    read_bundle_capped(bytes, MAX_BUNDLE_BYTES)
+}
+
+/// `read_bundle` with `cap` on what the entries expand to together.
+fn read_bundle_capped(bytes: &[u8], cap: usize) -> Result<Bundle, IpcError> {
     let bad = |why: &str| IpcError::new("invalid", format!("this is not a Guhit project bundle: {why}"));
+    let too_large = || bad(&format!("it expands to more than {} MB", cap / (1024 * 1024)));
     let mut archive =
         zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| bad(&format!("{e}")))?;
     if archive.len() > MAX_BUNDLE_ENTRIES {
@@ -698,7 +766,7 @@ fn read_bundle(bytes: &[u8]) -> Result<Bundle, IpcError> {
         let Some(name) = safe_entry_name(&raw) else {
             return Err(bad(&format!("the entry `{raw}` is not a safe file name")));
         };
-        if file.size() as usize > MAX_BUNDLE_BYTES {
+        if file.size() > cap as u64 {
             return Err(bad("one of its files is too large"));
         }
         names.push((i, name));
@@ -711,21 +779,28 @@ fn read_bundle(bytes: &[u8]) -> Result<Bundle, IpcError> {
         .ok_or_else(|| bad("it has no project.json"))?;
 
     let mut entries = vec![];
+    let mut skipped = vec![];
     let mut total = 0usize;
     for (i, name) in names {
         let Some(rel) = name.strip_prefix(&prefix) else {
+            skipped.push(name);
             continue;
         };
         if rel.is_empty() || rel == AI_LOG {
             continue;
         }
-        let mut file = archive.by_index(i).map_err(|e| bad(&format!("{e}")))?;
-        let mut buf = Vec::with_capacity(file.size().min(1 << 20) as usize);
-        file.read_to_end(&mut buf)
-            .map_err(|e| IpcError::new("invalid", format!("the bundle could not be read: {e}")))?;
+        if !allowed_entry(rel) {
+            skipped.push(name);
+            continue;
+        }
+        let file = archive.by_index(i).map_err(|e| bad(&format!("{e}")))?;
+        let buf = read_entry(file, cap - total)
+            .map_err(|e| IpcError::new("invalid", format!("the bundle could not be read: {e}")))?
+            .ok_or_else(too_large)?;
         total += buf.len();
-        if total > MAX_BUNDLE_BYTES {
-            return Err(bad("it expands to more than 200 MB"));
+        if files::split_ext(rel).1.eq_ignore_ascii_case("mp4") && !looks_like_mp4(&buf) {
+            skipped.push(name);
+            continue;
         }
         entries.push((rel.to_string(), buf));
     }
@@ -739,14 +814,78 @@ fn read_bundle(bytes: &[u8]) -> Result<Bundle, IpcError> {
         entries,
         project,
         project_json,
+        skipped,
     })
+}
+
+/// Put a bundle's files into the project folder `dir`. A file the folder
+/// has already stays as it is, and `renders/index.json` is merged by record
+/// id, so a folder that holds more than the bundle keeps all of it. The
+/// agents' AI image count (`renders/ai-usage.json`) is this computer's and
+/// never comes in.
+fn write_bundle_entries(dir: &Path, entries: &[(String, Vec<u8>)]) -> Result<(), IpcError> {
+    let usage = format!("renders/{}", crate::render_ai::USAGE_FILE);
+    for (rel, data) in entries {
+        if rel == "project.json" || *rel == usage {
+            continue;
+        }
+        let target = dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+        // Belt and braces: the name was checked, now check the result.
+        if !target.starts_with(dir) {
+            return Err(IpcError::new("invalid", format!("the entry `{rel}` points outside the project")));
+        }
+        if rel == "renders/index.json" {
+            merge_render_index(&target, data)?;
+        } else if !target.exists() {
+            files::write_atomic(&target, data)?;
+        }
+    }
+    Ok(())
+}
+
+/// A bundle's Visuals records into the folder's `renders/index.json`: every
+/// record the folder has stays as it is, and the bundle adds the ids it
+/// lacks. A damaged index on either side is left for `renders` to set aside.
+fn merge_render_index(target: &Path, from_bundle: &[u8]) -> Result<(), IpcError> {
+    let ours = match std::fs::read(target) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return files::write_atomic(target, from_bundle),
+        Err(e) => return Err(files::io_err("cannot read", target, e)),
+    };
+    let (Ok(mut ours), Ok(theirs)) =
+        (serde_json::from_slice::<Vec<Value>>(&ours), serde_json::from_slice::<Vec<Value>>(from_bundle))
+    else {
+        return Ok(());
+    };
+    let known: std::collections::HashSet<String> =
+        ours.iter().filter_map(|r| r["id"].as_str().map(str::to_string)).collect();
+    let before = ours.len();
+    ours.extend(theirs.into_iter().filter(|r| r["id"].as_str().is_some_and(|id| !known.contains(id))));
+    if ours.len() == before {
+        return Ok(());
+    }
+    files::write_json_atomic(target, &ours)
 }
 
 async fn bundle_open(app: &AppService, args: Value) -> IpcResult {
     let (_, bytes) = read_input(app, &args, &["guhit", "zip"], MAX_BUNDLE_BYTES).await?;
     let bundle = read_bundle(&bytes)?;
+    // `DocState` has no place to say it, so the log does. The names passed
+    // `safe_entry_name`, so they are plain.
+    if !bundle.skipped.is_empty() {
+        let shown: Vec<&str> = bundle.skipped.iter().take(10).map(String::as_str).collect();
+        eprintln!(
+            "guhit-app: bundle_open skipped {} file(s) the app does not write: {}{}",
+            bundle.skipped.len(),
+            shown.join(", "),
+            if bundle.skipped.len() > shown.len() { ", ..." } else { "" }
+        );
+    }
 
     let mut s = app.session.lock().await;
+    // The open project goes to disk first, so the comparison below sees it
+    // as it is.
+    s.flush()?;
     let data_dir = s.data_dir.clone();
     let mut id = bundle.project.id.clone();
     let mut name = bundle.project.name.clone();
@@ -755,40 +894,38 @@ async fn bundle_open(app: &AppService, args: Value) -> IpcResult {
         id = defaults::new_id();
     }
     let existing = store::projects_dir(&data_dir).join(&id).join(store::PROJECT_FILE);
+    // The same project as on disk: renders and tour videos never change
+    // project.json, so the folder is as new as the bundle or newer. Nothing
+    // is written, and its Visuals records and agents' image count stay.
+    let mut unchanged = false;
     if existing.is_file() {
         let same = std::fs::read(&existing).map(|b| b == bundle.project_json).unwrap_or(false);
-        if !same {
+        if same {
+            unchanged = true;
+        } else {
             id = defaults::new_id();
             name = format!("{name} (imported)");
             rename = true;
         }
     }
 
-    let dir = store::project_dir(&data_dir, &id)?;
-    files::create_dir(&dir)?;
-    for (rel, data) in &bundle.entries {
-        if rel == "project.json" {
-            continue;
+    if !unchanged {
+        let dir = store::project_dir(&data_dir, &id)?;
+        files::create_dir(&dir)?;
+        write_bundle_entries(&dir, &bundle.entries)?;
+        let mut project = bundle.project;
+        project.id = id.clone();
+        project.name = name;
+        if rename {
+            project.updated_at = defaults::now_rfc3339();
         }
-        let target = dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
-        // Belt and braces: the name was checked, now check the result.
-        if !target.starts_with(&dir) {
-            return Err(IpcError::new("invalid", format!("the entry `{rel}` points outside the project")));
-        }
-        files::write_atomic(&target, data)?;
+        store::save_project(&data_dir, &project)?;
     }
-    let mut project = bundle.project;
-    project.id = id.clone();
-    project.name = name;
-    if rename {
-        project.updated_at = defaults::now_rfc3339();
-    }
-    store::save_project(&data_dir, &project)?;
 
     let project = store::load_project(&data_dir, &id)?;
     s.set_doc(project)?;
     app.notify(&s);
-    to_value(&s.state()?)
+    s.opened()
 }
 
 #[cfg(test)]
@@ -810,6 +947,158 @@ mod tests {
         assert_eq!(safe_entry_name("a\\b.json"), None);
         assert_eq!(safe_entry_name(""), None);
         assert_eq!(safe_entry_name("con.txt"), None, "a Windows device name is rewritten, so it fails");
+    }
+
+    #[test]
+    fn a_bundle_brings_only_the_files_the_app_writes() {
+        for ok in [
+            "project.json",
+            "thumbnail.png",
+            "chat.jsonl",
+            "snapshots/0b7c-1.json",
+            "underlays/site plan.png",
+            "underlays/survey.JPG",
+            "underlays/old.jpeg",
+            "models/tree.obj",
+            "models/neighbour.glb",
+            "models/lot.gltf",
+            "renders/index.json",
+            "renders/ai-usage.json",
+            "renders/0b7c.png",
+            "renders/0b7c.jpg",
+            "renders/0b7c.webp",
+            "renders/0b7c.lines.png",
+            "renders/0b7c.maps.json",
+            "renders/0b7c.drift.png",
+            "renders/0b7c.mp4",
+            "renders/0b7c/frame-000001.png",
+            "renders/0b7c_x-2/frame-1234567.png",
+            "files/logo.png",
+            "files/vicinity.jpg",
+        ] {
+            assert!(allowed_entry(ok), "{ok} should go in");
+        }
+        for planted in [
+            "run.command",
+            "project.json.sh",
+            "ai-log.jsonl.bak",
+            "files/run.command",
+            "files/logo.svg",
+            "files/sub/logo.png",
+            "Applications/evil.png",
+            "snapshots/a.png",
+            "snapshots/deep/a.json",
+            "underlays/plan.svg",
+            "underlays/plan.pdf",
+            "models/tool.exe",
+            "models/sub/tree.obj",
+            "renders/run.command",
+            "renders/open.app",
+            "renders/evil.app/Contents/MacOS/evil",
+            "renders/evil.app/frame-000001.png",
+            "renders/0b7c.part",
+            "renders/0b7c.part.json",
+            "renders/0b7c/frame-1.png",
+            "renders/0b7c/frame-000001.mp4",
+            "renders/0b7c/poster.png",
+            "renders/mp4",
+            "renders/a/b/frame-000001.png",
+        ] {
+            assert!(!allowed_entry(planted), "{planted} should be skipped");
+        }
+        assert!(looks_like_mp4(b"\0\0\0\x18ftypisom"));
+        assert!(!looks_like_mp4(b"#!/bin/sh\nopen -a Terminal\n"));
+        assert!(!looks_like_mp4(b"ftyp"));
+    }
+
+    /// A zip whose `renders/a.png` says it holds 1000 bytes but inflates to
+    /// `expand`, as GR1's `make_bomb.py` writes it.
+    fn lying_zip(expand: usize) -> Vec<u8> {
+        let zeros = vec![0u8; expand];
+        let mut crc = flate2::Crc::new();
+        crc.update(&zeros);
+        let mut enc = flate2::write::DeflateEncoder::new(vec![], flate2::Compression::best());
+        enc.write_all(&zeros).unwrap();
+        let packed = enc.finish().unwrap();
+        let pj = serde_json::to_vec(&defaults::new_project("Bomb")).unwrap();
+        let mut pj_crc = flate2::Crc::new();
+        pj_crc.update(&pj);
+        let entries: [(&str, u16, &[u8], u32, u32); 2] =
+            [("renders/a.png", 8, &packed, crc.sum(), 1000), ("project.json", 0, &pj, pj_crc.sum(), pj.len() as u32)];
+        let (mut blob, mut central) = (vec![], vec![]);
+        let le16 = |v: &mut Vec<u8>, n: u16| v.extend_from_slice(&n.to_le_bytes());
+        let le32 = |v: &mut Vec<u8>, n: u32| v.extend_from_slice(&n.to_le_bytes());
+        for (name, method, payload, crc, size) in entries {
+            let offset = blob.len() as u32;
+            le32(&mut blob, 0x0403_4B50);
+            for n in [20, 0, method, 0, 0] {
+                le16(&mut blob, n);
+            }
+            for n in [crc, payload.len() as u32, size] {
+                le32(&mut blob, n);
+            }
+            le16(&mut blob, name.len() as u16);
+            le16(&mut blob, 0);
+            blob.extend_from_slice(name.as_bytes());
+            blob.extend_from_slice(payload);
+            le32(&mut central, 0x0201_4B50);
+            for n in [20, 20, 0, method, 0, 0] {
+                le16(&mut central, n);
+            }
+            for n in [crc, payload.len() as u32, size] {
+                le32(&mut central, n);
+            }
+            for n in [name.len() as u16, 0, 0, 0, 0] {
+                le16(&mut central, n);
+            }
+            le32(&mut central, 0);
+            le32(&mut central, offset);
+            central.extend_from_slice(name.as_bytes());
+        }
+        let mut out = blob.clone();
+        out.extend_from_slice(&central);
+        le32(&mut out, 0x0605_4B50);
+        for n in [0, 0, 2, 2] {
+            le16(&mut out, n);
+        }
+        le32(&mut out, central.len() as u32);
+        le32(&mut out, blob.len() as u32);
+        le16(&mut out, 0);
+        out
+    }
+
+    /// Counts the bytes pulled through it.
+    struct Counting<R>(R, std::rc::Rc<std::cell::Cell<usize>>);
+
+    impl<R: Read> Read for Counting<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = self.0.read(buf)?;
+            self.1.set(self.1.get() + n);
+            Ok(n)
+        }
+    }
+
+    #[test]
+    fn an_entry_that_lies_about_its_size_is_capped_on_what_it_expands_to() {
+        const MB: usize = 1024 * 1024;
+        let bytes = lying_zip(16 * MB);
+        assert!(bytes.len() < 64 * 1024, "{} bytes on disk", bytes.len());
+
+        // The whole bundle: refused once it passes the cap.
+        let e = read_bundle_capped(&bytes, MB).err().expect("refused");
+        assert!(e.message.contains("expands to more than 1 MB"), "{}", e.message);
+        // Under a cap it fits, it reads.
+        assert_eq!(read_bundle_capped(&bytes, 32 * MB).unwrap().entries.len(), 2);
+
+        // The entry itself: never more than the budget and one byte is
+        // inflated, whatever it says about its size.
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        let file = archive.by_name("renders/a.png").unwrap();
+        assert_eq!(file.size(), 1000, "the entry lies");
+        let pulled = std::rc::Rc::new(std::cell::Cell::new(0));
+        let got = read_entry(Counting(file, pulled.clone()), MB).unwrap();
+        assert!(got.is_none());
+        assert!(pulled.get() <= MB + 1, "{} bytes inflated for a budget of {MB}", pulled.get());
     }
 
     #[test]

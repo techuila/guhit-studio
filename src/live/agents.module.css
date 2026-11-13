@@ -451,6 +451,9 @@
   white-space: nowrap;
   box-shadow: 0 1px 3px rgba(20, 40, 63, 0.25);
   transform-origin: top left;
+  transition:
+    opacity var(--dur-panel) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
 }
 
 .cursor[data-flip-x="true"] .label {
@@ -469,6 +472,15 @@
 
 .cursor[data-flip-x="true"][data-flip-y="true"] .label {
   border-radius: 10px 10px 4px 10px;
+}
+
+/* An idle agent's label folds away, so it never covers the plan's own hints
+   (G4 problem 10); its mark stays at half strength where it last worked, and
+   the label comes back as soon as it works again. */
+.cursor[data-activity="idle"] .label {
+  opacity: 0;
+  transform: scale(0.92);
+  transition-timing-function: var(--ease-in);
 }
 
 .labelName {
@@ -596,5 +608,10 @@
   .agentEnter,
   .claim {
     animation: none;
+  }
+
+  /* The idle label still fades, without the shrink. */
+  .cursor[data-activity="idle"] .label {
+    transform: none;
   }
 }

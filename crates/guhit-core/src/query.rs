@@ -1,6 +1,9 @@
 //! Read-only questions answered from model data. The JSON goes to the AI
 //! copilot and to the UI, so keys are self-explanatory: areas are m2 with
 //! 2 decimals, lengths are mm, every element carries its id and name.
+//!
+//! HUB (DECISIONS D54): after C0 only the orchestrator edits this file;
+//! every Wave 2 query and element kind is a one-line arm.
 
 use std::collections::BTreeMap;
 
@@ -153,15 +156,13 @@ impl<'a> Ctx<'a> {
         v["enclosed"] = json!(true);
         let net = self.slab_areas.room_area(f);
         v["net_area_m2"] = json!(m2(net));
-        // Only when slabs change it: the part a void takes away, and what
-        // counts as floor area once balconies and decks are left out.
+        // Only when a void changes it: the part it takes away.
         if (f.area_mm2 - net).abs() > 0.5 {
             v["void_area_m2"] = json!(m2(f.area_mm2 - net));
         }
-        let floor = self.slab_areas.room_floor_area(f);
-        if (floor - net).abs() > 0.5 {
-            v["floor_area_m2"] = json!(m2(floor));
-        }
+        // What counts as floor area, as the totals sum it: also less
+        // balconies and decks.
+        v["floor_area_m2"] = json!(m2(self.slab_areas.room_floor_area(f)));
         v["centerline_area_m2"] = json!(m2(f.centerline_area_mm2));
         v["perimeter_mm"] = json!(mm(f.perimeter_mm));
         v["clear_width_x_mm"] = json!(mm(hi.x - lo.x));
@@ -254,22 +255,8 @@ impl<'a> Ctx<'a> {
                 "width_mm": mm(c.width_mm), "depth_mm": mm(c.depth_mm),
                 "rotation_deg": r2(c.rotation_deg), "material": self.material_name(&c.material_id),
             }),
-            Element::Stair(s) => {
-                // D44: n risers make n - 1 treads; the top riser lands on the
-                // floor above.
-                let rise = self.project.levels.iter().find(|l| l.id == s.level_id).map(|l| l.height_mm).unwrap_or(0.0);
-                let treads = s.riser_count.saturating_sub(1);
-                json!({
-                    "id": s.id, "kind": "stair", "level": self.level_name(&s.level_id),
-                    "origin": point(s.origin), "rotation_deg": r2(s.rotation_deg),
-                    "width_mm": mm(s.width_mm), "run_mm": mm(s.run_mm), "riser_count": s.riser_count,
-                    "tread_count": treads,
-                    "tread_mm": if treads > 0 { Value::from(mm(s.run_mm / treads as f64)) } else { Value::Null },
-                    "riser_mm": mm(rise / s.riser_count.max(1) as f64),
-                    "arrives_at": slabs::stair_top_level(self.project, s).map(|l| l.name.clone()),
-                    "railing": s.railing.map(|r| json!({ "height_mm": mm(r.height_mm), "style": enum_str(&r.style) })),
-                })
-            }
+            // L and U stairs count n - 2 treads (D54): the engine's own description.
+            Element::Stair(s) => crate::stairs::describe(self.project, s),
             Element::Slab(s) => json!({
                 "id": s.id, "kind": "slab", "slab_kind": enum_str(&s.kind), "level": self.level_name(&s.level_id),
                 "polygon": s.polygon.iter().map(|p| point(*p)).collect::<Vec<_>>(),
@@ -393,6 +380,11 @@ impl<'a> Ctx<'a> {
                 "name": m.name, "file_name": m.file_name, "position": point(m.position),
                 "rotation_deg": r2(m.rotation_deg), "locked": m.locked,
             }),
+            Element::Roof(r) => crate::roofs::describe(self.project, r),
+            Element::Grid(g) => crate::grids::describe(g),
+            Element::ViewMark(m) => crate::sheets::describe_mark(self.project, m),
+            Element::Lot(l) => crate::site::describe(l),
+            Element::Tour(t) => crate::tours::describe(t),
             Element::Pipe(p) => {
                 let length: f64 = p
                     .points
@@ -558,6 +550,19 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
                 .levels
                 .iter()
                 .map(|l| {
+                    // One source with the schedules and the sheets (G4 problem
+                    // 1): the level's row in `Derived::level_areas`.
+                    if let Some(a) = derived.level_areas.iter().find(|a| a.level_id == l.id) {
+                        return json!({
+                            "id": l.id,
+                            "name": l.name,
+                            "elevation_mm": mm(l.elevation_mm),
+                            "floor_to_floor_height_mm": mm(l.height_mm),
+                            "room_count": rooms().filter(|r| r.level_id == l.id).count(),
+                            "net_floor_area_m2": r2(a.net_m2),
+                            "gross_footprint_area_m2": r2(a.gross_m2),
+                        });
+                    }
                     // As the totals count them: voids, balconies and decks
                     // come off (docs/CONTRACT.md, "Slabs and railings").
                     let room_area: f64 = rooms()
@@ -583,6 +588,8 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
                     })
                 })
                 .collect();
+            // The roof over the top floor (P0-2).
+            let roof = project.top_roof();
             json!({
                 "project_name": project.name,
                 "client": project.settings.client_name,
@@ -604,8 +611,10 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
                     "id": r.id,
                     "name": r.name,
                     "net_area_m2": ctx.room_area(r).map(m2),
+                    // As the totals count it: less balconies and decks too.
+                    "floor_area_m2": derived.room_schedule.iter().find(|row| row.room_id == r.id).map(|row| r2(row.floor_area_m2)),
                 })).collect::<Vec<_>>(),
-                "roof": { "kind": enum_str(&project.roof.kind), "pitch_deg": r2(project.roof.pitch_deg), "overhang_mm": mm(project.roof.overhang_mm) },
+                "roof": { "kind": enum_str(&roof.kind), "pitch_deg": r2(roof.pitch_deg), "overhang_mm": mm(roof.overhang_mm) },
                 "default_wall_thickness_mm": mm(project.settings.default_wall_thickness_mm),
                 "review_item_count": derived.issues.len(),
                 "open_review_item_count": derived.issues.iter().filter(|i| i.status == IssueStatus::Open).count(),
@@ -613,7 +622,15 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
         }
         Query::RoomList => {
             let list: Vec<Value> = rooms().map(|r| ctx.room_json(r)).collect();
-            json!({ "room_count": list.len(), "total_net_area_m2": r2(derived.totals.floor_area_m2), "rooms": list })
+            // Each total sums the same area as its rows, before rounding.
+            let net: f64 = rooms().filter_map(|r| ctx.room_area(r)).sum();
+            json!({
+                "room_count": list.len(),
+                "total_net_area_m2": m2(net),
+                "total_floor_area_m2": r2(derived.totals.floor_area_m2),
+                "rooms": list,
+                "note": "net_area_m2 is inside the walls less voids; floor_area_m2 is what the totals count, also less balconies and decks.",
+            })
         }
         Query::RoomsWithoutExteriorWindow => {
             let mut list = vec![];
@@ -713,6 +730,16 @@ pub fn run_query(project: &Project, query: &Query) -> Result<Value, CoreError> {
             })
         }
         Query::Schedule => schedule_json(&ctx, &derived),
+        // Wave 2: one arm per query, into its lane's module.
+        Query::OpeningSchedule => crate::schedules::opening_query(&derived),
+        Query::RoomSchedule => crate::schedules::room_query(&derived),
+        Query::LevelAreas => crate::schedules::level_areas_query(&derived),
+        Query::Site => crate::site::query(&derived),
+        Query::PlacementOptions { room_id, catalog_key } => {
+            crate::placement::options(project, &ctx.analysis, room_id, catalog_key)?
+        }
+        Query::TourFrames { tour_id, fps } => crate::tours::frames(project, &derived, tour_id, *fps)?,
+        Query::Catalog { search, usage } => crate::placement::catalog(search, usage),
         Query::PipeTakeoff => {
             let pipes = &derived.pipes;
             let pipe_of = |id: &str| {

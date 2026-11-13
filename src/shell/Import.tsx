@@ -11,7 +11,7 @@ import { buildIndex, modelBounds } from "../editor2d/model";
 import { others } from "../live/format";
 import { useLive } from "../live/liveStore";
 import { bus } from "../state/bus";
-import { useApp } from "../state/store";
+import { toastRepairs, useApp } from "../state/store";
 import { ConfirmDialog, Dialog } from "../ui/Dialog";
 import { Button, CheckRow, Field, NumberField, Segmented, Select } from "../ui/controls";
 import { setBusyLabel } from "../ui/feedback";
@@ -100,6 +100,7 @@ export function ImportController() {
       useApp.getState().setDoc(state);
       useApp.setState({ screen: "editor", tool: "select", selection: [], preview: null });
       toast("success", `Opened "${state.project.name}"`);
+      toastRepairs(state.repairs);
     } catch (e) {
       reportError(e);
     } finally {

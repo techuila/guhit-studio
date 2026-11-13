@@ -33,6 +33,10 @@ export interface CompareSliderProps {
   /** How much height the box may take: dock, full size studio, whole screen. */
   size?: "dock" | "full" | "screen";
   testId?: string;
+  /** Drawn over the AI image, clipped with it: the drift check's unmatched model edges. */
+  overlaySrc?: string;
+  /** Fades the overlay in and out. */
+  overlayOn?: boolean;
 }
 
 export function CompareSlider({
@@ -47,6 +51,8 @@ export function CompareSlider({
   aiBadge = true,
   size = "dock",
   testId = "compare-slider",
+  overlaySrc = "",
+  overlayOn = false,
 }: CompareSliderProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [grabbed, setGrabbed] = useState(false);
@@ -133,6 +139,17 @@ export function CompareSlider({
             draggable={false}
             onLoad={(e) => onResolution?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)}
           />
+          {overlaySrc ? (
+            <img
+              className={s.compareOverlay}
+              src={overlaySrc}
+              alt=""
+              aria-hidden
+              draggable={false}
+              data-on={overlayOn || undefined}
+              data-testid="drift-overlay"
+            />
+          ) : null}
         </div>
       ) : null}
 

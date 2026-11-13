@@ -15,6 +15,7 @@ import { useApp } from "../../state/store";
 import { isModalOpen } from "../../ui/Dialog";
 import { fromViewLight, toViewLight } from "../light/model";
 import { useViewer, type LiveLight } from "../viewerStore";
+import { queueMapsFor } from "./conditioning";
 import { MODEL_VISIBILITY, useLiveView } from "./liveView";
 import type { RenderKind } from "../../contract/bindings";
 import { QUALITIES, RENDER_SIZES, RenderJob, type RenderProgress, type TraceQuality, type RenderSizeKey } from "./renderJob";
@@ -63,6 +64,15 @@ export interface RenderResult {
   seconds: number;
   /** Why it is an Enhanced capture, when it is one. */
   note: string;
+  /** What the image shows: the roof and the cutaway it was rendered with (G4 problem 8). */
+  visibility: ViewVisibility;
+  /** The camera it was rendered from, as saved in its record. */
+  camera: Camera;
+}
+
+/** "roof on, no cutaway", for notes that say what a render used. */
+export function visibilityLabel(v: ViewVisibility): string {
+  return `roof ${v.roof ? "on" : "off"}, ${v.cutaway ? "cutaway on" : "no cutaway"}`;
 }
 
 interface RenderQueueState extends Prefs {
@@ -232,6 +242,7 @@ async function runQueue(tasks: RenderTask[], opts: QueueOptions = {}): Promise<Q
       const quality = opts.quality ?? q.getState().quality;
       const viewer = useViewer.getState();
       const startRevision = doc.revision;
+      const view = opts.view ?? { cutaway: viewer.cutaway, roofVisible: viewer.roofVisible, activeLevelId: useApp.getState().activeLevelId };
       q.setState({ current: { index: i + 1, total: tasks.length, name: task.camera.name || "View" }, progress: null });
       const thisJob = new RenderJob(
         {
@@ -241,7 +252,7 @@ async function runQueue(tasks: RenderTask[], opts: QueueOptions = {}): Promise<Q
           lockedEv: task.lockedEv,
           width: size.width,
           height: size.height,
-          view: opts.view ?? { cutaway: viewer.cutaway, roofVisible: viewer.roofVisible, activeLevelId: useApp.getState().activeLevelId },
+          view,
           packModels: true,
           lampOverrides: task.overrides,
         },
@@ -267,7 +278,8 @@ async function runQueue(tasks: RenderTask[], opts: QueueOptions = {}): Promise<Q
         break;
       }
       // The record keeps how it was made and the model it shows: the
-      // revision the render started from.
+      // revision the render started from, the roof and the cutaway.
+      const visibility: ViewVisibility = { roof: view.roofVisible, cutaway: view.cutaway };
       const record = await ipc.renderCapture(task.camera, rendered.png, {
         revision: startRevision,
         info: {
@@ -278,9 +290,13 @@ async function runQueue(tasks: RenderTask[], opts: QueueOptions = {}): Promise<Q
           seconds: rendered.seconds,
           quality: rendered.kind === "path_traced" ? quality : null,
           gpu: rendered.gpu ?? "",
+          visibility,
         },
       });
       useViewer.getState().bumpRenders();
+      // The AI render's conditioning maps, drawn with the same roof and
+      // cutaway, in the background (render/conditioning.ts).
+      void queueMapsFor(record, visibility, view.activeLevelId).then((saved) => saved && useViewer.getState().bumpRenders());
       const result: RenderResult = {
         recordId: record.id,
         kind: rendered.kind,
@@ -288,6 +304,8 @@ async function runQueue(tasks: RenderTask[], opts: QueueOptions = {}): Promise<Q
         samples: rendered.samples,
         seconds: rendered.seconds,
         note: rendered.fallbackReason ?? "",
+        visibility,
+        camera: record.camera,
       };
       outcome.results.push(result);
       q.setState({ last: result });

@@ -205,10 +205,11 @@ export class Animator {
 
   /**
    * Jumps every track to its end state. Used before a capture so no frame is
-   * ever grabbed halfway through an animation.
+   * ever grabbed halfway through an animation. `keep` goes on as it was: a
+   * capture from a camera of its own leaves the view's camera fly alone.
    */
-  finishAll(): void {
-    for (const key of [...this.tracks.keys()]) this.finish(key);
+  finishAll(keep?: string): void {
+    for (const key of [...this.tracks.keys()]) if (key !== keep) this.finish(key);
   }
 
   /** Drops a key without firing its `onDone`. */

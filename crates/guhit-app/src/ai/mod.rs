@@ -16,6 +16,7 @@
 //! - The API key lives in the OS keychain and never crosses IPC.
 
 pub mod client;
+pub mod furnish;
 pub mod keys;
 pub mod log;
 pub mod prompt;
@@ -286,6 +287,10 @@ fn stage_edit(
         None => doc.project(),
     };
     let new_commands = tools::to_commands(view, name, input, level_id)?;
+    // Only people set license numbers (D53).
+    for c in &new_commands {
+        crate::people_only(c).map_err(|e| tools::ToolError(format!("{}: {}", e.code, e.message)))?;
+    }
     if let Some(selection) = scope {
         let staged_derived;
         let (view_derived, made) = match staged.as_ref() {
@@ -358,6 +363,10 @@ fn active_level(project: &Project, requested: &Option<Id>) -> Result<Id, IpcErro
 }
 
 async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> {
+    // A task with its own pipeline (D54): furnishing is lane L5's.
+    if let Some(AiTask::Furnish { room_ids, style }) = &request.task {
+        return furnish::run(app, &request, room_ids, style).await;
+    }
     let message = request.message.trim().to_string();
     if message.is_empty() {
         return Err(IpcError::new("bad_args", "message is empty"));
@@ -383,6 +392,8 @@ async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> 
         )
         .await;
     }
+    // And the rooms a furnishing turn still has waiting.
+    furnish::discard(app);
 
     let (context, level_id) = {
         let s = app.session.lock().await;
@@ -638,12 +649,17 @@ async fn chat(app: &AppService, request: AiRequest) -> Result<AiTurn, IpcError> 
     )
     .await;
 
-    Ok(AiTurn { reply, proposal, tools_used })
+    Ok(AiTurn { reply, proposal, tools_used, proposals: vec![] })
 }
 
 // -------------------------------------------------------------------- resolve
 
 async fn resolve(app: &AppService, proposal_id: &str, accept: bool) -> Result<AiResolveResult, IpcError> {
+    // A furnishing room resolves on its own, rebased on the plan if another
+    // room went in first (D8: one proposal per room).
+    if let Some(r) = furnish::resolve(app, proposal_id, accept).await {
+        return r;
+    }
     let pending = {
         let mut slot = app.ai.pending.lock().await;
         match slot.as_ref() {

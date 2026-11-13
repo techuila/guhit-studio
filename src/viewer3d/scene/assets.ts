@@ -1,4 +1,4 @@
-// Low-poly forms for the asset catalog in crates/guhit-model/src/defaults.rs.
+// Low-poly forms for the asset catalog in crates/guhit-model/src/catalog.rs.
 //
 // Local frame, meters: x spans the width, z spans the depth, y is up from the
 // underside of the asset. The BACK of an item (headboard, sofa back, WC tank,
@@ -37,6 +37,7 @@ import type { Asset, AssetLight } from "../../contract/bindings";
 import { kelvinColor } from "../light/model";
 import type { Kit, RoundOptions } from "./kit";
 import type { MaterialLibrary } from "./materials";
+import { builtInParams } from "./builtins";
 import { modelPack } from "./pack";
 
 interface Ctx {
@@ -58,6 +59,8 @@ interface Ctx {
   ceiling: number;
   /** Material of the glowing part: the shared lamp material, or a plain diffuser when the fixture gives no light. */
   glow: THREE.MeshStandardMaterial;
+  /** The asset itself: built-ins read their options from it. */
+  asset: Asset;
 }
 
 type Builder = (c: Ctx) => void;
@@ -166,6 +169,10 @@ function glowMaterial(lib: MaterialLibrary, asset: Asset, light: AssetLight): TH
 
 const DOWN: [number, number, number] = [0, -1, 0];
 
+/** A modern lamp post's glowing head, meters; a classic one's lantern center as a share of its height. */
+const LAMP_POST_HEAD = 0.22;
+const LANTERN_AT = 0.87;
+
 /** Pendant shade height as a share of the item height; the bulb sits 40 percent up inside it. */
 const PENDANT_SHADE = 0.55;
 /** Floor and table lamp shades: the top share of the height, bulb height inside it. */
@@ -194,9 +201,28 @@ export function lampAnchor(key: string, _w: number, d: number, h: number): { anc
       return { anchor: [0, h * (1 - FLOOR_SHADE) + h * FLOOR_SHADE * 0.35, 0], aim: null };
     case "light-table-lamp":
       return { anchor: [0, h * (1 - TABLE_SHADE) + h * TABLE_SHADE * 0.3, 0], aim: null };
+    // Site kit: the lantern of a lamp post.
+    case "lamp-post":
+      return { anchor: [0, h - LAMP_POST_HEAD * 0.5, 0], aim: null };
+    case "lamp-post-classic":
+      return { anchor: [0, h * LANTERN_AT, 0], aim: null };
     default:
       return null;
   }
+}
+
+/** Trunk and a crown of four leaf balls: the low-poly tree. */
+function treeForm(c: Ctx, leafColor: string, leafColor2: string): void {
+  const r = Math.min(c.w, c.d) / 2;
+  const trunkH = c.h * 0.45;
+  c.kit.cylinder(c.g, c.lib.plain("#6d5238", 0.95), Math.max(0.1, r * 0.09), trunkH, 0, 0, 0);
+  const leaf = c.lib.plain(leafColor, 0.95);
+  const leaf2 = c.lib.plain(leafColor2, 0.95);
+  const crown = c.h - trunkH;
+  c.kit.ball(c.g, leaf, r, crown * 0.52, r, 0, trunkH + crown * 0.42, 0);
+  c.kit.ball(c.g, leaf2, r * 0.7, crown * 0.4, r * 0.7, r * 0.42, trunkH + crown * 0.25, r * 0.2);
+  c.kit.ball(c.g, leaf2, r * 0.66, crown * 0.38, r * 0.66, -r * 0.4, trunkH + crown * 0.3, -r * 0.3);
+  c.kit.ball(c.g, leaf, r * 0.6, crown * 0.34, r * 0.6, 0.1 * r, trunkH + crown * 0.72, -0.1 * r);
 }
 
 function legs(c: Ctx, color: string, size: number, height: number, inset: number, w = c.w, d = c.d) {
@@ -224,20 +250,20 @@ const bed =
   };
 
 const sofa =
-  (seats: number): Builder =>
+  (seats: number, fabric = FABRIC, cushion = FABRIC_2, feet = WOOD_DARK, rough = 0.95): Builder =>
   (c) => {
     const arm = Math.min(0.18, c.w * 0.18);
     const seatH = Math.min(0.3, c.h * 0.4);
-    box(c, FABRIC, c.w, seatH, c.d, 0, 0.06, 0, 0.95);
-    box(c, FABRIC, c.w, c.h - 0.06, 0.22, 0, 0.06, -c.d / 2 + 0.11, 0.95);
-    for (const s of [-1, 1]) box(c, FABRIC, arm, c.h * 0.72, c.d, s * (c.w / 2 - arm / 2), 0.06, 0, 0.95);
-    legs(c, WOOD_DARK, 0.05, 0.06, 0.06);
+    box(c, fabric, c.w, seatH, c.d, 0, 0.06, 0, rough);
+    box(c, fabric, c.w, c.h - 0.06, 0.22, 0, 0.06, -c.d / 2 + 0.11, rough);
+    for (const s of [-1, 1]) box(c, fabric, arm, c.h * 0.72, c.d, s * (c.w / 2 - arm / 2), 0.06, 0, rough);
+    legs(c, feet, 0.05, 0.06, 0.06);
     const inner = c.w - 2 * arm;
     const cw = inner / seats;
     for (let i = 0; i < seats; i++) {
       const x = -inner / 2 + cw * (i + 0.5);
-      box(c, FABRIC_2, cw - 0.02, 0.12, c.d - 0.26, x, 0.06 + seatH, 0.1, 0.95);
-      box(c, FABRIC_2, cw - 0.04, c.h * 0.42, 0.12, x, 0.06 + seatH + 0.1, -c.d / 2 + 0.28, 0.95);
+      box(c, cushion, cw - 0.02, 0.12, c.d - 0.26, x, 0.06 + seatH, 0.1, rough);
+      box(c, cushion, cw - 0.04, c.h * 0.42, 0.12, x, 0.06 + seatH + 0.1, -c.d / 2 + 0.28, rough);
     }
   };
 
@@ -408,6 +434,475 @@ const splitOutdoor: Builder = (c) => {
   for (let i = 0; i < ns; i++) mbox(c, fin, 0.01, bodyH * 0.8, 0.0015, -c.w / 2 - 0.004, feet + bodyH * 0.1, -c.d / 2 + 0.02 + (i * (c.d - 0.04)) / (ns - 1));
 };
 
+// ------------------------------------------------------------ catalog v2
+//
+// The photoscanned pack models (assets/ASSETS.md) are what the view shows;
+// these forms stand in while a model loads, under the cutaway (a scan
+// cannot be trimmed) and in exports without the pack. Built-ins and the
+// site kit have no scan: these forms are them, at any size.
+
+const LEATHER = "#5b3e2c";
+const LEATHER_2 = "#6a4934";
+const NARRA = "#7a4a2b";
+const OAK = "#b58d60";
+const LACQUER = "#f1eee8";
+const QUARTZ = "#e8e5de";
+const STAINLESS = "#c8ccd1";
+const RATTAN = "#c29857";
+const IRON = "#26292d";
+const LINEN_2 = "#d9d2c3";
+const SPLASH = "#e6e4df";
+const PLINTH = "#3a3b3d";
+
+/** A part with its own size, turned `turn` radians about the vertical at (x, z): a chair round a table. */
+function part(c: Ctx, x: number, z: number, turn: number, w: number, d: number, h: number): Ctx {
+  const g = new THREE.Group();
+  g.position.set(x, 0, z);
+  g.rotation.y = turn;
+  c.g.add(g);
+  return { ...c, g, w, d, h };
+}
+
+/** A chair with its back at -z: four legs, a seat, a backrest, arms when asked. */
+function chairForm(c: Ctx, seat: string, frame: string, opts: { arms?: boolean; rough?: number; metal?: number } = {}): void {
+  const seatH = Math.min(0.46, c.h * 0.5);
+  const t = Math.min(0.04, c.w * 0.1);
+  const rough = opts.rough ?? 0.7;
+  const metal = opts.metal ?? 0;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(c, frame, t * 0.8, seatH - t, t * 0.8, sx * (c.w / 2 - t / 2), 0, sz * (c.d / 2 - t / 2), rough, metal);
+  box(c, seat, c.w, t, c.d, 0, seatH - t, 0, rough, metal);
+  box(c, frame, c.w, c.h - seatH, t, 0, seatH, -c.d / 2 + t / 2, rough, metal);
+  if (opts.arms) for (const s of [-1, 1]) box(c, frame, t, 0.22, c.d * 0.8, s * (c.w / 2 - t / 2), seatH, 0, rough, metal);
+}
+
+/** A table: a square top on four legs, or a round top on a pedestal. */
+function tableForm(c: Ctx, top: string, frame: string, roundTop: boolean, topT = 0.035, legW = 0.05): void {
+  const h = Math.min(c.h, 0.76);
+  if (roundTop) {
+    const r = Math.min(c.w, c.d) / 2;
+    round(c, paint(c, top, 0.45), c.w / 2, topT, 0, h - topT, 0, { segments: 32, radiusZ: c.d / 2 });
+    round(c, paint(c, frame, 0.55), Math.max(0.03, r * 0.08), h - topT, 0, 0, 0, { segments: 12 });
+    round(c, paint(c, frame, 0.55), r * 0.45, 0.03, 0, 0, 0, { segments: 20 });
+    return;
+  }
+  box(c, top, c.w, topT, c.d, 0, h - topT, 0, 0.5);
+  legs(c, frame, legW, h - topT, legW / 2 + 0.02);
+}
+
+/**
+ * A cabinet: a recessed plinth (or legs), the carcass and a grid of door or
+ * drawer fronts with their handles, all in front of the back.
+ */
+function cabinetForm(c: Ctx, body: string, front: string, cols: number, rows: number, opts: { legs?: boolean; handle?: string } = {}): void {
+  const base = opts.legs ? 0.14 : 0.08;
+  if (opts.legs) legs(c, IRON, 0.03, base, 0.05);
+  else box(c, PLINTH, c.w - 0.04, base, c.d - 0.07, 0, 0, -0.035, 0.8);
+  box(c, body, c.w, c.h - base, c.d - 0.02, 0, base, -0.01, 0.6);
+  const n = Math.max(1, cols);
+  const m = Math.max(1, rows);
+  const fw = c.w / n;
+  const fh = (c.h - base) / m;
+  const handle = opts.handle ?? STAINLESS;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < m; j++) {
+      const x = -c.w / 2 + fw * (i + 0.5);
+      const y = base + fh * j;
+      box(c, front, fw - 0.006, fh - 0.006, 0.018, x, y + 0.003, c.d / 2 - 0.011, 0.55);
+      if (m > 1) box(c, handle, Math.min(fw * 0.35, 0.16), 0.014, 0.018, x, y + fh * 0.7, c.d / 2 + 0.007, 0.3, 0.8);
+      else box(c, handle, 0.014, Math.min(fh * 0.3, 0.2), 0.018, x + (i % 2 === 0 ? 1 : -1) * (fw / 2 - 0.05), y + fh * 0.55, c.d / 2 + 0.007, 0.3, 0.8);
+    }
+  }
+}
+
+/** Leaves round a stem in a pot: the potted plants. */
+function pottedForm(c: Ctx, pot: string, leaf: string, leaf2: string, potShare: number): void {
+  const r = Math.min(c.w, c.d) / 2;
+  const potH = c.h * potShare;
+  round(c, paint(c, pot, 0.8), r * 0.62, potH, 0, 0, 0, { segments: 16, top: 1.15 });
+  round(c, paint(c, "#4a3a2c", 0.95), r * 0.62, 0.01, 0, potH, 0, { segments: 16 });
+  const top = c.h - potH;
+  const a = c.lib.plain(leaf, 0.9);
+  const b = c.lib.plain(leaf2, 0.9);
+  c.kit.ball(c.g, a, r * 0.9, top * 0.34, r * 0.9, 0, potH + top * 0.5, 0);
+  c.kit.ball(c.g, b, r * 0.6, top * 0.3, r * 0.6, r * 0.3, potH + top * 0.72, r * 0.12);
+  c.kit.ball(c.g, b, r * 0.55, top * 0.26, r * 0.55, -r * 0.32, potH + top * 0.4, -r * 0.2);
+}
+
+/** Bars between rails: one gate leaf, `w` wide, centered on x. */
+function gateLeaf(c: Ctx, x: number, w: number, h: number, color: string, pitch = 0.11): void {
+  const t = Math.min(0.05, c.d * 0.6);
+  const bar = Math.min(0.022, t * 0.6);
+  for (const y of [0.05, h - 0.06]) box(c, color, w, 0.05, t, x, y, 0, 0.45, 0.6);
+  for (const s of [-1, 1]) box(c, color, 0.05, h - 0.05, t, x + s * (w / 2 - 0.025), 0.05, 0, 0.45, 0.6);
+  const n = Math.max(2, Math.round(w / pitch));
+  for (let i = 1; i < n; i++) box(c, color, bar, h - 0.11, bar, x - w / 2 + (w / n) * i, 0.1, 0, 0.45, 0.6);
+}
+
+/** Built-in base cabinets: plinth, carcass, countertop, door fronts and handles. */
+function baseCabinets(c: Ctx, doors: number, top: string, fronts = LACQUER): void {
+  box(c, PLINTH, c.w, 0.1, c.d - 0.08, 0, 0, -0.04, 0.8);
+  box(c, LACQUER, c.w, c.h - 0.14, c.d - 0.03, 0, 0.1, -0.015, 0.6);
+  box(c, top, c.w, 0.04, c.d, 0, c.h - 0.04, 0, 0.3);
+  const n = Math.max(1, doors);
+  const fw = c.w / n;
+  for (let i = 0; i < n; i++) {
+    const x = -c.w / 2 + fw * (i + 0.5);
+    box(c, fronts, fw - 0.004, c.h - 0.2, 0.018, x, 0.12, c.d / 2 - 0.021, 0.5);
+    box(c, STAINLESS, Math.min(fw * 0.4, 0.18), 0.012, 0.016, x, c.h - 0.13, c.d / 2 - 0.004, 0.3, 0.85);
+  }
+}
+
+/** A basin set into the counter top at `x`, with its faucet behind it. */
+function basin(c: Ctx, x: number, w: number, d: number, steel: boolean): void {
+  const top = c.h;
+  if (steel) {
+    box(c, "#9da2a8", w, 0.006, d, x, top - 0.004, 0.02, 0.25, 0.9);
+    box(c, "#6d7278", w - 0.04, 0.004, d - 0.04, x, top + 0.002, 0.02, 0.35, 0.8);
+  } else {
+    round(c, paint(c, "#f7f7f5", 0.2), w / 2, 0.012, x, top - 0.008, 0.02, { segments: 24, radiusZ: d / 2 });
+    round(c, paint(c, "#dfe3e4", 0.2), w / 2 - 0.02, 0.004, x, top + 0.004, 0.02, { segments: 24, radiusZ: d / 2 - 0.02 });
+  }
+  round(c, paint(c, STAINLESS, 0.25, 0.9), 0.015, 0.24, x, top, -c.d * 0.36, { segments: 12 });
+  box(c, STAINLESS, 0.025, 0.02, 0.16, x, top + 0.22, -c.d * 0.36 + 0.08, 0.25, 0.9);
+}
+
+/** A glass cooktop with four burner rings at `x` on the counter. */
+function cooktop(c: Ctx, x: number): void {
+  const w = Math.min(0.6, c.w * 0.4);
+  const d = Math.min(0.5, c.d * 0.85);
+  box(c, "#111315", w, 0.006, d, x, c.h, 0, 0.12, 0.2);
+  const ring = paint(c, "#3b3e42", 0.5, 0.4);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) round(c, ring, 0.075, 0.003, x + sx * w * 0.25, c.h + 0.006, sz * d * 0.24, { segments: 16 });
+}
+
+/** Wall cabinets above a counter, from `z0` to `z1` above the floor, `depth` deep at the back, with a hood over `hoodAt`. */
+function upperCabinets(c: Ctx, doors: number, z0: number, z1: number, depth: number, hoodAt: number | null): void {
+  const y0 = z0 - c.elevation;
+  const h = z1 - z0;
+  const zc = -c.d / 2 + depth / 2;
+  const n = Math.max(1, doors);
+  const fw = c.w / n;
+  for (let i = 0; i < n; i++) {
+    const x = -c.w / 2 + fw * (i + 0.5);
+    if (hoodAt !== null && Math.abs(x - hoodAt) < fw / 2) {
+      // A range hood over the cooktop instead of a cabinet.
+      box(c, STAINLESS, fw - 0.01, 0.12, depth + 0.1, x, y0, zc + 0.05, 0.3, 0.85);
+      box(c, STAINLESS, Math.min(0.3, fw * 0.4), h - 0.12, depth * 0.6, x, y0 + 0.12, -c.d / 2 + depth * 0.3, 0.3, 0.85);
+      continue;
+    }
+    box(c, LACQUER, fw - 0.004, h, depth, x, y0, zc, 0.55);
+    box(c, STAINLESS, Math.min(fw * 0.4, 0.18), 0.012, 0.016, x, y0 + 0.05, zc + depth / 2 + 0.008, 0.3, 0.85);
+  }
+  // Backsplash between the counter and the cabinets.
+  box(c, SPLASH, c.w, Math.max(y0 - c.h, 0.01), 0.008, 0, c.h, -c.d / 2 + 0.004, 0.35);
+}
+
+const BUILT_IN_FORMS: Record<string, Builder> = {
+  "kitchen-run": (c) => {
+    const p = builtInParams(c.asset.catalog_key, c.asset.width_mm, c.asset.built_in)!;
+    baseCabinets(c, p.doors, QUARTZ);
+    const at = (mm: number | null) => (mm === null || !Number.isFinite(mm) ? null : -c.w / 2 + mm / 1000);
+    const sink = at(p.sink_at_mm);
+    const cook = at(p.cooktop_at_mm);
+    if (sink !== null) basin(c, sink, Math.min(0.55, c.w * 0.4), c.d * 0.6, true);
+    if (cook !== null) cooktop(c, cook);
+    if (p.upper) upperCabinets(c, p.doors, 1.45, 2.15, Math.min(0.35, c.d), cook);
+  },
+
+  counter: (c) => {
+    const p = builtInParams(c.asset.catalog_key, c.asset.width_mm, c.asset.built_in)!;
+    baseCabinets(c, p.doors, QUARTZ);
+    const at = (mm: number | null) => (mm === null || !Number.isFinite(mm) ? null : -c.w / 2 + mm / 1000);
+    const sink = at(p.sink_at_mm);
+    const cook = at(p.cooktop_at_mm);
+    if (sink !== null) basin(c, sink, Math.min(0.5, c.w * 0.4), c.d * 0.6, true);
+    if (cook !== null) cooktop(c, cook);
+  },
+
+  vanity: (c) => {
+    const p = builtInParams(c.asset.catalog_key, c.asset.width_mm, c.asset.built_in)!;
+    baseCabinets(c, p.doors, QUARTZ, OAK);
+    const sink = p.sink_at_mm === null ? null : -c.w / 2 + p.sink_at_mm / 1000;
+    if (sink !== null) basin(c, sink, Math.min(0.5, c.w * 0.6), c.d * 0.62, false);
+    if (p.upper) {
+      // A mirror cabinet over the basin: its face reflects.
+      const y0 = 1.15 - c.elevation;
+      const depth = Math.min(0.14, c.d);
+      const mw = Math.min(c.w, 0.9);
+      box(c, LACQUER, mw, 0.7, depth, 0, y0, -c.d / 2 + depth / 2, 0.5);
+      box(c, "#dde4e8", mw - 0.03, 0.67, 0.006, 0, y0 + 0.015, -c.d / 2 + depth + 0.003, 0.04, 1);
+    }
+  },
+
+  "wardrobe-builtin": (c) => {
+    const p = builtInParams(c.asset.catalog_key, c.asset.width_mm, c.asset.built_in)!;
+    box(c, PLINTH, c.w, 0.08, c.d - 0.06, 0, 0, -0.03, 0.8);
+    box(c, LACQUER, c.w, c.h - 0.08, c.d - 0.02, 0, 0.08, -0.01, 0.6);
+    const n = Math.max(1, p.doors);
+    const fw = c.w / n;
+    for (let i = 0; i < n; i++) {
+      const x = -c.w / 2 + fw * (i + 0.5);
+      box(c, OAK, fw - 0.004, c.h - 0.1, 0.02, x, 0.09, c.d / 2 - 0.012, 0.55);
+      const hx = x + (i % 2 === 0 ? 1 : -1) * (fw / 2 - 0.045);
+      box(c, IRON, 0.014, Math.min(0.6, c.h * 0.25), 0.02, hx, c.h * 0.42, c.d / 2 + 0.008, 0.35, 0.7);
+    }
+  },
+
+  "shelf-wall": (c) => {
+    // Floating boards on the wall face with slim brackets.
+    const boards = Math.max(2, Math.round(c.h / 0.35) + 1);
+    const t = 0.025;
+    for (let i = 0; i < boards; i++) {
+      const y = i === boards - 1 ? c.h - t : ((c.h - t) / (boards - 1)) * i;
+      wallBox(c, OAK, c.w, t, c.d, 0, y, 0, 0.55);
+    }
+    for (const s of [-1, 1]) wallBox(c, IRON, 0.02, c.h, 0.02, s * (c.w / 2 - 0.12), 0, 0, 0.4, 0.6);
+  },
+};
+
+const V2_BUILDERS: Record<string, Builder> = {
+  "sofa-leather": sofa(3, LEATHER, LEATHER_2, IRON, 0.5),
+  "sofa-wood": (c) => {
+    legs(c, NARRA, 0.06, 0.2, 0.05);
+    box(c, NARRA, c.w, 0.08, c.d, 0, 0.18, 0, 0.55);
+    const arm = Math.min(0.09, c.w * 0.06);
+    for (const s of [-1, 1]) box(c, NARRA, arm, c.h * 0.72 - 0.2, c.d, s * (c.w / 2 - arm / 2), 0.2, 0, 0.55);
+    box(c, NARRA, c.w, c.h - 0.2, 0.06, 0, 0.2, -c.d / 2 + 0.03, 0.55);
+    const inner = c.w - 2 * arm;
+    const seats = Math.max(1, Math.round(inner / 0.65));
+    const cw = inner / seats;
+    for (let i = 0; i < seats; i++) {
+      const x = -inner / 2 + cw * (i + 0.5);
+      box(c, LINEN_2, cw - 0.02, 0.14, c.d - 0.14, x, 0.26, 0.04, 0.95);
+      box(c, LINEN_2, cw - 0.03, Math.min(0.42, c.h - 0.45), 0.12, x, 0.4, -c.d / 2 + 0.12, 0.95);
+    }
+  },
+  "lounge-chair": sofa(1, LEATHER, LEATHER_2, IRON, 0.5),
+  "armchair-classic": sofa(1, "#c9c2b3", "#d8d2c5", WOOD_DARK),
+  ottoman: (c) => {
+    legs(c, WOOD_DARK, 0.04, 0.08, 0.05);
+    box(c, LEATHER, c.w, c.h - 0.08, c.d, 0, 0.08, 0, 0.5);
+    box(c, LEATHER_2, c.w - 0.04, 0.05, c.d - 0.04, 0, c.h - 0.05, 0, 0.5);
+  },
+  "coffee-table-round": (c) => tableForm(c, "#ddd9d1", IRON, true, 0.03),
+  "coffee-table-square": (c) => {
+    box(c, OAK, c.w, 0.04, c.d, 0, c.h - 0.04, 0, 0.5);
+    box(c, OAK, c.w - 0.12, 0.02, c.d - 0.12, 0, 0.08, 0, 0.6);
+    legs(c, WOOD_DARK, 0.06, c.h - 0.04, 0.05);
+  },
+  "side-table": (c) => {
+    box(c, OAK, c.w, 0.03, c.d, 0, c.h - 0.03, 0, 0.5);
+    box(c, OAK, c.w - 0.06, 0.02, c.d - 0.06, 0, c.h * 0.35, 0, 0.55);
+    legs(c, OAK, 0.035, c.h - 0.03, 0.03);
+  },
+  "side-table-round": (c) => tableForm(c, WOOD_DARK, WOOD_DARK, true, 0.025),
+  "tea-table": (c) => tableForm(c, NARRA, NARRA, false, 0.05, 0.07),
+  sideboard: (c) => cabinetForm(c, OAK, "#a9825a", Math.max(2, Math.round(c.w / 0.5)), 1, { legs: true, handle: IRON }),
+  "ceiling-fan": (c) => {
+    const r = Math.min(c.w, c.d) / 2;
+    const white = paint(c, "#ecebe6", 0.4, 0.2);
+    round(c, white, 0.07, 0.04, 0, c.h - 0.04, 0, { segments: 16 });
+    round(c, paint(c, "#cfcfcb", 0.35, 0.5), 0.012, Math.max(c.h - 0.26, 0.01), 0, 0.22, 0, { segments: 8 });
+    round(c, white, 0.11, 0.1, 0, 0.12, 0, { segments: 20 });
+    round(c, paint(c, "#f4f2ed", 0.35), 0.08, 0.12, 0, 0, 0, { segments: 16, top: 1.2 });
+    const blade = paint(c, OAK, 0.55);
+    const len = Math.max(r * 0.85 - 0.1, 0.05);
+    for (let i = 0; i < 5; i++) {
+      const p = part(c, 0, 0, (i * 2 * Math.PI) / 5, c.w, c.d, c.h);
+      mbox(p, blade, len, 0.012, Math.min(0.13, r * 0.25), 0.1 + len / 2, 0.16, 0);
+    }
+  },
+  "plant-leafy": (c) => pottedForm(c, "#b9704f", "#4f8a43", "#3f7a3a", 0.36),
+  "plant-succulent": (c) => {
+    const r = Math.min(c.w, c.d) / 2;
+    round(c, paint(c, "#efeeea", 0.5), r * 0.9, c.h * 0.4, 0, 0, 0, { segments: 16, top: 1.1 });
+    const leaf = paint(c, "#6f8f5e", 0.8);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      round(c, leaf, r * 0.25, c.h * 0.55, Math.cos(a) * r * 0.35, c.h * 0.4, Math.sin(a) * r * 0.35, { segments: 6, top: 0 });
+    }
+  },
+  "vase-ceramic": (c) => {
+    const r = Math.min(c.w, c.d) / 2;
+    const white = paint(c, "#f1efea", 0.3);
+    round(c, white, r * 0.75, c.h * 0.66, 0, 0, 0, { segments: 20, top: 1.25 });
+    round(c, white, r * 0.94, c.h * 0.12, 0, c.h * 0.66, 0, { segments: 20, top: 0.45 });
+    round(c, white, r * 0.42, c.h * 0.22, 0, c.h * 0.78, 0, { segments: 16, top: 1.2 });
+  },
+  "wall-art": (c) => {
+    wallBox(c, "#a8853f", c.w, c.h, c.d, 0, 0, 0, 0.35, 0.7);
+    const t = 0.003;
+    const iw = c.w - 0.08;
+    const ih = c.h - 0.08;
+    // A landscape: sky, hills, a field.
+    wallBox(c, "#9fb7c9", iw, ih * 0.55, t, 0, 0.04 + ih * 0.45, c.d, 0.9);
+    wallBox(c, "#6f8a5a", iw, ih * 0.25, t, 0, 0.04 + ih * 0.2, c.d, 0.9);
+    wallBox(c, "#b59b62", iw, ih * 0.2, t, 0, 0.04, c.d, 0.9);
+  },
+  "mirror-wall": (c) => {
+    wallBox(c, "#5a4a36", c.w, c.h, c.d, 0, 0, 0, 0.45, 0.5);
+    wallBox(c, "#dfe6ea", c.w - 0.06, c.h - 0.06, 0.004, 0, 0.03, c.d, 0.04, 1);
+  },
+  "shelf-cube": (c) => {
+    const t = 0.02;
+    const cols = Math.max(1, Math.round(c.w / 0.36));
+    const rows = Math.max(1, Math.round(c.h / 0.38));
+    box(c, OAK, c.w, c.h, 0.01, 0, 0, -c.d / 2 + 0.005, 0.6);
+    for (let i = 0; i <= cols; i++) box(c, OAK, t, c.h, c.d - 0.01, -c.w / 2 + t / 2 + ((c.w - t) / cols) * i, 0, 0.005, 0.6);
+    for (let j = 0; j <= rows; j++) box(c, OAK, c.w, t, c.d - 0.01, 0, ((c.h - t) / rows) * j, 0.005, 0.6);
+  },
+  "shelf-steel": (c) => {
+    const post = 0.03;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(c, IRON, post, c.h, post, sx * (c.w / 2 - post / 2), 0, sz * (c.d / 2 - post / 2), 0.45, 0.6);
+    const levels = Math.max(2, Math.round(c.h / 0.42));
+    for (let j = 0; j < levels; j++) box(c, OAK, c.w - 0.01, 0.02, c.d - 0.01, 0, 0.08 + ((c.h - 0.12) / (levels - 1)) * j, 0, 0.6);
+  },
+  "basket-rattan": (c) => {
+    const r = Math.min(c.w, c.d) / 2;
+    const rattan = paint(c, RATTAN, 0.85);
+    round(c, rattan, r, c.h * 0.9, 0, 0, 0, { segments: 16, top: 1.1, radiusZ: c.d / 2 });
+    round(c, paint(c, "#a87d43", 0.8), r * 1.0, c.h * 0.1, 0, c.h * 0.9, 0, { segments: 16, radiusZ: c.d / 2 });
+  },
+  "rocking-chair": (c) => {
+    chairForm(c, NARRA, NARRA, { arms: true, rough: 0.55 });
+    for (const s of [-1, 1]) box(c, NARRA, 0.035, 0.04, c.d, s * (c.w / 2 - 0.02), 0, 0, 0.55);
+  },
+  "dining-round-2": (c) => tableForm(c, OAK, WOOD_DARK, true),
+  "chair-dining": (c) => chairForm(c, LEATHER, WOOD_DARK, { rough: 0.5 }),
+  "chair-wood-white": (c) => chairForm(c, "#f2f0ea", "#f2f0ea", { rough: 0.6 }),
+  "chair-monobloc": (c) => chairForm(c, "#f5f5f2", "#f5f5f2", { arms: true, rough: 0.4 }),
+  "stool-wood": (c) => {
+    const r = Math.min(c.w, c.d) / 2;
+    round(c, paint(c, WOOD_DARK, 0.5), r * 0.9, 0.05, 0, c.h - 0.05, 0, { segments: 20 });
+    const leg = paint(c, WOOD_DARK, 0.55);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      round(c, leg, 0.018, c.h - 0.05, Math.cos(a) * r * 0.7, 0, Math.sin(a) * r * 0.7, { segments: 8 });
+    }
+    if (!cutAway(c, 0.3)) c.kit.ring(c.g, leg, r * 0.68, 0.012, 0, 0.28, 0, 16)?.rotateX(Math.PI / 2);
+  },
+  "table-wood": (c) => tableForm(c, OAK, OAK, false),
+  "dining-set-4": (c) => diningSet(c, 2),
+  "dining-set-6": (c) => diningSet(c, 3),
+  nightstand: (c) => cabinetForm(c, "#f0ede6", "#f6f4ef", 1, 2, { legs: true, handle: IRON }),
+  dresser: (c) => cabinetForm(c, WOOD, "#9a7650", 2, 4),
+  "cabinet-drawers": (c) => cabinetForm(c, OAK, "#a9825a", 2, 5, { handle: IRON }),
+  "cabinet-white": (c) => cabinetForm(c, LACQUER, "#f6f4ef", 2, 2),
+  "desk-metal": (c) => {
+    box(c, "#c9c6bf", c.w, 0.03, c.d, 0, c.h - 0.03, 0, 0.5);
+    for (const s of [-1, 1]) box(c, IRON, 0.04, c.h - 0.03, c.d - 0.06, s * (c.w / 2 - 0.03), 0, 0, 0.45, 0.6);
+    box(c, IRON, c.w * 0.3, c.h * 0.55, c.d - 0.08, c.w / 2 - 0.05 - c.w * 0.15, c.h * 0.4, 0, 0.45, 0.6);
+    box(c, IRON, c.w - 0.1, 0.25, 0.02, 0, c.h * 0.55, -c.d / 2 + 0.05, 0.45, 0.6);
+  },
+  "range-electric": (c) => BUILDERS.range(c),
+  microwave: (c) => {
+    box(c, "#3a3d41", c.w, c.h, c.d, 0, 0, 0, 0.4, 0.4);
+    box(c, "#16181b", c.w * 0.66, c.h * 0.72, 0.006, -c.w * 0.12, c.h * 0.14, c.d / 2, 0.1, 0.2);
+    box(c, "#8f949a", c.w * 0.18, c.h * 0.72, 0.006, c.w * 0.36, c.h * 0.14, c.d / 2, 0.35, 0.6);
+  },
+  "outdoor-set": (c) => {
+    const t = part(c, 0, 0, 0, Math.min(c.w, 0.62), Math.min(c.w, 0.62), Math.min(c.h, 0.72));
+    tableForm(t, "#5d7c5a", IRON, true, 0.02);
+    const cd = Math.min(0.56, (c.d - t.d) / 2);
+    const cw = Math.min(c.w, 0.46);
+    for (const s of [-1, 1]) {
+      const p = part(c, 0, s * (t.d / 2 + cd / 2 - 0.02), s > 0 ? Math.PI : 0, cw, cd, c.h);
+      chairForm(p, "#5d7c5a", IRON, { rough: 0.5, metal: 0.4 });
+    }
+  },
+  "bench-wood": (c) => {
+    legs(c, "#6e3328", 0.05, 0.42, 0.05);
+    box(c, "#7d3b2f", c.w, 0.05, c.d * 0.8, 0, 0.42, c.d * 0.1, 0.6);
+    box(c, "#7d3b2f", c.w, c.h - 0.47, 0.04, 0, 0.47, -c.d / 2 + 0.02, 0.6);
+  },
+  "planter-box": (c) => {
+    box(c, "#8a6a48", c.w, c.h * 0.8, c.d, 0, 0, 0, 0.85);
+    box(c, "#4a3a2c", c.w - 0.04, 0.01, c.d - 0.04, 0, c.h * 0.8, 0, 0.95);
+    const leaf = c.lib.plain(LEAF, 0.9);
+    const n = Math.max(2, Math.round(c.w / 0.3));
+    for (let i = 0; i < n; i++) c.kit.ball(c.g, leaf, Math.min(c.w / n, c.d) * 0.45, c.h * 0.2, Math.min(c.w / n, c.d) * 0.45, -c.w / 2 + (c.w / n) * (i + 0.5), c.h * 0.85, 0);
+  },
+  "car-covered": (c) => {
+    const cover = "#4f565c";
+    const wheelR = Math.min(0.32, c.h * 0.23);
+    box(c, cover, c.w, c.h * 0.45, c.d, 0, wheelR * 0.55, 0, 0.9);
+    box(c, cover, c.w * 0.86, c.h * 0.55 - wheelR * 0.55, c.d * 0.48, 0, c.h * 0.45 + wheelR * 0.55, -c.d * 0.04, 0.9);
+    const tire = c.lib.plain("#1b1d20", 0.9);
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const wheel = c.kit.cylinder(c.g, tire, wheelR, 0.2, 0, 0, 0);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(sx * (c.w / 2 - 0.12), wheelR, sz * c.d * 0.31);
+      }
+    }
+  },
+  // A jacaranda in flower: violet crown.
+  "tree-flowering": (c) => treeForm(c, "#8b6fb5", "#7a5fa6"),
+  "gate-iron": (c) => {
+    for (const s of [-1, 1]) gateLeaf(c, s * (c.w / 4), c.w / 2 - 0.01, c.h, IRON, 0.11);
+    // Finials along the top.
+    const n = Math.max(4, Math.round(c.w / 0.22));
+    for (let i = 0; i < n; i++) round(c, paint(c, "#b08d57", 0.4, 0.7), 0.02, 0.06, -c.w / 2 + (c.w / n) * (i + 0.5), c.h - 0.06, 0, { segments: 6, top: 0 });
+  },
+  // Site kit, drawn in code at any size.
+  "gate-steel": (c) => {
+    gateLeaf(c, 0, c.w, c.h - 0.08, "#2f3338", 0.12);
+    // Rollers on the track.
+    const wheel = paint(c, "#16181b", 0.6, 0.4);
+    for (const s of [-1, 1]) rod(c, wheel, 0.04, 0.03, "z", s * (c.w / 2 - 0.25), 0.04, 0, 12);
+    box(c, "#5b6066", c.w, 0.01, Math.min(c.d, 0.06), 0, 0, 0, 0.5, 0.7);
+  },
+  hedge: (c) => {
+    const leaf = c.lib.plain("#4b7a3d", 1);
+    const leaf2 = c.lib.plain("#3f6b34", 1);
+    const r = Math.min(c.d * 0.32, c.h * 0.3);
+    box(c, "#46733a", c.w - r, c.h - r * 0.8, c.d - r * 0.9, 0, 0, 0, 1);
+    const n = Math.min(12, Math.max(2, Math.round(c.w / (2.4 * r))));
+    for (let i = 0; i < n; i++) {
+      const x = -c.w / 2 + r + ((c.w - 2 * r) / Math.max(n - 1, 1)) * i;
+      c.kit.ball(c.g, i % 2 ? leaf : leaf2, r, r * 0.8, r, x, c.h - r * 0.8, 0);
+      for (const s of [-1, 1]) c.kit.ball(c.g, i % 2 ? leaf2 : leaf, r, r, r * 0.6, x, c.h * 0.45, s * (c.d / 2 - r * 0.6));
+    }
+  },
+  "lamp-post": (c) => {
+    const dark = paint(c, "#2a2d31", 0.45, 0.5);
+    round(c, dark, Math.min(c.w, c.d) * 0.45, 0.04, 0, 0, 0, { segments: 16 });
+    mbox(c, dark, 0.08, c.h - LAMP_POST_HEAD, 0.08, 0, 0.04, 0);
+    mbox(c, c.glow, 0.14, LAMP_POST_HEAD - 0.03, 0.14, 0, c.h - LAMP_POST_HEAD, 0);
+    mbox(c, dark, 0.18, 0.03, 0.18, 0, c.h - 0.03, 0);
+  },
+  "lamp-post-classic": (c) => {
+    const iron = paint(c, IRON, 0.45, 0.55);
+    const r = Math.min(c.w, c.d) / 2;
+    round(c, iron, r * 0.6, 0.25, 0, 0, 0, { segments: 12, top: 0.5 });
+    round(c, iron, 0.04, c.h * LANTERN_AT - 0.15 - 0.25, 0, 0.25, 0, { segments: 10 });
+    const lw = Math.min(0.24, r * 1.1);
+    mbox(c, c.glow, lw, 0.3, lw, 0, c.h * LANTERN_AT - 0.15, 0);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) mbox(c, iron, 0.012, 0.3, 0.012, (sx * lw) / 2, c.h * LANTERN_AT - 0.15, (sz * lw) / 2);
+    const cap = round(c, iron, lw * 0.8, c.h - (c.h * LANTERN_AT + 0.15), 0, c.h * LANTERN_AT + 0.15, 0, { segments: 4, top: 0.1 });
+    if (cap) cap.rotation.y = Math.PI / 4;
+  },
+  ...BUILT_IN_FORMS,
+};
+
+/** A table with chairs pulled up on its two long sides; the depth includes the chairs. */
+function diningSet(c: Ctx, perSide: number): void {
+  const chairD = Math.min(0.54, c.d * 0.34);
+  const tuck = Math.min(0.14, chairD * 0.26);
+  const td = Math.max(c.d - 2 * (chairD - tuck), 0.3);
+  const t = part(c, 0, 0, 0, c.w, td, Math.min(c.h, 0.75));
+  tableForm(t, OAK, WOOD_DARK, false);
+  const cw = Math.min(0.43, (c.w / perSide) * 0.85);
+  for (let i = 0; i < perSide; i++) {
+    const x = -c.w / 2 + (c.w / perSide) * (i + 0.5);
+    for (const s of [-1, 1]) {
+      const z = s * (td / 2 + chairD / 2 - tuck);
+      const p = part(c, x, z, s > 0 ? Math.PI : 0, cw, chairD, c.h);
+      chairForm(p, "#f2f0ea", "#f2f0ea", { rough: 0.6 });
+    }
+  }
+}
+
 const BUILDERS: Record<string, Builder> = {
   "bed-single": bed(1),
   "bed-double": bed(2),
@@ -540,18 +1035,7 @@ const BUILDERS: Record<string, Builder> = {
     c.kit.ball(c.g, leaf2, r * 0.55, top * 0.25, r * 0.55, -r * 0.35, potH + top * 0.4, -r * 0.2);
   },
 
-  tree: (c) => {
-    const r = Math.min(c.w, c.d) / 2;
-    const trunkH = c.h * 0.45;
-    c.kit.cylinder(c.g, c.lib.plain("#6d5238", 0.95), Math.max(0.1, r * 0.09), trunkH, 0, 0, 0);
-    const leaf = c.lib.plain(LEAF, 0.95);
-    const leaf2 = c.lib.plain(LEAF_2, 0.95);
-    const crown = c.h - trunkH;
-    c.kit.ball(c.g, leaf, r, crown * 0.52, r, 0, trunkH + crown * 0.42, 0);
-    c.kit.ball(c.g, leaf2, r * 0.7, crown * 0.4, r * 0.7, r * 0.42, trunkH + crown * 0.25, r * 0.2);
-    c.kit.ball(c.g, leaf2, r * 0.66, crown * 0.38, r * 0.66, -r * 0.4, trunkH + crown * 0.3, -r * 0.3);
-    c.kit.ball(c.g, leaf, r * 0.6, crown * 0.34, r * 0.6, 0.1 * r, trunkH + crown * 0.72, -0.1 * r);
-  },
+  tree: (c) => treeForm(c, LEAF, LEAF_2),
 
   "car-sedan": (c) => {
     const paint = "#9aa7b3";
@@ -861,6 +1345,8 @@ const BUILDERS: Record<string, Builder> = {
       for (let i = 0; i < 6; i++) mbox(c, vane, 0.004, 0.01, c.d * 0.34, s * (c.w / 2 + 0.002), c.h * (0.25 + i * 0.1), -c.d * 0.28);
     }
   },
+
+  ...V2_BUILDERS,
 };
 
 export const KNOWN_ASSET_KEYS = Object.keys(BUILDERS);
@@ -964,6 +1450,7 @@ export function buildAssetForm(kit: Kit, lib: MaterialLibrary, asset: Asset, bas
     grade: (opts.gradeMm ?? -Math.min(elevationMm, 0)) / 1000,
     ceiling: Math.max(ceilingMm / 1000 - lift, 0),
     glow: light ? glowMaterial(lib, asset, light) : lib.plain("#f4f2ed", 0.35),
+    asset,
   };
   const builder = builderFor(asset.catalog_key);
   if (builder) builder(c);

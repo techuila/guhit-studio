@@ -1,0 +1,6087 @@
+{
+  "schema_version": 6,
+  "id": "9d5f0abb-df14-453a-8e1c-c17b881be2c1",
+  "name": "Reyes Residence QC (GS)",
+  "created_at": "2026-11-04T05:48:13Z",
+  "updated_at": "2026-11-04T06:10:00Z",
+  "settings": {
+    "display_unit": "mm",
+    "scale_denominator": 100,
+    "north_angle_deg": 0.0,
+    "paper": "a3",
+    "default_wall_thickness_mm": 150.0,
+    "grid_mm": 100.0,
+    "client_name": "Sps. Juan and Maria Reyes (sample)",
+    "location": "Brgy. Pasong Tamo, Quezon City",
+    "designer": "Guhit Studio sample office",
+    "site": {
+      "city": "Quezon City",
+      "latitude_deg": 14.676,
+      "longitude_deg": 121.0437,
+      "utc_offset_min": 480
+    }
+  },
+  "levels": [
+    {
+      "id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "name": "Ground Floor",
+      "elevation_mm": 0.0,
+      "height_mm": 3000.0
+    },
+    {
+      "id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "name": "Second Floor",
+      "elevation_mm": 3000.0,
+      "height_mm": 3000.0
+    }
+  ],
+  "layers": [
+    {
+      "key": "walls",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "openings",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "rooms",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "columns",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "stairs",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "assets",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "annotations",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "dimensions",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "underlays",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "cold_water",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "hot_water",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "drainage",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "vent",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "storm",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "electrical",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "aircon",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "site",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "slabs",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "grids",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "key": "roofs",
+      "visible": true,
+      "locked": false
+    }
+  ],
+  "materials": [
+    {
+      "id": "mat-chb-painted",
+      "name": "CHB, plastered and painted",
+      "category": "wall",
+      "color": "#f2efe8",
+      "roughness": 0.9,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "none",
+      "builtin": true
+    },
+    {
+      "id": "mat-chb-bare",
+      "name": "CHB, bare",
+      "category": "wall",
+      "color": "#a9a9a4",
+      "roughness": 0.95,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "chb",
+      "builtin": true
+    },
+    {
+      "id": "mat-concrete-fairface",
+      "name": "Concrete, fair-faced",
+      "category": "wall",
+      "color": "#bdbdb8",
+      "roughness": 0.85,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "concrete",
+      "builtin": true
+    },
+    {
+      "id": "mat-paint-warm-white",
+      "name": "Paint, warm white",
+      "category": "wall",
+      "color": "#faf6ee",
+      "roughness": 0.9,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "none",
+      "builtin": true
+    },
+    {
+      "id": "mat-paint-sage",
+      "name": "Paint, sage green",
+      "category": "wall",
+      "color": "#b7c4ae",
+      "roughness": 0.9,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "none",
+      "builtin": true
+    },
+    {
+      "id": "mat-wood-cladding",
+      "name": "Wood cladding",
+      "category": "wood",
+      "color": "#9a6b43",
+      "roughness": 0.7,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "wood_plank",
+      "builtin": true
+    },
+    {
+      "id": "mat-tile-ceramic",
+      "name": "Ceramic tile 600 x 600",
+      "category": "floor",
+      "color": "#e4e0d8",
+      "roughness": 0.35,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "tile",
+      "builtin": true
+    },
+    {
+      "id": "mat-tile-granite",
+      "name": "Granite tile",
+      "category": "floor",
+      "color": "#6f6f73",
+      "roughness": 0.25,
+      "metalness": 0.05,
+      "opacity": 1.0,
+      "pattern": "tile",
+      "builtin": true
+    },
+    {
+      "id": "mat-floor-laminate",
+      "name": "Wood laminate",
+      "category": "floor",
+      "color": "#b98d5f",
+      "roughness": 0.55,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "wood_plank",
+      "builtin": true
+    },
+    {
+      "id": "mat-floor-concrete",
+      "name": "Polished concrete",
+      "category": "floor",
+      "color": "#b3b1ab",
+      "roughness": 0.4,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "concrete",
+      "builtin": true
+    },
+    {
+      "id": "mat-paving-stone",
+      "name": "Paving stones",
+      "category": "floor",
+      "color": "#a9a49a",
+      "roughness": 0.85,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "tile",
+      "builtin": true
+    },
+    {
+      "id": "mat-roof-longspan",
+      "name": "Long-span pre-painted metal roof",
+      "category": "roof",
+      "color": "#7a3b33",
+      "roughness": 0.45,
+      "metalness": 0.6,
+      "opacity": 1.0,
+      "pattern": "roof_sheet",
+      "builtin": true
+    },
+    {
+      "id": "mat-roof-gi",
+      "name": "GI corrugated sheet",
+      "category": "roof",
+      "color": "#aab0b5",
+      "roughness": 0.4,
+      "metalness": 0.8,
+      "opacity": 1.0,
+      "pattern": "roof_sheet",
+      "builtin": true
+    },
+    {
+      "id": "mat-roof-clay-tile",
+      "name": "Clay roof tile",
+      "category": "roof",
+      "color": "#b0583a",
+      "roughness": 0.8,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "roof_tile",
+      "builtin": true
+    },
+    {
+      "id": "mat-roof-concrete-deck",
+      "name": "Concrete roof deck",
+      "category": "roof",
+      "color": "#c4c2bc",
+      "roughness": 0.85,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "concrete",
+      "builtin": true
+    },
+    {
+      "id": "mat-glass-clear",
+      "name": "Clear glass",
+      "category": "glass",
+      "color": "#bfe3ee",
+      "roughness": 0.05,
+      "metalness": 0.0,
+      "opacity": 0.35,
+      "pattern": "glass",
+      "builtin": true
+    },
+    {
+      "id": "mat-wood-door",
+      "name": "Wood door, mahogany finish",
+      "category": "wood",
+      "color": "#6e4428",
+      "roughness": 0.6,
+      "metalness": 0.0,
+      "opacity": 1.0,
+      "pattern": "wood_plank",
+      "builtin": true
+    },
+    {
+      "id": "mat-aluminum-frame",
+      "name": "Aluminum frame, powder coated",
+      "category": "metal",
+      "color": "#3b3f45",
+      "roughness": 0.4,
+      "metalness": 0.8,
+      "opacity": 1.0,
+      "pattern": "none",
+      "builtin": true
+    },
+    {
+      "id": "mat-steel",
+      "name": "Steel, painted",
+      "category": "metal",
+      "color": "#4a4f57",
+      "roughness": 0.5,
+      "metalness": 0.7,
+      "opacity": 1.0,
+      "pattern": "none",
+      "builtin": true
+    }
+  ],
+  "elements": [
+    {
+      "kind": "lot",
+      "id": "40abfdbe-59d0-4a4b-b9c5-42abfd87365d",
+      "corners": [
+        {
+          "x": 0.0,
+          "y": 0.0
+        },
+        {
+          "x": 11999.885768648814,
+          "y": -52.35971141695671
+        },
+        {
+          "x": 12065.335407920013,
+          "y": 14947.497499394061
+        },
+        {
+          "x": 65.44963927119922,
+          "y": 14999.857210811015
+        }
+      ],
+      "sides": [
+        {
+          "role": "road",
+          "setback_mm": 4000.0,
+          "road": "Mabuhay Street",
+          "road_width_mm": 10000.0
+        },
+        {
+          "role": "side",
+          "setback_mm": 1200.0,
+          "road": "",
+          "road_width_mm": null
+        },
+        {
+          "role": "rear",
+          "setback_mm": 2000.0,
+          "road": "",
+          "road_width_mm": null
+        },
+        {
+          "role": "side",
+          "setback_mm": 1200.0,
+          "road": "",
+          "road_width_mm": null
+        }
+      ],
+      "grade_mm": 300.0
+    },
+    {
+      "kind": "grid",
+      "id": "b6e5f796-e4c0-4759-b770-436e8227d360",
+      "label": "1",
+      "start": {
+        "x": 1500.0,
+        "y": 900.0
+      },
+      "end": {
+        "x": 1500.0,
+        "y": 16100.0
+      }
+    },
+    {
+      "kind": "grid",
+      "id": "e10da727-f7e1-47b0-b8da-c3d5a9dbbd57",
+      "label": "2",
+      "start": {
+        "x": 6500.0,
+        "y": 900.0
+      },
+      "end": {
+        "x": 6500.0,
+        "y": 16100.0
+      }
+    },
+    {
+      "kind": "grid",
+      "id": "31d03b25-70c2-4fb6-a7a4-ee31a9b544bc",
+      "label": "3",
+      "start": {
+        "x": 8500.0,
+        "y": 900.0
+      },
+      "end": {
+        "x": 8500.0,
+        "y": 16100.0
+      }
+    },
+    {
+      "kind": "grid",
+      "id": "b5e575a3-ce38-4d2c-9e03-ab14aba4f5cb",
+      "label": "4",
+      "start": {
+        "x": 10500.0,
+        "y": 900.0
+      },
+      "end": {
+        "x": 10500.0,
+        "y": 16100.0
+      }
+    },
+    {
+      "kind": "grid",
+      "id": "719390a4-4371-4f37-8a39-bc1560e3b6b3",
+      "label": "A",
+      "start": {
+        "x": -2100.0,
+        "y": 4500.0
+      },
+      "end": {
+        "x": 14100.0,
+        "y": 4500.0
+      }
+    },
+    {
+      "kind": "grid",
+      "id": "f87a0ebc-abe6-4f48-ac7f-0a8b756dd3a0",
+      "label": "B",
+      "start": {
+        "x": -2100.0,
+        "y": 9000.0
+      },
+      "end": {
+        "x": 14100.0,
+        "y": 9000.0
+      }
+    },
+    {
+      "kind": "grid",
+      "id": "4739272b-b228-44b5-8bc5-58d8bbe35ee0",
+      "label": "C",
+      "start": {
+        "x": -2100.0,
+        "y": 12500.0
+      },
+      "end": {
+        "x": 14100.0,
+        "y": 12500.0
+      }
+    },
+    {
+      "kind": "wall",
+      "id": "0ee42e90-b677-42e5-818e-2de0271ec824",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 1500.0,
+        "y": 4500.0
+      },
+      "end": {
+        "x": 10500.0,
+        "y": 4500.0
+      },
+      "thickness_mm": 150.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "5a67fee9-f383-4e4e-b461-4fddc2ed9cb0",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 10500.0,
+        "y": 4500.0
+      },
+      "end": {
+        "x": 10500.0,
+        "y": 12500.0
+      },
+      "thickness_mm": 150.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "c5e37a53-95ff-4294-a112-c2a655c49273",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 10500.0,
+        "y": 12500.0
+      },
+      "end": {
+        "x": 1500.0,
+        "y": 12500.0
+      },
+      "thickness_mm": 150.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "d114cf13-74e6-430c-8ea6-cf2c6cf56005",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 1500.0,
+        "y": 12500.0
+      },
+      "end": {
+        "x": 1500.0,
+        "y": 4500.0
+      },
+      "thickness_mm": 150.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "f36ff768-868c-4452-b9b0-a18bf921dd7a",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "name": "Hall",
+      "usage": "hallway",
+      "seed": {
+        "x": 6000.0,
+        "y": 8500.0
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "wall",
+      "id": "9bc96f95-a8a0-434c-9f0a-cf2d73e5c7ae",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 1500.0,
+        "y": 9000.0
+      },
+      "end": {
+        "x": 7000.0,
+        "y": 9000.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "14c8e28a-70d0-421d-8c0a-616801bc7484",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 7000.0,
+        "y": 9000.0
+      },
+      "end": {
+        "x": 7000.0,
+        "y": 10500.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "64f46538-a979-4685-8f16-22014c9313d8",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 7000.0,
+        "y": 10500.0
+      },
+      "end": {
+        "x": 5500.0,
+        "y": 10500.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "07f066e2-4d30-4b6e-a42a-d4260e7cd5cb",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 5500.0,
+        "y": 10500.0
+      },
+      "end": {
+        "x": 5500.0,
+        "y": 12500.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "cb5da781-858b-490d-b839-e1c444e651e6",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "name": "Master Bedroom",
+      "usage": "master_bedroom",
+      "seed": {
+        "x": 3262.5,
+        "y": 10737.5
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "wall",
+      "id": "f325a3e0-3d6f-4281-9ef8-e7384e542d17",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 7000.0,
+        "y": 10500.0
+      },
+      "end": {
+        "x": 7000.0,
+        "y": 12500.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "144cd482-4d1b-4cb1-8424-224cead69154",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "name": "Master T&B",
+      "usage": "bathroom",
+      "seed": {
+        "x": 6250.0,
+        "y": 11487.5
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "wall",
+      "id": "20e729ce-f235-449a-8f3a-eb528860e85c",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 7000.0,
+        "y": 9000.0
+      },
+      "end": {
+        "x": 10500.0,
+        "y": 9000.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "ff8c2424-11d3-47b4-8c2d-9075bdfbd50c",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "name": "Bedroom 2",
+      "usage": "bedroom",
+      "seed": {
+        "x": 8737.5,
+        "y": 10737.5
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "wall",
+      "id": "c20b85f6-1837-47d9-90fb-d623c1634b78",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 10500.0,
+        "y": 7500.0
+      },
+      "end": {
+        "x": 8000.0,
+        "y": 7500.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "3fb3e581-9006-4682-adcb-c5071b7ab016",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 8000.0,
+        "y": 7500.0
+      },
+      "end": {
+        "x": 8000.0,
+        "y": 4500.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "2e422dbf-e465-4639-aea8-319f6ac7552d",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "name": "Bedroom 3",
+      "usage": "bedroom",
+      "seed": {
+        "x": 9237.5,
+        "y": 6012.5
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "wall",
+      "id": "b24ad19e-1e82-4bc1-9ec2-58c1dcf194d9",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "start": {
+        "x": 8000.0,
+        "y": 9000.0
+      },
+      "end": {
+        "x": 8000.0,
+        "y": 7500.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "d4b68482-88c3-4f99-8075-55eff4a54898",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "name": "T&B",
+      "usage": "bathroom",
+      "seed": {
+        "x": 9237.5,
+        "y": 8250.0
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "slab",
+      "id": "79955a49-5d6c-4e49-b911-852a5389e9e9",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "slab_kind": "void",
+      "polygon": [
+        {
+          "x": 1500.0,
+          "y": 4500.0
+        },
+        {
+          "x": 6500.0,
+          "y": 4500.0
+        },
+        {
+          "x": 6500.0,
+          "y": 8000.0
+        },
+        {
+          "x": 1500.0,
+          "y": 8000.0
+        }
+      ],
+      "thickness_mm": 0.0,
+      "top_offset_mm": 0.0,
+      "material_id": null,
+      "railing": {
+        "height_mm": 1000.0,
+        "style": "glass"
+      }
+    },
+    {
+      "kind": "slab",
+      "id": "45524d2a-5914-4610-86ae-ef3593670d3a",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "slab_kind": "balcony",
+      "polygon": [
+        {
+          "x": 6500.0,
+          "y": 3400.0
+        },
+        {
+          "x": 10500.0,
+          "y": 3400.0
+        },
+        {
+          "x": 10500.0,
+          "y": 4500.0
+        },
+        {
+          "x": 6500.0,
+          "y": 4500.0
+        }
+      ],
+      "thickness_mm": 150.0,
+      "top_offset_mm": 0.0,
+      "material_id": null,
+      "railing": {
+        "height_mm": 1000.0,
+        "style": "bars"
+      }
+    },
+    {
+      "kind": "wall",
+      "id": "9f973355-0e7f-4114-a16d-5928aef8e084",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 1500.0,
+        "y": 4500.0
+      },
+      "end": {
+        "x": 10500.0,
+        "y": 4500.0
+      },
+      "thickness_mm": 150.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "cde9ad10-bbfd-4ff4-bbc7-6059a4bda3f2",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 10500.0,
+        "y": 4500.0
+      },
+      "end": {
+        "x": 10500.0,
+        "y": 12500.0
+      },
+      "thickness_mm": 150.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "ab2168a4-262a-4f60-bc8e-068b830914ba",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 10500.0,
+        "y": 12500.0
+      },
+      "end": {
+        "x": 1500.0,
+        "y": 12500.0
+      },
+      "thickness_mm": 150.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "a7177c27-bda4-464a-8970-fe2f5935d28b",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 1500.0,
+        "y": 12500.0
+      },
+      "end": {
+        "x": 1500.0,
+        "y": 4500.0
+      },
+      "thickness_mm": 150.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "6e99a53e-f4bd-434c-95f4-4719fd5e81a3",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "name": "Living",
+      "usage": "living",
+      "seed": {
+        "x": 6000.0,
+        "y": 8500.0
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false,
+      "finishes": {
+        "wall_material_id": null,
+        "ceiling_material_id": null,
+        "base_material_id": null,
+        "remarks": "Double height under the void; 2.80 m under the gallery and stair landing"
+      },
+      "ceiling_height_mm": 5800.0
+    },
+    {
+      "kind": "wall",
+      "id": "0e2c9f88-111c-495b-9ecf-43eea40814aa",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 6500.0,
+        "y": 4500.0
+      },
+      "end": {
+        "x": 6500.0,
+        "y": 9000.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "6897550e-d608-499f-8dc6-5e52e7702a74",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 6500.0,
+        "y": 9000.0
+      },
+      "end": {
+        "x": 1500.0,
+        "y": 9000.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "6f55b261-9f2c-4998-bb0d-e793e5c2e073",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "name": "Kitchen",
+      "usage": "kitchen",
+      "seed": {
+        "x": 8286.5966796875,
+        "y": 10290.0146484375
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "wall",
+      "id": "bb480b4b-c4c0-41cf-9fb7-90903f25e1ec",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 8500.0,
+        "y": 4500.0
+      },
+      "end": {
+        "x": 8500.0,
+        "y": 9000.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "wall",
+      "id": "74c637ed-d05d-4ddb-9eda-9a2cb6c716f3",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 8500.0,
+        "y": 9000.0
+      },
+      "end": {
+        "x": 6500.0,
+        "y": 9000.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "19346ce6-4154-4571-aad3-1daedfe3607c",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "name": "Foyer",
+      "usage": "hallway",
+      "seed": {
+        "x": 7500.0,
+        "y": 6762.5
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "wall",
+      "id": "c812caaf-bdbb-457f-a0ae-18866b3fd0df",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 10500.0,
+        "y": 7000.0
+      },
+      "end": {
+        "x": 8500.0,
+        "y": 7000.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "696b6a13-4c4c-40a6-bacb-ae6437519482",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "name": "Study",
+      "usage": "office",
+      "seed": {
+        "x": 9487.5,
+        "y": 5762.5
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "wall",
+      "id": "27bb1f0a-608b-449c-9d02-2a7374704f20",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 10500.0,
+        "y": 9000.0
+      },
+      "end": {
+        "x": 8500.0,
+        "y": 9000.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "e91fd817-9c08-498d-8cca-8509b5042257",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "name": "Powder Room",
+      "usage": "powder_room",
+      "seed": {
+        "x": 9487.5,
+        "y": 8000.0
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "wall",
+      "id": "a5e117a0-c5a7-490e-99ea-eb21dd488bbc",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 5500.0,
+        "y": 9000.0
+      },
+      "end": {
+        "x": 5500.0,
+        "y": 12500.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "7c5ff23b-c219-452f-9020-24078e4e3f22",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "name": "Dining",
+      "usage": "dining",
+      "seed": {
+        "x": 3512.5,
+        "y": 10737.5
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "wall",
+      "id": "a0c4b62c-a0b3-4f33-ad60-d4241b3703af",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "start": {
+        "x": 8500.0,
+        "y": 9000.0
+      },
+      "end": {
+        "x": 8500.0,
+        "y": 12500.0
+      },
+      "thickness_mm": 100.0,
+      "height_mm": null,
+      "material_id": "mat-chb-painted"
+    },
+    {
+      "kind": "room",
+      "id": "6cf762c4-a9c4-4eb5-be9f-1e1e968a088d",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "name": "Laundry",
+      "usage": "laundry",
+      "seed": {
+        "x": 9487.5,
+        "y": 10737.5
+      },
+      "floor_material_id": "mat-tile-ceramic",
+      "auto_named": false
+    },
+    {
+      "kind": "stair",
+      "id": "8bf6dd20-6eaa-4971-ad86-11ca1fb4f82e",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "origin": {
+        "x": 2050.0,
+        "y": 6000.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 900.0,
+      "run_mm": 3750.0,
+      "riser_count": 17,
+      "railing": {
+        "height_mm": 900.0,
+        "style": "bars"
+      },
+      "shape": "l",
+      "turn": "right",
+      "first_flight_risers": 9,
+      "landing_mm": 900.0
+    },
+    {
+      "kind": "opening",
+      "id": "9f9f6bff-10ed-4542-a2f3-0d8fff0aab2b",
+      "wall_id": "9bc96f95-a8a0-434c-9f0a-cf2d73e5c7ae",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 3350.0,
+      "width_mm": 800.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "fa15a569-26ea-4174-91f0-6148cf10dc6f"
+    },
+    {
+      "kind": "opening",
+      "id": "d3df6b2c-d001-4704-8a32-1965d2e09ff7",
+      "wall_id": "20e729ce-f235-449a-8f3a-eb528860e85c",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 500.0,
+      "width_mm": 800.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "fa15a569-26ea-4174-91f0-6148cf10dc6f"
+    },
+    {
+      "kind": "opening",
+      "id": "99effa1e-fecd-4304-b115-e83ae997c6d4",
+      "wall_id": "07f066e2-4d30-4b6e-a42a-d4260e7cd5cb",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 1000.0,
+      "width_mm": 700.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": true,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "381dc2d5-49ae-4953-8e4c-5bcc23f5339d"
+    },
+    {
+      "kind": "opening",
+      "id": "1270d438-3805-4eca-84c9-d596a16358ec",
+      "wall_id": "3fb3e581-9006-4682-adcb-c5071b7ab016",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 1500.0,
+      "width_mm": 800.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "fa15a569-26ea-4174-91f0-6148cf10dc6f"
+    },
+    {
+      "kind": "opening",
+      "id": "35025bf1-941b-452b-a712-f7bf7a139c9e",
+      "wall_id": "b24ad19e-1e82-4bc1-9ec2-58c1dcf194d9",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 750.0,
+      "width_mm": 700.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "381dc2d5-49ae-4953-8e4c-5bcc23f5339d"
+    },
+    {
+      "kind": "opening",
+      "id": "d2314cb2-3260-4324-99f7-d3085abb3f23",
+      "wall_id": "0ee42e90-b677-42e5-818e-2de0271ec824",
+      "opening_type": "door",
+      "style": "sliding",
+      "offset_mm": 5750.0,
+      "width_mm": 1200.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "1b0c30fd-0798-4d39-a299-c0f62ac5ae0d"
+    },
+    {
+      "kind": "opening",
+      "id": "e1a8fc13-c7fa-4800-949c-dc6b835b1d9a",
+      "wall_id": "0ee42e90-b677-42e5-818e-2de0271ec824",
+      "opening_type": "door",
+      "style": "sliding",
+      "offset_mm": 7750.0,
+      "width_mm": 1200.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "1b0c30fd-0798-4d39-a299-c0f62ac5ae0d"
+    },
+    {
+      "kind": "opening",
+      "id": "2d25e8ae-04f4-4b48-96ad-e93a14c73b91",
+      "wall_id": "0ee42e90-b677-42e5-818e-2de0271ec824",
+      "opening_type": "window",
+      "style": "fixed",
+      "offset_mm": 2500.0,
+      "width_mm": 3000.0,
+      "height_mm": 1500.0,
+      "sill_mm": 600.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "c81053ef-29e4-4494-afef-388f50bd15ec"
+    },
+    {
+      "kind": "opening",
+      "id": "25652daf-278a-4d4f-b8aa-7f2a3d9726d0",
+      "wall_id": "d114cf13-74e6-430c-8ea6-cf2c6cf56005",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 6250.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "e7569add-b374-4367-af02-8600a6cdf70a",
+      "wall_id": "d114cf13-74e6-430c-8ea6-cf2c6cf56005",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 1750.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "e2d93f09-90ea-4d4a-93c1-6b17f3f20775",
+      "wall_id": "c5e37a53-95ff-4294-a112-c2a655c49273",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 7000.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "18aa7c26-9ed7-4f35-9559-83ab422a254a",
+      "wall_id": "c5e37a53-95ff-4294-a112-c2a655c49273",
+      "opening_type": "window",
+      "style": "jalousie",
+      "offset_mm": 4250.0,
+      "width_mm": 600.0,
+      "height_mm": 600.0,
+      "sill_mm": 1500.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "147a1167-495d-4746-8f6f-125b64f9884f"
+    },
+    {
+      "kind": "opening",
+      "id": "39891c86-d963-469a-82bb-014c82c6b903",
+      "wall_id": "c5e37a53-95ff-4294-a112-c2a655c49273",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 1750.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "66c5206e-0890-4529-a4e3-f13b9ca1ea7e",
+      "wall_id": "5a67fee9-f383-4e4e-b461-4fddc2ed9cb0",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 6250.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "6eda1ec3-dd51-4300-b169-2328709be414",
+      "wall_id": "5a67fee9-f383-4e4e-b461-4fddc2ed9cb0",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 1500.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "2d44b1bc-24ba-4280-a2b4-bd7775ed1fda",
+      "wall_id": "5a67fee9-f383-4e4e-b461-4fddc2ed9cb0",
+      "opening_type": "window",
+      "style": "jalousie",
+      "offset_mm": 3750.0,
+      "width_mm": 600.0,
+      "height_mm": 600.0,
+      "sill_mm": 1500.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "147a1167-495d-4746-8f6f-125b64f9884f"
+    },
+    {
+      "kind": "asset",
+      "id": "b97f6749-4628-4902-84e7-fc706be0783f",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "bed-queen",
+      "name": "Queen bed",
+      "category": "furniture",
+      "position": {
+        "x": 3062.5,
+        "y": 11400.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 1520.0,
+      "depth_mm": 2030.0,
+      "height_mm": 500.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "26d30d2c-e194-43a2-9d7b-2abbcd9cc519",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "nightstand",
+      "name": "Nightstand",
+      "category": "furniture",
+      "position": {
+        "x": 4647.5,
+        "y": 12160.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 505.0,
+      "depth_mm": 510.0,
+      "height_mm": 615.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "eef8eded-2bc4-4d54-aa75-6dd189fce033",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "nightstand",
+      "name": "Nightstand",
+      "category": "furniture",
+      "position": {
+        "x": 5172.5,
+        "y": 12160.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 505.0,
+      "depth_mm": 510.0,
+      "height_mm": 615.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "54b05d9d-9cc0-45c4-90a7-77625870d960",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "wardrobe",
+      "name": "Wardrobe",
+      "category": "furniture",
+      "position": {
+        "x": 2975.0,
+        "y": 9360.0
+      },
+      "rotation_deg": 180.0,
+      "width_mm": 1200.0,
+      "depth_mm": 600.0,
+      "height_mm": 2100.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "15ecd913-02a0-4359-a9e4-bfe1ff203157",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "dresser",
+      "name": "Chest of drawers",
+      "category": "furniture",
+      "position": {
+        "x": 6137.5,
+        "y": 9350.0
+      },
+      "rotation_deg": 180.0,
+      "width_mm": 1200.0,
+      "depth_mm": 580.0,
+      "height_mm": 1210.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "c774fd98-eb3e-4ca1-878d-4e4f2e378f63",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "wc",
+      "name": "Water closet",
+      "category": "sanitary",
+      "position": {
+        "x": 6675.0,
+        "y": 12065.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 400.0,
+      "depth_mm": 700.0,
+      "height_mm": 780.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "743873da-5098-4abd-ad54-7cb5da33b72e",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "lavatory",
+      "name": "Lavatory",
+      "category": "sanitary",
+      "position": {
+        "x": 6000.0,
+        "y": 12205.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 500.0,
+      "depth_mm": 420.0,
+      "height_mm": 200.0,
+      "elevation_mm": 650.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "6ae589fa-19d0-46c0-936e-d227ea9a1412",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "bed-double",
+      "name": "Double bed",
+      "category": "furniture",
+      "position": {
+        "x": 9465.0,
+        "y": 10737.5
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 1370.0,
+      "depth_mm": 1900.0,
+      "height_mm": 500.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "fde87af9-3807-453a-a156-f44f8f3ecbaa",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "nightstand",
+      "name": "Nightstand",
+      "category": "furniture",
+      "position": {
+        "x": 10160.0,
+        "y": 9552.5
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 505.0,
+      "depth_mm": 510.0,
+      "height_mm": 615.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "d388a7e4-149d-47e7-853d-10f71cbb2ee9",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "wardrobe",
+      "name": "Wardrobe",
+      "category": "furniture",
+      "position": {
+        "x": 7360.0,
+        "y": 11200.0
+      },
+      "rotation_deg": 90.0,
+      "width_mm": 1200.0,
+      "depth_mm": 600.0,
+      "height_mm": 2100.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "5654d87c-d67a-4f06-91c9-c90c67908509",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "bed-single",
+      "name": "Single bed",
+      "category": "furniture",
+      "position": {
+        "x": 9690.0,
+        "y": 6490.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 920.0,
+      "depth_mm": 1900.0,
+      "height_mm": 500.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "opening",
+      "id": "f235ed7e-4119-4cce-bf60-c214fc25debc",
+      "wall_id": "9f973355-0e7f-4114-a16d-5928aef8e084",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 6000.0,
+      "width_mm": 1000.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "80d1e61c-a5c3-4345-8ea7-1e0d21459fa4"
+    },
+    {
+      "kind": "opening",
+      "id": "d9ea4cc5-c8ce-4dac-b232-291a7ec544e4",
+      "wall_id": "0e2c9f88-111c-495b-9ecf-43eea40814aa",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 1250.0,
+      "width_mm": 900.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "e77e79b3-3a8d-4f93-a317-ec8125d56b36"
+    },
+    {
+      "kind": "opening",
+      "id": "a43e6b56-10cd-438a-b565-6d3f63781606",
+      "wall_id": "bb480b4b-c4c0-41cf-9fb7-90903f25e1ec",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 1250.0,
+      "width_mm": 900.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": true,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "e77e79b3-3a8d-4f93-a317-ec8125d56b36"
+    },
+    {
+      "kind": "opening",
+      "id": "ea9e8964-897a-4b04-ae5d-dc3921e38431",
+      "wall_id": "bb480b4b-c4c0-41cf-9fb7-90903f25e1ec",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 3500.0,
+      "width_mm": 700.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": true,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "381dc2d5-49ae-4953-8e4c-5bcc23f5339d"
+    },
+    {
+      "kind": "opening",
+      "id": "f997e28b-3179-4186-a9d8-c85c06e314dd",
+      "wall_id": "6897550e-d608-499f-8dc6-5e52e7702a74",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 1600.0,
+      "width_mm": 900.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": true,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "e77e79b3-3a8d-4f93-a317-ec8125d56b36"
+    },
+    {
+      "kind": "opening",
+      "id": "27be9ef5-63cb-4249-98e2-1a483787cd4a",
+      "wall_id": "74c637ed-d05d-4ddb-9eda-9a2cb6c716f3",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 1000.0,
+      "width_mm": 900.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": true,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "e77e79b3-3a8d-4f93-a317-ec8125d56b36"
+    },
+    {
+      "kind": "opening",
+      "id": "d24c3cf1-a9fc-4b0d-a28a-cdceddaf4822",
+      "wall_id": "a5e117a0-c5a7-490e-99ea-eb21dd488bbc",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 550.0,
+      "width_mm": 900.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": true,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "e77e79b3-3a8d-4f93-a317-ec8125d56b36"
+    },
+    {
+      "kind": "opening",
+      "id": "1c5afdba-51da-47c7-9774-fbe8031f6e13",
+      "wall_id": "a0c4b62c-a0b3-4f33-ad60-d4241b3703af",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 1750.0,
+      "width_mm": 900.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": true,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "e77e79b3-3a8d-4f93-a317-ec8125d56b36"
+    },
+    {
+      "kind": "opening",
+      "id": "94dbe44a-278e-454c-a2aa-d8a878dbd20c",
+      "wall_id": "ab2168a4-262a-4f60-bc8e-068b830914ba",
+      "opening_type": "door",
+      "style": "sliding",
+      "offset_mm": 7000.0,
+      "width_mm": 1800.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "1ab0bebf-abb2-4e78-9a22-438c8a534d02"
+    },
+    {
+      "kind": "opening",
+      "id": "fa0b2fe1-fb3a-4b0d-944b-cefd215d3e2e",
+      "wall_id": "cde9ad10-bbfd-4ff4-bbc7-6059a4bda3f2",
+      "opening_type": "door",
+      "style": "swing_single",
+      "offset_mm": 7000.0,
+      "width_mm": 900.0,
+      "height_mm": 2100.0,
+      "sill_mm": 0.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "e77e79b3-3a8d-4f93-a317-ec8125d56b36"
+    },
+    {
+      "kind": "opening",
+      "id": "77d52c8e-ade1-4287-a01b-816545c52fd4",
+      "wall_id": "9f973355-0e7f-4114-a16d-5928aef8e084",
+      "opening_type": "window",
+      "style": "sliding",
+      "offset_mm": 2500.0,
+      "width_mm": 2000.0,
+      "height_mm": 1500.0,
+      "sill_mm": 700.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "22d7bae4-dd4d-494e-b69a-b51b9599d856"
+    },
+    {
+      "kind": "opening",
+      "id": "bd99b060-aa39-45ce-b6f9-ea69027819cf",
+      "wall_id": "a7177c27-bda4-464a-8970-fe2f5935d28b",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 7250.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "d2f375f8-c686-4d41-8822-f15a1118cc99",
+      "wall_id": "a7177c27-bda4-464a-8970-fe2f5935d28b",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 1750.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "e0128c6e-c413-4db6-8c76-43a90ac82819",
+      "wall_id": "ab2168a4-262a-4f60-bc8e-068b830914ba",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 2750.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "16c32e1d-780f-4d13-9cca-4d8d4d08ad2b",
+      "wall_id": "ab2168a4-262a-4f60-bc8e-068b830914ba",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 1000.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "694a060b-d577-4494-b3df-12de959937b1",
+      "wall_id": "9f973355-0e7f-4114-a16d-5928aef8e084",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 8000.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "9bc581dc-17eb-4dc3-9193-395ca40b0c2d",
+      "wall_id": "cde9ad10-bbfd-4ff4-bbc7-6059a4bda3f2",
+      "opening_type": "window",
+      "style": "casement",
+      "offset_mm": 1250.0,
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "109907a9-d8de-49d0-a571-9a9602f7c1c0"
+    },
+    {
+      "kind": "opening",
+      "id": "7c42430d-293c-4b4f-a1ca-a3ff4a1f8d93",
+      "wall_id": "cde9ad10-bbfd-4ff4-bbc7-6059a4bda3f2",
+      "opening_type": "window",
+      "style": "jalousie",
+      "offset_mm": 3500.0,
+      "width_mm": 600.0,
+      "height_mm": 600.0,
+      "sill_mm": 1500.0,
+      "flip_side": false,
+      "flip_hinge": false,
+      "material_id": null,
+      "type_id": "147a1167-495d-4746-8f6f-125b64f9884f"
+    },
+    {
+      "kind": "asset",
+      "id": "e240fc2e-38bd-433f-8d58-3fd44ff8cc6f",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "car-sedan",
+      "name": "Car, sedan",
+      "category": "vehicle",
+      "position": {
+        "x": 4000.0,
+        "y": 2300.0
+      },
+      "rotation_deg": 90.0,
+      "width_mm": 1800.0,
+      "depth_mm": 4500.0,
+      "height_mm": 1450.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "0033c2ee-7275-4136-a0a0-abfd16781815",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "wc",
+      "name": "Water closet",
+      "category": "sanitary",
+      "position": {
+        "x": 10065.0,
+        "y": 8250.0
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 400.0,
+      "depth_mm": 700.0,
+      "height_mm": 780.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "a39588c0-3822-4b12-af5b-12951fdbbd48",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "sofa-3",
+      "name": "Sofa, 3 seater",
+      "category": "furniture",
+      "position": {
+        "x": 5990.0,
+        "y": 7612.5
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 2100.0,
+      "depth_mm": 900.0,
+      "height_mm": 800.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "bfe27786-ceda-4123-a55b-348c69082f0d",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "lavatory",
+      "name": "Lavatory",
+      "category": "sanitary",
+      "position": {
+        "x": 10205.0,
+        "y": 7800.0
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 500.0,
+      "depth_mm": 420.0,
+      "height_mm": 200.0,
+      "elevation_mm": 650.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "284b42f4-2f35-4c72-b750-8e8fffd20b16",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "coffee-table",
+      "name": "Coffee table",
+      "category": "furniture",
+      "position": {
+        "x": 4012.5,
+        "y": 6762.5
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 1100.0,
+      "depth_mm": 600.0,
+      "height_mm": 420.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "631baab1-6dff-4300-9794-1b95bd6b32fb",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "plant-pot",
+      "name": "Potted plant",
+      "category": "plant",
+      "position": {
+        "x": 7690.0,
+        "y": 7150.0
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 500.0,
+      "depth_mm": 500.0,
+      "height_mm": 1200.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "5604e3b3-3112-4823-a1aa-58d7d872dad3",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "armchair",
+      "name": "Armchair",
+      "category": "furniture",
+      "position": {
+        "x": 2275.0,
+        "y": 5010.0
+      },
+      "rotation_deg": 180.0,
+      "width_mm": 850.0,
+      "depth_mm": 850.0,
+      "height_mm": 800.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "e97f5f43-583f-46d5-b735-ed796558e568",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "side-table",
+      "name": "Side table",
+      "category": "furniture",
+      "position": {
+        "x": 6175.0,
+        "y": 8715.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 550.0,
+      "depth_mm": 450.0,
+      "height_mm": 550.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "92ae9d19-4dc9-4d30-b6da-7c4f8cf37428",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "tv-console",
+      "name": "TV console",
+      "category": "furniture",
+      "position": {
+        "x": 4587.5,
+        "y": 4810.0
+      },
+      "rotation_deg": 180.0,
+      "width_mm": 1600.0,
+      "depth_mm": 450.0,
+      "height_mm": 500.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "4d275723-05d3-4997-96d0-8a725fc46bed",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "plant-pot",
+      "name": "Potted plant",
+      "category": "plant",
+      "position": {
+        "x": 5912.5,
+        "y": 4835.0
+      },
+      "rotation_deg": 180.0,
+      "width_mm": 500.0,
+      "depth_mm": 500.0,
+      "height_mm": 1200.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "32f94b59-e442-408a-b619-8b809c57305c",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "bench-wood",
+      "name": "Bench, wood",
+      "category": "furniture",
+      "position": {
+        "x": 8190.0,
+        "y": 6932.5
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 1165.0,
+      "depth_mm": 500.0,
+      "height_mm": 890.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "e30736df-fa36-42cc-aa62-dee655eb0812",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "plant-pot",
+      "name": "Potted plant",
+      "category": "plant",
+      "position": {
+        "x": 6810.0,
+        "y": 7225.0
+      },
+      "rotation_deg": 90.0,
+      "width_mm": 500.0,
+      "depth_mm": 500.0,
+      "height_mm": 1200.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "804d58b7-847c-405a-8a51-d594524a9217",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "wc",
+      "name": "Water closet",
+      "category": "sanitary",
+      "position": {
+        "x": 10065.0,
+        "y": 8000.0
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 400.0,
+      "depth_mm": 700.0,
+      "height_mm": 780.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "98780a30-5270-42b6-addf-2d66113a3811",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "lavatory",
+      "name": "Lavatory",
+      "category": "sanitary",
+      "position": {
+        "x": 10205.0,
+        "y": 7425.0
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 500.0,
+      "depth_mm": 420.0,
+      "height_mm": 200.0,
+      "elevation_mm": 650.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "25a89ee8-7d5e-462c-bc29-eb332de38e46",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "dining-set-6",
+      "name": "Dining set, 6 seats",
+      "category": "furniture",
+      "position": {
+        "x": 3512.5,
+        "y": 10437.5
+      },
+      "rotation_deg": 180.0,
+      "width_mm": 1800.0,
+      "depth_mm": 1700.0,
+      "height_mm": 955.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "f0b23ff8-bf59-488a-a5c9-fe3b994cfee4",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "washing-machine",
+      "name": "Washing machine",
+      "category": "appliance",
+      "position": {
+        "x": 10115.0,
+        "y": 10025.0
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 600.0,
+      "depth_mm": 600.0,
+      "height_mm": 850.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "28dfe63b-1310-40c9-bb1d-c05751cfe958",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "shelf-steel",
+      "name": "Shelves, steel frame",
+      "category": "furniture",
+      "position": {
+        "x": 8810.0,
+        "y": 9637.5
+      },
+      "rotation_deg": 90.0,
+      "width_mm": 1100.0,
+      "depth_mm": 500.0,
+      "height_mm": 2140.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "5d217314-88b7-4b62-9371-3e5fa8ec51df",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "water-heater",
+      "name": "Water heater, instant",
+      "category": "sanitary",
+      "position": {
+        "x": 10375.0,
+        "y": 10025.0
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 250.0,
+      "depth_mm": 100.0,
+      "height_mm": 400.0,
+      "elevation_mm": 1500.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "column",
+      "id": "0e86d476-1f07-46ca-b421-dd4d17a8b46e",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 6600.0,
+        "y": 3500.0
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": 0.0,
+      "material_id": null
+    },
+    {
+      "kind": "column",
+      "id": "b7eda78c-8e0c-4170-8f5e-3d8cac143ccb",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 10400.0,
+        "y": 3500.0
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": 0.0,
+      "material_id": null
+    },
+    {
+      "kind": "dimension",
+      "id": "21028a06-34dd-42c3-9ea4-c5d9dfe31115",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 1425.0,
+        "y": 12575.0
+      },
+      "b": {
+        "x": 10575.0,
+        "y": 12575.0
+      },
+      "offset_mm": 800.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 2600.0,
+          "y": 12575.0
+        },
+        {
+          "x": 4400.0,
+          "y": 12575.0
+        },
+        {
+          "x": 7150.0,
+          "y": 12575.0
+        },
+        {
+          "x": 8350.0,
+          "y": 12575.0
+        },
+        {
+          "x": 8900.0,
+          "y": 12575.0
+        },
+        {
+          "x": 10100.0,
+          "y": 12575.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "north",
+        "tier": "openings"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "7c992a16-d5a1-4d2a-ad34-6087118943f1",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 1500.0,
+        "y": 12575.0
+      },
+      "b": {
+        "x": 10500.0,
+        "y": 12575.0
+      },
+      "offset_mm": 1600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 5500.0,
+          "y": 12575.0
+        },
+        {
+          "x": 6500.0,
+          "y": 12575.0
+        },
+        {
+          "x": 8500.0,
+          "y": 12575.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "north",
+        "tier": "walls"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "c93475cc-5b92-4b9a-bf88-f0c58baa1ba1",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 1425.0,
+        "y": 12575.0
+      },
+      "b": {
+        "x": 10575.0,
+        "y": 12575.0
+      },
+      "offset_mm": 2400.0,
+      "text_override": null,
+      "auto": {
+        "type": "exterior",
+        "side": "north",
+        "tier": "overall"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "37ee59e9-205f-4141-ac04-9690b4f5989e",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 10575.0,
+        "y": 12575.0
+      },
+      "b": {
+        "x": 10575.0,
+        "y": 4425.0
+      },
+      "offset_mm": 800.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 10575.0,
+          "y": 11950.0
+        },
+        {
+          "x": 10575.0,
+          "y": 11050.0
+        },
+        {
+          "x": 10575.0,
+          "y": 8300.0
+        },
+        {
+          "x": 10575.0,
+          "y": 7700.0
+        },
+        {
+          "x": 10575.0,
+          "y": 6350.0
+        },
+        {
+          "x": 10575.0,
+          "y": 5150.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "east",
+        "tier": "openings"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "ac4d6938-d7ba-49ea-b3da-34523fa0e6d9",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 10575.0,
+        "y": 12500.0
+      },
+      "b": {
+        "x": 10575.0,
+        "y": 4500.0
+      },
+      "offset_mm": 1600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 10575.0,
+          "y": 9000.0
+        },
+        {
+          "x": 10575.0,
+          "y": 7000.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "east",
+        "tier": "walls"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "2636807a-530b-4dd1-b383-4e385ea37c78",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 10575.0,
+        "y": 12575.0
+      },
+      "b": {
+        "x": 10575.0,
+        "y": 4425.0
+      },
+      "offset_mm": 2400.0,
+      "text_override": null,
+      "auto": {
+        "type": "exterior",
+        "side": "east",
+        "tier": "overall"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "2a69fc1c-ffd0-43f8-8c77-c92e98c64219",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 10575.0,
+        "y": 4425.0
+      },
+      "b": {
+        "x": 1425.0,
+        "y": 4425.0
+      },
+      "offset_mm": 800.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 10100.0,
+          "y": 4425.0
+        },
+        {
+          "x": 8900.0,
+          "y": 4425.0
+        },
+        {
+          "x": 8000.0,
+          "y": 4425.0
+        },
+        {
+          "x": 7000.0,
+          "y": 4425.0
+        },
+        {
+          "x": 5000.0,
+          "y": 4425.0
+        },
+        {
+          "x": 3000.0,
+          "y": 4425.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "south",
+        "tier": "openings"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "565d9872-0789-4b12-a89d-f5186aab6e4a",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 10500.0,
+        "y": 4425.0
+      },
+      "b": {
+        "x": 1500.0,
+        "y": 4425.0
+      },
+      "offset_mm": 1600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 8500.0,
+          "y": 4425.0
+        },
+        {
+          "x": 6500.0,
+          "y": 4425.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "south",
+        "tier": "walls"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "eb2f4fa9-2453-481d-8a2a-1429a2766ec4",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 10575.0,
+        "y": 4425.0
+      },
+      "b": {
+        "x": 1425.0,
+        "y": 4425.0
+      },
+      "offset_mm": 2400.0,
+      "text_override": null,
+      "auto": {
+        "type": "exterior",
+        "side": "south",
+        "tier": "overall"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "64886a6e-9983-4c8c-8554-c4d1384fd4ea",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 1425.0,
+        "y": 4425.0
+      },
+      "b": {
+        "x": 1425.0,
+        "y": 12575.0
+      },
+      "offset_mm": 800.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 1425.0,
+          "y": 4650.0
+        },
+        {
+          "x": 1425.0,
+          "y": 5850.0
+        },
+        {
+          "x": 1425.0,
+          "y": 10150.0
+        },
+        {
+          "x": 1425.0,
+          "y": 11350.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "west",
+        "tier": "openings"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "9733a32b-1de7-42d0-8c2e-6cf4164d9418",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 1425.0,
+        "y": 4500.0
+      },
+      "b": {
+        "x": 1425.0,
+        "y": 12500.0
+      },
+      "offset_mm": 1600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 1425.0,
+          "y": 9000.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "west",
+        "tier": "walls"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "71c644e9-a917-4d65-9320-030530ff3063",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 1425.0,
+        "y": 4425.0
+      },
+      "b": {
+        "x": 1425.0,
+        "y": 12575.0
+      },
+      "offset_mm": 2400.0,
+      "text_override": null,
+      "auto": {
+        "type": "exterior",
+        "side": "west",
+        "tier": "overall"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "ffad3d2a-04ab-47b5-9ec8-51c88b6e331d",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 1425.0,
+        "y": 12575.0
+      },
+      "b": {
+        "x": 10575.0,
+        "y": 12575.0
+      },
+      "offset_mm": 800.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 2900.0,
+          "y": 12575.0
+        },
+        {
+          "x": 4100.0,
+          "y": 12575.0
+        },
+        {
+          "x": 5950.0,
+          "y": 12575.0
+        },
+        {
+          "x": 6550.0,
+          "y": 12575.0
+        },
+        {
+          "x": 8150.0,
+          "y": 12575.0
+        },
+        {
+          "x": 9350.0,
+          "y": 12575.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "north",
+        "tier": "openings"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "7771a4e9-843a-4798-98a0-e3b0f6b660c9",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 1500.0,
+        "y": 12575.0
+      },
+      "b": {
+        "x": 10500.0,
+        "y": 12575.0
+      },
+      "offset_mm": 1600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 5500.0,
+          "y": 12575.0
+        },
+        {
+          "x": 6500.0,
+          "y": 12575.0
+        },
+        {
+          "x": 7000.0,
+          "y": 12575.0
+        },
+        {
+          "x": 8500.0,
+          "y": 12575.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "north",
+        "tier": "walls"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "66b9641b-0788-42de-ae03-1533dffb5f10",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 1425.0,
+        "y": 12575.0
+      },
+      "b": {
+        "x": 10575.0,
+        "y": 12575.0
+      },
+      "offset_mm": 2400.0,
+      "text_override": null,
+      "auto": {
+        "type": "exterior",
+        "side": "north",
+        "tier": "overall"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "b262f5f4-6ed6-46ff-be9b-48d9c1c99c1d",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 10575.0,
+        "y": 12575.0
+      },
+      "b": {
+        "x": 10575.0,
+        "y": 4425.0
+      },
+      "offset_mm": 800.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 10575.0,
+          "y": 11350.0
+        },
+        {
+          "x": 10575.0,
+          "y": 10150.0
+        },
+        {
+          "x": 10575.0,
+          "y": 8550.0
+        },
+        {
+          "x": 10575.0,
+          "y": 7950.0
+        },
+        {
+          "x": 10575.0,
+          "y": 6600.0
+        },
+        {
+          "x": 10575.0,
+          "y": 5400.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "east",
+        "tier": "openings"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "59c56d8d-7656-4d4a-b7d1-d97e61416ab8",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 10575.0,
+        "y": 12500.0
+      },
+      "b": {
+        "x": 10575.0,
+        "y": 4500.0
+      },
+      "offset_mm": 1600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 10575.0,
+          "y": 9000.0
+        },
+        {
+          "x": 10575.0,
+          "y": 7500.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "east",
+        "tier": "walls"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "09a6b286-786f-444e-8586-6ae043911ee5",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 10575.0,
+        "y": 12575.0
+      },
+      "b": {
+        "x": 10575.0,
+        "y": 4425.0
+      },
+      "offset_mm": 2400.0,
+      "text_override": null,
+      "auto": {
+        "type": "exterior",
+        "side": "east",
+        "tier": "overall"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "252f124e-d4f7-4f77-ba90-01a13945b032",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 10575.0,
+        "y": 4425.0
+      },
+      "b": {
+        "x": 1425.0,
+        "y": 4425.0
+      },
+      "offset_mm": 800.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 9850.0,
+          "y": 4425.0
+        },
+        {
+          "x": 8650.0,
+          "y": 4425.0
+        },
+        {
+          "x": 7850.0,
+          "y": 4425.0
+        },
+        {
+          "x": 6650.0,
+          "y": 4425.0
+        },
+        {
+          "x": 5500.0,
+          "y": 4425.0
+        },
+        {
+          "x": 2500.0,
+          "y": 4425.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "south",
+        "tier": "openings"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "13962766-f4b2-44ab-8a7b-10825bfc37b1",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 10500.0,
+        "y": 4425.0
+      },
+      "b": {
+        "x": 1500.0,
+        "y": 4425.0
+      },
+      "offset_mm": 1600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 8500.0,
+          "y": 4425.0
+        },
+        {
+          "x": 8000.0,
+          "y": 4425.0
+        },
+        {
+          "x": 6500.0,
+          "y": 4425.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "south",
+        "tier": "walls"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "de895206-3952-4a41-813b-bd108e39ff84",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 10575.0,
+        "y": 4425.0
+      },
+      "b": {
+        "x": 1425.0,
+        "y": 4425.0
+      },
+      "offset_mm": 2400.0,
+      "text_override": null,
+      "auto": {
+        "type": "exterior",
+        "side": "south",
+        "tier": "overall"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "499863d1-ce03-498e-acf6-aa17d1954606",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 1425.0,
+        "y": 4425.0
+      },
+      "b": {
+        "x": 1425.0,
+        "y": 12575.0
+      },
+      "offset_mm": 800.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 1425.0,
+          "y": 5650.0
+        },
+        {
+          "x": 1425.0,
+          "y": 6850.0
+        },
+        {
+          "x": 1425.0,
+          "y": 10150.0
+        },
+        {
+          "x": 1425.0,
+          "y": 11350.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "west",
+        "tier": "openings"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "87266b26-00ed-4380-978e-aa7e62d2faf2",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 1425.0,
+        "y": 4500.0
+      },
+      "b": {
+        "x": 1425.0,
+        "y": 12500.0
+      },
+      "offset_mm": 1600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 1425.0,
+          "y": 9000.0
+        }
+      ],
+      "auto": {
+        "type": "exterior",
+        "side": "west",
+        "tier": "walls"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "6167cbd1-3a2a-4910-9e5d-c6dc19daf4e5",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "a": {
+        "x": 1425.0,
+        "y": 4425.0
+      },
+      "b": {
+        "x": 1425.0,
+        "y": 12575.0
+      },
+      "offset_mm": 2400.0,
+      "text_override": null,
+      "auto": {
+        "type": "exterior",
+        "side": "west",
+        "tier": "overall"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "45df0a17-170c-4892-a29b-768d2fa32507",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 1575.0,
+        "y": 4575.0
+      },
+      "b": {
+        "x": 10425.0,
+        "y": 4575.0
+      },
+      "offset_mm": 600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 3000.0,
+          "y": 4575.0
+        },
+        {
+          "x": 5000.0,
+          "y": 4575.0
+        },
+        {
+          "x": 6450.0,
+          "y": 4575.0
+        },
+        {
+          "x": 6550.0,
+          "y": 4575.0
+        },
+        {
+          "x": 7000.0,
+          "y": 4575.0
+        },
+        {
+          "x": 8000.0,
+          "y": 4575.0
+        },
+        {
+          "x": 8450.0,
+          "y": 4575.0
+        },
+        {
+          "x": 8550.0,
+          "y": 4575.0
+        },
+        {
+          "x": 8900.0,
+          "y": 4575.0
+        },
+        {
+          "x": 10100.0,
+          "y": 4575.0
+        }
+      ],
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "9f973355-0e7f-4114-a16d-5928aef8e084"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "faa61be4-7060-4619-8039-441db2c2877c",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 1575.0,
+        "y": 12425.0
+      },
+      "b": {
+        "x": 1575.0,
+        "y": 4575.0
+      },
+      "offset_mm": 600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 1575.0,
+          "y": 11350.0
+        },
+        {
+          "x": 1575.0,
+          "y": 10150.0
+        },
+        {
+          "x": 1575.0,
+          "y": 9050.0
+        },
+        {
+          "x": 1575.0,
+          "y": 8950.0
+        },
+        {
+          "x": 1575.0,
+          "y": 5850.0
+        },
+        {
+          "x": 1575.0,
+          "y": 4650.0
+        }
+      ],
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "a7177c27-bda4-464a-8970-fe2f5935d28b"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "846d69ec-2e59-41ea-a5d7-2345a02718ef",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 8450.0,
+        "y": 9050.0
+      },
+      "b": {
+        "x": 8450.0,
+        "y": 12425.0
+      },
+      "offset_mm": 600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 8450.0,
+          "y": 10300.0
+        },
+        {
+          "x": 8450.0,
+          "y": 11200.0
+        }
+      ],
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "a0c4b62c-a0b3-4f33-ad60-d4241b3703af"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "6854ab65-ec7b-4fd0-a25d-eeaece090ffd",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 10425.0,
+        "y": 12425.0
+      },
+      "b": {
+        "x": 1575.0,
+        "y": 12425.0
+      },
+      "offset_mm": 600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 10100.0,
+          "y": 12425.0
+        },
+        {
+          "x": 8900.0,
+          "y": 12425.0
+        },
+        {
+          "x": 8550.0,
+          "y": 12425.0
+        },
+        {
+          "x": 8450.0,
+          "y": 12425.0
+        },
+        {
+          "x": 8350.0,
+          "y": 12425.0
+        },
+        {
+          "x": 7150.0,
+          "y": 12425.0
+        },
+        {
+          "x": 5550.0,
+          "y": 12425.0
+        },
+        {
+          "x": 5450.0,
+          "y": 12425.0
+        },
+        {
+          "x": 4400.0,
+          "y": 12425.0
+        },
+        {
+          "x": 2600.0,
+          "y": 12425.0
+        }
+      ],
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "ab2168a4-262a-4f60-bc8e-068b830914ba"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "b476f3fa-164e-4626-b0bd-25b3aac3778b",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 6550.0,
+        "y": 4575.0
+      },
+      "b": {
+        "x": 6550.0,
+        "y": 8950.0
+      },
+      "offset_mm": -600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 6550.0,
+          "y": 5300.0
+        },
+        {
+          "x": 6550.0,
+          "y": 6200.0
+        }
+      ],
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "0e2c9f88-111c-495b-9ecf-43eea40814aa"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "c8d9f3c8-842c-4c00-b9d8-a9c5517dbf84",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 8450.0,
+        "y": 8950.0
+      },
+      "b": {
+        "x": 6550.0,
+        "y": 8950.0
+      },
+      "offset_mm": 600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 7950.0,
+          "y": 8950.0
+        },
+        {
+          "x": 7050.0,
+          "y": 8950.0
+        }
+      ],
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "74c637ed-d05d-4ddb-9eda-9a2cb6c716f3"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "fef364d9-961a-422c-a247-9e9bbb96132a",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 8550.0,
+        "y": 4575.0
+      },
+      "b": {
+        "x": 8550.0,
+        "y": 8950.0
+      },
+      "offset_mm": -600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 8550.0,
+          "y": 5300.0
+        },
+        {
+          "x": 8550.0,
+          "y": 6200.0
+        },
+        {
+          "x": 8550.0,
+          "y": 6950.0
+        },
+        {
+          "x": 8550.0,
+          "y": 7050.0
+        },
+        {
+          "x": 8550.0,
+          "y": 7650.0
+        },
+        {
+          "x": 8550.0,
+          "y": 8350.0
+        }
+      ],
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "bb480b4b-c4c0-41cf-9fb7-90903f25e1ec"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "356b21c8-6cc6-4c72-8331-d739f88499ed",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 10425.0,
+        "y": 6950.0
+      },
+      "b": {
+        "x": 8550.0,
+        "y": 6950.0
+      },
+      "offset_mm": 600.0,
+      "text_override": null,
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "c812caaf-bdbb-457f-a0ae-18866b3fd0df"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "64c87d2d-0d94-4626-9a66-b1db798877cd",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 10425.0,
+        "y": 7050.0
+      },
+      "b": {
+        "x": 8550.0,
+        "y": 7050.0
+      },
+      "offset_mm": -600.0,
+      "text_override": null,
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "c812caaf-bdbb-457f-a0ae-18866b3fd0df"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "fc55c02e-5566-4afa-9d80-cb9cb8408623",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 6500.0,
+        "y": 9050.0
+      },
+      "b": {
+        "x": 1575.0,
+        "y": 9050.0
+      },
+      "offset_mm": -600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 5550.0,
+          "y": 9050.0
+        },
+        {
+          "x": 5450.0,
+          "y": 9050.0
+        },
+        {
+          "x": 5350.0,
+          "y": 9050.0
+        },
+        {
+          "x": 4450.0,
+          "y": 9050.0
+        }
+      ],
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "6897550e-d608-499f-8dc6-5e52e7702a74"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "bfc5cdde-b6b6-4988-8d6b-d92cb4d3d3e4",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 5450.0,
+        "y": 9050.0
+      },
+      "b": {
+        "x": 5450.0,
+        "y": 12425.0
+      },
+      "offset_mm": 600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 5450.0,
+          "y": 9100.0
+        },
+        {
+          "x": 5450.0,
+          "y": 10000.0
+        }
+      ],
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "a5e117a0-c5a7-490e-99ea-eb21dd488bbc"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "fb9cad0b-ae45-40f2-a441-8603cde666b5",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 8550.0,
+        "y": 9050.0
+      },
+      "b": {
+        "x": 8550.0,
+        "y": 12425.0
+      },
+      "offset_mm": -600.0,
+      "text_override": null,
+      "through": [
+        {
+          "x": 8550.0,
+          "y": 10300.0
+        },
+        {
+          "x": 8550.0,
+          "y": 11200.0
+        }
+      ],
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "a0c4b62c-a0b3-4f33-ad60-d4241b3703af"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "dimension",
+      "id": "161a28ee-5944-47d0-8ff9-06d90a84f443",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "a": {
+        "x": 10425.0,
+        "y": 9050.0
+      },
+      "b": {
+        "x": 8550.0,
+        "y": 9050.0
+      },
+      "offset_mm": -600.0,
+      "text_override": null,
+      "auto": {
+        "type": "openings",
+        "wall_ids": [
+          "27bb1f0a-608b-449c-9d02-2a7374704f20"
+        ],
+        "face": "interior"
+      }
+    },
+    {
+      "kind": "annotation",
+      "id": "b0cc336f-b79c-4d16-9d03-1cc1dd9c00d5",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "position": {
+        "x": -1200.0,
+        "y": 2200.0
+      },
+      "text": "FINISH GRADE +0.000, FFL +0.300",
+      "size_mm": 250.0,
+      "rotation_deg": 0.0
+    },
+    {
+      "kind": "roof",
+      "id": "9757e04a-b88b-48fd-bda4-0f13e9ef41a4",
+      "level_id": null,
+      "outline": {
+        "type": "top_footprint"
+      },
+      "shape": "hip",
+      "pitch_deg": 25.0,
+      "ridge_axis": "x",
+      "overhang_mm": 600.0,
+      "thickness_mm": 150.0,
+      "material_id": "mat-roof-longspan",
+      "fascia": {
+        "size_mm": 200.0,
+        "material_id": null
+      },
+      "gutter": {
+        "size_mm": 150.0,
+        "material_id": null
+      }
+    },
+    {
+      "kind": "roof",
+      "id": "26530d13-b09a-4db5-a4ed-24860da7b099",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "outline": {
+        "type": "polygon",
+        "points": [
+          {
+            "x": 1300.0,
+            "y": 200.0
+          },
+          {
+            "x": 6700.0,
+            "y": 200.0
+          },
+          {
+            "x": 6700.0,
+            "y": 4425.0
+          },
+          {
+            "x": 1300.0,
+            "y": 4425.0
+          }
+        ]
+      },
+      "shape": "shed",
+      "pitch_deg": 7.0,
+      "ridge_axis": "y",
+      "overhang_mm": 0.0,
+      "thickness_mm": 150.0,
+      "eave_mm": 2400.0,
+      "material_id": "mat-roof-longspan",
+      "fascia": {
+        "size_mm": 150.0,
+        "material_id": null
+      },
+      "gutter": {
+        "size_mm": 120.0,
+        "material_id": null
+      }
+    },
+    {
+      "kind": "column",
+      "id": "78c3f5e5-ae81-4477-992d-4b81bac191e8",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 1400.0,
+        "y": 4325.0
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": 180.0,
+      "material_id": null
+    },
+    {
+      "kind": "column",
+      "id": "7439b8cc-ee63-4bdd-8b17-9301fdfcf3b5",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 1400.0,
+        "y": 2312.5
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": -90.0,
+      "material_id": null
+    },
+    {
+      "kind": "column",
+      "id": "3c6d442a-becc-4ddb-a54e-7edcb69a0bf3",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 1400.0,
+        "y": 300.0
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": -90.0,
+      "material_id": null
+    },
+    {
+      "kind": "column",
+      "id": "719bc0b3-2f3f-4585-938d-255edf1ee5e8",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 4000.0,
+        "y": 300.0
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": 0.0,
+      "material_id": null
+    },
+    {
+      "kind": "column",
+      "id": "3265cef7-5b54-46e5-a34f-7d5f2175d02d",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 6600.0,
+        "y": 300.0
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": 0.0,
+      "material_id": null
+    },
+    {
+      "kind": "column",
+      "id": "0b8e27dd-7f56-4695-af5c-31239733f14b",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 6600.0,
+        "y": 2312.5
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": 90.0,
+      "material_id": null
+    },
+    {
+      "kind": "roof",
+      "id": "053b07d9-4911-4781-80f9-eba3acfe40ec",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "outline": {
+        "type": "polygon",
+        "points": [
+          {
+            "x": 1500.0,
+            "y": 12575.0
+          },
+          {
+            "x": 8500.0,
+            "y": 12575.0
+          },
+          {
+            "x": 8500.0,
+            "y": 14200.0
+          },
+          {
+            "x": 1500.0,
+            "y": 14200.0
+          }
+        ]
+      },
+      "shape": "shed",
+      "pitch_deg": 8.0,
+      "ridge_axis": "y",
+      "flip": true,
+      "overhang_mm": 0.0,
+      "thickness_mm": 150.0,
+      "eave_mm": 2400.0,
+      "material_id": "mat-roof-longspan",
+      "fascia": {
+        "size_mm": 150.0,
+        "material_id": null
+      },
+      "gutter": {
+        "size_mm": 120.0,
+        "material_id": null
+      }
+    },
+    {
+      "kind": "column",
+      "id": "37dd4459-de42-418d-8041-dce8515c942c",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 8400.0,
+        "y": 14100.0
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": 90.0,
+      "material_id": null
+    },
+    {
+      "kind": "column",
+      "id": "11e6ee35-d410-460d-8d72-66922eb0b966",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 6166.666666666666,
+        "y": 14100.0
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": 180.0,
+      "material_id": null
+    },
+    {
+      "kind": "column",
+      "id": "4e4a149b-c164-4013-a192-3fd0e79619d0",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 3833.333333333333,
+        "y": 14100.0
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": 180.0,
+      "material_id": null
+    },
+    {
+      "kind": "column",
+      "id": "f1db65c5-80f3-48d8-8601-d87722b5c8cb",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "center": {
+        "x": 1600.0,
+        "y": 14100.0
+      },
+      "shape": "rect",
+      "width_mm": 200.0,
+      "depth_mm": 200.0,
+      "rotation_deg": 180.0,
+      "material_id": null
+    },
+    {
+      "kind": "camera",
+      "id": "c684e2c2-a90a-4bfd-bfe1-e5d77c79d9d9",
+      "name": "Exterior",
+      "preset": "custom",
+      "position": {
+        "x": 18500.0,
+        "y": -7500.0,
+        "z": 1650.0
+      },
+      "target": {
+        "x": 6000.0,
+        "y": 8500.0,
+        "z": 3600.0
+      },
+      "fov_deg": 60.0,
+      "light": null
+    },
+    {
+      "kind": "camera",
+      "id": "75c769cf-52ea-4a13-8f48-fd9c0352f4a1",
+      "name": "Living",
+      "preset": "custom",
+      "position": {
+        "x": 6150.0,
+        "y": 4900.0,
+        "z": 1450.0
+      },
+      "target": {
+        "x": 2300.0,
+        "y": 8300.0,
+        "z": 2700.0
+      },
+      "fov_deg": 60.0,
+      "light": null
+    },
+    {
+      "kind": "camera",
+      "id": "5d5d0c36-31b8-45d5-b85f-7bde895ddb6e",
+      "name": "Lanai",
+      "preset": "custom",
+      "position": {
+        "x": -3500.0,
+        "y": 17500.0,
+        "z": 1650.0
+      },
+      "target": {
+        "x": 5500.0,
+        "y": 9000.0,
+        "z": 3000.0
+      },
+      "fov_deg": 60.0,
+      "light": null
+    },
+    {
+      "kind": "view_mark",
+      "id": "f531d3e5-66f4-43b6-898d-0ea75a7bb589",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "mark_kind": "elevation",
+      "label": "North",
+      "start": {
+        "x": 13075.0,
+        "y": 17575.0
+      },
+      "end": {
+        "x": -1075.0,
+        "y": 17575.0
+      },
+      "flip": false,
+      "depth_mm": null
+    },
+    {
+      "kind": "view_mark",
+      "id": "8aff4464-364f-4974-9f2c-4a8163cd845d",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "mark_kind": "elevation",
+      "label": "East",
+      "start": {
+        "x": 15575.0,
+        "y": 1925.0
+      },
+      "end": {
+        "x": 15574.999999999998,
+        "y": 15075.000000000002
+      },
+      "flip": false,
+      "depth_mm": null
+    },
+    {
+      "kind": "view_mark",
+      "id": "0b073bbb-cd63-43b7-a1ee-3e39c34cac2f",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "mark_kind": "elevation",
+      "label": "South",
+      "start": {
+        "x": -1074.9999999999995,
+        "y": -575.000000000001
+      },
+      "end": {
+        "x": 13075.000000000002,
+        "y": -574.9999999999993
+      },
+      "flip": false,
+      "depth_mm": null
+    },
+    {
+      "kind": "view_mark",
+      "id": "13681aa1-52bd-409d-9142-7f45b0ae8cda",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "mark_kind": "elevation",
+      "label": "West",
+      "start": {
+        "x": -3575.000000000002,
+        "y": 15075.0
+      },
+      "end": {
+        "x": -3574.9999999999995,
+        "y": 1924.9999999999975
+      },
+      "flip": false,
+      "depth_mm": null
+    },
+    {
+      "kind": "view_mark",
+      "id": "1277786e-3ea8-4371-949c-30810f9e49dc",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "mark_kind": "section",
+      "label": "A",
+      "start": {
+        "x": 2050.0,
+        "y": 925.0
+      },
+      "end": {
+        "x": 2050.0,
+        "y": 16075.0
+      },
+      "flip": false,
+      "depth_mm": null
+    },
+    {
+      "kind": "view_mark",
+      "id": "e17781b0-d1b4-4044-a3c4-04f1c3d57f9b",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "mark_kind": "section",
+      "label": "B",
+      "start": {
+        "x": 14075.0,
+        "y": 6762.5
+      },
+      "end": {
+        "x": -2075.0,
+        "y": 6762.5
+      },
+      "flip": false,
+      "depth_mm": null
+    },
+    {
+      "kind": "asset",
+      "id": "67123124-388d-43ad-a094-eeec6c36de90",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "kitchen-sink",
+      "name": "Kitchen sink counter",
+      "category": "kitchen",
+      "position": {
+        "x": 7000.0,
+        "y": 12115.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 1200.0,
+      "depth_mm": 600.0,
+      "height_mm": 900.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "5c9e1746-dd60-4cd5-8125-5f2592c61547",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "range",
+      "name": "Cooking range",
+      "category": "appliance",
+      "position": {
+        "x": 8025.0,
+        "y": 12115.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 600.0,
+      "depth_mm": 600.0,
+      "height_mm": 900.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "f6f13b5c-568e-45bf-9e5f-3a874dfc0c39",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "refrigerator",
+      "name": "Refrigerator",
+      "category": "appliance",
+      "position": {
+        "x": 5975.0,
+        "y": 12065.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 700.0,
+      "depth_mm": 700.0,
+      "height_mm": 1750.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "deae6bfa-2f72-4d20-a544-81f1e49ab2e7",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "desk",
+      "name": "Work desk",
+      "category": "furniture",
+      "position": {
+        "x": 9487.5,
+        "y": 4885.0
+      },
+      "rotation_deg": 180.0,
+      "width_mm": 1200.0,
+      "depth_mm": 600.0,
+      "height_mm": 750.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "a4959c79-de0c-4f7d-a640-3db894ec0021",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "armchair",
+      "name": "Armchair",
+      "category": "furniture",
+      "position": {
+        "x": 9990.0,
+        "y": 6412.5
+      },
+      "rotation_deg": 270.0,
+      "width_mm": 850.0,
+      "depth_mm": 850.0,
+      "height_mm": 800.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "a4b79b4c-358b-4926-9a7e-12c8803205e2",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "plant-pot",
+      "name": "Potted plant",
+      "category": "plant",
+      "position": {
+        "x": 8912.5,
+        "y": 6690.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 500.0,
+      "depth_mm": 500.0,
+      "height_mm": 1200.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "370e7c47-fe95-4b89-a234-d37347ed29f3",
+      "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+      "catalog_key": "shelf-wall",
+      "name": "Wall shelves",
+      "category": "furniture",
+      "position": {
+        "x": 9237.5,
+        "y": 7325.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 1200.0,
+      "depth_mm": 250.0,
+      "height_mm": 900.0,
+      "elevation_mm": 1200.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "asset",
+      "id": "b863b320-617e-4435-bcef-810defffa1fb",
+      "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+      "catalog_key": "outdoor-set",
+      "name": "Bistro table and two chairs",
+      "category": "furniture",
+      "position": {
+        "x": 5200.0,
+        "y": 13900.0
+      },
+      "rotation_deg": 0.0,
+      "width_mm": 780.0,
+      "depth_mm": 1830.0,
+      "height_mm": 860.0,
+      "elevation_mm": 0.0,
+      "light": null,
+      "links": [],
+      "circuit": ""
+    },
+    {
+      "kind": "tour",
+      "id": "7023fe44-6cf7-4013-99e6-0ae9dd979064",
+      "name": "House tour",
+      "shots": [
+        {
+          "id": "35e19efc-3ae6-4e29-a9a7-386e46e34092",
+          "name": "Fly in",
+          "kind": "fly_in",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": -9326.265125856655,
+                "y": 45114.89194451474,
+                "z": 24000.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            },
+            {
+              "at": 0.6257156252270417,
+              "position": {
+                "x": -8741.833338532313,
+                "y": 27564.61384532776,
+                "z": 15000.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": -4487.298363273747,
+                "y": 18038.28648726878,
+                "z": 9500.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            }
+          ],
+          "seconds": 4.0,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "plan_lift",
+            "seconds": 2.0
+          }
+        },
+        {
+          "id": "3b96ad6f-065d-4f77-be0f-80251e4f4136",
+          "name": "Orbit",
+          "kind": "orbit",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": -4487.298363273747,
+                "y": 18038.28648726878,
+                "z": 9500.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            },
+            {
+              "at": 0.14255806781290448,
+              "position": {
+                "x": -7117.122995405431,
+                "y": 13876.190137722477,
+                "z": 9500.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            },
+            {
+              "at": 0.2855348406877427,
+              "position": {
+                "x": -8164.829006173522,
+                "y": 9065.645913450797,
+                "z": 9500.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            },
+            {
+              "at": 0.42851161356258094,
+              "position": {
+                "x": -7504.047588185471,
+                "y": 4186.87644397236,
+                "z": 9500.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            },
+            {
+              "at": 0.5714883864374192,
+              "position": {
+                "x": -5214.47873254574,
+                "y": -171.66666972489656,
+                "z": 9500.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            },
+            {
+              "at": 0.7144651593122574,
+              "position": {
+                "x": -1572.2782336820037,
+                "y": -3484.2788028835566,
+                "z": 9500.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            },
+            {
+              "at": 0.8574419321870956,
+              "position": {
+                "x": 2983.2507750882733,
+                "y": -5351.410043296417,
+                "z": 9500.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 7902.644262859691,
+                "y": -5547.8568074473715,
+                "z": 9500.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            }
+          ],
+          "seconds": 6.0,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "3318ec8b-4ae9-47b0-955c-dddd9a6c1504",
+          "name": "Push in to the front door",
+          "kind": "push_in",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 7902.644262859691,
+                "y": -5547.8568074473715,
+                "z": 9500.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 45.0
+            },
+            {
+              "at": 0.542086824866219,
+              "position": {
+                "x": 7500.0,
+                "y": -2575.0,
+                "z": 2400.0
+              },
+              "target": {
+                "x": 7500.0,
+                "y": 4500.0,
+                "z": 1500.0
+              },
+              "fov_deg": 50.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 7500.0,
+                "y": 3875.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 7500.0,
+                "y": 4500.0,
+                "z": 1500.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 4.0,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "91e798fb-f1c3-4325-9ab7-024d6d4f7492",
+          "name": "Walk to Foyer",
+          "kind": "walk",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 7500.0,
+                "y": 3875.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 7500.0,
+                "y": 4500.0,
+                "z": 1500.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.34281796366129585,
+              "position": {
+                "x": 7500.0,
+                "y": 4500.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 7500.0,
+                "y": 7500.0,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.6856359273225917,
+              "position": {
+                "x": 7500.0,
+                "y": 5125.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 7500.0,
+                "y": 8125.0,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 7500.0,
+                "y": 5698.125,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 5641.273145824187,
+                "y": 8052.93592267844,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 2.0,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "c2ac7421-c0a4-4637-a140-f6a7bcba0f41",
+          "name": "Foyer",
+          "kind": "hold",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 7500.0,
+                "y": 5698.125,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 5641.273145824187,
+                "y": 8052.93592267844,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.5,
+              "position": {
+                "x": 7500.0,
+                "y": 5698.125,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 6658.746168641623,
+                "y": 8577.759002998446,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 7500.0,
+                "y": 5698.125,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 7798.732914119935,
+                "y": 8683.214386604932,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 2.0,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "590491bc-7a0a-4ead-98ec-cf60135f8aad",
+          "name": "Walk to Living",
+          "kind": "walk",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 7500.0,
+                "y": 5698.125,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 7798.732914119935,
+                "y": 8683.214386604932,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.17108326306828708,
+              "position": {
+                "x": 7100.0,
+                "y": 5750.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 4104.028394903073,
+                "y": 5905.416027014403,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.4255550973097587,
+              "position": {
+                "x": 6500.0,
+                "y": 5750.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 3500.0,
+                "y": 5750.0,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.6810191043345486,
+              "position": {
+                "x": 5900.0,
+                "y": 5750.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 3011.9422439178165,
+                "y": 6561.8635338118975,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 5239.375,
+                "y": 6104.375,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 2353.1728055735553,
+                "y": 6922.810637596491,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 3.0,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "99285f65-4944-4796-95de-5edfc79f2194",
+          "name": "Living",
+          "kind": "hold",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 5239.375,
+                "y": 6104.375,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 2353.1728055735553,
+                "y": 6922.810637596491,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.5,
+              "position": {
+                "x": 5239.375,
+                "y": 6104.375,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 2869.9263104427696,
+                "y": 7944.40568114516,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 5239.375,
+                "y": 6104.375,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 3731.7480560626527,
+                "y": 8698.032841334152,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 3.0,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "94145f08-229e-47d1-9c1a-0cc2fe5520ba",
+          "name": "Walk to Dining",
+          "kind": "walk",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 5239.375,
+                "y": 6104.375,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 3731.7480560626527,
+                "y": 8698.032841334152,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.557613295877468,
+              "position": {
+                "x": 4900.0,
+                "y": 8400.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 4550.782298755535,
+                "y": 11379.605174706463,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.701840902109121,
+              "position": {
+                "x": 4900.0,
+                "y": 9000.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 4900.0,
+                "y": 12000.0,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.8475532743392145,
+              "position": {
+                "x": 4900.0,
+                "y": 9600.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 3587.492093743238,
+                "y": 12297.651385189252,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 4414.375,
+                "y": 9998.125,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 1569.756857969367,
+                "y": 10951.092799052092,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 3.0,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "b8bb9044-03e7-4576-b922-4f178e0b27ba",
+          "name": "Dining",
+          "kind": "hold",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 4414.375,
+                "y": 9998.125,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 1569.756857969367,
+                "y": 10951.092799052092,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.5,
+              "position": {
+                "x": 4414.375,
+                "y": 9998.125,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 2133.8790071393887,
+                "y": 11947.314068958343,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 4414.375,
+                "y": 9998.125,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 3030.115012061404,
+                "y": 12659.670469420396,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 2.5,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "89cd5ead-0b44-430b-9621-052656c221c7",
+          "name": "Walk to Kitchen",
+          "kind": "walk",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 4414.375,
+                "y": 9998.125,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 3030.115012061404,
+                "y": 12659.670469420396,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.27686457561912137,
+              "position": {
+                "x": 4900.0,
+                "y": 9550.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 7673.04136957266,
+                "y": 8405.342163509731,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.5284065229986459,
+              "position": {
+                "x": 5500.0,
+                "y": 9550.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 8500.0,
+                "y": 9550.0,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.7805648240758828,
+              "position": {
+                "x": 6100.0,
+                "y": 9550.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 8831.418815107289,
+                "y": 10790.70595085133,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 6415.0,
+                "y": 9965.625,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 7322.405129564257,
+                "y": 12825.10326199824,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 2.5,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "d867b547-2495-4ebd-80f3-8c57d04ba3ca",
+          "name": "Kitchen",
+          "kind": "hold",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 6415.0,
+                "y": 9965.625,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 7322.405129564257,
+                "y": 12825.10326199824,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.5,
+              "position": {
+                "x": 6415.0,
+                "y": 9965.625,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 8327.510796357077,
+                "y": 12276.967132575275,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 6415.0,
+                "y": 9965.625,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 9054.093134569644,
+                "y": 11392.224953409284,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 2.5,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "f8d4aa65-cd56-4f18-9a45-b744567e1473",
+          "name": "Up the stairs",
+          "kind": "walk",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 9100.0,
+                "y": 8000.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 12015.392166620404,
+                "y": 8707.4521289871,
+                "z": 1450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.03729296773170642,
+              "position": {
+                "x": 8500.0,
+                "y": 8000.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 5500.0,
+                "y": 8000.0,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.07557038717588503,
+              "position": {
+                "x": 7900.0,
+                "y": 8000.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 6315.094339622641,
+                "y": 5452.830188679245,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.22594420692201683,
+              "position": {
+                "x": 7100.0,
+                "y": 5750.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 5515.094339622641,
+                "y": 3202.8301886792456,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.26422162636619545,
+              "position": {
+                "x": 6500.0,
+                "y": 5750.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 3500.0,
+                "y": 5750.0,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.3015390943601347,
+              "position": {
+                "x": 5900.0,
+                "y": 5750.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 2924.7348812366113,
+                "y": 5365.555630721585,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.5457374998105103,
+              "position": {
+                "x": 2050.0,
+                "y": 5175.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": -948.4200380201614,
+                "y": 5272.35129993572,
+                "z": 1600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.5909854843193127,
+              "position": {
+                "x": 2050.0,
+                "y": 5875.0,
+                "z": 1600.0
+              },
+              "target": {
+                "x": 2050.0,
+                "y": 8856.538461538461,
+                "z": 1932.3076923076924
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.6101511211886217,
+              "position": {
+                "x": 2050.0,
+                "y": 6125.0,
+                "z": 1776.4705882352941
+              },
+              "target": {
+                "x": 2050.0,
+                "y": 8887.453000331412,
+                "z": 2946.450682493304
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.629171130730713,
+              "position": {
+                "x": 2050.0,
+                "y": 6375.0,
+                "z": 1952.9411764705883
+              },
+              "target": {
+                "x": 2050.0,
+                "y": 9137.453000331412,
+                "z": 3122.921270728598
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.6481911402728042,
+              "position": {
+                "x": 2050.0,
+                "y": 6625.0,
+                "z": 2129.4117647058824
+              },
+              "target": {
+                "x": 2050.0,
+                "y": 9387.453000331412,
+                "z": 3299.3918589638924
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.6672111498148955,
+              "position": {
+                "x": 2050.0,
+                "y": 6875.0,
+                "z": 2305.8823529411766
+              },
+              "target": {
+                "x": 2050.0,
+                "y": 9637.453000331412,
+                "z": 3475.862447199186
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.6862311593569868,
+              "position": {
+                "x": 2050.0,
+                "y": 7125.0,
+                "z": 2482.3529411764707
+              },
+              "target": {
+                "x": 2050.0,
+                "y": 9887.453000331412,
+                "z": 3652.3330354344807
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.705251168899078,
+              "position": {
+                "x": 2050.0,
+                "y": 7375.0,
+                "z": 2658.823529411765
+              },
+              "target": {
+                "x": 2050.0,
+                "y": 10137.453000331412,
+                "z": 3828.8036236697735
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.7242711784411693,
+              "position": {
+                "x": 2050.0,
+                "y": 7625.0,
+                "z": 2835.2941176470586
+              },
+              "target": {
+                "x": 2050.0,
+                "y": 10387.453000331412,
+                "z": 4005.274211905068
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.7432911879832605,
+              "position": {
+                "x": 2050.0,
+                "y": 7875.0,
+                "z": 3011.764705882353
+              },
+              "target": {
+                "x": 2050.0,
+                "y": 10637.453000331412,
+                "z": 4181.744800140363
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.7624225616384412,
+              "position": {
+                "x": 2050.0,
+                "y": 8125.0,
+                "z": 3188.235294117647
+              },
+              "target": {
+                "x": 2050.0,
+                "y": 11075.394938196554,
+                "z": 3731.5305257037116
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.7831607449950023,
+              "position": {
+                "x": 2050.0,
+                "y": 8450.0,
+                "z": 3188.235294117647
+              },
+              "target": {
+                "x": 4171.320343559642,
+                "y": 10571.320343559642,
+                "z": 3188.235294117647
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.8038989283515634,
+              "position": {
+                "x": 2375.0,
+                "y": 8450.0,
+                "z": 3188.235294117647
+              },
+              "target": {
+                "x": 5325.394938196553,
+                "y": 8450.0,
+                "z": 3731.5305257037144
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.8230303020067442,
+              "position": {
+                "x": 2625.0,
+                "y": 8450.0,
+                "z": 3364.7058823529414
+              },
+              "target": {
+                "x": 5387.453000331412,
+                "y": 8450.0,
+                "z": 4534.685976610951
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.8420503115488355,
+              "position": {
+                "x": 2875.0,
+                "y": 8450.0,
+                "z": 3541.176470588235
+              },
+              "target": {
+                "x": 5637.453000331412,
+                "y": 8450.0,
+                "z": 4711.156564846244
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.8610703210909267,
+              "position": {
+                "x": 3125.0,
+                "y": 8450.0,
+                "z": 3717.6470588235293
+              },
+              "target": {
+                "x": 5887.453000331412,
+                "y": 8450.0,
+                "z": 4887.627153081539
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.880090330633018,
+              "position": {
+                "x": 3375.0,
+                "y": 8450.0,
+                "z": 3894.1176470588234
+              },
+              "target": {
+                "x": 6137.453000331412,
+                "y": 8450.0,
+                "z": 5064.097741316833
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.8991103401751093,
+              "position": {
+                "x": 3625.0,
+                "y": 8450.0,
+                "z": 4070.5882352941176
+              },
+              "target": {
+                "x": 6387.453000331412,
+                "y": 8450.0,
+                "z": 5240.568329552128
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.9181303497172005,
+              "position": {
+                "x": 3875.0,
+                "y": 8450.0,
+                "z": 4247.058823529412
+              },
+              "target": {
+                "x": 6637.453000331411,
+                "y": 8450.0,
+                "z": 5417.038917787423
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.9371503592592918,
+              "position": {
+                "x": 4125.0,
+                "y": 8450.0,
+                "z": 4423.529411764706
+              },
+              "target": {
+                "x": 6887.453000331412,
+                "y": 8450.0,
+                "z": 5593.509506022716
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.9563159961286007,
+              "position": {
+                "x": 4375.0,
+                "y": 8450.0,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 7356.538461538461,
+                "y": 8450.0,
+                "z": 4932.3076923076915
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 5075.0,
+                "y": 8450.0,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 8075.0,
+                "y": 8450.0,
+                "z": 4600.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 12.0,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "dissolve",
+            "seconds": 0.8
+          }
+        },
+        {
+          "id": "4fcd6b6e-5bbe-4731-9be5-3e7e85ccd22e",
+          "name": "Walk to Hall",
+          "kind": "walk",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 5075.0,
+                "y": 8450.0,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 8075.0,
+                "y": 8450.0,
+                "z": 4600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 4965.625,
+                "y": 7859.375,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 3749.6289608454385,
+                "y": 5116.866361406419,
+                "z": 4450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 1.0,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "e56b4998-d455-4933-a851-de779cfac7e9",
+          "name": "Hall",
+          "kind": "hold",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 4965.625,
+                "y": 7859.375,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 3749.6289608454385,
+                "y": 5116.866361406419,
+                "z": 4450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.5,
+              "position": {
+                "x": 4965.625,
+                "y": 7859.375,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 2810.811286761476,
+                "y": 5772.085403121023,
+                "z": 4450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 4965.625,
+                "y": 7859.375,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 2185.804070126827,
+                "y": 6731.28121053077,
+                "z": 4450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 2.5,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "8cbc5f56-ca61-42f8-9768-7b844c3a551b",
+          "name": "Walk to Master Bedroom",
+          "kind": "walk",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 4965.625,
+                "y": 7859.375,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 2185.804070126827,
+                "y": 6731.28121053077,
+                "z": 4450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.2255934000878729,
+              "position": {
+                "x": 4850.0,
+                "y": 8400.0,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 4547.440963335516,
+                "y": 11384.704010338824,
+                "z": 4600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.47041455905353247,
+              "position": {
+                "x": 4850.0,
+                "y": 9000.0,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 4850.0,
+                "y": 12000.0,
+                "z": 4600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.7181281266239714,
+              "position": {
+                "x": 4850.0,
+                "y": 9600.0,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 3390.8419778497155,
+                "y": 12221.232127529813,
+                "z": 4600.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 4294.375,
+                "y": 9998.125,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 1470.7930103435156,
+                "y": 11011.724895268111,
+                "z": 4450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 2.5,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "80d11704-4248-47b5-8e1f-54a181fa75d4",
+          "name": "Master Bedroom",
+          "kind": "hold",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 4294.375,
+                "y": 9998.125,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 1470.7930103435156,
+                "y": 11011.724895268111,
+                "z": 4450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 0.5,
+              "position": {
+                "x": 4294.375,
+                "y": 9998.125,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 2056.0965709980546,
+                "y": 11995.650888258919,
+                "z": 4450.0
+              },
+              "fov_deg": 62.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 4294.375,
+                "y": 9998.125,
+                "z": 4600.0
+              },
+              "target": {
+                "x": 2967.365746865051,
+                "y": 12688.672610077589,
+                "z": 4450.0
+              },
+              "fov_deg": 62.0
+            }
+          ],
+          "seconds": 3.0,
+          "ease": "in_out",
+          "light": null,
+          "light_end": null,
+          "transition": {
+            "kind": "cut",
+            "seconds": 0.0
+          }
+        },
+        {
+          "id": "2eabf835-0737-454d-b602-6117794901d2",
+          "name": "Dusk",
+          "kind": "pull_out",
+          "keys": [
+            {
+              "at": 0.0,
+              "position": {
+                "x": 7500.0,
+                "y": -2927.0201305491537,
+                "z": 1700.0
+              },
+              "target": {
+                "x": 7500.0,
+                "y": 4500.0,
+                "z": 1800.0
+              },
+              "fov_deg": 50.0
+            },
+            {
+              "at": 1.0,
+              "position": {
+                "x": 11843.734761710633,
+                "y": -8022.050693473666,
+                "z": 3800.0
+              },
+              "target": {
+                "x": 6000.0,
+                "y": 8500.0,
+                "z": 2700.0
+              },
+              "fov_deg": 50.0
+            }
+          ],
+          "seconds": 4.5,
+          "ease": "in_out",
+          "light": {
+            "month": 4,
+            "day": 15,
+            "minutes": 1010,
+            "sky": "clear",
+            "exposure_ev": null,
+            "lamps": "auto"
+          },
+          "light_end": {
+            "month": 4,
+            "day": 15,
+            "minutes": 1080,
+            "sky": "clear",
+            "exposure_ev": null,
+            "lamps": "auto"
+          },
+          "transition": {
+            "kind": "dissolve",
+            "seconds": 1.5
+          }
+        }
+      ],
+      "fps": 30
+    }
+  ],
+  "roof": {
+    "kind": "none",
+    "pitch_deg": 20.0,
+    "overhang_mm": 600.0,
+    "thickness_mm": 150.0,
+    "ridge_axis": "x",
+    "material_id": "mat-roof-longspan"
+  },
+  "review": [],
+  "opening_types": [
+    {
+      "id": "80d1e61c-a5c3-4345-8ea7-1e0d21459fa4",
+      "mark": "D1",
+      "opening_type": "door",
+      "style": "swing_single",
+      "width_mm": 1000.0,
+      "height_mm": 2100.0,
+      "description": "Main door, solid wood panel, varnished",
+      "remarks": ""
+    },
+    {
+      "id": "e77e79b3-3a8d-4f93-a317-ec8125d56b36",
+      "mark": "D2",
+      "opening_type": "door",
+      "style": "swing_single",
+      "width_mm": 900.0,
+      "height_mm": 2100.0,
+      "description": "Panel door, painted",
+      "remarks": ""
+    },
+    {
+      "id": "fa15a569-26ea-4174-91f0-6148cf10dc6f",
+      "mark": "D3",
+      "opening_type": "door",
+      "style": "swing_single",
+      "width_mm": 800.0,
+      "height_mm": 2100.0,
+      "description": "Flush door, painted (bedrooms)",
+      "remarks": ""
+    },
+    {
+      "id": "381dc2d5-49ae-4953-8e4c-5bcc23f5339d",
+      "mark": "D4",
+      "opening_type": "door",
+      "style": "swing_single",
+      "width_mm": 700.0,
+      "height_mm": 2100.0,
+      "description": "PVC door (T&B)",
+      "remarks": ""
+    },
+    {
+      "id": "1ab0bebf-abb2-4e78-9a22-438c8a534d02",
+      "mark": "D5",
+      "opening_type": "door",
+      "style": "sliding",
+      "width_mm": 1800.0,
+      "height_mm": 2100.0,
+      "description": "Aluminum sliding glass door",
+      "remarks": ""
+    },
+    {
+      "id": "1b0c30fd-0798-4d39-a299-c0f62ac5ae0d",
+      "mark": "D6",
+      "opening_type": "door",
+      "style": "sliding",
+      "width_mm": 1200.0,
+      "height_mm": 2100.0,
+      "description": "Aluminum sliding glass door (balcony)",
+      "remarks": ""
+    },
+    {
+      "id": "109907a9-d8de-49d0-a571-9a9602f7c1c0",
+      "mark": "W1",
+      "opening_type": "window",
+      "style": "casement",
+      "width_mm": 1200.0,
+      "height_mm": 1200.0,
+      "sill_mm": 900.0,
+      "description": "Aluminum casement, clear glass",
+      "remarks": ""
+    },
+    {
+      "id": "147a1167-495d-4746-8f6f-125b64f9884f",
+      "mark": "W2",
+      "opening_type": "window",
+      "style": "jalousie",
+      "width_mm": 600.0,
+      "height_mm": 600.0,
+      "sill_mm": 1500.0,
+      "description": "Jalousie, frosted glass (T&B)",
+      "remarks": ""
+    },
+    {
+      "id": "22d7bae4-dd4d-494e-b69a-b51b9599d856",
+      "mark": "W3",
+      "opening_type": "window",
+      "style": "sliding",
+      "width_mm": 2000.0,
+      "height_mm": 1500.0,
+      "sill_mm": 700.0,
+      "description": "Aluminum sliding window, clear glass",
+      "remarks": ""
+    },
+    {
+      "id": "c81053ef-29e4-4494-afef-388f50bd15ec",
+      "mark": "W4",
+      "opening_type": "window",
+      "style": "fixed",
+      "width_mm": 3000.0,
+      "height_mm": 1500.0,
+      "sill_mm": 600.0,
+      "description": "Fixed glass, living void",
+      "remarks": ""
+    }
+  ],
+  "title_block": {
+    "project_title": "Proposed Two Storey Residence",
+    "lot_no": "12",
+    "block_no": "7",
+    "tct_no": "004-2026012345",
+    "firm_name": "Guhit Studio Sample Design Office",
+    "firm_address": "Quezon City, Metro Manila",
+    "firm_logo": null,
+    "signatory": {
+      "name": "Juan Dela Cruz (sample)",
+      "prc_no": "0012345",
+      "prc_valid_until": "",
+      "ptr_no": "",
+      "ptr_date": "",
+      "ptr_place": "",
+      "iapoa_no": "",
+      "iapoa_or_no": "",
+      "iapoa_date": "",
+      "tin": ""
+    }
+  },
+  "sheet_set": {
+    "sheets": [
+      {
+        "id": "1be2bccd-b772-417c-936e-d4fed7107512",
+        "number": "A-1",
+        "title": "Site Development Plan and Vicinity Map",
+        "paper": "a1",
+        "orientation": "landscape",
+        "viewports": [
+          {
+            "id": "f079ce09-ff01-4d54-aca9-b94ff4655d0b",
+            "view": {
+              "type": "site_plan"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          },
+          {
+            "id": "f67d984f-3b2f-4756-91df-3174d2c5a935",
+            "view": {
+              "type": "vicinity_map",
+              "file_name": null,
+              "radius_m": 500.0
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          }
+        ],
+        "revision_ids": [
+          "51b8f296-1192-45d9-9a16-9fab48fb72bc"
+        ]
+      },
+      {
+        "id": "681ddef9-b263-4913-946a-a39104e7f4ac",
+        "number": "A-2",
+        "title": "Ground Floor Plan",
+        "paper": "a1",
+        "orientation": "landscape",
+        "viewports": [
+          {
+            "id": "2f4c5de5-ead5-4949-a95a-962b02e49e2a",
+            "view": {
+              "type": "plan",
+              "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+              "sheet": "plan"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          }
+        ],
+        "revision_ids": [
+          "51b8f296-1192-45d9-9a16-9fab48fb72bc"
+        ]
+      },
+      {
+        "id": "70b2df09-f750-4726-a049-9b3af9d65e5d",
+        "number": "A-3",
+        "title": "Second Floor Plan",
+        "paper": "a1",
+        "orientation": "landscape",
+        "viewports": [
+          {
+            "id": "fc3d0371-4d2b-40eb-be23-6944ad376c64",
+            "view": {
+              "type": "plan",
+              "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+              "sheet": "plan"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          }
+        ],
+        "revision_ids": [
+          "51b8f296-1192-45d9-9a16-9fab48fb72bc"
+        ]
+      },
+      {
+        "id": "f9cc4b64-5509-4770-9159-3510a4712433",
+        "number": "A-4",
+        "title": "North and South Elevations",
+        "paper": "a1",
+        "orientation": "landscape",
+        "viewports": [
+          {
+            "id": "1da10154-ca64-4755-9c2a-f1ac98546044",
+            "view": {
+              "type": "elevation",
+              "mark_id": "f531d3e5-66f4-43b6-898d-0ea75a7bb589"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          },
+          {
+            "id": "e945f815-359a-4c8e-9d6d-7128c73df2f6",
+            "view": {
+              "type": "elevation",
+              "mark_id": "0b073bbb-cd63-43b7-a1ee-3e39c34cac2f"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          }
+        ],
+        "revision_ids": [
+          "51b8f296-1192-45d9-9a16-9fab48fb72bc"
+        ]
+      },
+      {
+        "id": "9c0ea612-4135-4fdd-bff8-18d790dc6900",
+        "number": "A-5",
+        "title": "East and West Elevations",
+        "paper": "a1",
+        "orientation": "landscape",
+        "viewports": [
+          {
+            "id": "cfdfe71f-2b18-4510-b430-c299434cf273",
+            "view": {
+              "type": "elevation",
+              "mark_id": "8aff4464-364f-4974-9f2c-4a8163cd845d"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          },
+          {
+            "id": "3041d2ca-3b3f-4e02-8a5e-211ee0addb95",
+            "view": {
+              "type": "elevation",
+              "mark_id": "13681aa1-52bd-409d-9142-7f45b0ae8cda"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          }
+        ],
+        "revision_ids": [
+          "51b8f296-1192-45d9-9a16-9fab48fb72bc"
+        ]
+      },
+      {
+        "id": "b81bee0d-5956-4662-98d7-1f263041aded",
+        "number": "A-6",
+        "title": "Sections A and B",
+        "paper": "a1",
+        "orientation": "landscape",
+        "viewports": [
+          {
+            "id": "92b7e568-6e6f-4079-a852-ad8c40c8c385",
+            "view": {
+              "type": "section",
+              "mark_id": "1277786e-3ea8-4371-949c-30810f9e49dc"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          },
+          {
+            "id": "65d4d3b3-0c93-402a-8978-ac8cc48e544c",
+            "view": {
+              "type": "section",
+              "mark_id": "e17781b0-d1b4-4044-a3c4-04f1c3d57f9b"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          }
+        ],
+        "revision_ids": [
+          "51b8f296-1192-45d9-9a16-9fab48fb72bc"
+        ]
+      },
+      {
+        "id": "32db8471-1eeb-4f2b-97ec-f5be2d52c68c",
+        "number": "A-7",
+        "title": "Roof Plan and Reflected Ceiling Plans",
+        "paper": "a1",
+        "orientation": "landscape",
+        "viewports": [
+          {
+            "id": "0dde6c36-65a7-44bb-b425-5e2f9e3aa43f",
+            "view": {
+              "type": "roof_plan"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          },
+          {
+            "id": "7755ccba-0318-4d3c-bcd9-aece16030654",
+            "view": {
+              "type": "plan",
+              "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+              "sheet": "reflected_ceiling"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          },
+          {
+            "id": "51e2daf6-644f-4944-be51-360b27513206",
+            "view": {
+              "type": "plan",
+              "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+              "sheet": "reflected_ceiling"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          }
+        ],
+        "revision_ids": [
+          "51b8f296-1192-45d9-9a16-9fab48fb72bc"
+        ]
+      },
+      {
+        "id": "92ade624-67d2-4d97-ae91-a20653ab3071",
+        "number": "A-8",
+        "title": "Schedules of Doors, Windows, Rooms, Finishes and Areas",
+        "paper": "a1",
+        "orientation": "landscape",
+        "viewports": [
+          {
+            "id": "b0673e2e-55af-45f1-a1b1-09bed20a75f3",
+            "view": {
+              "type": "schedule",
+              "schedule": "doors_windows"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          },
+          {
+            "id": "416c07bd-cbc9-430f-95d3-78710ed6e1aa",
+            "view": {
+              "type": "schedule",
+              "schedule": "rooms"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          },
+          {
+            "id": "e7b6a395-4140-463c-a603-0e561ea6f171",
+            "view": {
+              "type": "schedule",
+              "schedule": "finishes"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          },
+          {
+            "id": "50426ed3-bcd0-4cbb-b1f4-e06a76fe6815",
+            "view": {
+              "type": "schedule",
+              "schedule": "areas"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          }
+        ],
+        "revision_ids": [
+          "51b8f296-1192-45d9-9a16-9fab48fb72bc"
+        ]
+      },
+      {
+        "id": "72e58d1b-df6c-46ff-bab9-b22b1c0c3eb4",
+        "number": "P-1",
+        "title": "Plumbing Layout",
+        "paper": "a1",
+        "orientation": "landscape",
+        "viewports": [
+          {
+            "id": "4e8a9820-4898-48d5-97be-7a98a5074c49",
+            "view": {
+              "type": "plan",
+              "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+              "sheet": "plumbing"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          },
+          {
+            "id": "b5af1cb4-45e3-4e96-bd7c-6861de9e37d5",
+            "view": {
+              "type": "plan",
+              "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+              "sheet": "plumbing"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          }
+        ],
+        "revision_ids": [
+          "51b8f296-1192-45d9-9a16-9fab48fb72bc"
+        ]
+      },
+      {
+        "id": "1111b804-91b6-46ad-9250-b6b9a4053f4a",
+        "number": "P-2",
+        "title": "Plumbing Isometric Diagrams",
+        "paper": "a1",
+        "orientation": "landscape",
+        "viewports": [
+          {
+            "id": "8fd8e40d-b09a-4b58-8b73-767476615ce8",
+            "view": {
+              "type": "plan",
+              "level_id": "137c0786-d46f-41c1-96e1-ad5730d73744",
+              "sheet": "plumbing_isometric"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          },
+          {
+            "id": "c54c8f61-835d-4528-9f6d-c04806dbf82f",
+            "view": {
+              "type": "plan",
+              "level_id": "59f116c9-3b54-44e8-8306-13d23a005595",
+              "sheet": "plumbing_isometric"
+            },
+            "scale_denominator": null,
+            "position": null,
+            "title": null
+          }
+        ],
+        "revision_ids": [
+          "51b8f296-1192-45d9-9a16-9fab48fb72bc"
+        ]
+      }
+    ],
+    "revisions": [
+      {
+        "id": "51b8f296-1192-45d9-9a16-9fab48fb72bc",
+        "mark": "1",
+        "date": "2026-11-04",
+        "description": "Issued for building permit"
+      }
+    ]
+  }
+}

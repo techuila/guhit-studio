@@ -1,7 +1,7 @@
 // Tiny typed event bus for one-shot view requests that are not state.
 // CONTRACT FILE - owned by the orchestrator.
 
-import type { Camera, Point, Vec3 } from "../contract/bindings";
+import type { Camera, Point, Vec3, ViewRef } from "../contract/bindings";
 
 export interface BusEvents {
   /** Fit the whole model in the 2D and 3D views. */
@@ -29,6 +29,14 @@ export interface BusEvents {
    * moves (fits and focus from code, follow) or for hovering. Following
    * someone in a live session stops on it (DECISIONS D37). */
   user_view: { view: "plan" | "3d" };
+  /** Open the Sheets panel (shell/sheets/SheetsPanel.tsx), at this sheet, or
+   * at the whole set when null. */
+  open_sheets: { sheet_id: string | null };
+  /** Open the views viewer (shell/views/ViewsPanel.tsx) on one drawing: an
+   * elevation, a section, the roof or site plan, a schedule. */
+  open_view: { view: ViewRef };
+  /** Play a tour in the 3D view (viewer3d/tour/player.ts), from its first shot. */
+  play_tour: { tour_id: string };
 }
 
 type Handler<K extends keyof BusEvents> = (payload: BusEvents[K]) => void;

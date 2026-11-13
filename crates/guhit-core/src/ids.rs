@@ -9,6 +9,11 @@
 //! before that leaf runs. A `Batch` never takes part in the seed, so the ids
 //! made by `Batch[a, b]` for `a` are the ids made by `Batch[a]` and by `a`
 //! alone. The AI copilot relies on this while it stages a batch step by step.
+//!
+//! Besides elements, materials and levels, the ids of door and window
+//! types, sheets, viewports, revisions and tour shots are hashed and
+//! reserved (P0-5): two identical commands that each make one of them get
+//! two different ids.
 
 use std::collections::BTreeSet;
 
@@ -52,6 +57,29 @@ impl IdGen {
         }
         for l in &project.levels {
             used.insert(l.id.clone());
+        }
+        let mut other = |id: &Id| {
+            fnv1a(&mut hash, id.as_bytes());
+            used.insert(id.clone());
+        };
+        for t in &project.opening_types {
+            other(&t.id);
+        }
+        for s in &project.sheet_set.sheets {
+            other(&s.id);
+            for vp in &s.viewports {
+                other(&vp.id);
+            }
+        }
+        for r in &project.sheet_set.revisions {
+            other(&r.id);
+        }
+        for el in &project.elements {
+            if let Element::Tour(t) = el {
+                for s in &t.shots {
+                    other(&s.id);
+                }
+            }
         }
         let json = serde_json::to_string(command).unwrap_or_default();
         fnv1a(&mut hash, json.as_bytes());

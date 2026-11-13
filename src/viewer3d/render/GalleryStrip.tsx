@@ -6,7 +6,8 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { RenderRecord } from "../../contract/bindings";
 import { flip, play } from "../../ui/motionWaapi";
 import { clockLabel, dateLabel } from "../light/sun";
-import { kindLabel } from "./renderMeta";
+import { driftState } from "./aiRender";
+import { kindLabel, videoLabel } from "./renderMeta";
 import { formatResolution, groupRenders, type RenderGroup } from "./renderStore";
 import s from "./render.module.css";
 
@@ -26,6 +27,8 @@ export interface GalleryStripProps {
   revision: number;
   onPick: (record: RenderRecord) => void;
   onDelete: (record: RenderRecord) => void;
+  /** Plays a tour video in the system player. */
+  onOpenVideo?: (record: RenderRecord) => void;
   /** Set by the panel so the delete collapse can find the card. */
   listRef?: React.RefObject<HTMLUListElement | null>;
   size?: "dock" | "full";
@@ -39,6 +42,7 @@ export function GalleryStrip({
   revision,
   onPick,
   onDelete,
+  onOpenVideo,
   listRef,
   size = "dock",
 }: GalleryStripProps) {
@@ -119,8 +123,34 @@ export function GalleryStrip({
                     <span className={s.cardTime} title={`Saved ${timeLabel(r.created_at)}`} data-testid="card-light">
                       {light ? `${clockLabel(light.minutes)}, ${dateLabel(light.month, light.day)}` : timeLabel(r.created_at)}
                     </span>
-                    {size ? <span className={s.cardTime}>{size}</span> : null}
+                    {size && !r.video ? <span className={s.cardTime}>{size}</span> : null}
+                    {r.video ? (
+                      <span className={s.cardPills}>
+                        <span className={s.cardPill} data-tone="video" data-testid="card-video">
+                          {videoLabel(r.video)}
+                        </span>
+                        {onOpenVideo ? (
+                          <button type="button" className={s.linkBtn} onClick={() => onOpenVideo(r)} data-testid="card-open-video">
+                            {r.video.codec === "png" ? "Show frames" : "Open"}
+                          </button>
+                        ) : null}
+                      </span>
+                    ) : null}
                     {stale ? <span className={s.cardStale}>Model changed</span> : null}
+                    {r.look || driftState(r) === "drift" ? (
+                      <span className={s.cardPills}>
+                        {r.look ? (
+                          <span className={s.cardPill} data-testid="card-look" title="The project look: later AI renders follow it">
+                            Look
+                          </span>
+                        ) : null}
+                        {driftState(r) === "drift" ? (
+                          <span className={s.cardPill} data-tone="drift" data-testid="card-drift" title={r.drift?.note}>
+                            May not match
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null}
                   </div>
                   <button
                     type="button"

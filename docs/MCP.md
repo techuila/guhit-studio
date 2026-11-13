@@ -434,7 +434,7 @@ deliberate choice, not a missing setting.
   setting: Claude Code permissions, Codex `default_tools_approval_mode`,
   Gemini CLI trust, Kiro `autoApprove`, Cline `autoApprove`, Copilot CLI
   `--allow-tool`.
-- Guhit lists 22 core tools, 33 with every toolset on (see "Toolsets"
+- Guhit lists 26 core tools, 45 with every toolset on (see "Toolsets"
   under "The tools"). Cursor warns above about 40 tools in total and Windsurf
   (Devin Desktop) allows 100 across all servers, so add only the toolsets you
   need. Small local models do best with the core list and a 32k context.
@@ -476,8 +476,9 @@ cargo run -p guhit-mcp --bin guhit-mcp-stdio -- --port 1631
 
 ## The tools
 
-MCP v2 (DECISIONS D42): a core toolset of 22 workflow tools that drafts and
-checks a whole house, plus five opt-in toolsets. Every length in every
+MCP v2 (DECISIONS D42): a core toolset of 26 workflow tools that drafts and
+checks a whole house, its PH permit drawings included (D53, D54), plus seven
+opt-in toolsets. Every length in every
 argument and every result is millimeters. Areas come back in square metres.
 The plan is +x east, +y north; angles are degrees, counter-clockwise.
 
@@ -487,20 +488,24 @@ The plan is +x east, +y north; angles are degrees, counter-clockwise.
 |---|---|
 | `project` | `action` list, open (`id`), create (`name`, `template` blank, sample-bungalow or plumbing-demo), close, save_version (`label`). In a live session open, create and close need `force` after the user confirms |
 | `get_guide` | `topic` conventions, workflows (drafting and the verify loop), ph_defaults or catalog, the same text as the doc resources |
-| `query` | `what` summary, levels, rooms, elements (`kind`, `level`, `ids`), describe (`ids`), selection, schedule, takeoff, catalog (`search`), materials, history. Compact rows by default; `format` full or `fields` for more; `page`, `page_size` |
-| `look` | `mode` plan: the level drawn by the engine with no window, `show` dims (wall lengths), ids (short ids mapped to full ids in the result), grid, scale_bar, labels, furniture; `bbox` crops; `overlay` underlay; the result maps pixels to mm. `source` window uses the app's canvas. `mode` 3d: the 3D view or a saved `view`, through the window (D31). section and elevation answer `unavailable` |
-| `measure` | `kind` distance (points or ids), clear_width (two parallel walls face to face, a room, a door), height (levels, walls, openings, stairs with riser and tread), area (rooms, slabs, a polygon), clearance (the gap between two outlines) |
+| `query` | `what` summary, levels, rooms, elements (`kind`, `level`, `ids`; kinds include roof, grid, view_mark, lot, tour), describe (`ids`), selection, schedules (the door and window schedule by mark, room and finish rows, areas per level, from the engine), schedule (device counts), site (the lot: area, bearings, setbacks, coverage), takeoff, catalog (`search`, `usage`), placements (free spots for a `catalog_key` in a `room`), tour (the camera at every frame, paged), materials, history. Compact rows by default; `format` full or `fields` for more; `page`, `page_size` |
+| `look` | `mode` plan: the level drawn by the engine with no window, `show` dims (wall lengths), ids (short ids mapped to full ids in the result), grid, scale_bar, labels, furniture; `bbox` crops; `overlay` underlay; the result maps pixels to mm. `source` window uses the app's canvas. `mode` elevation and section: the drawing of a `mark` (id or label), hidden lines removed, `scale`. `mode` sheet: a permit `sheet` (A-1 or id) with the license numbers masked. `mode` schedule: doors_windows, rooms, finishes or areas, drawn and as rows. `mode` 3d: the 3D view or a saved `view` from that view's own camera, through the window (D31); the result's `camera` says whether the picture came from it. `mode` tour: a `tour` frame at `at_s`, through the window. Drawings are rasterized here with resvg, no window needed |
+| `measure` | `kind` distance (points or ids), clear_width (two parallel walls face to face, a room, a door), height (levels, walls, openings, stairs with riser, tread and the treads of each flight), area (rooms: net and floor area; slabs, a polygon), clearance (the gap between two outlines; a stair's are its flights and landings) |
 | `check` | The review items with code, element_ids, location_mm and status; `since_revision` lists what was added and resolved since then; `ids`, `codes`, `level` filter; rooms with no outside window; storeys that overlap |
 | `build` | A declarative spec of `levels`, `walls`, `rooms`, `columns`, `slabs`, `stairs`, `openings`, `assets` and `cameras`, applied in that order as ONE undo step, each entry with the arguments of its tool and an optional `ref`; `dry_run`; `replace_level`. Returns every ref's id |
 | `batch` | Steps `{tool, args, ref}` of any editing tool, v2 or v1, as one undo step; `"$ref"` names an earlier step's element (`"$ref.2"` its third); `dry_run` |
 | `add_walls` | Walls through `points` (`closed`), `thickness_mm`, `height_mm` (a double-height room), `role` building or site, `material_id`, `level` |
 | `add_room` | A named room from `rect` (south-west corner, centerlines) or `polygon`, `usage`, `floor_material_id`; draws its walls unless `walls` is false, sharing any side an existing wall covers |
 | `add_opening` | A door or window by `at` {x, y} (the engine finds the wall and offset) or `wall_id` and `offset_mm`; `style` swing_single, swing_double, sliding, fixed, casement, jalousie; `swing_into` a room |
-| `add_stair` | A straight flight from `start` up `direction_deg`, rising its level's height to `to_level`; risers about 175 mm and treads 250 mm by default; a 900 mm handrail unless `railing` is false. The result gives riser height and tread depth |
+| `add_stair` | A flight from `start` up `direction_deg`, rising its level's height to `to_level`: `shape` straight, or l or u with a landing (`turn` left or right, `first_flight_risers`, `landing_mm`, u: `well_mm`; at least 4 risers, n - 2 treads); risers about 175 mm and treads 250 mm by default; a 900 mm handrail unless `railing` is false. The result gives riser height, tread depth and the flights |
 | `add_column` | Columns at `at` or `points`, rect or round, `to_level` repeats them up the storeys |
 | `add_slab` | `slab_kind` floor, balcony (1000 mm bars by default), deck or void (the space below is double height) from `polygon` or `rect`, with `railing` (D50) |
 | `place_asset` | A library item by `catalog_key` at `at`; an unknown key answers with the nearest keys; wall items snap to a wall face unless `snap` is false |
-| `modify` | `move` {dx_mm, dy_mm} with `stretch_connected`, `rotate_deg` about `pivot`, `set` fields per kind (room name and usage, opening size and style, wall height and thickness, stair, slab and object fields, materials) |
+| `add_grid` | Grid lines on every level: a system (`x_spacings_mm` for lines 1, 2, 3 going east, `y_spacings_mm` for A, B, C going north, from `origin`, `rotation_deg`) or single `lines` {label, start, end} |
+| `annotate` | `kind` string: a dimension string through `points`, or through the jambs of `walls`' openings (`face`; without `offset_mm` the line goes on that face's side, outside the building for exterior), or between `grids`, `offset_mm`; the result's `parts_mm` and `overall_mm` are what was stored; strings on walls and grids follow the model. auto: the engine's exterior strings (overall, walls and grids, openings) or rooms' inside strings (`kinds`), rewritten after every edit. note: `text` at `at` |
+| `add_roof` | The roof over the top floor (`outline` top_footprint: changes that roof), over a level's walls (footprint) or a drawn area (`points`: a carport, a lanai); `shape` flat, shed, gable or hip, `pitch_deg`, `ridge_axis`, `gable_sides`, overhang, fascia, gutter; `posts` puts columns under open eaves. A shed rises along `ridge_axis` toward east (+x) or north (+y); `flip` true makes it rise toward west or south, so a lanai north or east of the house slopes away from it. Pitched roofs need square corners |
+| `types` | Door and window types with marks (D1, W1, D53): `action` list, set (a new type, or `type` to change one: every opening of it follows in the same step), delete, assign (every untyped opening gets a type), apply (`type` to `openings`, null untypes them). `add_opening` and `modify` take `type` too |
+| `modify` | `move` {dx_mm, dy_mm} with `stretch_connected`, `rotate_deg` about `pivot`, `set` fields per kind (room name, usage, ceiling height and finishes; opening size, style and type; wall height and thickness; stair shape and turn; roof shape, pitch, `ridge_axis`, a shed's `flip` and trims; grid and mark labels; slab and object fields; materials) |
 | `reshape` | `op` resize_room, set_wall_length, set_wall_endpoints, split_wall |
 | `delete` | Elements by id; a wall takes its openings with it |
 | `levels` | `action` list, add, update (the ground floor's height too), delete; warns when a storey's height runs past the floor above |
@@ -518,13 +523,16 @@ The extended toolsets are opt in:
 | Toolset | Tools |
 |---|---|
 | `services` | `edit_pipe` (`op` move_points, segment_length, slope, insert_point, remove_point), `add_pipe` (coordination only, D19), `link_devices` (a switch to its lights) |
-| `visuals` | `render` (`action` start, status, image, list; each saved view from its own camera; a window still rendering answers `window_busy` with when to try again), `visualize_render` (AI visualization, costs the user money) |
+| `visuals` | `render` (`action` start, status, image, list; each saved view from its own camera; status without a job says what the window's render queue is doing; a window still rendering answers `window_busy` with what it is doing and when to try again), `visualize_render` (AI visualization, costs the user money: the result gives the price, agents get 20 images per project per day by default, `style_reference_id`, `use_maps`, the drift check), `set_look` (a saved visual becomes the project look AI renders follow) |
 | `live` | `get_session` (the agents and the project chat, with or without a live session), `send_chat_message` (as the agent, at most 6 a minute), `set_status` (a status line, `claim` {levels, ids} and `release`) |
 | `review` | `set_review_mark` (set a review item aside with a note, never approve it) |
 | `interop` | `import_underlay` (the user's plan image under a level at a scale from a known dimension), `import_dxf` (`action` inspect, commit) |
+| `documents` | `title_block` (`action` get: the fields, owner and location from the settings, the signing architect masked; set: project title, lot, block, TCT, firm. Only people set the architect's name and license numbers, D53), `sheets` (`action` make the permit set, list, preview, revise, export one PDF, delete, vicinity: the vicinity map image on the sheets that frame one, from `image`, a PNG or JPEG data URL stored in the project's files, or `file_name`, with `radius_m`), `view_marks` (section and elevation marks: add, list, delete), `set_lot` (from the TCT technical description as written, or `legs`; the summary states the misclosure; `sides` with roles and drawn setbacks) |
+| `tours` | `make_tour` (fly in, orbit, the front door, the rooms in door order, up the stairs, day to dusk), `edit_tour` (name, fps, each shot's seconds, ease and transition, remove, order), `export_tour` (the video into Visuals, rendered in the window: a job id when it takes longer than `wait_seconds`; call again with `job_id`) |
 
-With every toolset on the list is 33 tools, under Cursor's warning at 40. The
-core list is about 36 KB of definitions; every description is under 1 KB.
+With every toolset on the list is 45 tools, above Cursor's warning at 40:
+turn on only the toolsets you need. The core list is under 44 KB of
+definitions; every description is under 1 KB.
 
 How a client turns them on, the first that applies:
 
@@ -544,16 +552,19 @@ listed still works, so a guide that names `render` never strands an agent.
 Every edit result has `ok`, `revision`, `base_revision`, `summary`,
 `undo_label`, `created`, `changed` and `deleted` (id, kind, label; lists past
 100 are counted), `issues_added` and `issues_resolved` since the base
-revision, `also_moved` (walls it reshaped that the call did not name),
+revision, what it did besides elements (`types_added`, `types_changed`,
+`types_removed`, `sheets_added`, `sheets_changed`, `sheets_removed`,
+`revisions`, `title_block_changed`, never the signatory), `also_moved` (walls it reshaped that the call did not name),
 `totals`, and where they apply `id` (what one call made), `refs`, `steps`,
 `details` (a stair's riser and tread, an opening's wall and offset),
 `warnings` (storeys that overlap), `scope` and `agent`.
 
 Every failure is a tool error (`isError`) whose structured content is
 `{code, message, element_ids, location_mm, step, ref, hint}`. `code` is the
-engine's own (`opening_overlap`, `stretch_turns_wall`) or an IPC code
-(`not_found`, `stale`, `out_of_scope`, `live_session`, `agent_paused`);
-`hint` names the tool and argument that fixes it. A failing `build` or
+engine's own (`opening_overlap`, `stretch_turns_wall`, `roof_outline`) or an
+IPC code (`not_found`, `stale`, `out_of_scope`, `live_session`,
+`agent_paused`, `forbidden`, `not_built`); `hint` names the tool and argument
+that fixes it, and every failure has one. A failing `build` or
 `batch` step names its step, its list entry (`openings[2]`) and its ref, and
 nothing is applied. An unknown tool answers with the nearest name.
 
@@ -604,10 +615,13 @@ Each result says what the picture shows.
 Each call sets the agent's status line from the tool ("Drawing walls",
 "Placing doors", "Looking at the plan", "Checking the model") unless the agent
 wrote its own with `set_status` in the last minute. The user pauses, stops or
-limits agents in the Agents panel: a paused agent's reads still work and its
-edits answer `agent_paused`; a stopped agent's every call answers
-`agent_stopped`. An agent undoes only its own steps (`history`), and its
-edits are checked against its limit and other agents' claims. In-process
+limits agents in the Agents panel: a paused agent's reads still work, and its
+edits and the calls that spend money or run long (`visualize_render`,
+`render` start, `export_tour`) answer `agent_paused`; a stopped agent's every
+call answers `agent_stopped`. An agent undoes only its own steps (`history`),
+never a step that changed the signing architect, even with `force`
+(`forbidden`), and its edits are checked against its limit and other agents'
+claims. In-process
 callers (tests) pass no hint and commit as before.
 
 ### Resources and prompts
@@ -673,7 +687,12 @@ selection binds every edit whatever the call says (D30). Project-wide tools
 
 Views and renders run in the window (D31). Save views as `build` cameras
 (name, position, target {x, y, z}, z above the level floor). `look` mode 3d
-captures one into Visuals; `render` action start path traces views and hands
+captures one into Visuals, handing the window that view's camera as the
+engine holds it, and the result's `camera` says whether the picture came from
+it (`matches_view`, `off_by_mm`, G4 problem 7). The window reports its render
+queue as it goes (`window_status`: which view of how many, how far, how long
+is left), so `render` action status and a busy refusal say what it is doing
+(G4 problem 8); `render` action start path traces views and hands
 back a job id when it takes longer than `wait_seconds`; `visualize_render`
 makes an AI visualization from a saved view with the user's own key, only
 when they ask, labelled "AI visualization", never changing the model.

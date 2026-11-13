@@ -8,6 +8,7 @@ import { formatLength } from "../ui/units";
 import type { DisplayUnit } from "../contract/bindings";
 import { DOOR_STYLES, SLAB_KINDS, TOOLS, WINDOW_STYLES, activateTool, type ToolDef } from "./actions";
 import { DEVICE_LABEL, hpLabel, mountRef, mountingHeight } from "./devices";
+import { StairToolOptions } from "../editor2d/StairToolOptions";
 import { PipeOptions } from "./PipeOptions";
 import { useShell } from "./shellStore";
 import s from "./chrome.module.css";
@@ -23,10 +24,11 @@ const CATEGORY_LABEL: Record<AssetCategory, string> = {
   electrical: "Electrical",
   aircon: "Aircon",
   utility: "Utility",
+  site: "Site",
 };
 
 /** Library order: rooms first, then the services, then the site. */
-const CATEGORY_ORDER: AssetCategory[] = ["furniture", "sanitary", "kitchen", "appliance", "lighting", "electrical", "aircon", "utility", "plant", "vehicle"];
+const CATEGORY_ORDER: AssetCategory[] = ["furniture", "sanitary", "kitchen", "appliance", "lighting", "electrical", "aircon", "utility", "plant", "vehicle", "site"];
 
 /** Words a search matches besides the name: the category, the device row, the key ("spo", "hp"). */
 function searchText(item: CatalogItem): string {
@@ -205,6 +207,8 @@ function Flyout({ tool, onClose, stage }: { tool: ToolDef; onClose: () => void; 
           ))}
         </>
       ) : null}
+
+      {tool.flyout === "stair" ? <StairToolOptions onPicked={onClose} /> : null}
 
       {tool.flyout === "pipe" ? <PipeOptions /> : null}
 

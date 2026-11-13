@@ -297,6 +297,7 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
             style: None,
             flip_side: if rng.chance(30) { Some(true) } else { None },
             flip_hinge: if rng.chance(30) { Some(true) } else { None },
+            type_id: None,
         },
         11 | 12 => Command::ResizeRoom {
             room_id: some_room,
@@ -319,6 +320,7 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
                 light: None,
                 links: vec![],
                 circuit: String::new(),
+                built_in: None,
             }),
         },
         14 => {
@@ -389,6 +391,8 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
                 b: snapped(rng),
                 offset_mm: (rng.below(9) as f64 - 4.0) * 300.0,
                 text_override: None,
+                through: vec![],
+                auto: None,
             }),
         },
         22 => Command::SetLayer {
@@ -461,6 +465,7 @@ fn random_command(rng: &mut Lcg, project: &Project) -> Command {
                     } else {
                         String::new()
                     },
+                    built_in: None,
                 }),
             }
         }

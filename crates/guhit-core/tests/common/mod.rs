@@ -58,6 +58,7 @@ pub fn opening(wall_id: &str, ty: OpeningType, offset: f64) -> Command {
         style: None,
         flip_side: None,
         flip_hinge: None,
+        type_id: None,
     }
 }
 
@@ -561,6 +562,7 @@ pub fn is_located(code: &str) -> bool {
     matches!(
         code,
         "pipe_through_column"
+            | "tour_through_wall"
             | "pipe_across_opening"
             | "pipes_cross"
             | "drain_slope_low"

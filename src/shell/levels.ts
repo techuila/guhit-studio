@@ -2,6 +2,7 @@
 // the AddLevel and DeleteLevel commands (docs/CONTRACT.md, "Levels"). Pure,
 // no React.
 import type { Command, Element, Level } from "../contract/bindings";
+import { elementLevel } from "../contract/elements";
 
 /** AddLevel with nulls stacks a new level on the highest one. */
 export type AddLevelCommand = Extract<Command, { type: "add_level" }>;
@@ -15,14 +16,17 @@ export function deleteLevelCommand(levelId: string): DeleteLevelCommand {
   return { type: "delete_level", level_id: levelId };
 }
 
-/** The level an element stands on: openings follow their wall; cameras stand on none. */
+/**
+ * The level an element stands on: openings follow their wall; views, grid
+ * lines, the lot and the roof over the top floor stand on none
+ * (`elementLevel`), so deleting a level never takes them.
+ */
 export function levelOfElement(el: Element, byId: Map<string, Element>): string | null {
   if (el.kind === "opening") {
     const host = byId.get(el.wall_id);
     return host && host.kind === "wall" ? host.level_id : null;
   }
-  if (el.kind === "camera") return null;
-  return el.level_id;
+  return elementLevel(el);
 }
 
 /** How many elements go with a level when it is deleted. */

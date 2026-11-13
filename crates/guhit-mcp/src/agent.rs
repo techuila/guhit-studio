@@ -129,17 +129,17 @@ pub fn take_argument(args: &mut Value) -> Option<String> {
 pub fn argument_schema() -> Value {
     json!({
         "type": "string",
-        "description": "Optional: a short handle for you, the same on every call, for example \"kitchen\". Subagents sharing one connection each give their own.",
+        "description": "Optional handle, the same on every call (\"kitchen\"); each subagent on one connection gives its own.",
     })
 }
 
 /// Start a call: the registry resolves the agent and refuses a stopped one,
-/// or a paused one's edit. In-process calls pass straight through.
-pub(crate) fn admit(app: &AppService, ctx: &mut CallContext, tool: &str, args: &Value, reads: bool) -> Result<(), ToolFail> {
+/// or a paused one's edit or paid work (`tools::call_kind`). In-process
+/// calls pass straight through.
+pub(crate) fn admit(app: &AppService, ctx: &mut CallContext, tool: &str, args: &Value, kind: CallKind) -> Result<(), ToolFail> {
     let Some(hint) = &ctx.hint else {
         return Ok(());
     };
-    let kind = if reads { CallKind::Read } else { CallKind::Edit };
     let call = app.agent_call(hint, tool, kind)?;
     // The status line follows the tool, unless the agent wrote its own
     // with `set_status` in the last minute.

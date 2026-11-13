@@ -2,11 +2,19 @@
 //! Depends on `guhit-model` only, never on `guhit-core`.
 //!
 //! PUBLIC API IS CONTRACT: `guhit-app` calls `plan_svg`, `plan_pdf`,
-//! `plan_dxf`, `model_ifc` and `model_dxf3d`.
+//! `plan_dxf`, `model_ifc` and `model_dxf3d`, and for the Wave 2 sheet set
+//! (plan 1.6) `view_svg`, `sheet_svg`, `sheets_pdf` and `sheets_dxf`.
+//!
+//! HUB (DECISIONS D54): after C0 only the orchestrator edits this file.
+//! Wave 2 owners: `views/` L3; `sheetset`, `titleblock`, `tables` L4;
+//! `roofs`, `stairs` and `model3d` L2; `dxf` (plans and `sheets_dxf`),
+//! `dxf3d`, `ifc` L8.
 //!
 //! How it fits together: `plan` turns one level into drawing primitives in
 //! model millimeters. `sheet` lays them out on paper as SVG, `pdf` converts
-//! that SVG to a vector PDF, `dxf` writes the same primitives as 1:1 DXF.
+//! that SVG to a vector PDF, `dxf` writes the same primitives as 1:1 DXF
+//! 2013. `views` draws every other view (elevations, sections, roof, site,
+//! ceiling) as the same primitives.
 //!
 //! The whole-model exports go the other way: `model3d` turns the project into
 //! solids in model millimeters, `ifc` writes them as IFC4 STEP and `dxf3d` as
@@ -17,7 +25,9 @@
 //! in 3D and IfcPipeSegments grouped into IfcDistributionSystems in IFC.
 //! A project without pipes exports exactly as it did before pipes existed.
 
-use guhit_model::{Derived, PlanExportOptions, Project, SheetKind};
+use std::collections::BTreeMap;
+
+use guhit_model::{Derived, Id, PlanExportOptions, Project, SheetKind, ViewRef};
 
 pub mod dxf;
 pub mod dxf3d;
@@ -30,10 +40,17 @@ pub mod pdf;
 pub mod pipes;
 pub mod plan;
 pub mod review;
+pub mod roofs;
 pub(crate) mod service_sheet;
 pub mod services;
 pub mod sheet;
+pub mod sheetset;
+pub mod stairs;
+pub mod symbols;
+pub mod tables;
 pub mod text;
+pub mod titleblock;
+pub mod views;
 
 pub use sheet::{paper_size_mm, pick_scale, COMMON_SCALES};
 
@@ -43,6 +60,50 @@ pub enum ExportError {
     Empty(String),
     #[error("export failed: {0}")]
     Failed(String),
+    /// A Wave 2 drawing whose lane has not built it yet.
+    #[error("{0} is not built yet.")]
+    NotBuilt(String),
+}
+
+/// What sheets and views need besides the model (plan 1.6).
+#[derive(Debug, Clone, Default)]
+pub struct SheetInputs {
+    /// The title block DATE, "YYYY-MM-DD". None: the day the project last
+    /// changed, in UTC.
+    pub date: Option<String>,
+    /// Image bytes by file name or render id: the firm logo, the vicinity
+    /// map, perspectives.
+    pub images: BTreeMap<String, Vec<u8>>,
+    /// Print `Signatory::masked()`: for agents' pictures and anything sent
+    /// to an AI provider (DECISIONS D53). The PDF on disk prints in full.
+    pub mask_signatory: bool,
+}
+
+/// One view alone as SVG at 1:`scale` (None: the largest common scale that
+/// fits). Lane L3.
+pub fn view_svg(
+    p: &Project,
+    d: &Derived,
+    view: &ViewRef,
+    scale: Option<u32>,
+    i: &SheetInputs,
+) -> Result<PlanOutput<String>, ExportError> {
+    views::view_svg(p, d, view, scale, i)
+}
+
+/// One sheet of the set as SVG at true paper size. Lane L4.
+pub fn sheet_svg(p: &Project, d: &Derived, sheet_id: &str, i: &SheetInputs) -> Result<String, ExportError> {
+    sheetset::sheet_svg(p, d, sheet_id, i)
+}
+
+/// The sheets `ids` (empty: every sheet, in set order) as one PDF. Lane L4.
+pub fn sheets_pdf(p: &Project, d: &Derived, ids: &[Id], i: &SheetInputs) -> Result<Vec<u8>, ExportError> {
+    sheetset::sheets_pdf(p, d, ids, i)
+}
+
+/// The sheets' views side by side in model space. Lane L3.
+pub fn sheets_dxf(p: &Project, d: &Derived, ids: &[Id]) -> Result<String, ExportError> {
+    dxf::sheets(p, d, ids)
 }
 
 /// Output of a plan export.
@@ -74,6 +135,7 @@ fn render_sheet(
     match opts.sheet {
         SheetKind::Plan => sheet::render(project, derived, opts),
         SheetKind::PlumbingIsometric => iso::render(project, derived, opts),
+        SheetKind::ReflectedCeiling => views::rcp::sheet(project, derived, opts),
         _ => service_sheet::render(project, derived, opts),
     }
 }
@@ -98,8 +160,9 @@ pub fn plan_pdf(
     })
 }
 
-/// Model-space DXF in mm, 1:1, layered by element category, pipes on one
-/// layer per system when `opts.show_pipes`.
+/// Model-space DXF 2013 (AC1027) in mm, 1:1: blocks per door and window type
+/// and catalog item, DIMENSION entities, solid hatches, pipes on one layer per
+/// system when `opts.show_pipes`.
 ///
 /// Paper and title block options do not apply to model space. The scale only
 /// sizes text, ticks, arrows, riser marks and pipe dashes so they plot at the
@@ -111,47 +174,20 @@ pub fn plan_dxf(
     opts: &PlanExportOptions,
 ) -> Result<PlanOutput<String>, ExportError> {
     match opts.sheet {
-        SheetKind::Plan => {}
+        SheetKind::Plan => dxf::plan(project, derived, opts),
         SheetKind::PlumbingIsometric => {
             let (data, scale_denominator) = iso::dxf(project, opts)?;
-            return Ok(PlanOutput { data, scale_denominator });
+            Ok(PlanOutput { data, scale_denominator })
+        }
+        SheetKind::ReflectedCeiling => {
+            let (data, scale_denominator) = views::rcp::dxf(project, derived, opts)?;
+            Ok(PlanOutput { data, scale_denominator })
         }
         _ => {
             let (data, scale_denominator) = service_sheet::dxf(project, derived, opts)?;
-            return Ok(PlanOutput { data, scale_denominator });
+            Ok(PlanOutput { data, scale_denominator })
         }
     }
-    let level = plan::resolve_level(project, opts.level_id.as_ref())?;
-    let scale = opts
-        .scale_denominator
-        .filter(|n| *n > 0)
-        .or(Some(project.settings.scale_denominator).filter(|n| *n > 0))
-        .unwrap_or(100);
-    let items = plan::build_items(
-        project,
-        derived,
-        level,
-        &plan::PlanOptions {
-            scale: scale as f64,
-            show_dimensions: opts.show_dimensions,
-            show_room_labels: opts.show_room_labels,
-            show_assets: opts.show_assets,
-            unicode: false,
-            skip_devices: false,
-        },
-    );
-    let pipe_list = if opts.show_pipes {
-        pipes::plan_pipes(project, level)
-    } else {
-        Vec::new()
-    };
-    if items.is_empty() && pipe_list.is_empty() {
-        return Err(plan::empty_level(level));
-    }
-    Ok(PlanOutput {
-        data: dxf::write(&items, &pipe_list, scale),
-        scale_denominator: scale,
-    })
 }
 
 /// The whole model as an IFC4 STEP file (ISO-10303-21), millimeters.

@@ -22,7 +22,8 @@ export function ConnectButton({ variant = "default", tipSide = "bottom" }: { var
       onClick={() => useConnect.getState().openDialog()}
     >
       <i className={cx(s.dot, s[`dot_${dot}`])} aria-hidden />
-      Connect agent
+      {/* The top bar folds the words away when it runs out of room. */}
+      <span data-fold-label>Connect agent</span>
     </Button>
   );
 }

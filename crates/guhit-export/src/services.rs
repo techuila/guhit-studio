@@ -1216,6 +1216,7 @@ mod tests {
                 light: item.light,
                 links: vec![],
                 circuit: String::new(),
+                built_in: None,
             };
             match item.device {
                 Some(kind) => {
@@ -1280,6 +1281,7 @@ mod tests {
                 light: None,
                 links: links.iter().map(|s| s.to_string()).collect(),
                 circuit: String::new(),
+                built_in: None,
             })
         };
         p.elements = vec![
@@ -1311,6 +1313,7 @@ mod tests {
                 light: None,
                 links: vec![],
                 circuit: circuit.into(),
+                built_in: None,
             })
         };
         p.elements = vec![

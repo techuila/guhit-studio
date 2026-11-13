@@ -13,4 +13,12 @@ prompt: string, quality: RenderQuality,
 /**
  * True keeps geometry, camera and composition strictly (the default).
  */
-keep_geometry: boolean, };
+keep_geometry: boolean, 
+/**
+ * Send the capture's conditioning maps too. Left out: yes.
+ */
+use_maps?: boolean, 
+/**
+ * The style reference image, a render id. None: the project look.
+ */
+style_reference_id?: string | null, };

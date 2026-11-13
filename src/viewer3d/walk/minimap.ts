@@ -25,6 +25,10 @@ export interface MinimapStair {
   treads: [Pt, Pt][];
   /** Foot to head, along the middle of the flight. */
   arrow: [Pt, Pt];
+  /** An L or U: every flight and landing, drawn instead of `outline`. */
+  pieces?: Pt[][];
+  /** An L or U: the walking line round the turn, which the arrow follows. */
+  path?: Pt[];
   /** True on the level the flight starts from: the arrow points up it. */
   up: boolean;
 }
@@ -209,15 +213,19 @@ export class Minimap {
     for (const st of scene.stairs ?? []) {
       ctx.strokeStyle = ink3;
       ctx.lineWidth = 1 * dpr;
-      poly(st.outline);
-      ctx.stroke();
+      for (const piece of st.pieces ?? [st.outline]) {
+        poly(piece);
+        ctx.stroke();
+      }
       ctx.globalAlpha = 0.55;
       for (const [a, b] of st.treads) line(a, b);
       ctx.globalAlpha = 1;
-      const [from, to] = st.up ? st.arrow : [st.arrow[1], st.arrow[0]];
+      // Up the walking line round an L or U's turn (down on the level at its top).
+      const route = st.path && st.path.length >= 2 ? (st.up ? st.path : [...st.path].reverse()) : st.up ? st.arrow : [st.arrow[1], st.arrow[0]];
+      const [from, to] = [route[route.length - 2], route[route.length - 1]];
       ctx.strokeStyle = ink;
       ctx.lineWidth = 1.3 * dpr;
-      line(from, to);
+      for (let i = 0; i + 1 < route.length; i++) line(route[i], route[i + 1]);
       const [fx, fy] = this.toCanvas(from);
       const [tx, ty] = this.toCanvas(to);
       const len = Math.hypot(tx - fx, ty - fy);

@@ -98,7 +98,7 @@ pub fn definitions() -> Vec<ToolDef> {
 /// The `scope` argument every editing tool takes (DECISIONS D30).
 pub(crate) fn scope_schema() -> Value {
     json!({
-        "description": "Limit this edit to part of the plan: \"selection\" (what the user selected in the window; query what \"selection\" shows it) or element ids. Anything that reaches outside is refused with out_of_scope. When the user switched on \"Only the selection\", their selection binds every edit whatever this says.",
+        "description": "\"selection\" (the user's, in the window) or element ids: an edit reaching outside is refused out_of_scope. With \"Only the selection\" on in the app, the selection binds every edit.",
         "anyOf": [
             {"type": "string", "enum": ["selection"]},
             {"type": "array", "items": {"type": "string"}, "minItems": 1},
@@ -150,9 +150,34 @@ pub async fn call(app: &AppService, name: &str, args: Value) -> Result<Output, T
     call_with(app, name, args, &CallContext::local()).await
 }
 
+/// True for a call that spends money or runs for long without changing the
+/// model: an AI image, a traced render, a tour video. A paused agent may not
+/// start one (GR1 #8).
+pub fn spends(name: &str, args: &Value) -> bool {
+    let action = args.get("action").and_then(Value::as_str);
+    match name {
+        "visualize_render" | "render_view" | "export_tour" => true,
+        "render" => action == Some("start"),
+        _ => false,
+    }
+}
+
+/// What a call is to the agents registry: an edit, work that spends (both
+/// refused while the agent is paused) or a read.
+pub fn call_kind(name: &str, args: &Value) -> guhit_app::agents::CallKind {
+    use guhit_app::agents::CallKind;
+    if spends(name, args) {
+        CallKind::Work
+    } else if reads_only(name, args) {
+        CallKind::Read
+    } else {
+        CallKind::Edit
+    }
+}
+
 /// True for a call that leaves the model as it is: reads, pictures, renders,
 /// exports, chat and status. The agents registry lets a paused agent make
-/// these and refuses its edits.
+/// these, except the ones that spend (`spends`), and refuses its edits.
 pub fn reads_only(name: &str, args: &Value) -> bool {
     let action = args.get("action").and_then(Value::as_str);
     let dry_run = args.get("dry_run").and_then(Value::as_bool) == Some(true);
@@ -163,6 +188,12 @@ pub fn reads_only(name: &str, args: &Value) -> bool {
         "levels" | "history" => action == Some("list"),
         "import_dxf" => action == Some("inspect"),
         "build" | "batch" => dry_run,
+        // Wave 2: reads of the editing tools, and work that writes files or
+        // records but never the model.
+        "types" | "view_marks" => action == Some("list"),
+        "title_block" => action == Some("get"),
+        "sheets" => matches!(action, Some("list" | "preview" | "export")),
+        "export_tour" | "set_look" => true,
         "export_plan" | "save_version" | "capture_view" | "render_view" => true,
         n => definitions_read_only(n),
     }
@@ -196,7 +227,7 @@ pub async fn call_with(app: &AppService, name: &str, mut args: Value, ctx: &Call
     if let (Some(hint), Some(named)) = (ctx.hint.as_mut(), named) {
         hint.agent = Some(named);
     }
-    agent::admit(app, &mut ctx, name, &args, reads_only(name, &args))?;
+    agent::admit(app, &mut ctx, name, &args, call_kind(name, &args))?;
     let mut result = dispatch(app, name, &args, &ctx).await;
     agent::after(app, &ctx, &args, &result).await;
     // What the agent should hear, on every answer it gets: the registry's
@@ -244,7 +275,14 @@ pub(crate) async fn dispatch(app: &AppService, name: &str, args: &Value, ctx: &C
             let id = req_str(&args, "id")?;
             session::guard_switch(app, &args, session::Switch::Open(&id)).await?;
             let state: Value = app.handle("hub_open", json!({ "id": id })).await?;
-            ok(opened(&state))
+            let mut out = opened(&state);
+            // What opening it mended (GR1 #14): the agent tells the user.
+            let repairs = app.open_repairs().await;
+            if !repairs.is_empty() {
+                out["repairs"] = json!(repairs);
+                out["repairs_note"] = json!("Opening this project mended what the app could not use, as listed; the file keeps it until the next change is saved. Tell the user.");
+            }
+            ok(out)
         }
         "create_project" => {
             let name = req_str(&args, "name")?;
@@ -283,7 +321,10 @@ pub(crate) async fn dispatch(app: &AppService, name: &str, args: &Value, ctx: &C
             let state: Value = match &ctx.call {
                 Some(call) => serde_json::to_value(app.agent_undo(call, name == "redo", force).await?)
                     .map_err(|e| ToolFail::new("io", e.to_string()))?,
-                None => app.handle(cmd, json!({ "force": force })).await?,
+                None => {
+                    app.agent_steps_allowed(name == "redo", 1).await?;
+                    app.handle(cmd, json!({ "force": force })).await?
+                }
             };
             ok(history(&state, if name == "undo" { "undone" } else { "redone" }))
         }
@@ -507,8 +548,8 @@ mod tests {
     fn the_list_is_the_v2_toolsets() {
         let names: Vec<&str> = definitions().iter().map(|d| d.name).collect();
         assert_eq!(names, toolsets::all_v2(), "definitions and toolsets disagree");
-        assert_eq!(Toolsets::core().tools().len(), 22);
-        assert_eq!(names.len(), 33);
+        assert_eq!(Toolsets::core().tools().len(), 26);
+        assert_eq!(names.len(), 45);
     }
 
     #[test]
@@ -517,7 +558,11 @@ mod tests {
             let edits = crate::translate::EDIT_TOOLS.contains(&d.name)
                 || matches!(d.name, "build" | "batch" | "import_underlay")
                 || d.name == "set_review_mark";
-            let project_wide = matches!(d.name, "levels" | "set_project");
+            // Project-wide (D30): outside every scope, so they take none.
+            let project_wide = matches!(
+                d.name,
+                "levels" | "set_project" | "add_grid" | "types" | "title_block" | "sheets" | "set_lot" | "make_tour" | "edit_tour"
+            );
             assert_eq!(
                 d.schema["properties"].get("scope").is_some(),
                 edits && !project_wide && d.name != "add_camera",

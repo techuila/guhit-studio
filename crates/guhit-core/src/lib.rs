@@ -24,6 +24,16 @@
 //! - `scope`: the AI edit scope, whether a command stays inside the
 //!   selection (DECISIONS D30).
 //! - `ids`: deterministic ids, so `preview` equals `apply`.
+//! - `repair`: what opening a project mends, so a damaged file never
+//!   crashes the engine.
+//!
+//! Wave 2 lane modules (DECISIONS D54; the hubs `exec`, `validate`,
+//! `derive`, `query` and `issues` call each in one line):
+//! - L1: `opening_types`, `grids`, `dims_auto`, `schedules`, `site`,
+//!   `sheets` (and `rooms`, `dimensions`, `templates`).
+//! - L2: `roofs`, `stairs` (and `slabs`, `pipes`).
+//! - L5: `placement`.
+//! - L9: `tours`.
 
 use std::collections::BTreeMap;
 
@@ -32,25 +42,37 @@ use guhit_model::*;
 mod derive;
 mod devices;
 mod dimensions;
+pub mod dims_auto;
 mod error;
 mod exec;
 mod geom;
+pub mod grids;
 mod ids;
 mod issues;
+pub mod opening_types;
 mod pipe_edit;
 mod pipes;
+pub mod placement;
 mod query;
+mod repair;
+pub mod roofs;
 mod rooms;
+pub mod schedules;
 pub mod scope;
+pub mod sheets;
+pub mod site;
 pub mod slabs;
+pub mod stairs;
 pub mod templates;
 mod topo;
+pub mod tours;
 mod validate;
 
 pub use derive::compute_derived;
 pub use error::CoreError;
 pub use issues::{is_review_code, REVIEW_CODES};
 pub use pipes::pipe_name;
+pub use repair::repair;
 
 /// The room each object stands in, by object id: the room of the closed wall
 /// face that holds its position. Objects outside every room are left out.
@@ -74,16 +96,20 @@ pub fn asset_rooms(project: &Project) -> BTreeMap<Id, String> {
 /// Bring a project from an older file up to `SCHEMA_VERSION`. Every layer the
 /// project lacks is added after the ones it has, in `LayerKey` order, visible
 /// and unlocked. Version 2 added the four pipe layers, version 3 the storm,
-/// electrical and aircon layers, version 4 the site layer and version 5 the
-/// slabs layer; every new field has a serde default. Running it twice
-/// changes nothing. `Document::new` and `Document::with_revision` call it, so
-/// every project that is opened goes through it.
+/// electrical and aircon layers, version 4 the site layer, version 5 the
+/// slabs layer and version 6 the grids and roofs layers. Version 6 also
+/// turns the project roof into a `TopFootprint` roof element
+/// (`roofs::migrate`, plan 1.7). Every new field has a serde default.
+/// Running it twice changes nothing. `Document::new` and
+/// `Document::with_revision` call it, so every project that is opened goes
+/// through it.
 pub fn migrate(project: &mut Project) {
     for layer in defaults::default_layers() {
         if !project.layers.iter().any(|l| l.key == layer.key) {
             project.layers.push(layer);
         }
     }
+    roofs::migrate(project);
     project.schema_version = SCHEMA_VERSION;
 }
 
@@ -138,6 +164,8 @@ pub struct Document {
     revision: u32,
     undo: Vec<HistoryEntry>,
     redo: Vec<HistoryEntry>,
+    /// What opening the project mended (`repair`), one sentence each.
+    repairs: Vec<String>,
 }
 
 /// Undo steps kept. The oldest goes when a step past this is made.
@@ -154,10 +182,12 @@ impl Document {
 
     /// Same as `new`, but the revision counter starts at `revision`, so a
     /// restored snapshot never repeats a revision number. History is empty.
-    /// An older project is migrated first (`migrate`).
+    /// An older project is migrated first (`migrate`), then what the engine
+    /// cannot use is mended (`repair`; the notes are in `repairs`).
     pub fn with_revision(project: Project, revision: u32) -> Self {
         let mut project = project;
         migrate(&mut project);
+        let repairs = repair::repair(&mut project);
         let derived = compute_derived(&project);
         Self {
             project,
@@ -165,7 +195,14 @@ impl Document {
             revision,
             undo: vec![],
             redo: vec![],
+            repairs,
         }
+    }
+
+    /// What opening this project mended, one sentence each ("Tour \"Walk\":
+    /// removed 1 shot with no camera keys."). Empty for a sound project.
+    pub fn repairs(&self) -> &[String] {
+        &self.repairs
     }
 
     pub fn project(&self) -> &Project {
@@ -311,6 +348,14 @@ impl Document {
         }
     }
 
+    /// The project as each of the `n` newest undo steps (or with `redo`
+    /// redo steps) would leave it, in order: the first is one step away.
+    /// Fewer when fewer steps are kept. Read only.
+    pub fn step_projects(&self, redo: bool, n: usize) -> impl Iterator<Item = &Project> {
+        let stack = if redo { &self.redo } else { &self.undo };
+        stack.iter().rev().take(n).map(|e| &e.project)
+    }
+
     /// Dry run. Returns exactly what `apply` would return for the same
     /// command on the same revision (same elements, ids, derived data and
     /// diff), and commits nothing.
@@ -421,6 +466,8 @@ pub struct Staging {
     commands: Vec<Command>,
     /// Walls the staged steps reshaped without naming them, in order.
     also_moved: Vec<Id>,
+    /// What the engine did as a consequence of the staged steps.
+    notes: Vec<String>,
 }
 
 impl Staging {
@@ -433,6 +480,7 @@ impl Staging {
             project: project.clone(),
             commands: vec![],
             also_moved: vec![],
+            notes: vec![],
         }
     }
 
@@ -487,11 +535,19 @@ impl Staging {
         let before = self.project.clone();
         let total = self.commands.len() + commands.len();
         let mut also_moved = vec![];
+        let mut notes = vec![];
         for (j, c) in commands.iter().enumerate() {
             let step = self.commands.len() + j + 1;
             // The same wording as the batch loop in `exec`.
             match exec::execute(&mut self.project, c) {
-                Ok(done) => also_moved.extend(done.also_moved),
+                Ok(done) => {
+                    also_moved.extend(done.also_moved);
+                    notes.extend(done.notes);
+                    // A step's own sentence, kept as the batch loop keeps it.
+                    if let Some(s) = done.summary.filter(|s| !s.trim().is_empty()) {
+                        notes.push(s);
+                    }
+                }
                 Err(e) => {
                     self.project = before;
                     return Err(match e {
@@ -510,6 +566,7 @@ impl Staging {
             }
         }
         self.commands.extend(commands.iter().cloned());
+        self.notes.extend(notes);
         for id in also_moved {
             if !self.also_moved.contains(&id) {
                 self.also_moved.push(id);
@@ -528,6 +585,7 @@ impl Staging {
                 label: self.batch_label(),
                 summary: None,
                 also_moved: self.also_moved.clone(),
+                notes: self.notes.clone(),
             },
         )
     }
@@ -632,6 +690,9 @@ fn diff_projects(before: &Project, after: &Project, outcome: &exec::Outcome) -> 
     };
     if let Some(also) = also {
         diff.summary.push_str(&also);
+    }
+    if !outcome.notes.is_empty() {
+        diff.summary.push_str(&format!("; {}", outcome.notes.join("; ")));
     }
     diff
 }

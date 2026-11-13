@@ -83,7 +83,9 @@ fn parse_svg(svg: &str) -> usvg::Tree {
 
 #[test]
 fn svg_draws_slabs_and_railings_in_their_groups() {
-    let s = slabs();
+    let mut s = slabs();
+    // Plans draw stairs from `Derived::stairs` (D54).
+    s.derived.stairs = guhit_core::compute_derived(&s.project).stairs;
     let svg = plan_svg(&s.project, &s.derived, &second()).unwrap().data;
     let slabs = group(&svg, "slabs");
     // Floor slab 5 percent, balcony 10 percent, voids untinted.
@@ -214,120 +216,10 @@ fn hidden_layers_hide_slabs_and_their_rails() {
 
 // ------------------------------------------------------------- stairs (D44)
 
-#[test]
-fn a_flight_of_11_risers_draws_10_treads() {
-    let s = slabs();
-    let ground = items(&s, &level_id(&s));
-    let strs = of(&ground, Cat::Strs);
-    let ls = lines(&strs);
-    // Nine lines between ten treads of 275 mm, and the arrow shaft.
-    let treads: Vec<f64> = ls.iter().filter(|(a, b)| (a.y - b.y).abs() < 1e-6).map(|(a, _)| a.y).collect();
-    assert_eq!(treads.len(), 9, "{treads:?}");
-    for (k, y) in treads.iter().enumerate() {
-        assert!((y - (500.0 + 275.0 * (k + 1) as f64)).abs() < 1e-6, "tread line {k} at {y}");
-    }
-    assert_eq!(ls.len(), 10);
-    let texts: Vec<&str> = strs
-        .iter()
-        .filter_map(|i| match &i.prim {
-            Prim::Text { text, .. } => Some(text.as_str()),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(texts, vec!["UP"]);
-    assert!(of(&ground, Cat::StrsBelow).is_empty());
-}
-
-#[test]
-fn the_level_above_shows_the_flight_dashed_with_a_dn_arrow() {
-    let s = slabs();
-    let up = items(&s, SECOND);
-    let below = of(&up, Cat::StrsBelow);
-    assert_eq!(lines(&below).len(), 9, "the same nine tread lines");
-    assert_eq!(below.len(), 10, "and the outline");
-    let strs = of(&up, Cat::Strs);
-    let texts: Vec<&str> = strs
-        .iter()
-        .filter_map(|i| match &i.prim {
-            Prim::Text { text, .. } => Some(text.as_str()),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(texts, vec!["DN"]);
-    // The arrow runs from the top end down: its head is near the first riser.
-    let head = strs
-        .iter()
-        .find_map(|i| match &i.prim {
-            Prim::Poly { pts, fill: Fill::Ink, .. } => Some(pts[0]),
-            _ => None,
-        })
-        .expect("an arrow head");
-    assert!(head.y < 1000.0, "{head:?}");
-
-    let svg = plan_svg(&s.project, &s.derived, &second()).unwrap().data;
-    let g = group(&svg, "stairs-below");
-    assert_eq!(g.matches("stroke-dasharray=\"2.2 1.1\"").count(), 10, "{g}");
-    assert!(group(&svg, "stairs").contains(">DN<"));
-
-    // A level that is not within 300 mm of the stair's top shows nothing.
-    let mut far = slabs();
-    far.project.levels[1].elevation_mm = 3400.0;
-    assert!(of(&items(&far, SECOND), Cat::StrsBelow).is_empty());
-    let stair = far
-        .project
-        .elements
-        .iter()
-        .find_map(|e| match e {
-            Element::Stair(st) => Some(st),
-            _ => None,
-        })
-        .unwrap();
-    assert!(guhit_export::plan::stair_arrival(&far.project, stair).is_none());
-    assert_eq!(guhit_export::plan::stair_arrival(&s.project, stair).map(|l| l.id.as_str()), Some(SECOND));
-}
-
 // ----------------------------------------------------------------------- DXF
 
 fn load_dxf(text: &str) -> dxf::Drawing {
     dxf::Drawing::load(&mut text.as_bytes()).expect("dxf crate parses the output")
-}
-
-fn on_layer(drawing: &dxf::Drawing) -> HashMap<String, usize> {
-    let mut m = HashMap::new();
-    for e in drawing.entities() {
-        *m.entry(e.common.layer.clone()).or_insert(0) += 1;
-    }
-    m
-}
-
-#[test]
-fn dxf_puts_slabs_rails_and_the_stair_below_on_their_layers() {
-    let s = slabs();
-    let text = plan_dxf(&s.project, &s.derived, &second()).unwrap().data;
-    let drawing = load_dxf(&text);
-    let names: Vec<String> = drawing.layers().map(|l| l.name.clone()).collect();
-    for l in ["A-FLOR-OTLN", "A-FLOR-HRAL", "A-FLOR-STRS"] {
-        assert_eq!(names.iter().filter(|n| *n == l).count(), 1, "{l} once in {names:?}");
-    }
-    let counts = on_layer(&drawing);
-    // Four outlines, the void crosses and their labels.
-    assert!(counts["A-FLOR-OTLN"] >= 4 + 4 + 2 + 2, "{counts:?}");
-    assert_eq!(counts["A-FLOR-HRAL"], 7);
-    assert!(drawing.line_types().any(|t| t.name == "GUHIT_DASHED"));
-    // The flight from below is dashed, its arrow and DN are not.
-    let mut dashed = 0;
-    for e in drawing.entities().filter(|e| e.common.layer == "A-FLOR-STRS") {
-        match &e.specific {
-            dxf::entities::EntityType::Line(_) | dxf::entities::EntityType::Polyline(_)
-                if e.common.line_type_name == "GUHIT_DASHED" =>
-            {
-                dashed += 1
-            }
-            _ => {}
-        }
-    }
-    assert_eq!(dashed, 10, "nine tread lines and the outline");
-    assert!(text.contains("\n  1\nOPEN TO BELOW\n"));
 }
 
 #[test]

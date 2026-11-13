@@ -38,6 +38,8 @@ fn room_el(id: &str, name: &str, usage: RoomUsage, seed: (f64, f64)) -> Element 
         seed: p(seed.0, seed.1),
         floor_material_id: None,
         auto_named: false,
+        finishes: RoomFinishes::default(),
+        ceiling_height_mm: None,
     })
 }
 
@@ -74,6 +76,7 @@ fn obj(id: &str, key: &str, x: f64, y: f64, rotation: f64, links: &[&str]) -> El
         light: item.light,
         links: links.iter().map(|s| s.to_string()).collect(),
         circuit: String::new(),
+        built_in: None,
     })
 }
 
@@ -903,6 +906,7 @@ fn door(id: &str, wall: &str, offset: f64, width: f64, style: OpeningStyle, flip
         flip_side: false,
         flip_hinge,
         material_id: None,
+        type_id: None,
     })
 }
 
@@ -1380,7 +1384,7 @@ fn a_version_2_project_opens_with_the_new_layers() {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|l| !matches!(l["key"].as_str(), Some("storm" | "electrical" | "aircon" | "site" | "slabs")))
+        .filter(|l| !matches!(l["key"].as_str(), Some("storm" | "electrical" | "aircon" | "site" | "slabs" | "grids" | "roofs")))
         .map(|l| {
             let mut l = l.clone();
             if l["key"] == "drainage" {
@@ -1412,10 +1416,10 @@ fn a_version_2_project_opens_with_the_new_layers() {
     let doc = Document::new(old);
     let project = doc.project();
     assert_eq!(project.schema_version, SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 5);
+    assert_eq!(SCHEMA_VERSION, 6);
     let keys: Vec<LayerKey> = project.layers.iter().map(|l| l.key).collect();
     let expected: Vec<LayerKey> = defaults::default_layers().iter().map(|l| l.key).collect();
-    assert_eq!(keys, expected, "all 18 layers, in LayerKey order");
+    assert_eq!(keys, expected, "all 20 layers, in LayerKey order");
     for l in &project.layers[13..] {
         assert!(l.visible && !l.locked, "{:?}", l.key);
     }

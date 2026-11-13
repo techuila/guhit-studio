@@ -12,7 +12,9 @@ import { Presence } from "../ui/motionDom";
 import { ConnectButton } from "./connect/ConnectButton";
 import { MOD, SHIFT, leaveEditor } from "./actions";
 import { HistoryButton } from "./HistoryPanel";
+import { SheetsButton } from "./sheets/SheetsButton";
 import { useProjectName, useShell } from "./shellStore";
+import { ToursButton } from "./tours/ToursButton";
 import s from "./chrome.module.css";
 
 const VIEW_OPTIONS: Array<{ value: ViewMode; label: string; icon: "view2d" | "split" | "view3d"; tip: string }> = [
@@ -63,15 +65,15 @@ function ImportMenu() {
 /**
  * Folds the right group's words away one step at a time, only when they do
  * not fit (chrome.module.css, data-fold): first the palette button, then
- * Versions and Import. Measured again on resize and when people or agents
- * come or go.
+ * Versions and Import, then Connect agent and Share. Measured again on
+ * resize and when people or agents come or go.
  */
 function useFoldToFit(ref: RefObject<HTMLDivElement | null>, key: string): void {
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     const fit = () => {
-      for (const level of ["0", "1", "2"]) {
+      for (const level of ["0", "1", "2", "3"]) {
         el.dataset.fold = level;
         const first = el.firstElementChild;
         if (!first || first.getBoundingClientRect().left >= el.getBoundingClientRect().left - 0.5) return;
@@ -165,6 +167,8 @@ export function TopBar() {
         <ChatButton />
         <ConnectButton variant="chrome" tipSide="bottom" />
         <ShareButton />
+        <ToursButton />
+        <SheetsButton />
         <Button variant="primary" size="md" icon="export" className={s.exportButton} onClick={() => open("export")}>
           Export
         </Button>

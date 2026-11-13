@@ -40,9 +40,28 @@ export function initials(name: string): string {
   return firstChar(words[0]) + firstChar(words[words.length - 1]);
 }
 
-/** The first word of a name, for tight spots: "Ana Reyes" is "Ana". */
+/**
+ * Titles that come before a name in the Philippines (G4 problem 10): a name
+ * that starts with one keeps it and the name after it.
+ */
+const TITLES = new Set([
+  "arch", "archt", "ar", "engr", "eng", "atty", "dr", "dra", "doc", "mr", "mrs", "ms", "miss", "sir", "maam", "prof", "hon", "rev", "fr", "sr", "sis", "gen", "col", "capt", "lt", "sgt", "pres", "gov", "mayor", "kap", "enp", "jd",
+]);
+
+function isTitle(word: string): boolean {
+  return TITLES.has(word.toLowerCase().replace(/[.'’]/g, ""));
+}
+
+/**
+ * The first word of a name, for tight spots: "Ana Reyes" is "Ana". A name
+ * that starts with a title keeps the whole name, as people are addressed:
+ * "Engr. Dela Cruz", "Arch. Ana Reyes" (G4 problem 10).
+ */
 export function firstName(name: string): string {
-  return name.trim().split(/\s+/)[0] || name.trim();
+  const text = name.trim().replace(/\s+/g, " ");
+  const words = text.split(" ");
+  if (words.length > 1 && isTitle(words[0])) return text;
+  return words[0] || text;
 }
 
 /** A name as the profile stores it: control characters out, spaces folded, at most 40 characters. */

@@ -59,6 +59,17 @@ describe("names and colors", () => {
     expect(possessive("Jules")).toBe("Jules'");
   });
 
+  // G4 problem 10: "Engr. Dela Cruz" showed as "Engr.".
+  it("keeps the whole name after a PH title", () => {
+    expect(firstName("Engr. Dela Cruz")).toBe("Engr. Dela Cruz");
+    expect(firstName("  Arch.   Ana  Reyes ")).toBe("Arch. Ana Reyes");
+    expect(firstName("Atty Santos")).toBe("Atty Santos");
+    expect(firstName("Dra. Lim")).toBe("Dra. Lim");
+    expect(possessive("Engr. Dela Cruz")).toBe("Engr. Dela Cruz's");
+    expect(firstName("Engr.")).toBe("Engr.");
+    expect(firstName("Arnel Cruz")).toBe("Arnel");
+  });
+
   it("cleans a name like the engine", () => {
     expect(cleanName("  Ana \t Reyes\n")).toBe("Ana Reyes");
     expect(cleanName("x".repeat(60))).toHaveLength(40);

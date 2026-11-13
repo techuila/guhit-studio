@@ -3,4 +3,4 @@
 /**
  * How a model view image was made.
  */
-export type RenderKind = "capture" | "path_traced" | "enhanced" | "shadow_study";
+export type RenderKind = "capture" | "path_traced" | "enhanced" | "shadow_study" | "video";

@@ -246,6 +246,29 @@ async fn agents_go_idle_then_off_the_list_and_stay_in_the_history() {
 }
 
 #[tokio::test]
+async fn an_idle_agent_of_another_project_leaves_the_list() {
+    // GS F7: the panel listed "Probe", which had worked on a project since
+    // deleted.
+    let axl = computer("Axl").await;
+    let a = doc(&axl.app).await.project.id;
+    let probe = agent(&axl.app, "probe");
+    axl.app.agent_commit(&probe, wall(0.0, 0.0, 4000.0, 0.0)).await.unwrap();
+    let _: DocState = call(&axl.app, "hub_create", json!({ "name": "B" })).await;
+    let _: Value = call(&axl.app, "hub_delete", json!({ "id": a })).await;
+    let here = agent(&axl.app, "here");
+    // Still working a moment ago: it shows, so the user sees who is busy.
+    find(&list(&axl.app), &probe.id);
+    axl.app.agents.advance_clock(Duration::from_secs(61));
+    let agents = list(&axl.app);
+    assert!(!agents.iter().any(|s| s.participant.id == probe.id), "{agents:?}");
+    assert_eq!(find(&agents, &here.id).activity, AgentActivity::Idle, "this project's idle agent stays");
+    // It comes back with its next call.
+    let again = axl.app.agent_call(&hint(Some("probe"), "claude-code"), "list_rooms", CallKind::Read).unwrap();
+    assert_eq!(again.id, probe.id);
+    find(&list(&axl.app), &probe.id);
+}
+
+#[tokio::test]
 async fn at_most_eight_agents_work_on_one_computer() {
     let axl = computer("Axl").await;
     for i in 0..8 {
@@ -335,9 +358,19 @@ async fn a_level_limit_and_a_kind_limit_refuse_with_clear_messages() {
     assert!(e.message.contains("Axl limited Ground floor to Ground Floor"), "{}", e.message);
     let on_ground = axl.app.agent_commit(&ground, wall_on(Some(&ground_level), 0.0, 0.0, 3000.0, 0.0)).await.unwrap();
     let ground_wall = last_wall(&on_ground.state);
-    let roof = Command::SetRoof { roof: on_ground.state.project.roof.clone() };
-    let e = axl.app.agent_commit(&ground, roof).await.unwrap_err();
-    assert!(e.message.starts_with("Changing the roof affects the whole project"), "{}", e.message);
+    // The roof over the top floor stands on the top floor, outside this
+    // agent's level (no level has a building yet, so the highest level).
+    let roof = Roof { kind: RoofKind::Hip, ..on_ground.state.project.top_roof() };
+    let e = axl.app.agent_commit(&ground, Command::SetRoof { roof }).await.unwrap_err();
+    assert_eq!(e.code, "out_of_scope", "{e:?}");
+    assert!(
+        e.message.starts_with("The new roof over the top floor would be on Second Floor, outside what this agent is limited to."),
+        "{}",
+        e.message
+    );
+    let settings = Command::SetProjectSettings { settings: on_ground.state.project.settings.clone() };
+    let e = axl.app.agent_commit(&ground, settings).await.unwrap_err();
+    assert!(e.message.starts_with("Changing the project settings affects the whole project"), "{}", e.message);
     let add = Command::AddLevel { name: None, elevation_mm: None, height_mm: None };
     assert_eq!(axl.app.agent_commit(&ground, add).await.unwrap_err().code, "out_of_scope");
 
@@ -369,6 +402,7 @@ async fn a_level_limit_and_a_kind_limit_refuse_with_clear_messages() {
         style: None,
         flip_side: None,
         flip_hinge: None,
+        type_id: None,
     };
     axl.app.agent_commit(&services, door).await.unwrap();
 
@@ -457,6 +491,37 @@ async fn an_agent_undoes_only_its_own_step() {
     // this computer's.
     axl.app.agent_commit(&ground, wall(0.0, 0.0, 1000.0, 0.0)).await.unwrap();
     let _: DocState = call(&axl.app, "doc_undo", json!({})).await;
+}
+
+#[tokio::test]
+async fn an_agent_never_undoes_or_redoes_a_change_of_the_signing_architect() {
+    // GR1 #7: a person sets the PRC number; an agent's forced undo emptied
+    // it, and its forced redo wrote it back.
+    let axl = computer("Axl").await;
+    let ground = agent(&axl.app, "ground-floor");
+    let signatory = Signatory { name: "Arch. Juan Dela Cruz".into(), prc_no: "0123456".into(), ..Signatory::default() };
+    let set = Command::SetSignatory { signatory: Box::new(signatory.clone()) };
+    let _: ApplyResult = call(&axl.app, "doc_apply", json!({ "command": set })).await;
+
+    let e = axl.app.agent_undo(&ground, false, true).await.unwrap_err();
+    assert_eq!(e.code, "forbidden", "{}", e.message);
+    assert!(e.message.contains("Ask the user"), "a hint: {}", e.message);
+    assert_eq!(doc(&axl.app).await.project.title_block.signatory, signatory, "nothing was undone");
+
+    // The agent's own step on top: undone, but never the one below it.
+    axl.app.agent_commit(&ground, wall(0.0, 0.0, 4000.0, 0.0)).await.unwrap();
+    axl.app.agent_undo(&ground, false, false).await.unwrap();
+    assert_eq!(axl.app.agent_undo(&ground, false, true).await.unwrap_err().code, "forbidden");
+
+    // Undone by the person, the step is never the agent's to redo.
+    let _: DocState = call(&axl.app, "doc_undo", json!({})).await;
+    assert_eq!(doc(&axl.app).await.project.title_block.signatory, Signatory::default());
+    let e = axl.app.agent_undo(&ground, true, true).await.unwrap_err();
+    assert_eq!(e.code, "forbidden", "{}", e.message);
+    assert_eq!(doc(&axl.app).await.project.title_block.signatory, Signatory::default(), "nothing was redone");
+    // The person still can.
+    let _: DocState = call(&axl.app, "doc_redo", json!({})).await;
+    assert_eq!(doc(&axl.app).await.project.title_block.signatory, signatory);
 }
 
 #[tokio::test]

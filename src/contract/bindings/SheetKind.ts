@@ -4,4 +4,4 @@
  * The plan sheets a PH permit and hand-off set asks for. Every sheet keeps
  * the title block; the signing professional's fields stay blank.
  */
-export type SheetKind = "plan" | "lighting" | "power" | "plumbing" | "plumbing_isometric" | "aircon";
+export type SheetKind = "plan" | "lighting" | "power" | "plumbing" | "plumbing_isometric" | "aircon" | "reflected_ceiling";

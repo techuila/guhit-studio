@@ -44,6 +44,16 @@ export function elementName(el: Element): string {
     }
     case "slab":
       return SLAB_NAME[el.slab_kind];
+    case "roof":
+      return el.outline.type === "top_footprint" ? "Roof" : `Roof, ${el.shape}`;
+    case "grid":
+      return `Grid line ${el.label}`;
+    case "view_mark":
+      return `${el.mark_kind === "section" ? "Section" : "Elevation"} mark ${el.label}`;
+    case "lot":
+      return "Lot";
+    case "tour":
+      return `Tour ${el.name}`;
   }
 }
 

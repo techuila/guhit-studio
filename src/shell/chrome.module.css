@@ -201,37 +201,35 @@
   position: relative;
 }
 
-/* When the right group runs out of room (the live session's avatars and
-   Share button share it), TopBar folds its words away one step at a time:
-   data-fold 1 the palette button, 2 also Versions and Import. Each keeps a
-   tooltip, shown only while folded. */
+/* When the right group runs out of room (the live session's avatars, the
+   Share, Tours and Sheets buttons share it), TopBar folds its words away one
+   step at a time: data-fold 1 the palette button, 2 also Versions and
+   Import, 3 also Connect agent and Share. Each keeps a tooltip, shown only
+   while folded. */
 .paletteButton[data-tip]::after,
 .foldable[data-tip]::after {
   display: none;
 }
 
 /* Measured unshrunk, so an overflow shows as one. */
-.topRight:not([data-fold="2"]) .paletteButton {
+.topRight:not([data-fold="2"], [data-fold="3"]) .paletteButton {
   flex-shrink: 0;
 }
 
-.topRight[data-fold="1"] .paletteButton span,
-.topRight[data-fold="1"] .paletteButton kbd,
-.topRight[data-fold="2"] .paletteButton span,
-.topRight[data-fold="2"] .paletteButton kbd,
-.topRight[data-fold="2"] .foldable > span {
+.topRight:is([data-fold="1"], [data-fold="2"], [data-fold="3"]) .paletteButton span,
+.topRight:is([data-fold="1"], [data-fold="2"], [data-fold="3"]) .paletteButton kbd,
+.topRight:is([data-fold="2"], [data-fold="3"]) .foldable > span,
+.topRight[data-fold="3"] [data-fold-label] {
   display: none;
 }
 
-.topRight[data-fold="1"] .paletteButton,
-.topRight[data-fold="2"] .paletteButton,
-.topRight[data-fold="2"] .foldable {
+.topRight:is([data-fold="1"], [data-fold="2"], [data-fold="3"]) .paletteButton,
+.topRight:is([data-fold="2"], [data-fold="3"]) .foldable {
   padding: 0 8px;
 }
 
-.topRight[data-fold="1"] .paletteButton[data-tip]::after,
-.topRight[data-fold="2"] .paletteButton[data-tip]::after,
-.topRight[data-fold="2"] .foldable[data-tip]::after {
+.topRight:is([data-fold="1"], [data-fold="2"], [data-fold="3"]) .paletteButton[data-tip]::after,
+.topRight:is([data-fold="2"], [data-fold="3"]) .foldable[data-tip]::after {
   display: block;
 }
 

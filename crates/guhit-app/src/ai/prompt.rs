@@ -135,7 +135,7 @@ pub fn project_context(doc: &Document, selection_ids: &[Id], scope: Option<&[Id]
         line(&rooms),
         selection,
         scope_line,
-        line(&json!(project.roof)),
+        line(&json!(project.top_roof())),
         materials.join("; "),
     )
 }

@@ -246,6 +246,22 @@ fn footprint_region(analysis: &Analysis, level_id: &str) -> Region {
         .unwrap_or_default()
 }
 
+/// The clear floor of every closed face on the level, rooms or not: inside
+/// the wall faces, less wall islands. Faces never overlap, so inside a
+/// footprint what is not in them is wall.
+fn faces_region(analysis: &Analysis, level_id: &str) -> Region {
+    let mut out = Region::default();
+    if let Some(l) = analysis.level(level_id) {
+        for f in &l.faces {
+            out.add(&f.net, 1.0);
+            for h in &f.holes {
+                out.add(h, -1.0);
+            }
+        }
+    }
+    out
+}
+
 /// Rules one slab must meet among the others, run after a command that adds
 /// or changes it: a simple outline, no overlap with a slab of its group,
 /// and a void over floor. `analysis` is of the project after the command.
@@ -398,15 +414,33 @@ impl SlabAreas {
         }
     }
 
+    /// How much of the room's net area the voids on `level_id` (a level
+    /// above it) lie over, mm2.
+    pub fn void_over(&self, f: &Face, level_id: &str) -> f64 {
+        match self.levels.get(level_id) {
+            Some(l) if !l.voids.is_empty() => covered_area(&Self::room_region(f), &[&l.voids]),
+            _ => 0.0,
+        }
+    }
+
     /// Gross area of a level: its footprints and floor slabs, less voids,
     /// balconies and decks. None when the level has no slabs: then it is
     /// the footprints' sum, as it always was.
+    ///
+    /// Gross area counts the walls themselves (GA P0-1): a void or a
+    /// balcony drawn to the wall centerlines takes off only its clear part,
+    /// inside the walls or outside the building, never the wall strip under
+    /// it.
     pub fn gross_area(&self, analysis: &Analysis, level_id: &str) -> Option<f64> {
         let l = self.levels.get(level_id)?;
         let fp = footprint_region(analysis, level_id);
         let all = union_area(&[&fp, &l.floors, &l.voids, &l.open]);
-        let cut = union_area(&[&l.voids, &l.open]);
-        Some((all - cut).max(0.0))
+        let open = union_area(&[&l.voids, &l.open]);
+        // Inside the building, what is not wall is the faces' clear floor.
+        let in_building = covered_area(&fp, &[&l.voids, &l.open]);
+        let clear = covered_area(&faces_region(analysis, level_id), &[&l.voids, &l.open]);
+        let under_walls = (in_building - clear).max(0.0);
+        Some((all - (open - under_walls)).max(0.0))
     }
 }
 
@@ -598,12 +632,146 @@ pub fn stair_rect(s: &Stair) -> [Point; 4] {
     [b0, b1, add(b1, scale(up, s.run_mm)), add(b0, scale(up, s.run_mm))]
 }
 
-/// A rectangle in a stair's frame: `across` from the center line (negative
-/// to the left), `up` from the first riser. Counter-clockwise.
-fn stair_box(s: &Stair, across: (f64, f64), up: (f64, f64)) -> [Point; 4] {
-    let (o, u, x) = stair_frame(s);
-    let at = |a: f64, b: f64| add(o, add(scale(x, a), scale(u, b)));
-    [at(across.0, up.0), at(across.1, up.0), at(across.1, up.1), at(across.0, up.1)]
+/// A rectangle in a flight's frame: `across` from its center line
+/// (negative to the left), `up` from its first riser. Counter-clockwise.
+fn flight_box(f: &crate::stairs::FlightFrame, across: (f64, f64), up: (f64, f64)) -> [Point; 4] {
+    [f.at(across.0, up.0), f.at(across.1, up.0), f.at(across.1, up.1), f.at(across.0, up.1)]
+}
+
+/// The convex pieces of a stair's opening: its flights, its landings, and
+/// (U) the well between the flights.
+fn well_pieces(g: &StairGeometry) -> Vec<Vec<Point>> {
+    let mut out = crate::stairs::pieces(g);
+    let f = crate::stairs::frames(g);
+    if let (Some(one), Some(two)) = (f.first(), f.get(1)) {
+        if dot(one.up, two.up) < -0.5 {
+            let (x2, _) = one.local(two.origin);
+            let side = x2.signum();
+            let hw = one.width / 2.0;
+            let low = (one.run - two.run).max(0.0);
+            if (x2 - 2.0 * side * hw).abs() > 1.0 {
+                let well = flight_box(one, (side * hw, x2 - side * hw), (low, one.run));
+                let mut w = well.to_vec();
+                if signed_area(&w) < 0.0 {
+                    w.reverse();
+                }
+                out.push(w);
+            }
+        }
+    }
+    out
+}
+
+fn centroid(poly: &[Point]) -> Point {
+    let n = poly.len().max(1) as f64;
+    let s = poly.iter().fold(pt(0.0, 0.0), |acc, p| add(acc, *p));
+    scale(s, 1.0 / n)
+}
+
+/// A convex counter-clockwise polygon grown by `d` (mitred).
+fn grow_convex(poly: &[Point], d: f64) -> Vec<Point> {
+    let n = poly.len();
+    (0..n)
+        .map(|i| {
+            let (prev, cur, next) = (poly[(i + n - 1) % n], poly[i], poly[(i + 1) % n]);
+            let d1 = unit(sub(cur, prev)).unwrap_or(pt(0.0, 0.0));
+            let d2 = unit(sub(next, cur)).unwrap_or(pt(0.0, 0.0));
+            let (n1, n2) = (pt(d1.y, -d1.x), pt(d2.y, -d2.x));
+            let bis = unit(add(n1, n2)).unwrap_or(n2);
+            add(cur, scale(bis, d / dot(bis, n1).max(0.35)))
+        })
+        .collect()
+}
+
+/// The walls of a level.
+pub(crate) fn walls_on<'a>(project: &'a Project, level_id: &str) -> Vec<&'a Wall> {
+    walls_of_level(project, level_id)
+}
+
+/// Parts (0..1 along a-b) that a wall of `walls` runs along.
+pub(crate) fn wall_cover_of(walls: &[&Wall], a: Point, b: Point) -> Vec<(f64, f64)> {
+    wall_cover(walls, a, b)
+}
+
+/// The open stretches of a path (`open_runs`).
+pub(crate) fn open_runs_of(path: &[Point], closed: bool, closed_parts: &dyn Fn(Point, Point) -> Vec<(f64, f64)>) -> Vec<Vec<Point>> {
+    open_runs(path, closed, closed_parts)
+}
+
+/// The rails along the sides of a stair's flights and landings
+/// (`stair_side`) before walls take their share, each with the flight
+/// whose nosing line its foot follows. A rail runs up a flight and on along
+/// the landing it arrives at, flat there; the next flight starts its own.
+/// The inner sides of a U whose flights are under 50 mm apart get none (a
+/// wall between them is usual).
+fn side_paths(g: &StairGeometry) -> Vec<(Vec<Point>, crate::stairs::FlightFrame)> {
+    let f = crate::stairs::frames(g);
+    if f.len() == 1 {
+        let hw = f[0].width / 2.0;
+        return vec![
+            (vec![f[0].at(-hw, 0.0), f[0].at(-hw, f[0].run)], f[0]),
+            (vec![f[0].at(hw, 0.0), f[0].at(hw, f[0].run)], f[0]),
+        ];
+    }
+    let (Some(one), Some(two), Some(landing)) = (f.first().copied(), f.get(1).copied(), g.landings.first()) else {
+        return vec![];
+    };
+    let hw = one.width / 2.0;
+    // Which way the second flight lies, in the first flight's frame; in the
+    // second flight's own frame its outer side is at -side, its inner +side.
+    let (x2, _) = one.local(two.origin);
+    let side = if x2 >= 0.0 { 1.0 } else { -1.0 };
+    let lp: Vec<(f64, f64)> = landing.polygon.iter().map(|p| one.local(*p)).collect();
+    let ytop = lp.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+    let (outer2, inner2) = (-side * hw, side * hw);
+    let mut out = vec![];
+    if dot(one.up, two.up) < -0.5 {
+        // U: out round the landing, in along the well.
+        let far = lp.iter().map(|p| p.0 * side).fold(f64::NEG_INFINITY, f64::max) * side;
+        out.push((vec![one.at(-side * hw, 0.0), one.at(-side * hw, ytop), one.at(far, ytop), one.at(far, one.run)], one));
+        out.push((vec![two.at(outer2, 0.0), two.at(outer2, two.run)], two));
+        let inner = x2 - side * hw;
+        if (inner - side * hw).abs() >= 50.0 {
+            out.push((vec![one.at(side * hw, 0.0), one.at(side * hw, one.run), one.at(inner, one.run)], one));
+            out.push((vec![two.at(inner2, 0.0), two.at(inner2, two.run)], two));
+        }
+    } else {
+        // L: the outer side runs on round the landing; the inner side
+        // stops where the second flight starts.
+        out.push((vec![one.at(-side * hw, 0.0), one.at(-side * hw, ytop), one.at(side * hw, ytop)], one));
+        out.push((vec![two.at(outer2, 0.0), two.at(outer2, two.run)], two));
+        let near = two.at(inner2, 0.0);
+        let (_, ylow) = one.local(near);
+        if ylow > 1.0 {
+            out.push((vec![one.at(side * hw, 0.0), one.at(side * hw, ylow)], one));
+        }
+        out.push((vec![near, two.at(inner2, two.run)], two));
+    }
+    out
+}
+
+/// The opening of a stair from the far end of its arrival edge round to
+/// the near end: the guard round the well, open where people step off.
+fn well_path(g: &StairGeometry) -> Vec<Point> {
+    let Some((l, r)) = crate::stairs::arrival_edge(g) else { return vec![] };
+    let poly = &g.opening;
+    let n = poly.len();
+    let Some(i) = (0..n).find(|&i| {
+        let (a, b) = (poly[i], poly[(i + 1) % n]);
+        dist_point_segment(l, a, b) < 1.0 && dist_point_segment(r, a, b) < 1.0
+    }) else {
+        return vec![];
+    };
+    let a = poly[i];
+    // Along the edge from a: the arrival edge's near end s, then its far end e.
+    let (s, e) = if dist(a, l) <= dist(a, r) { (l, r) } else { (r, l) };
+    let mut path = vec![e];
+    for k in 1..=n {
+        path.push(poly[(i + k) % n]);
+    }
+    path.push(s);
+    path.dedup_by(|x, y| dist(*x, *y) < 1e-6);
+    path
 }
 
 /// What closes an edge, level by level: walls, the edges of floor,
@@ -612,8 +780,8 @@ fn stair_box(s: &Stair, across: (f64, f64), up: (f64, f64)) -> [Point; 4] {
 struct Closers<'a> {
     walls: BTreeMap<&'a str, Vec<&'a Wall>>,
     slabs: BTreeMap<&'a str, Vec<&'a Slab>>,
-    /// Stairs by the level they arrive at.
-    arriving: BTreeMap<String, Vec<&'a Stair>>,
+    /// Stairs by the level they arrive at, with their geometry.
+    arriving: BTreeMap<String, Vec<StairGeometry>>,
 }
 
 impl<'a> Closers<'a> {
@@ -628,8 +796,10 @@ impl<'a> Closers<'a> {
                 Element::Wall(w) => c.walls.entry(w.level_id.as_str()).or_default().push(w),
                 Element::Slab(s) => c.slabs.entry(s.level_id.as_str()).or_default().push(s),
                 Element::Stair(s) => {
-                    if let Some(top) = stair_top_level(project, s) {
-                        c.arriving.entry(top.id.clone()).or_default().push(s);
+                    if let Some(g) = crate::stairs::geometry(project, s) {
+                        if let Some(top) = g.arrives_at.clone() {
+                            c.arriving.entry(top).or_default().push(g);
+                        }
                     }
                 }
                 _ => {}
@@ -651,24 +821,30 @@ impl<'a> Closers<'a> {
     fn slab_edge(&self, s: &Slab, a: Point, b: Point) -> Vec<(f64, f64)> {
         let mut closed = wall_cover(self.walls(&s.level_id), a, b);
         if s.kind == SlabKind::Void {
-            for st in self.arriving.get(&s.level_id).into_iter().flatten() {
-                let (hw, run, tol) = (st.width_mm / 2.0, st.run_mm, ALONG_SLACK_MM);
-                let well = stair_box(st, (-hw, hw), (0.0, run));
-                let grown = stair_box(st, (-hw - tol, hw + tol), (-tol, run + tol));
-                let arrival = stair_box(st, (-hw - tol, hw + tol), (run - tol, run + tol));
-                closed.extend(clip_segment(a, b, &arrival));
-                let Some((lo, hi)) = clip_segment(a, b, &grown) else {
-                    continue;
-                };
-                let mid = lerp(a, b, (lo + hi) / 2.0);
-                if dist_to_boundary(mid, &well) > tol {
-                    // Across the opening: the rail would hang over the flight.
-                    closed.extend(clip_segment(a, b, &well));
-                } else {
-                    // Along the rim. The void's inside is left of a-b.
-                    let center = lerp(well[0], well[2], 0.5);
-                    if cross(sub(b, a), sub(center, a)) < 0.0 {
-                        closed.push((lo, hi));
+            for g in self.arriving.get(&s.level_id).into_iter().flatten() {
+                let tol = ALONG_SLACK_MM;
+                if let Some(f) = crate::stairs::frames(g).pop() {
+                    let hw = f.width / 2.0;
+                    let arrival = flight_box(&f, (-hw - tol, hw + tol), (f.run - tol, f.run + tol));
+                    closed.extend(clip_segment(a, b, &arrival));
+                }
+                // Each convex piece of the opening: the flights, the landing
+                // and the well of a U.
+                for well in well_pieces(g) {
+                    let grown = grow_convex(&well, tol);
+                    let Some((lo, hi)) = clip_segment(a, b, &grown) else {
+                        continue;
+                    };
+                    let mid = lerp(a, b, (lo + hi) / 2.0);
+                    if dist_to_boundary(mid, &well) > tol {
+                        // Across the opening: the rail would hang over the flight.
+                        closed.extend(clip_segment(a, b, &well));
+                    } else if dist_to_boundary(mid, &g.opening) <= tol {
+                        // Along the rim. The void's inside is left of a-b.
+                        let center = centroid(&well);
+                        if cross(sub(b, a), sub(center, a)) < 0.0 {
+                            closed.push((lo, hi));
+                        }
                     }
                 }
             }
@@ -731,37 +907,30 @@ pub fn railings(project: &Project) -> Vec<RailingRun> {
             }
             Element::Stair(s) => {
                 let Some(r) = s.railing else { continue };
-                let Some(level) = project.levels.iter().find(|l| l.id == s.level_id) else {
-                    continue;
-                };
-                let rise = level.height_mm;
-                let riser = rise / s.riser_count.max(1) as f64;
-                let (o, up, _) = stair_frame(s);
-                let [b0, b1, t1, t0] = stair_rect(s);
+                let Some(g) = crate::stairs::geometry(project, s) else { continue };
                 // The foot of a handrail is on the nosing line: one riser up
-                // at the first nosing, the floor above at the top.
-                let nosing = |p: Point| {
-                    let along = (dot(sub(p, o), up) / s.run_mm.max(1.0)).clamp(0.0, 1.0);
-                    riser + (rise - riser) * along
-                };
-                for side in [[b0, t0], [b1, t1]] {
+                // at a flight's first nosing, its landing or the floor above
+                // at its top, flat along a landing.
+                for (side, frame) in side_paths(&g) {
                     for run in open_runs(&side, false, &|a, b| wall_cover(closers.walls(&s.level_id), a, b)) {
                         out.push(RailingRun {
                             host_id: s.id.clone(),
                             level_id: s.level_id.clone(),
                             kind: RailingRunKind::StairSide,
-                            points: run.iter().map(|p| Vec3 { x: p.x, y: p.y, z: nosing(*p) }).collect(),
+                            points: run
+                                .iter()
+                                .map(|p| Vec3 { x: p.x, y: p.y, z: frame.nosing_z(g.riser_mm, frame.local(*p).1) })
+                                .collect(),
                             height_mm: r.height_mm,
                             style: r.style,
                         });
                     }
                 }
-                // Round the opening on the floor it arrives at: one side down,
-                // across the bottom end, the other side up. The top end is
-                // where people step off. Parts inside or on a void go: the
-                // void's own rail guards there.
+                // Round the opening on the floor it arrives at, all but the
+                // end where people step off. Parts inside or on a void go:
+                // the void's own rail guards there.
                 if let Some(top) = stair_top_level(project, s) {
-                    for run in open_runs(&[t0, b0, b1, t1], false, &|a, b| closers.well_guard(&top.id, a, b)) {
+                    for run in open_runs(&well_path(&g), false, &|a, b| closers.well_guard(&top.id, a, b)) {
                         out.push(RailingRun {
                             host_id: s.id.clone(),
                             level_id: top.id.clone(),
@@ -868,11 +1037,11 @@ fn footprint(a: &Asset) -> Vec<Point> {
 /// the opening of a stair that arrives there.
 fn objects_over_openings(project: &Project) -> Vec<Issue> {
     let mut out = vec![];
-    let arriving: Vec<(&Stair, Id)> = project
+    let arriving: Vec<(StairGeometry, Id)> = project
         .elements
         .iter()
         .filter_map(|e| match e {
-            Element::Stair(s) => stair_top_level(project, s).map(|l| (s, l.id.clone())),
+            Element::Stair(s) => crate::stairs::geometry(project, s).and_then(|g| g.arrives_at.clone().map(|l| (g, l))),
             _ => None,
         })
         .collect();
@@ -886,10 +1055,10 @@ fn objects_over_openings(project: &Project) -> Vec<Issue> {
             .find(|v| v.kind == SlabKind::Void && point_in_polygon(a.position, &v.polygon));
         let over_well = arriving
             .iter()
-            .find(|(s, top)| top == &a.level_id && point_in_polygon(a.position, &stair_rect(s)));
+            .find(|(g, top)| top == &a.level_id && point_in_polygon(a.position, &g.opening));
         let (what, other) = match (over_void, over_well) {
             (Some(v), _) => ("a void", v.id.clone()),
-            (None, Some((s, _))) => ("the opening of a stair", s.id.clone()),
+            (None, Some((g, _))) => ("the opening of a stair", g.stair_id.clone()),
             _ => continue,
         };
         out.push(issue(
@@ -996,22 +1165,27 @@ fn door_swings(project: &Project) -> Vec<Issue> {
 /// landing at least as deep as the stair is wide (900 mm at the least) and
 /// 900 mm clear at the foot are rules of thumb here, not a regulation.
 fn stair_landings(project: &Project, analysis: &Analysis, s: &Stair) -> Vec<(Vec<Id>, String)> {
-    let (hw, run) = (s.width_mm / 2.0, s.run_mm);
+    let Some(g) = crate::stairs::geometry(project, s) else { return vec![] };
+    let frames = crate::stairs::frames(&g);
+    let (Some(first), Some(last)) = (frames.first().copied(), frames.last().copied()) else {
+        return vec![];
+    };
+    let hw = s.width_mm / 2.0;
     let top_depth = s.width_mm.max(900.0);
     let foot_depth = 900.0;
     // Kept 50 mm in from the sides, so a wall the flight runs along is no
     // landing wall.
     let inset = ALONG_SLACK_MM.min(hw / 2.0);
-    let (_, up, _) = stair_frame(s);
     let mut out = vec![];
     let ends = [
-        (stair_top_level(project, s).map(|l| l.id.clone()), (run, run + top_depth), true),
-        (Some(s.level_id.clone()), (-foot_depth, 0.0), false),
+        (g.arrives_at.clone(), last, (last.run, last.run + top_depth), true),
+        (Some(s.level_id.clone()), first, (-foot_depth, 0.0), false),
     ];
-    for (level, along, top) in ends {
+    for (level, frame, along, top) in ends {
+        let (run, up, origin) = (frame.run, frame.up, frame.origin);
         let depth = along.1 - along.0;
         let Some(level) = level else { continue };
-        let landing = Region::of(&stair_box(s, (inset - hw, hw - inset), along));
+        let landing = Region::of(&flight_box(&frame, (inset - hw, hw - inset), along));
         // How far the nearest wall stands from the end of the flight.
         let mut nearest: Option<(f64, Id)> = None;
         for w in walls_of_level(project, &level) {
@@ -1027,9 +1201,9 @@ fn stair_landings(project: &Project, analysis: &Analysis, s: &Stair) -> Vec<(Vec
             for (_, piece) in hit.0.iter().filter(|(sign, _)| *sign > 0.0) {
                 for p in piece {
                     let from_end = if top {
-                        dot(sub(*p, s.origin), up) - run
+                        dot(sub(*p, origin), up) - run
                     } else {
-                        -dot(sub(*p, s.origin), up)
+                        -dot(sub(*p, origin), up)
                     };
                     if nearest.as_ref().map(|(d, _)| from_end < *d).unwrap_or(true) {
                         nearest = Some((from_end.max(0.0), w.id.clone()));
@@ -1093,8 +1267,9 @@ fn stair_top_problem(project: &Project, analysis: &Analysis, s: &Stair) -> Optio
             ),
         });
     };
-    let (o, up, _) = stair_frame(s);
-    let landing = add(o, scale(up, s.run_mm + LANDING_MM));
+    // Past the top riser of the last flight.
+    let (head, up) = crate::stairs::geometry(project, s).as_ref().and_then(crate::stairs::head)?;
+    let landing = add(head, scale(up, LANDING_MM));
     let on_slab = |void: bool| {
         slabs_on(project, &arrive.id)
             .filter(|o| (o.kind == SlabKind::Void) == void)

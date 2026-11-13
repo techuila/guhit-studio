@@ -872,7 +872,7 @@ impl Host {
         }
         let frame = ToGuest::Doc(Box::new(DocFrame {
             undo: UndoMeta::of(&state),
-            project: state.project,
+            project: for_guests(state.project),
             revision: state.revision,
             seq,
             by: Some(by),
@@ -1139,7 +1139,7 @@ async fn register(
             participants: participants.clone(),
             doc: DocFrame {
                 undo: UndoMeta::of(&state),
-                project: state.project,
+                project: for_guests(state.project),
                 revision: state.revision,
                 seq,
                 by: None,
@@ -1295,6 +1295,10 @@ async fn answer(
                 }
             }
             let author = agent.unwrap_or_else(|| guest_id.clone());
+            let command = match s.doc.as_ref() {
+                Some(doc) => keep_masked_numbers(command, &doc.project().title_block.signatory),
+                None => command,
+            };
             let result = app.commit_locked(&mut s, command, origin, expected_revision, Some(author), project)?;
             to_json(&Applied { revision: result.state.revision, diff: result.diff })
         }
@@ -1350,6 +1354,43 @@ async fn step(
     let mut s = app.session.lock().await;
     let state = app.step_locked(&mut s, redo, force, steps, expected_revision, Some(guest_id), project)?;
     to_json(&Stepped { revision: state.revision })
+}
+
+/// The project as guests get it: the signing architect's license numbers
+/// masked (`Signatory::masked`, DECISIONS D55), so a guest's copy, its
+/// window and a set it prints show them masked. The host's own copy stays
+/// whole.
+pub(crate) fn for_guests(mut project: Project) -> Project {
+    project.title_block.signatory = project.title_block.signatory.masked();
+    project
+}
+
+/// A guest sees the license numbers masked, so its title block form sends
+/// them back masked: a number that comes back exactly as the guest was
+/// shown it keeps the host's own, and only a number the guest typed anew
+/// is stored. Walks batches.
+fn keep_masked_numbers(command: Command, stored: &Signatory) -> Command {
+    match command {
+        Command::SetSignatory { mut signatory } => {
+            let shown = stored.masked();
+            let keep = |sent: &mut String, shown: &str, full: &str| {
+                if sent.trim() == shown {
+                    *sent = full.to_string();
+                }
+            };
+            keep(&mut signatory.prc_no, &shown.prc_no, &stored.prc_no);
+            keep(&mut signatory.ptr_no, &shown.ptr_no, &stored.ptr_no);
+            keep(&mut signatory.iapoa_no, &shown.iapoa_no, &stored.iapoa_no);
+            keep(&mut signatory.iapoa_or_no, &shown.iapoa_or_no, &stored.iapoa_or_no);
+            keep(&mut signatory.tin, &shown.tin, &stored.tin);
+            Command::SetSignatory { signatory }
+        }
+        Command::Batch { label, commands } => Command::Batch {
+            label,
+            commands: commands.into_iter().map(|c| keep_masked_numbers(c, stored)).collect(),
+        },
+        other => other,
+    }
 }
 
 fn to_json<T: serde::Serialize>(value: &T) -> Result<Value, IpcError> {

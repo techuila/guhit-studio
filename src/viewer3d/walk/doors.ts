@@ -6,6 +6,8 @@
 // closes behind the walker once it is past or has walked away. Leaving walk
 // mode puts every leaf back at the ajar angle the model is drawn with. Doors
 // never block walking: geom/collision.ts cuts the wall open at every door.
+// A tour playing or exporting opens the doors its camera passes through,
+// frame by frame from `Query::TourFrames` (`pose`), and puts them back after.
 //
 // The leaves move on their own `Animator` with motion tokens (`--dur-scene`,
 // ease in-out: a leaf moves between two places) and jump under reduced
@@ -21,6 +23,7 @@ import { levelResolver, WALKER_RADIUS_MM } from "../geom/collision";
 import type { Pt } from "../geom/coords";
 import { closestOnSegment } from "../geom/polygon";
 import { setLeafOpen, type DoorLeafTag } from "../scene/openings";
+import type { DoorAt } from "../tour/frames";
 
 /** A door opens when the walker is this close to its doorway, facing it. */
 export const DOOR_OPEN_MM = 1200;
@@ -165,6 +168,27 @@ export class DoorSwing {
     const moved = stepped || this.jumped;
     this.jumped = false;
     return { moved, animating: this.anim.animating() };
+  }
+
+  /**
+   * A tour's doors at one of its frames (tour/frames.ts `doorsAt`): each
+   * listed leaf goes straight to its place, the tour's frames carry the
+   * swing; every other leaf rests as drawn. `null` puts every leaf back.
+   * Not while walking: walking owns the doors. True when a leaf moved.
+   */
+  pose(doors: ReadonlyMap<string, DoorAt> | null): boolean {
+    if (this.walking) return false;
+    let moved = false;
+    for (const [id, leaves] of this.leaves) {
+      const rest = leaves[0].tag.rest;
+      const d = doors?.get(id);
+      const v = d ? (d.from ?? rest) + (d.to - (d.from ?? rest)) * d.k : rest;
+      if (this.anim.has(id) && !this.anim.animating() && this.openness(id) === v) continue;
+      this.anim.set(id, v);
+      this.apply(id);
+      moved = true;
+    }
+    return moved;
   }
 
   /** Lands every swing where it is going. */

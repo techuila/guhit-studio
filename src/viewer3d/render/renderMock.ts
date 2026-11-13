@@ -20,6 +20,8 @@ const BRIDGE_PATTERN = /\/ipc\/([a-z_]+)$/;
 let installed = false;
 const extraRecords: RenderRecord[] = [];
 const extraImages = new Map<string, string>();
+/** Drafts not kept or discarded yet. */
+const pending = new Map<string, RenderRecord>();
 
 function fail(code: string, message: string): never {
   throw { code, message, element_ids: [] };
@@ -83,23 +85,19 @@ export function installRenderMock(): boolean {
         if (model) settings = { ...settings, model };
         return json(200, settings);
       }
-      if (cmd === "render_ai_generate") {
+      // A fake image and its record, not listed yet.
+      const make = async (request: RenderAiRequest): Promise<RenderRecord> => {
         if (mode === "nokey") fail("ai_not_configured", "No Google AI Studio key is configured.");
-        const request = args.request as RenderAiRequest;
         await new Promise((r) => setTimeout(r, delay));
         if (mode === "error") fail("ai_failed", "The image provider refused the request: quota exhausted.");
-        const list = (await (await previous(url.replace("render_ai_generate", "render_list"), { ...init, body: "{}" })).json()) as RenderRecord[];
+        const call = (c: string, body: unknown) => previous(url.replace(/[a-z_]+$/, c), { ...init, body: JSON.stringify(body) }).then((r) => r.json());
+        const list = (await call("render_list", {})) as RenderRecord[];
         const source = list.find((r) => r.id === request.source_render_id);
         if (!source) fail("not_found", "The source capture is gone.");
-        const png = (await (
-          await previous(url.replace("render_ai_generate", "render_data"), {
-            ...init,
-            body: JSON.stringify({ id: source.id }),
-          })
-        ).json()) as string;
+        const png = (await call("render_data", { id: source.id })) as string;
         const id = `mock-ai-${Math.random().toString(36).slice(2, 9)}`;
         extraImages.set(id, await derive(png));
-        const record: RenderRecord = {
+        return {
           id,
           created_at: new Date().toISOString(),
           source: "ai_visualization",
@@ -112,8 +110,39 @@ export function installRenderMock(): boolean {
           provider: "gemini/gemini-3.1-flash-image",
           info: null,
         };
+      };
+      if (cmd === "render_ai_generate") {
+        const record = await make(args.request as RenderAiRequest);
         extraRecords.unshift(record);
         return json(200, { record, seconds: delay / 1000 });
+      }
+      // AI render v2: the draft is the fake image, never drift checked; the
+      // estimate still comes from the real backend.
+      if (cmd === "render_ai_draft") {
+        const record = await make(args.request as RenderAiRequest);
+        pending.set(record.id, record);
+        const estimate = await (await previous(url.replace("render_ai_draft", "render_ai_estimate"), init)).json();
+        return json(200, {
+          pending_id: record.id,
+          image: extraImages.get(record.id),
+          drift: null,
+          overlay: null,
+          estimate,
+          seconds: delay / 1000,
+          provider: record.provider,
+        });
+      }
+      if (cmd === "render_ai_keep" && pending.has(String(args.pending_id))) {
+        const record = pending.get(String(args.pending_id)) as RenderRecord;
+        pending.delete(record.id);
+        extraRecords.unshift(record);
+        return json(200, record);
+      }
+      if (cmd === "render_ai_discard" && pending.has(String(args.pending_id))) {
+        const id = String(args.pending_id);
+        pending.delete(id);
+        extraImages.delete(id);
+        return json(200, null);
       }
       if (cmd === "render_list") {
         const real = (await (await previous(input, init)).json()) as RenderRecord[];
